@@ -14,6 +14,8 @@ type GameToolContext = {
     execute: (input: { action?: string }) => { accepted: boolean; action: string };
   }, options: { signal: AbortSignal }) => void | Promise<void>;
 };
+const ARENA_X = 9.65, ARENA_Z = 7;
+const XP_PER_ENEMY = 25, ENCOUNTER_XP = 5 * XP_PER_ENEMY;
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
 function makeKnight() {
@@ -76,6 +78,8 @@ function makeSkeleton(index: number) {
 
 export default function DungeonGame() {
   const mountRef = useRef<HTMLDivElement>(null);
+  const [experience, setExperience] = useState(0);
+  const [xpReward, setXpReward] = useState(0);
   const [health, setHealth] = useState(100);
   const [enemies, setEnemies] = useState(5);
   const [status, setStatus] = useState<'playing' | 'won' | 'lost'>('playing');
@@ -110,6 +114,7 @@ export default function DungeonGame() {
     if (!mount) return;
     let stopped = false, hp = 100, kills = 0, attackTime = 0, dashTime = 0, dashCooldown = 0, hurtFlash = 0, shake = 0;
     let attackBuffer = 0, walkPhase = 0, elapsed = 0, manualTime = false, hitStop = 0;
+    let totalXp = 0, rewardTime = 0;
     const swingHits = new Set<Enemy>();
     let gameStatus: 'playing' | 'won' | 'lost' = 'playing';
     const keys = new Set<string>();
@@ -129,21 +134,21 @@ export default function DungeonGame() {
     const world = new THREE.Group(); scene.add(world);
     const stoneMats = [0x3b4448, 0x465052, 0x303a3f].map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.98 }));
     const tileGeo = new THREE.BoxGeometry(1.52, 0.38, 1.52);
-    for (let x = -5; x <= 5; x++) for (let z = -3; z <= 3; z++) {
-      if ((Math.abs(x) === 5 && Math.abs(z) === 3) || (x === -5 && z === 2)) continue;
+    for (let x = -7; x <= 7; x++) for (let z = -5; z <= 5; z++) {
+      if (Math.abs(x) === 7 && Math.abs(z) === 5) continue;
       const tile = new THREE.Mesh(tileGeo, stoneMats[Math.abs(x * 7 + z * 3) % 3]);
       tile.position.set(x * 1.48, -0.18 + ((x * z) % 3) * 0.012, z * 1.48); tile.rotation.y = ((x + z) % 2) * 0.018; tile.receiveShadow = true; world.add(tile);
     }
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(34, 24, 12, 8), new THREE.MeshStandardMaterial({ color: 0x0b6670, emissive: 0x062e39, emissiveIntensity: 0.7, roughness: 0.24, metalness: 0.22, transparent: true, opacity: 0.88 }));
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(44, 34, 12, 8), new THREE.MeshStandardMaterial({ color: 0x0b6670, emissive: 0x062e39, emissiveIntensity: 0.7, roughness: 0.24, metalness: 0.22, transparent: true, opacity: 0.88 }));
     water.rotation.x = -Math.PI / 2; water.position.y = -1.35; scene.add(water);
     const wallMat = new THREE.MeshStandardMaterial({ color: 0x252f35, roughness: 1 });
     const addWall = (x: number, z: number, sx: number, sz: number, h = 2.5) => {
       const wall = new THREE.Mesh(new THREE.BoxGeometry(sx, h, sz), wallMat); wall.position.set(x, h / 2 - 0.05, z); wall.castShadow = wall.receiveShadow = true; world.add(wall);
       for (let i = 0; i < Math.max(sx, sz); i += 1.25) { const cap = new THREE.Mesh(new THREE.BoxGeometry(sz > sx ? 0.9 : 1.15, 0.42, sx > sz ? 0.9 : 1.15), stoneMats[1]); cap.position.set(x + (sx > sz ? i - sx / 2 + 0.6 : 0), h + 0.05, z + (sz > sx ? i - sz / 2 + 0.6 : 0)); cap.castShadow = true; world.add(cap); }
     };
-    addWall(-7.65, -1.6, 0.8, 6.7, 3.1); addWall(7.65, 1.8, 0.8, 6.2, 3.5); addWall(3.7, 5.0, 5.5, 0.8, 3.1); addWall(-4.7, -5.0, 4.2, 0.8, 2.4);
+    addWall(-10.65, -2.6, 0.8, 10.7, 3.1); addWall(10.65, 2.8, 0.8, 10.2, 3.5); addWall(5.2, 8.0, 8.5, 0.8, 3.1); addWall(-6.2, -8.0, 7.2, 0.8, 2.4);
     const torchLights: THREE.PointLight[] = [];
-    [[-6.7, -3.6], [6.6, 3.7], [4.9, -4.2]].forEach(([x, z]) => {
+    [[-9.7, -6.6], [9.6, 6.7], [7.9, -7.2]].forEach(([x, z]) => {
       const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.46, 0.78, 6), wallMat); pedestal.position.set(x, 0.35, z);
       const flame = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.62, 7), new THREE.MeshBasicMaterial({ color: 0xffa334 })); flame.position.set(x, 1.03, z);
       const light = new THREE.PointLight(0xff6d20, 9, 7, 1.8); light.position.set(x, 1.35, z); torchLights.push(light); world.add(pedestal, flame, light);
@@ -225,7 +230,7 @@ export default function DungeonGame() {
         const speed = dashTime > 0 ? 9.5 : attackTime > 0 ? 2.6 : 3.4;
         velocity.copy(dashTime > 0 ? dashFacing : input).multiplyScalar(speed);
         player.position.addScaledVector(velocity, dt);
-        player.position.x = clamp(player.position.x, -6.65, 6.65); player.position.z = clamp(player.position.z, -4, 4);
+        player.position.x = clamp(player.position.x, -ARENA_X, ARENA_X); player.position.z = clamp(player.position.z, -ARENA_Z, ARENA_Z);
         if (moving) { walkPhase += dt * speed * 3.3; setShowHelp(false); }
         const stride = moving && dashTime <= 0 ? Math.sin(walkPhase) * 0.6 : 0;
         player.userData.legs.forEach((leg: THREE.Group, i: number) => { leg.rotation.x = THREE.MathUtils.damp(leg.rotation.x, i ? -stride : stride, 28, dt); });
@@ -252,7 +257,7 @@ export default function DungeonGame() {
               swingHits.add(enemy); enemy.hp--; enemy.hitFlash = 0.2; enemy.windup = 0;
               enemy.cooldown = Math.max(enemy.cooldown, 0.4);
               enemy.group.position.addScaledVector(delta, 0.38); burst(enemy.group.position, 0xffb24a, 7); shake = 0.07; hitStop = 0.035;
-              if (enemy.hp <= 0) { enemy.dead = true; kills++; burst(enemy.group.position, 0xd9d1bd, 12); setEnemies(5 - kills); if (kills === 5) { gameStatus = 'won'; setStatus('won'); } }
+              if (enemy.hp <= 0) { enemy.dead = true; kills++; totalXp += XP_PER_ENEMY; setExperience(totalXp); setXpReward((reward) => reward + XP_PER_ENEMY); rewardTime = 1.4; burst(enemy.group.position, 0xd9d1bd, 12); setEnemies(5 - kills); if (kills === 5) { gameStatus = 'won'; setStatus('won'); } }
             }
           });
         } else { player.userData.sword.rotation.y = THREE.MathUtils.damp(player.userData.sword.rotation.y, 0, 24, dt); player.userData.body.rotation.z = 0; (slash.material as THREE.MeshBasicMaterial).opacity = 0; }
@@ -278,7 +283,7 @@ export default function DungeonGame() {
               else if (enemy.cooldown <= 0) { enemy.windup = 0.42; enemy.aim.copy(toPlayer).normalize(); }
             }
           }
-          enemy.group.position.x = clamp(enemy.group.position.x, -6.65, 6.65); enemy.group.position.z = clamp(enemy.group.position.z, -4, 4);
+          enemy.group.position.x = clamp(enemy.group.position.x, -ARENA_X, ARENA_X); enemy.group.position.z = clamp(enemy.group.position.z, -ARENA_Z, ARENA_Z);
           enemy.group.position.y = 0.03 + Math.abs(Math.sin(t * 6 + enemy.phase)) * 0.045;
           enemy.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.emissive.setHex(enemy.hitFlash > 0 ? 0xffa34a : enemy.windup > 0 ? 0xb83915 : 0x000000); o.material.emissiveIntensity = enemy.hitFlash > 0 ? 0.8 : 0.5; } });
         });
@@ -297,9 +302,10 @@ export default function DungeonGame() {
             a.group.position.addScaledVector(delta, -push * weightA / total);
             b.group.position.addScaledVector(delta, push * weightB / total);
           }
-          enemyData.forEach(({ group }) => { group.position.x = clamp(group.position.x, -6.65, 6.65); group.position.z = clamp(group.position.z, -4, 4); });
+          enemyData.forEach(({ group }) => { group.position.x = clamp(group.position.x, -ARENA_X, ARENA_X); group.position.z = clamp(group.position.z, -ARENA_Z, ARENA_Z); });
         }
       }
+      if (rewardTime > 0) { rewardTime = Math.max(0, rewardTime - frameDt); if (rewardTime === 0) setXpReward(0); }
       particles.forEach((p) => { p.life -= dt; p.velocity.y -= dt * 7; p.mesh.position.addScaledVector(p.velocity, dt); p.mesh.scale.setScalar(Math.max(0, p.life * 2)); });
       for (let i = particles.length - 1; i >= 0; i--) if (particles[i].life <= 0) { world.remove(particles[i].mesh); if (particles[i].mesh.material !== sparkMat) (particles[i].mesh.material as THREE.Material).dispose(); particles.splice(i, 1); }
       hurtFlash = Math.max(0, hurtFlash - dt); shake = Math.max(0, shake - dt);
@@ -318,6 +324,8 @@ export default function DungeonGame() {
     hooks.render_game_to_text = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: gameStatus,
       health: hp, remaining: 5 - kills,
+      experience: { total: totalXp, perEnemy: XP_PER_ENEMY, encounterTarget: ENCOUNTER_XP, resetsOnNewRun: true },
+      arena: { minX: -ARENA_X, maxX: ARENA_X, minZ: -ARENA_Z, maxZ: ARENA_Z },
       player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashTime, dashCooldown, swordAngle: player.userData.sword.rotation.y, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
       enemies: enemyData.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, windup: e.windup })),
     });
@@ -337,10 +345,14 @@ export default function DungeonGame() {
     <main className="game-shell">
       <div ref={mountRef} className="game-canvas" aria-label="Isometric dungeon combat arena" />
       <header className="game-title"><span className="sigil">✦</span><div><p>THE DROWNED KEEP</p><span>Lower cistern · encounter 01</span></div></header>
-      <section className="hud" aria-live="polite"><div className="health-row"><span>VITALITY</span><b>{health}</b></div><div className="health-track"><i style={{ width: `${health}%` }} /></div><div className="enemy-count"><span>☠</span>{enemies} REMAIN</div></section>
+      <section className="hud" aria-live="polite"><div className="health-row"><span>VITALITY</span><b>{health}</b></div><div className="health-track"><i style={{ width: `${health}%` }} /></div><div className="enemy-count"><span>☠</span>{enemies} REMAIN</div>
+        <div className="xp-panel"><div className="xp-row"><span>TOTAL XP</span><b>{experience}</b></div>
+          <progress className="xp-track" aria-label="Encounter experience" max={ENCOUNTER_XP} value={experience}>{experience} / {ENCOUNTER_XP} XP</progress>
+          <div className="xp-caption"><span>{experience} / {ENCOUNTER_XP} this run</span><strong>{xpReward > 0 ? `+${xpReward} XP` : '25 XP / guard'}</strong></div>
+        </div></section>
       <aside className="controls"><span><kbd>WASD</kbd> MOVE</span><span><kbd>SPACE</kbd> HOLD TO STRIKE</span><span><kbd>SHIFT</kbd> DASH</span></aside>
       {showHelp && status === 'playing' && <div className="start-prompt"><b>ENTER THE FRAY</b><span>Move toward the skeleton guard</span></div>}
-      {status !== 'playing' && <div className="end-screen"><div className="end-card"><span className="end-kicker">ENCOUNTER {status === 'won' ? 'CLEARED' : 'FAILED'}</span><h1>{status === 'won' ? 'The gate stirs.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'For now, the drowned keep is silent.' : 'Steel yourself and enter once more.'}</p><button onClick={() => location.reload()}>TRY AGAIN</button></div></div>}
+      {status !== 'playing' && <div className="end-screen"><div className="end-card"><span className="end-kicker">ENCOUNTER {status === 'won' ? 'CLEARED' : 'FAILED'}</span><h1>{status === 'won' ? 'The gate stirs.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'For now, the drowned keep is silent.' : 'Steel yourself and enter once more.'}</p><div className="xp-summary"><strong>{experience} XP earned</strong><span>{5 - enemies} / 5 guards defeated · XP resets on a new run</span></div><button onClick={() => location.reload()}>TRY AGAIN</button></div></div>}
       <div className="touch-pad" aria-label="Touch movement controls">{['up', 'left', 'down', 'right'].map((dir) => <button key={dir} className={dir} aria-label={`Move ${dir}`} onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action(`move:${dir}`); }} onLostPointerCapture={() => action(`stop:${dir}`)} onPointerUp={() => action(`stop:${dir}`)} onPointerCancel={() => action(`stop:${dir}`)}>{dir === 'up' ? '▲' : dir === 'down' ? '▼' : dir === 'left' ? '◀' : '▶'}</button>)}</div>
       <div className="touch-actions"><button onPointerDown={() => action('dash')}>DASH</button><button className="strike" onPointerDown={() => action('attack')}>STRIKE</button></div><div className="vignette" />
     </main>
