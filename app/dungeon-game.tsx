@@ -107,7 +107,7 @@ export default function DungeonGame() {
     scene.background = new THREE.Color(0x07121a);
     scene.fog = new THREE.FogExp2(0x07121a, 0.035);
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
     mount.appendChild(renderer.domElement);
     const camera = new THREE.OrthographicCamera(-8, 8, 5, -5, 0.1, 70);
@@ -150,9 +150,9 @@ export default function DungeonGame() {
     const keyUp = (e: KeyboardEvent) => keys.delete(e.code);
     const trigger = (e: Event) => { const detail = (e as CustomEvent<string>).detail; if (detail === 'attack' && attackTime <= 0) attackTime = 0.42; if (detail === 'dash' && dashCooldown <= 0) { dashTime = 0.18; dashCooldown = 1.35; } if (detail.startsWith('move:')) keys.add(`Touch${detail.slice(5)}`); if (detail.startsWith('stop:')) keys.delete(`Touch${detail.slice(5)}`); };
     window.addEventListener('keydown', keyDown); window.addEventListener('keyup', keyUp); window.addEventListener('dungeon-action', trigger);
-    let last = performance.now(), raf = 0; const clock = new THREE.Clock();
+    let last = performance.now(), raf = 0; const startedAt = performance.now();
     const animate = (now: number) => {
-      if (stopped) return; raf = requestAnimationFrame(animate); const dt = Math.min((now - last) / 1000, 0.04); last = now; const t = clock.getElapsedTime();
+      if (stopped) return; raf = requestAnimationFrame(animate); const dt = Math.min((now - last) / 1000, 0.04); last = now; const t = (now - startedAt) / 1000;
       torchLights.forEach((l, i) => { l.intensity = 8.5 + Math.sin(t * 9 + i * 2.2) * 1.4 + Math.sin(t * 17) * 0.5; }); water.position.y = -1.35 + Math.sin(t * 0.9) * 0.05;
       if (gameStatus === 'playing') {
         const mx = +(keys.has('KeyD') || keys.has('ArrowRight') || keys.has('Touchright')) - +(keys.has('KeyA') || keys.has('ArrowLeft') || keys.has('Touchleft'));
