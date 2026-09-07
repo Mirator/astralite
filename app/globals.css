@@ -1,0 +1,39 @@
+@import 'tailwindcss';
+
+:root { --ink: #071119; --bone: #eee7d8; --ember: #ff8a32; }
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--ink); color: var(--bone); }
+button, kbd { font: inherit; }
+.game-shell { position: fixed; inset: 0; overflow: hidden; background: radial-gradient(circle at 50% 40%, #19343b, #071119 72%); font-family: var(--font-geist-sans), system-ui, sans-serif; }
+.game-canvas { position: absolute; inset: 0; }
+.game-canvas canvas { display: block; width: 100%; height: 100%; }
+.game-title { position: absolute; top: 24px; left: 28px; z-index: 4; display: flex; align-items: center; gap: 13px; pointer-events: none; text-shadow: 0 2px 10px #000; }
+.sigil { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #96a6a566; transform: rotate(45deg); color: var(--ember); background: #071119aa; font-size: 18px; }
+.game-title p { margin: 0 0 4px; font-size: 16px; font-weight: 650; line-height: 1; letter-spacing: .19em; }
+.game-title span { font: 500 11px/1 var(--font-geist-mono); letter-spacing: .13em; color: #adb9b8; text-transform: uppercase; }
+.hud { position: absolute; top: 24px; right: 28px; z-index: 4; width: 230px; padding: 15px 17px 14px; border: 1px solid #87989a33; background: linear-gradient(135deg, #0b151be8, #0b151baa); box-shadow: 0 12px 36px #0008; backdrop-filter: blur(10px); clip-path: polygon(0 0, 94% 0, 100% 22%, 100% 100%, 6% 100%, 0 78%); }
+.health-row { display: flex; justify-content: space-between; color: #b9c3c0; font: 600 11px/1 var(--font-geist-mono); letter-spacing: .14em; }
+.health-row b { color: #f5e7d0; font-size: 13px; }
+.health-track { height: 7px; margin-top: 8px; padding: 1px; background: #020608; border: 1px solid #ffffff22; }
+.health-track i { display: block; height: 100%; background: linear-gradient(90deg, #7c181e, #e14d2b); box-shadow: 0 0 9px #e14d2b99; transition: width .2s; }
+.enemy-count { margin-top: 11px; color: #c4cbc8; font: 600 11px/1 var(--font-geist-mono); letter-spacing: .13em; }
+.enemy-count span { margin-right: 8px; color: var(--ember); }
+.controls { position: absolute; bottom: 22px; left: 50%; z-index: 4; display: flex; gap: 24px; transform: translateX(-50%); padding: 10px 16px; border-top: 1px solid #9ba6a333; color: #aab3b0; font: 550 11px/1 var(--font-geist-mono); letter-spacing: .12em; text-shadow: 0 1px 4px #000; pointer-events: none; }
+.controls span { white-space: nowrap; }
+kbd { margin-right: 6px; padding: 3px 6px; border: 1px solid #7d898755; background: #081218cc; color: #f2e8d5; font-size: 10px; box-shadow: inset 0 -2px #0008; }
+.start-prompt { position: absolute; left: 50%; bottom: 76px; z-index: 4; display: grid; gap: 5px; transform: translateX(-50%); text-align: center; text-shadow: 0 2px 10px #000; animation: float 1.8s ease-in-out infinite; pointer-events: none; }
+.start-prompt b { font-size: 13px; letter-spacing: .22em; color: #ffe4b7; }.start-prompt span { font-size: 12px; color: #aab6b5; }
+.end-screen { position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; background: #04090dbb; backdrop-filter: blur(5px); }
+.end-card { width: min(440px, calc(100% - 36px)); padding: 42px 38px; text-align: center; border: 1px solid #cf9c5b55; background: linear-gradient(160deg, #192128f0, #090e12f5); box-shadow: 0 22px 100px #000; clip-path: polygon(0 0, 93% 0, 100% 11%, 100% 100%, 7% 100%, 0 89%); }
+.end-kicker { color: var(--ember); font: 600 11px/1 var(--font-geist-mono); letter-spacing: .22em; }
+.end-card h1 { margin: 15px 0 8px; font-family: Georgia, serif; font-weight: 400; font-size: clamp(30px, 6vw, 48px); }
+.end-card p { margin: 0; color: #aeb8b5; font-size: 14px; }.end-card button { margin-top: 26px; padding: 11px 24px; border: 1px solid #f2c47b88; background: #a43b25; color: #fff0d8; font: 650 12px/1 var(--font-geist-mono); letter-spacing: .16em; cursor: pointer; }.end-card button:hover { background: #c44b29; }
+.touch-pad, .touch-actions { display: none; }.vignette { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 130px 22px #000b; z-index: 2; }
+@keyframes float { 50% { transform: translate(-50%, -5px); opacity: .78; } }
+@media (max-width: 720px), (pointer: coarse) {
+  .game-title { top: 14px; left: 14px; }.game-title span:not(.sigil), .controls { display: none; }.hud { top: 14px; right: 14px; width: 180px; }
+  .touch-pad { position: absolute; bottom: 20px; left: 18px; z-index: 5; display: grid; grid-template: repeat(3, 42px) / repeat(3, 42px); gap: 3px; }
+  .touch-pad button, .touch-actions button { border: 1px solid #d4ded84a; background: #071219bb; color: #e4e8df; touch-action: none; backdrop-filter: blur(5px); }
+  .touch-pad .up { grid-area: 1 / 2; }.touch-pad .left { grid-area: 2 / 1; }.touch-pad .down { grid-area: 2 / 2; }.touch-pad .right { grid-area: 2 / 3; }
+  .touch-actions { position: absolute; right: 18px; bottom: 30px; z-index: 5; display: flex; align-items: end; gap: 12px; }.touch-actions button { width: 62px; height: 62px; border-radius: 50%; font: 650 10px/1 var(--font-geist-mono); letter-spacing: .08em; }.touch-actions .strike { width: 78px; height: 78px; color: #fff0d8; border-color: #ffba6777; background: #922b20cc; }.start-prompt { bottom: 135px; }
+}
