@@ -1,0 +1,14 @@
+import { chromium } from 'file:///C:/Users/Miroslav%20Pavelek/.codex/skills/develop-web-game/node_modules/playwright/index.mjs';
+import assert from 'node:assert/strict';
+const b=await chromium.launch({headless:true,args:['--use-gl=angle','--use-angle=swiftshader']});
+const p=await b.newPage({viewport:{width:700,height:700}});
+await p.goto('http://localhost:3000');await p.waitForFunction(()=>!!window.render_game_to_text);await p.evaluate(()=>window.advanceTime(0));
+const step=ms=>p.evaluate(ms=>window.advanceTime(ms),ms);const state=()=>p.evaluate(()=>JSON.parse(window.render_game_to_text()));
+const right=p.getByRole('button',{name:'Move right'});const box=await right.boundingBox();
+await p.mouse.move(box.x+20,box.y+20);await p.mouse.down();await step(100);assert((await state()).player.velocity.x>0);
+await p.mouse.move(360,450);await p.mouse.up();await step(50);assert.equal((await state()).player.velocity.x,0,'pointer capture release');
+await p.getByRole('button',{name:'STRIKE',exact:true}).click();await step(100);assert((await state()).player.attackTime>0);
+await p.getByRole('button',{name:'DASH',exact:true}).click();await step(50);let s=await state();assert(s.player.dashTime>0 && s.player.attackTime===0,'touch dash cancels attack');
+await p.screenshot({path:'output/combat/verify/touch.png'});
+await p.keyboard.down('ArrowLeft');await step(6000);await p.keyboard.up('ArrowLeft');s=await state();assert(s.player.x>=-6.65 && s.player.z<=4,'arena bounds');
+await b.close();console.log('Touch movement, drag-release, strike, dash cancel, and arena bounds passed.');

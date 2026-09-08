@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "winHealth": 100,
+  "experience": {
+    "total": 125,
+    "perEnemy": 25,
+    "encounterTarget": 125,
+    "resetsOnNewRun": true
+  },
+  "errors": []
+}

@@ -1,0 +1,1033 @@
+{
+  "s": {
+    "coordinates": "World X right, Z down; controls relative to camera; model forward -Z",
+    "mode": "lost",
+    "muted": false,
+    "roomName": "Hall of Ash",
+    "health": 0,
+    "remaining": 22,
+    "experience": {
+      "total": 0,
+      "perEnemy": 25,
+      "encounterTarget": 550,
+      "resetsOnNewRun": true
+    },
+    "floor": {
+      "seed": 4161296002,
+      "tiles": 3020,
+      "areaMultiplier": 18.757763975155278,
+      "tileSize": 1.48,
+      "bounds": {
+        "minX": -8,
+        "maxX": 79,
+        "minZ": -7,
+        "maxZ": 54
+      },
+      "rooms": [
+        {
+          "id": 0,
+          "x": 0,
+          "z": 1,
+          "halfX": 8,
+          "halfZ": 8
+        },
+        {
+          "id": 1,
+          "x": 24,
+          "z": 2,
+          "halfX": 8,
+          "halfZ": 6
+        },
+        {
+          "id": 2,
+          "x": 46,
+          "z": 2,
+          "halfX": 6,
+          "halfZ": 8
+        },
+        {
+          "id": 3,
+          "x": 69,
+          "z": 1,
+          "halfX": 7,
+          "halfZ": 7
+        },
+        {
+          "id": 4,
+          "x": 0,
+          "z": 25,
+          "halfX": 8,
+          "halfZ": 7
+        },
+        {
+          "id": 5,
+          "x": 23,
+          "z": 24,
+          "halfX": 6,
+          "halfZ": 7
+        },
+        {
+          "id": 6,
+          "x": 47,
+          "z": 23,
+          "halfX": 7,
+          "halfZ": 6
+        },
+        {
+          "id": 7,
+          "x": 70,
+          "z": 25,
+          "halfX": 8,
+          "halfZ": 8
+        },
+        {
+          "id": 8,
+          "x": 1,
+          "z": 47,
+          "halfX": 8,
+          "halfZ": 7
+        },
+        {
+          "id": 9,
+          "x": 24,
+          "z": 47,
+          "halfX": 8,
+          "halfZ": 7
+        },
+        {
+          "id": 10,
+          "x": 47,
+          "z": 47,
+          "halfX": 7,
+          "halfZ": 6
+        },
+        {
+          "id": 11,
+          "x": 71,
+          "z": 47,
+          "halfX": 8,
+          "halfZ": 6
+        }
+      ],
+      "edges": [
+        [
+          0,
+          4
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          4,
+          8
+        ],
+        [
+          4,
+          5
+        ],
+        [
+          8,
+          9
+        ],
+        [
+          9,
+          10
+        ],
+        [
+          5,
+          6
+        ],
+        [
+          6,
+          7
+        ],
+        [
+          7,
+          11
+        ],
+        [
+          7,
+          3
+        ],
+        [
+          3,
+          2
+        ]
+      ],
+      "visited": [
+        0,
+        1
+      ],
+      "cleared": [
+        0
+      ]
+    },
+    "player": {
+      "x": 29.87586348303208,
+      "z": 4.17331751789155,
+      "facing": {
+        "x": 0.9938837346736189,
+        "z": 0.11043152607484658
+      },
+      "rotation": -1.6814535479687924,
+      "velocity": {
+        "x": 0,
+        "z": 0
+      },
+      "attackTime": 0,
+      "attackBuffer": 0,
+      "dashTime": 0,
+      "dashCooldown": 0,
+      "swordAngle": 0,
+      "legs": [
+        5.2737708252284515e-114,
+        -5.2737708252284515e-114
+      ]
+    },
+    "enemies": [
+      {
+        "x": 30.593439408036804,
+        "z": 4.168719424933957,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": 30.67371534813111,
+        "z": 3.3526582915364793,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": 65.78,
+        "z": 2.96,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": 70.38,
+        "z": 2.96,
+        "hp": 2,
+        "kind": "stalker",
+        "windup": 0
+      },
+      {
+        "x": 99.82000000000001,
+        "z": 1.48,
+        "hp": 4,
+        "kind": "warden",
+        "windup": 0
+      },
+      {
+        "x": 104.42,
+        "z": 1.48,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": -2.3,
+        "z": 37,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": 2.3,
+        "z": 37,
+        "hp": 2,
+        "kind": "stalker",
+        "windup": 0
+      },
+      {
+        "x": 31.74,
+        "z": 35.519999999999996,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": 36.339999999999996,
+        "z": 35.519999999999996,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": 67.26,
+        "z": 34.04,
+        "hp": 4,
+        "kind": "warden",
+        "windup": 0
+      },
+      {
+        "x": 71.86,
+        "z": 34.04,
+        "hp": 2,
+        "kind": "stalker",
+        "windup": 0
+      },
+      {
+        "x": 101.3,
+        "z": 37,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": 105.89999999999999,
+        "z": 37,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": -0.8199999999999998,
+        "z": 69.56,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": 3.78,
+        "z": 69.56,
+        "hp": 2,
+        "kind": "stalker",
+        "windup": 0
+      },
+      {
+        "x": 33.22,
+        "z": 69.56,
+        "hp": 4,
+        "kind": "warden",
+        "windup": 0
+      },
+      {
+        "x": 37.81999999999999,
+        "z": 69.56,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": 67.26,
+        "z": 69.56,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": 71.86,
+        "z": 69.56,
+        "hp": 2,
+        "kind": "stalker",
+        "windup": 0
+      },
+      {
+        "x": 102.78,
+        "z": 69.56,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      },
+      {
+        "x": 107.38,
+        "z": 69.56,
+        "hp": 2,
+        "kind": "guard",
+        "windup": 0
+      }
+    ]
+  },
+  "i": 169,
+  "snapshots": [
+    {
+      "coordinates": "World X right, Z down; controls relative to camera; model forward -Z",
+      "mode": "playing",
+      "muted": false,
+      "roomName": "The Threshold",
+      "health": 100,
+      "remaining": 22,
+      "experience": {
+        "total": 0,
+        "perEnemy": 25,
+        "encounterTarget": 550,
+        "resetsOnNewRun": true
+      },
+      "floor": {
+        "seed": 4161296002,
+        "tiles": 3020,
+        "areaMultiplier": 18.757763975155278,
+        "tileSize": 1.48,
+        "bounds": {
+          "minX": -8,
+          "maxX": 79,
+          "minZ": -7,
+          "maxZ": 54
+        },
+        "rooms": [
+          {
+            "id": 0,
+            "x": 0,
+            "z": 1,
+            "halfX": 8,
+            "halfZ": 8
+          },
+          {
+            "id": 1,
+            "x": 24,
+            "z": 2,
+            "halfX": 8,
+            "halfZ": 6
+          },
+          {
+            "id": 2,
+            "x": 46,
+            "z": 2,
+            "halfX": 6,
+            "halfZ": 8
+          },
+          {
+            "id": 3,
+            "x": 69,
+            "z": 1,
+            "halfX": 7,
+            "halfZ": 7
+          },
+          {
+            "id": 4,
+            "x": 0,
+            "z": 25,
+            "halfX": 8,
+            "halfZ": 7
+          },
+          {
+            "id": 5,
+            "x": 23,
+            "z": 24,
+            "halfX": 6,
+            "halfZ": 7
+          },
+          {
+            "id": 6,
+            "x": 47,
+            "z": 23,
+            "halfX": 7,
+            "halfZ": 6
+          },
+          {
+            "id": 7,
+            "x": 70,
+            "z": 25,
+            "halfX": 8,
+            "halfZ": 8
+          },
+          {
+            "id": 8,
+            "x": 1,
+            "z": 47,
+            "halfX": 8,
+            "halfZ": 7
+          },
+          {
+            "id": 9,
+            "x": 24,
+            "z": 47,
+            "halfX": 8,
+            "halfZ": 7
+          },
+          {
+            "id": 10,
+            "x": 47,
+            "z": 47,
+            "halfX": 7,
+            "halfZ": 6
+          },
+          {
+            "id": 11,
+            "x": 71,
+            "z": 47,
+            "halfX": 8,
+            "halfZ": 6
+          }
+        ],
+        "edges": [
+          [
+            0,
+            4
+          ],
+          [
+            0,
+            1
+          ],
+          [
+            4,
+            8
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            8,
+            9
+          ],
+          [
+            9,
+            10
+          ],
+          [
+            5,
+            6
+          ],
+          [
+            6,
+            7
+          ],
+          [
+            7,
+            11
+          ],
+          [
+            7,
+            3
+          ],
+          [
+            3,
+            2
+          ]
+        ],
+        "visited": [
+          0
+        ],
+        "cleared": [
+          0
+        ]
+      },
+      "player": {
+        "x": 0,
+        "z": 1.48,
+        "facing": {
+          "x": 0.8574929257125443,
+          "z": -0.5144957554275266
+        },
+        "rotation": -1.0303768265243125,
+        "velocity": {
+          "x": 0,
+          "z": 0
+        },
+        "attackTime": 0,
+        "attackBuffer": 0,
+        "dashTime": 0,
+        "dashCooldown": 0,
+        "swordAngle": 0,
+        "legs": [
+          0,
+          0
+        ]
+      },
+      "enemies": [
+        {
+          "x": 33.22,
+          "z": 2.96,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 37.81999999999999,
+          "z": 2.96,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 65.78,
+          "z": 2.96,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 70.38,
+          "z": 2.96,
+          "hp": 2,
+          "kind": "stalker",
+          "windup": 0
+        },
+        {
+          "x": 99.82000000000001,
+          "z": 1.48,
+          "hp": 4,
+          "kind": "warden",
+          "windup": 0
+        },
+        {
+          "x": 104.42,
+          "z": 1.48,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": -2.3,
+          "z": 37,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 2.3,
+          "z": 37,
+          "hp": 2,
+          "kind": "stalker",
+          "windup": 0
+        },
+        {
+          "x": 31.74,
+          "z": 35.519999999999996,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 36.339999999999996,
+          "z": 35.519999999999996,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 67.26,
+          "z": 34.04,
+          "hp": 4,
+          "kind": "warden",
+          "windup": 0
+        },
+        {
+          "x": 71.86,
+          "z": 34.04,
+          "hp": 2,
+          "kind": "stalker",
+          "windup": 0
+        },
+        {
+          "x": 101.3,
+          "z": 37,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 105.89999999999999,
+          "z": 37,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": -0.8199999999999998,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 3.78,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "stalker",
+          "windup": 0
+        },
+        {
+          "x": 33.22,
+          "z": 69.56,
+          "hp": 4,
+          "kind": "warden",
+          "windup": 0
+        },
+        {
+          "x": 37.81999999999999,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 67.26,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 71.86,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "stalker",
+          "windup": 0
+        },
+        {
+          "x": 102.78,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 107.38,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        }
+      ]
+    },
+    {
+      "coordinates": "World X right, Z down; controls relative to camera; model forward -Z",
+      "mode": "playing",
+      "muted": false,
+      "roomName": "Hall of Ash",
+      "health": 76,
+      "remaining": 22,
+      "experience": {
+        "total": 0,
+        "perEnemy": 25,
+        "encounterTarget": 550,
+        "resetsOnNewRun": true
+      },
+      "floor": {
+        "seed": 4161296002,
+        "tiles": 3020,
+        "areaMultiplier": 18.757763975155278,
+        "tileSize": 1.48,
+        "bounds": {
+          "minX": -8,
+          "maxX": 79,
+          "minZ": -7,
+          "maxZ": 54
+        },
+        "rooms": [
+          {
+            "id": 0,
+            "x": 0,
+            "z": 1,
+            "halfX": 8,
+            "halfZ": 8
+          },
+          {
+            "id": 1,
+            "x": 24,
+            "z": 2,
+            "halfX": 8,
+            "halfZ": 6
+          },
+          {
+            "id": 2,
+            "x": 46,
+            "z": 2,
+            "halfX": 6,
+            "halfZ": 8
+          },
+          {
+            "id": 3,
+            "x": 69,
+            "z": 1,
+            "halfX": 7,
+            "halfZ": 7
+          },
+          {
+            "id": 4,
+            "x": 0,
+            "z": 25,
+            "halfX": 8,
+            "halfZ": 7
+          },
+          {
+            "id": 5,
+            "x": 23,
+            "z": 24,
+            "halfX": 6,
+            "halfZ": 7
+          },
+          {
+            "id": 6,
+            "x": 47,
+            "z": 23,
+            "halfX": 7,
+            "halfZ": 6
+          },
+          {
+            "id": 7,
+            "x": 70,
+            "z": 25,
+            "halfX": 8,
+            "halfZ": 8
+          },
+          {
+            "id": 8,
+            "x": 1,
+            "z": 47,
+            "halfX": 8,
+            "halfZ": 7
+          },
+          {
+            "id": 9,
+            "x": 24,
+            "z": 47,
+            "halfX": 8,
+            "halfZ": 7
+          },
+          {
+            "id": 10,
+            "x": 47,
+            "z": 47,
+            "halfX": 7,
+            "halfZ": 6
+          },
+          {
+            "id": 11,
+            "x": 71,
+            "z": 47,
+            "halfX": 8,
+            "halfZ": 6
+          }
+        ],
+        "edges": [
+          [
+            0,
+            4
+          ],
+          [
+            0,
+            1
+          ],
+          [
+            4,
+            8
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            8,
+            9
+          ],
+          [
+            9,
+            10
+          ],
+          [
+            5,
+            6
+          ],
+          [
+            6,
+            7
+          ],
+          [
+            7,
+            11
+          ],
+          [
+            7,
+            3
+          ],
+          [
+            3,
+            2
+          ]
+        ],
+        "visited": [
+          0,
+          1
+        ],
+        "cleared": [
+          0
+        ]
+      },
+      "player": {
+        "x": 29.87586348303208,
+        "z": 4.17331751789155,
+        "facing": {
+          "x": 0.9938837346736189,
+          "z": 0.11043152607484658
+        },
+        "rotation": -1.6814535479687924,
+        "velocity": {
+          "x": 0,
+          "z": 0
+        },
+        "attackTime": 0,
+        "attackBuffer": 0,
+        "dashTime": 0,
+        "dashCooldown": 0,
+        "swordAngle": 0,
+        "legs": [
+          2.661609872974317e-30,
+          -2.661609872974317e-30
+        ]
+      },
+      "enemies": [
+        {
+          "x": 30.666979162718967,
+          "z": 4.003472352927914,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 32.320000000000306,
+          "z": 2.96,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 65.78,
+          "z": 2.96,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 70.38,
+          "z": 2.96,
+          "hp": 2,
+          "kind": "stalker",
+          "windup": 0
+        },
+        {
+          "x": 99.82000000000001,
+          "z": 1.48,
+          "hp": 4,
+          "kind": "warden",
+          "windup": 0
+        },
+        {
+          "x": 104.42,
+          "z": 1.48,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": -2.3,
+          "z": 37,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 2.3,
+          "z": 37,
+          "hp": 2,
+          "kind": "stalker",
+          "windup": 0
+        },
+        {
+          "x": 31.74,
+          "z": 35.519999999999996,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 36.339999999999996,
+          "z": 35.519999999999996,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 67.26,
+          "z": 34.04,
+          "hp": 4,
+          "kind": "warden",
+          "windup": 0
+        },
+        {
+          "x": 71.86,
+          "z": 34.04,
+          "hp": 2,
+          "kind": "stalker",
+          "windup": 0
+        },
+        {
+          "x": 101.3,
+          "z": 37,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 105.89999999999999,
+          "z": 37,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": -0.8199999999999998,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 3.78,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "stalker",
+          "windup": 0
+        },
+        {
+          "x": 33.22,
+          "z": 69.56,
+          "hp": 4,
+          "kind": "warden",
+          "windup": 0
+        },
+        {
+          "x": 37.81999999999999,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 67.26,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 71.86,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "stalker",
+          "windup": 0
+        },
+        {
+          "x": 102.78,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        },
+        {
+          "x": 107.38,
+          "z": 69.56,
+          "hp": 2,
+          "kind": "guard",
+          "windup": 0
+        }
+      ]
+    }
+  ]
+}

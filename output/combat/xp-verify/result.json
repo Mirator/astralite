@@ -1,0 +1,41 @@
+{
+  "coordinates": "World X right, Z down; controls relative to camera; model forward -Z",
+  "mode": "won",
+  "health": 100,
+  "remaining": 0,
+  "experience": {
+    "total": 125,
+    "perEnemy": 25,
+    "encounterTarget": 125,
+    "resetsOnNewRun": true
+  },
+  "arena": {
+    "minX": -9.65,
+    "maxX": 9.65,
+    "minZ": -7,
+    "maxZ": 7
+  },
+  "player": {
+    "x": 0.3171383638126346,
+    "z": 0.09052579186623118,
+    "facing": {
+      "x": 0.7808688094430305,
+      "z": -0.6246950475544243
+    },
+    "rotation": -0.896055384571344,
+    "velocity": {
+      "x": 1.6242071236415032,
+      "z": 2.0302589045518795
+    },
+    "attackTime": 0.2466666666666667,
+    "attackBuffer": 0,
+    "dashTime": 0,
+    "dashCooldown": 0,
+    "swordAngle": 0.3151515151515143,
+    "legs": [
+      0.4912176174158854,
+      -0.4912176174158854
+    ]
+  },
+  "enemies": []
+}

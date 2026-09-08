@@ -1,0 +1,3 @@
+from pathlib import Path
+p=Path('output/variety/verify.mjs');s=p.read_text();s=s.replace("await page.exposeFunction('reportProgress',s=>console.log('Replay:',s.remaining,'guards remain; visited',s.floor.visited.length));", """const captured=new Set();await page.exposeFunction('reportProgress',async s=>{console.log('Replay:',s.remaining,'guards remain; visited',s.floor.visited.length);const r=s.floor.rooms.find(r=>r.name===s.roomName),tile=f.tiles.find(t=>t.x===Math.round(s.player.x/TILE)&&t.z===Math.round(s.player.z/TILE));const name=tile?.wood?'bridge':r?.shape;if(name&&!captured.has(name)){captured.add(name);await page.screenshot({path:`output/variety/${name}.png`});}});""")
+p.write_text(s)

@@ -1,0 +1,72 @@
+{
+  "coordinates": "World X right, Z down; controls relative to camera; model forward -Z",
+  "mode": "playing",
+  "health": 100,
+  "remaining": 5,
+  "experience": {
+    "total": 0,
+    "perEnemy": 25,
+    "encounterTarget": 125,
+    "resetsOnNewRun": true
+  },
+  "arena": {
+    "minX": -9.65,
+    "maxX": 9.65,
+    "minZ": -7,
+    "maxZ": 7
+  },
+  "player": {
+    "x": -1.9673184310899476,
+    "z": 1.2868559992902906,
+    "facing": {
+      "x": 0.8574929257125443,
+      "z": -0.5144957554275266
+    },
+    "rotation": -1.0303768265243125,
+    "velocity": {
+      "x": 0,
+      "z": 0
+    },
+    "attackTime": 0.31333333333333335,
+    "attackBuffer": 0,
+    "dashTime": 0,
+    "dashCooldown": 1.0833333333333344,
+    "swordAngle": -1.260606060606061,
+    "legs": [
+      0.000012083591710929941,
+      -0.000012083591710929941
+    ]
+  },
+  "enemies": [
+    {
+      "x": 3.33172754539902,
+      "z": -2.288358092540969,
+      "hp": 2,
+      "windup": 0
+    },
+    {
+      "x": 4.220403526988663,
+      "z": 1.3339628712134886,
+      "hp": 2,
+      "windup": 0
+    },
+    {
+      "x": 0.4388358963372715,
+      "z": -2.4218398473743994,
+      "hp": 2,
+      "windup": 0
+    },
+    {
+      "x": 1.4010305776390188,
+      "z": 2.66183390416994,
+      "hp": 2,
+      "windup": 0
+    },
+    {
+      "x": -0.49776325417819434,
+      "z": 0.22188799236994433,
+      "hp": 2,
+      "windup": 0
+    }
+  ]
+}

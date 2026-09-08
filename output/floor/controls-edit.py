@@ -1,0 +1,8 @@
+from pathlib import Path
+s=Path('output/floor/smoke.mjs').read_text().replace('i<150','i<600').replace("const next=nearby.length?['Space']:[];",'const next=[];').replace("assert.equal(result.s.mode,'playing');assert(result.s.floor.visited.length>1);assert.equal(result.s.experience.total,(22-result.s.remaining)*25);","assert.equal(result.s.mode,'lost');assert.equal(result.s.experience.total,0);").replace("await page.reload();","await page.getByRole('button',{name:'NEW FLOOR'}).click();").replace('output/floor/short-run.json','output/floor/loss.json').replace('output/floor/corridor.png','output/floor/loss.png')
+s=s.replace("assert.deepEqual(errors,[]);",'''const read=()=>page.evaluate(()=>JSON.parse(window.render_game_to_text()));
+let before=await read();await page.getByRole('button',{name:'Move right',exact:true}).dispatchEvent('pointerdown',{pointerId:1});await page.evaluate(()=>window.advanceTime(120));await page.getByRole('button',{name:'Move right',exact:true}).dispatchEvent('pointerup',{pointerId:1});let after=await read();assert(after.player.x>before.player.x);
+before=after;await page.getByRole('button',{name:'DASH',exact:true}).dispatchEvent('pointerdown');await page.evaluate(()=>window.advanceTime(100));after=await read();assert(Math.hypot(after.player.x-before.player.x,after.player.z-before.player.z)>.8);
+await page.keyboard.down('ArrowLeft');await page.evaluate(()=>window.advanceTime(18000));await page.keyboard.up('ArrowLeft');after=await read();const current=generateFloor(after.floor.seed);assert(canStand(current.cells,after.player.x,after.player.z));assert.equal(after.experience.total,0);
+assert.deepEqual(errors,[]);''')
+Path('output/floor/controls.mjs').write_text(s)

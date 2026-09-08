@@ -1,0 +1,8 @@
+from pathlib import Path
+p=Path('output/floor/verify.mjs');s=p.read_text().replace('width:1100,height:760','width:960,height:700').replace("await page.evaluate(()=>window.advanceTime(0));","await page.getByRole('button',{name:'ENTER THE KEEP',exact:false}).click();await page.evaluate(()=>window.advanceTime(0));",1)
+s=s.replace("output/floor/", "output/polish/")
+s=s.replace("await page.screenshot({path:'output/polish/start.png'});", "await page.screenshot({path:'output/polish/start.png'});\nawait page.keyboard.press('Escape');let paused=await page.evaluate(()=>JSON.parse(window.render_game_to_text()));assert.equal(paused.mode,'paused');await page.evaluate(()=>window.advanceTime(5000));assert.equal((await page.evaluate(()=>JSON.parse(window.render_game_to_text()))).player.x,paused.player.x);await page.getByRole('button',{name:'RESUME JOURNEY',exact:false}).click();await page.keyboard.press('KeyM');assert.equal((await page.evaluate(()=>JSON.parse(window.render_game_to_text()))).muted,true);await page.keyboard.press('KeyM');")
+s=s.replace("await page.setViewportSize({width:390,height:844});", "await page.getByRole('button',{name:'ENTER THE KEEP',exact:false}).click();await page.evaluate(()=>window.advanceTime(0));await page.setViewportSize({width:390,height:844});await page.evaluate(()=>window.advanceTime(0));")
+s=s.replace("await page.waitForFunction(seed=>window.render_game_to_text&&JSON.parse(window.render_game_to_text()).floor.seed!==seed,seed);", "await page.waitForFunction(seed=>window.render_game_to_text&&JSON.parse(window.render_game_to_text()).floor.seed!==seed,seed);")
+s=s.replace("if(i%100===0)await new Promise(r=>setTimeout(r,0));", "if(i%100===0)await new Promise(r=>setTimeout(r,0));")
+p=Path('output/polish/verify.mjs');p.write_text(s)

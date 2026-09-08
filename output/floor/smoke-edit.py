@@ -1,0 +1,10 @@
+from pathlib import Path
+p=Path('game/app/dungeon-game.tsx');s=p.read_text(encoding='utf-8').replace('0x061015, 1.15','0x25343b, 2.0').replace('0x89afc0, 2.1','0x89afc0, 2.8');p.write_text(s,encoding='utf-8')
+p=Path('output/floor/verify.mjs');s=p.read_text();s=s.replace("const browser=", "console.log('500 connected seeds; minimum tiles:',minimum);\nconst browser=")
+s=s.replace('width:1100,height:760','width:850,height:600').replace('i<14000','i<150').replace("assert.equal(result.s.mode,'won');assert.equal(result.s.experience.total,550);assert.equal(result.s.floor.visited.length,12);", "assert.equal(result.s.mode,'playing');assert(result.s.floor.visited.length>1);assert.equal(result.s.experience.total,(22-result.s.remaining)*25);")
+s=s.replace("await page.getByRole('button',{name:'NEW FLOOR'}).click();", "await page.reload();")
+s=s.replace("await page.setViewportSize({width:390,height:844});", "await page.setViewportSize({width:390,height:844});await page.evaluate(()=>window.advanceTime(0));")
+s=s.replace("const seed=result.s.floor.seed;", "const seed=result.s.floor.seed;")
+s=s.replace("fs.writeFileSync('output/floor/run.json'", "fs.writeFileSync('output/floor/short-run.json'")
+s=s.replace("output/floor/result.png", "output/floor/corridor.png")
+p=Path('output/floor/smoke.mjs');p.write_text(s)
