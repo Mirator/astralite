@@ -1,5 +1,6 @@
 export const TILE = 1.48;
-export type Room = { id: number; x: number; z: number; halfX: number; halfZ: number; shape: 'hall' | 'round' | 'cross' | 'court' | 'gallery' | 'crypt'; theme: 'keep' | 'ruins' | 'flooded'; name: string };
+export type Room = { id: number; x: number; z: number; halfX: number; halfZ: number; shape: 'hall' | 'round' | 'cross' | 'court' | 'gallery' | 'crypt'; theme: 'keep' | 'ruins' | 'flooded'; name: string; role: 'start' | 'path' | 'branch' | 'goal'; depth: number; heading: number };
+export type Spawn = { x: number; z: number; kind: 'guard' | 'stalker' | 'warden'; room: number; ambush: boolean };
 export type FloorProp = { x: number; z: number; kind: 'brazier' | 'pillar' | 'rubble' | 'barrel'; room: number };
 export const cellKey = (x: number, z: number) => `${x},${z}`;
 
@@ -22,31 +23,79 @@ export function generateFloor(seed: number) {
       if(keep){const key=cellKey(r.x+x,r.z+z);cells.add(key);ownership.set(key,r.id);}
     }
   };
-  const connect=(a:number,b:number)=>{
-    edges.push([a,b]);const from=rooms[a],to=rooms[b];let x=from.x,z=from.z;
-    const wooden=random()<.5, width=random()<.3?2:1;
-    const carve=()=>{for(let dx=-width;dx<=width;dx++)for(let dz=-width;dz<=width;dz++){const key=cellKey(x+dx,z+dz);cells.add(key);if(wooden&&!ownership.has(key))wood.add(key);}};
-    const bend={x:Math.round((from.x+to.x)/2)+int(-3,3),z:Math.round((from.z+to.z)/2)+int(-3,3)};
-    carve();for(const goal of [bend,to])for(const axis of random()<.5?['x','z']:['z','x'])while(axis==='x'?x!==goal.x:z!==goal.z){if(axis==='x')x+=Math.sign(goal.x-x);else z+=Math.sign(goal.z-z);carve();}
+  const planPath=(from:{x:number;z:number},to:{x:number;z:number})=>{
+    let x=from.x,z=from.z;const wooden=random()<.5,width=random()<.3?2:1,path:string[]=[],centre:[number,number][]=[];
+    const step=()=>{centre.push([x,z]);for(let dx=-width;dx<=width;dx++)for(let dz=-width;dz<=width;dz++)path.push(cellKey(x+dx,z+dz));};
+    const bend={x:Math.round((from.x+to.x)/2)+int(-1,1),z:Math.round((from.z+to.z)/2)+int(-1,1)};
+    step();for(const goal of [bend,to])for(const axis of random()<.5?['x','z']:['z','x'])while(axis==='x'?x!==goal.x:z!==goal.z){if(axis==='x')x+=Math.sign(goal.x-x);else z+=Math.sign(goal.z-z);step();}
+    return {wooden,path,centre};
   };
-  const target=int(16,23);
-  for(let id=0;id<target;id++){
-    const shape=id===0?'crypt':shapes[int(0,shapes.length-1)];
-    let halfX=int(5,9),halfZ=int(4,8);if(shape==='gallery'){halfX=int(9,13);halfZ=int(3,4);if(random()<.5)[halfX,halfZ]=[halfZ,halfX];}
+  // A corridor that grazes a third room, or merges with a corridor already carved, would hand the player a
+  // shortcut the room graph never granted - and would quietly give every dead end a second mouth.
+  const crossesExistingFloor=(path:string[],parent:Room)=>path.some(key=>{
+    const [x,z]=key.split(',').map(Number);
+    return [[0,0],[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dz])=>{
+      const probe=cellKey(x+dx,z+dz),owner=ownership.get(probe);
+      if(owner!==undefined)return owner!==parent.id;
+      // Mouths crowd together right outside the room they leave from; that overlap is expected.
+      return cells.has(probe)&&(Math.abs(x-parent.x)>parent.halfX+5||Math.abs(z-parent.z)>parent.halfZ+5);
+    });
+  });
+  const connect=(a:number,b:number,plan:ReturnType<typeof planPath>)=>{
+    edges.push([a,b]);
+    for(const key of plan.path){cells.add(key);if(plan.wooden&&!ownership.has(key))wood.add(key);}
+  };
+  const sizeFor=(shape:Room['shape'])=>{
+    let halfX=int(5,9),halfZ=int(4,8);
+    if(shape==='gallery'){halfX=int(9,13);halfZ=int(3,4);if(random()<.5)[halfX,halfZ]=[halfZ,halfX];}
     if(shape==='court'){halfX=int(8,11);halfZ=int(7,10);}
-    let x=0,z=0,parent=0;
-    if(id)for(let attempt=0;attempt<400;attempt++){
-      parent=int(0,id-1);const r=rooms[parent],angle=random()*Math.PI*2,distance=Math.max(r.halfX,r.halfZ)+Math.max(halfX,halfZ)+int(5,13);
-      x=Math.round(r.x+Math.cos(angle)*distance);z=Math.round(r.z+Math.sin(angle)*distance);
-      if(rooms.every(other=>Math.abs(x-other.x)>halfX+other.halfX+3||Math.abs(z-other.z)>halfZ+other.halfZ+3))break;
-      if(attempt===399){x=Math.max(...rooms.map(r=>r.x+r.halfX))+halfX+9;z=rooms[parent].z;}
+    return {halfX,halfZ};
+  };
+  const fits=(x:number,z:number,halfX:number,halfZ:number)=>rooms.every(o=>Math.abs(x-o.x)>halfX+o.halfX+3||Math.abs(z-o.z)>halfZ+o.halfZ+3);
+  const spineTarget=int(8,10);
+  // Every room hangs off exactly one predecessor and nothing ever links back, so the floor is a tree:
+  // one long trunk from the gate to the stair, plus a few short stubs that visibly die out.
+  const addRoom=(parentId:number,heading:number,spread:number,role:Room['role'])=>{
+    const parent=rooms[parentId],shape=shapes[int(0,shapes.length-1)],{halfX,halfZ}=sizeFor(shape);
+    for(let attempt=0;attempt<120;attempt++){
+      const angle=heading+(random()*2-1)*spread*(1+attempt/40);
+      const distance=Math.max(parent.halfX,parent.halfZ)+Math.max(halfX,halfZ)+int(2,5);
+      const x=Math.round(parent.x+Math.cos(angle)*distance),z=Math.round(parent.z+Math.sin(angle)*distance);
+      if(!fits(x,z,halfX,halfZ))continue;
+      const plan=planPath(parent,{x,z});
+      // A doorway-to-doorway trudge is dead time; keep the open stretch between rooms short.
+      if(plan.centre.filter(([cx,cz])=>!ownership.has(cellKey(cx,cz))&&(Math.abs(cx-x)>halfX||Math.abs(cz-z)>halfZ)).length>12)continue;
+      if(crossesExistingFloor(plan.path,parent))continue;
+      const depth=parent.depth+1,progress=depth/spineTarget;
+      const theme:Room['theme']=role==='branch'?themes[int(0,2)]:progress<.3?'keep':progress<.66?'ruins':'flooded';
+      const r:Room={id:rooms.length,x,z,halfX,halfZ,shape,theme,name:`${prefixes[int(0,7)]} ${names[shape]}`,role,depth,heading:angle};
+      rooms.push(r);carveRoom(r);connect(parentId,r.id,plan);return r;
     }
-    const r:Room={id,x,z,halfX,halfZ,shape,theme:id===0?'keep':themes[int(0,2)],name:id===0?'The Tide Gate':`${prefixes[int(0,7)]} ${names[shape]}`};rooms.push(r);carveRoom(r);if(id)connect(parent,id);
+    return null;
+  };
+  const gateSize=sizeFor('crypt');
+  const start:Room={id:0,x:0,z:0,...gateSize,shape:'crypt',theme:'keep',name:'The Tide Gate',role:'start',depth:0,heading:0};
+  rooms.push(start);carveRoom(start);
+  // The trunk keeps one general bearing and only drifts, so "onward" always reads the same way to the player.
+  const bearing=random()*Math.PI*2;let heading=bearing,tip=start;const spine=[start];
+  for(let step=0;step<spineTarget+14&&(spine.length<spineTarget||cells.size<1100);step++){
+    heading=bearing+Math.max(-1,Math.min(1,heading-bearing+(random()*2-1)*.5));
+    const next=addRoom(tip.id,heading,.3,'path');
+    if(next){tip=next;spine.push(next);}
   }
-  // Nearby shortcuts introduce loops without imposing a lattice on the layout.
-  rooms.forEach(r=>{const nearby=rooms.filter(other=>other.id!==r.id&&!edges.some(([a,b])=>a===r.id&&b===other.id||b===r.id&&a===other.id)).sort((a,b)=>Math.hypot(a.x-r.x,a.z-r.z)-Math.hypot(b.x-r.x,b.z-r.z));if(nearby[0]&&random()<.25)connect(r.id,nearby[0].id);});
-  // Guarantee the requested area even when the roll favors narrow galleries.
-  while(cells.size<1950){const id=rooms.length,previous=rooms[id-1];const r:Room={id,x:Math.max(...rooms.map(r=>r.x+r.halfX))+18,z:previous.z,halfX:8,halfZ:8,shape:'hall',theme:'ruins',name:'The Outer Ward'};rooms.push(r);carveRoom(r);connect(previous.id,id);}
+  const goal=spine[spine.length-1];goal.role='goal';goal.theme='flooded';goal.name='The Sunken Stair';
+  // Dead ends leave the trunk sideways: at the junction the detour never looks like the way forward.
+  const junctions=spine.slice(1,-1);
+  for(const room of junctions)if(random()<.4){
+    const side=room.heading+(random()<.5?-1:1)*Math.PI/2;
+    const stub=addRoom(room.id,side,.45,'branch');
+    if(stub&&random()<.3)addRoom(stub.id,side,.6,'branch');
+  }
+  // A floor with nothing optional on it is just a corridor with a boss at the end.
+  for(let tries=0;tries<24&&junctions.length&&rooms.filter(r=>r.role==='branch').length<2;tries++){
+    const room=junctions[int(0,junctions.length-1)];
+    addRoom(room.id,room.heading+(random()<.5?-1:1)*Math.PI/2,.6,'branch');
+  }
   rooms.forEach(r=>{
     let placed=0;const count=int(3,7);
     for(let tries=0;tries<100&&placed<count;tries++){
@@ -60,7 +109,33 @@ export function generateFloor(seed: number) {
   });
   const tiles=[...cells].map(key=>{const [x,z]=key.split(',').map(Number);return {x,z,room:ownership.get(key)??-1,wood:wood.has(key)};});
   const bounds={minX:Math.min(...tiles.map(t=>t.x)),maxX:Math.max(...tiles.map(t=>t.x)),minZ:Math.min(...tiles.map(t=>t.z)),maxZ:Math.max(...tiles.map(t=>t.z))};
-  return {seed,rooms,edges,cells,tiles,bounds,props,guardCount:(rooms.length-1)*2};
+  // Every hall reading the same - two guards, always awake, always visible - is what makes a floor feel flat.
+  // The roster is drawn per room instead: some halls are empty on purpose, some spring, dead ends are packed.
+  const spawns:Spawn[]=[];
+  let quietRun=false;
+  const roster=(room:Room)=>{
+    const progress=room.depth/goal.depth,pick=(count:number,odds:number):Spawn['kind'][]=>Array.from({length:count},()=>random()<odds?'stalker':'guard');
+    if(room.role==='goal')return ['warden','warden'] as Spawn['kind'][];
+    if(room.role==='branch'){const pack=pick(int(2,4),.35);if(progress>.55&&random()<.35)pack.push('warden');return pack;}
+    // A hall with nothing in it is pacing, not a gap: it lets the last fight land before the next one starts.
+    // Two of them back to back is just a long empty walk, so a quiet hall is always followed by a fight.
+    if(!quietRun&&random()<.25){quietRun=true;return [];}
+    quietRun=false;
+    if(progress<.35)return pick(int(1,2),.15);
+    if(progress<.7)return pick(int(2,3),.4);
+    return [...pick(int(2,3),.5),'warden' as const];
+  };
+  for(const room of rooms){
+    if(room.id===0)continue;
+    const open=tiles.filter(t=>t.room===room.id);if(!open.length)continue;
+    const pack=roster(room),ambush=room.role!=='goal'&&pack.length>0&&random()<.3;
+    for(const kind of pack)for(let tries=0;tries<40;tries++){
+      const t=open[int(0,open.length-1)];
+      if(spawns.some(other=>other.room===room.id&&Math.hypot(other.x-t.x,other.z-t.z)<2.2))continue;
+      spawns.push({x:t.x,z:t.z,kind,room:room.id,ambush});break;
+    }
+  }
+  return {seed,rooms,edges,cells,tiles,bounds,props,spawns,start:0,goal:goal.id,spine:spine.map(r=>r.id),guardCount:spawns.length};
 }
 
 export function canStand(cells: Set<string>, x: number, z: number, radius = 0.32) {

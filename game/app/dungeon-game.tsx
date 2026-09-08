@@ -6,7 +6,7 @@ import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
 import { createDungeonAudio } from './dungeon-audio';
 import { generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 
-type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh };
+type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh };
 type GameToolContext = {
   registerTool: (tool: {
     name: string;
@@ -18,6 +18,7 @@ type GameToolContext = {
   }, options: { signal: AbortSignal }) => void | Promise<void>;
 };
 const XP_PER_ENEMY = 25;
+const XP_DEAD_END = 60;
 
 function makeKnight() {
   const g = new THREE.Group();
@@ -86,15 +87,16 @@ export default function DungeonGame() {
   const [experience, setExperience] = useState(0);
   const [xpReward, setXpReward] = useState(0);
   const [health, setHealth] = useState(100);
-  const [enemies, setEnemies] = useState(0);
+  const [defeated, setDefeated] = useState(0);
   const [floorMap, setFloorMap] = useState<ReturnType<typeof generateFloor> | null>(null);
   const [visitedCount, setVisitedCount] = useState(1);
   const mapPlayer = useRef<SVGCircleElement>(null);
   const [status, setStatus] = useState<'playing' | 'won' | 'lost'>('playing');
   const [showHelp, setShowHelp] = useState(true);
   const [started, setStarted] = useState(false), [paused, setPaused] = useState(false), [muted, setMuted] = useState(false);
-  const [roomName, setRoomName] = useState('The Tide Gate'), [clearedCount, setClearedCount] = useState(0);
-  const [notice, setNotice] = useState(''), [ready, setReady] = useState(false);
+  const [roomName, setRoomName] = useState('The Tide Gate'), [plundered, setPlundered] = useState(0);
+  const [advance, setAdvance] = useState(0);
+  const [notice, setNotice] = useState(''), [noticeDetail, setNoticeDetail] = useState(''), [ready, setReady] = useState(false);
   const dashMeter = useRef<HTMLProgressElement>(null);
 
   useEffect(() => {
@@ -130,11 +132,15 @@ export default function DungeonGame() {
     let hasStarted = false, isPaused = false, isMuted = false, activeRoom = 0;
     const audio = createDungeonAudio();
     const floor = generateFloor(crypto.getRandomValues(new Uint32Array(1))[0]);
-    setFloorMap(floor); setEnemies(floor.guardCount);
+    setFloorMap(floor);
     const guardCount = floor.guardCount;
     const visited = new Set([0]), cleared = new Set([0]);
+    const spine = new Set(floor.spine), goalRoom = floor.rooms[floor.goal];
+    let reached = 0, loot = 0;
     const swingHits = new Set<Enemy>();
     let gameStatus: 'playing' | 'won' | 'lost' = 'playing';
+    const stairClear = () => enemyData.every(e => e.room !== floor.goal || e.dead);
+    const finish = () => { if (gameStatus === 'playing' && activeRoom === floor.goal && stairClear()) { gameStatus = 'won'; setStatus('won'); audio.play('win'); } };
     const keys = new Set<string>();
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x07121a);
@@ -183,16 +189,16 @@ export default function DungeonGame() {
     const screenRight = new THREE.Vector3(11.5, 0, -9.2).normalize();
     const screenDown = new THREE.Vector3(9.2, 0, 11.5).normalize();
     player.rotation.y = Math.atan2(-facing.x, -facing.z);
-    const enemyData: Enemy[] = floor.rooms.slice(1).flatMap(room => [-1,1].map((side, index) => {
-      const kind: Enemy['kind'] = index === 0 && room.id % 3 === 0 ? 'warden' : index === 1 && room.id % 2 === 0 ? 'stalker' : 'guard';
+    const enemyData: Enemy[] = floor.spawns.map((spawn, index) => {
+      const kind = spawn.kind;
       const maxHp = kind === 'warden' ? 4 : 2, tell = kind === 'warden' ? 0.72 : kind === 'stalker' ? 0.36 : 0.5;
-      const group = makeSkeleton(kind === 'stalker' ? 1 : 0); group.position.set(room.x * TILE + side * 2.3,0.03,room.z * TILE); world.add(group);
+      const group = makeSkeleton(kind === 'stalker' ? 1 : 0); group.position.set(spawn.x * TILE,0.03,spawn.z * TILE); group.visible = !spawn.ambush; world.add(group);
       if (kind === 'warden') { group.scale.setScalar(1.3); const crown = new THREE.Mesh(new THREE.ConeGeometry(0.34,0.35,5,1,true),new THREE.MeshStandardMaterial({color:0xc5a264,metalness:0.6,roughness:0.45}));crown.position.y=1.7;group.add(crown); }
       if (kind === 'stalker') group.scale.set(0.82,0.94,0.82);
       const cue = new THREE.Mesh(new THREE.RingGeometry(0.85,1.5,40,1,-1.05,2.1),new THREE.MeshBasicMaterial({color:kind === 'warden'?0xff522b:0xffae52,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false}));cue.rotation.x=-Math.PI/2;world.add(cue);
       const bar = new THREE.Mesh(new THREE.PlaneGeometry(0.8,0.07),new THREE.MeshBasicMaterial({color:kind === 'warden'?0xffb65f:0xe89a79,depthTest:false}));bar.renderOrder=10;world.add(bar);
-      return { group, hp:maxHp, maxHp, kind, tell, damage:kind==='warden'?20:kind==='stalker'?8:12, cue, bar, speed:kind==='stalker'?2.0:kind==='warden'?1.15:1.5, cooldown:0.4+index*0.2, hitFlash:0, dead:false, phase:room.id*1.7, windup:0, aim:new THREE.Vector3(), room:room.id };
-    }));
+      return { group, hp:maxHp, maxHp, kind, tell, damage:kind==='warden'?20:kind==='stalker'?8:12, cue, bar, speed:kind==='stalker'?2.0:kind==='warden'?1.15:1.5, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, phase:spawn.room*1.7+index*0.6, windup:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush };
+    });
     let pathCell = '';
     const distances = new Map<string,number>();
     const updatePaths = () => {
@@ -296,7 +302,18 @@ export default function DungeonGame() {
         moveOnFloor(floor.cells, player.position, velocity.x * dt, velocity.z * dt);
         updatePaths();
         const currentRoom = floor.rooms.find(r => Math.abs(player.position.x / TILE-r.x)<=r.halfX && Math.abs(player.position.z / TILE-r.z)<=r.halfZ);
-        if (currentRoom && activeRoom !== currentRoom.id) { activeRoom = currentRoom.id; setRoomName(floor.rooms[activeRoom].name); }
+        if (currentRoom && activeRoom !== currentRoom.id) {
+          activeRoom = currentRoom.id; setRoomName(floor.rooms[activeRoom].name);
+          // Only the trunk counts as progress; a dead end must never read as ground gained.
+          if (spine.has(currentRoom.id) && currentRoom.depth > reached) { reached = currentRoom.depth; setAdvance(reached); }
+          if (currentRoom.id === floor.goal && !stairClear()) { setNotice(`${goalRoom.name} · wardens bar the stair`); setNoticeDetail('Break them to leave the keep'); noticeTime = 4; }
+          const sprung = enemyData.filter(e => e.room === currentRoom.id && !e.awake && !e.dead);
+          if (sprung.length) {
+            sprung.forEach(e => { e.awake = true; e.group.visible = true; e.cooldown = Math.max(e.cooldown, 0.9); burst(e.group.position, 0x7fd6c6, 10); });
+            setNotice(`${currentRoom.name} · ambush`); setNoticeDetail(`${sprung.length} rise from the silt`); noticeTime = 3; audio.play('warn'); shake = 0.12;
+          }
+        }
+        finish();
         floor.rooms.forEach(r => { if (Math.abs(player.position.x / TILE - r.x) <= r.halfX && Math.abs(player.position.z / TILE - r.z) <= r.halfZ && !visited.has(r.id)) { visited.add(r.id); setVisitedCount(visited.size); document.getElementById(`map-room-${r.id}`)?.setAttribute("fill", "#6a9995"); } });
         if (moving) { footstepTime -= dt; if (footstepTime <= 0 && dashTime <= 0) { audio.play('step'); footstepTime = 0.29; } walkPhase += dt * speed * 3.3; setShowHelp(false); }
         const stride = moving && dashTime <= 0 ? Math.sin(walkPhase) * 0.6 : 0;
@@ -318,18 +335,29 @@ export default function DungeonGame() {
           (slash.material as THREE.MeshBasicMaterial).opacity = active ? 0.65 : Math.max(0, 1 - (age - 0.175) / 0.09) * (age > 0.175 ? 0.35 : 0);
           slash.scale.setScalar(1.45);
           if (active) enemyData.forEach((enemy) => {
-            if (enemy.dead || swingHits.has(enemy)) return;
+            if (enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
             const delta = enemy.group.position.clone().sub(player.position); delta.y = 0;
             if (delta.length() < 1.8 && delta.normalize().dot(attackFacing) > 0.35) {
               audio.play('hit');
               swingHits.add(enemy); enemy.hp--; enemy.hitFlash = 0.2; if (enemy.kind !== 'warden') enemy.windup = 0;
               enemy.cooldown = Math.max(enemy.cooldown, 0.4);
               moveOnFloor(floor.cells, enemy.group.position, delta.x * (enemy.kind === 'warden' ? 0.1 : 0.38), delta.z * (enemy.kind === 'warden' ? 0.1 : 0.38)); burst(enemy.group.position, 0xffb24a, 7); shake = 0.07; hitStop = 0.035;
-              if (enemy.hp <= 0) { enemy.dead = true; kills++; totalXp += XP_PER_ENEMY; setExperience(totalXp); setXpReward((reward) => reward + XP_PER_ENEMY); rewardTime = 1.4; burst(enemy.group.position, 0xd9d1bd, 12); setEnemies(guardCount - kills); if (!cleared.has(enemy.room) && enemyData.every(e => e.room !== enemy.room || e.dead)) { cleared.add(enemy.room); setClearedCount(cleared.size - 1); setNotice(`${floor.rooms[enemy.room].name} · cleansed`); noticeTime = 3.5; audio.play('clear'); burst(player.position,0x8de9be,18); hp = Math.min(100, hp + 20); setHealth(hp); document.getElementById(`map-room-${enemy.room}`)?.setAttribute('fill', '#a8d5b0'); } if (kills === guardCount) { gameStatus = 'won'; setStatus('won'); audio.play('win'); } }
+              if (enemy.hp <= 0) { enemy.dead = true; kills++; totalXp += XP_PER_ENEMY; setExperience(totalXp); setXpReward((reward) => reward + XP_PER_ENEMY); rewardTime = 1.4; burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(kills); if (!cleared.has(enemy.room) && enemyData.every(e => e.room !== enemy.room || e.dead)) {
+                cleared.add(enemy.room);
+                const room = floor.rooms[enemy.room], detour = room.role === 'branch';
+                // Detours are optional, so they pay: the trunk only tops you up enough to keep walking.
+                if (detour) { loot++; setPlundered(loot); totalXp += XP_DEAD_END; setExperience(totalXp); setXpReward((reward) => reward + XP_DEAD_END); }
+                hp = Math.min(100, hp + (detour ? 30 : 12)); setHealth(hp);
+                setNotice(`${room.name} · ${detour ? 'dead end plundered' : 'cleansed'}`);
+                setNoticeDetail(detour ? `+${XP_DEAD_END} XP · +30 vitality` : '+12 vitality restored');
+                noticeTime = 3.5; rewardTime = 1.4; audio.play('clear'); burst(player.position,0x8de9be,18);
+                document.getElementById(`map-room-${enemy.room}`)?.setAttribute('fill', detour ? '#c2b273' : '#a8d5b0');
+              } finish(); }
             }
           });
         } else { player.userData.sword.rotation.y = THREE.MathUtils.damp(player.userData.sword.rotation.y, 0, 24, dt); player.userData.body.rotation.z = 0; (slash.material as THREE.MeshBasicMaterial).opacity = 0; }
         enemyData.forEach((enemy) => {
+          if (!enemy.awake) { enemy.cue.visible = false; enemy.bar.visible = false; return; }
           enemy.cue.visible = !enemy.dead && enemy.windup > 0; enemy.bar.visible = !enemy.dead && enemy.hp < enemy.maxHp;
           enemy.bar.position.copy(enemy.group.position).add(new THREE.Vector3(0,enemy.kind === 'warden'?2.65:2.05,0)); enemy.bar.quaternion.copy(camera.quaternion); enemy.bar.scale.x = enemy.hp / enemy.maxHp;
           enemy.cue.position.copy(enemy.group.position); enemy.cue.position.y = 0.055; enemy.cue.rotation.z = Math.atan2(-enemy.aim.z,enemy.aim.x);
@@ -413,10 +441,11 @@ export default function DungeonGame() {
     hooks.render_game_to_text = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, muted: isMuted, roomName: floor.rooms[activeRoom].name,
       health: hp, remaining: guardCount - kills,
+      objective: { goal: goalRoom.name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom.depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), deadEndsPlundered: loot },
       experience: { total: totalXp, perEnemy: XP_PER_ENEMY, encounterTarget: (guardCount * XP_PER_ENEMY), resetsOnNewRun: true },
-      floor: { waterfalls: atmosphere.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, visited: [...visited], cleared: [...cleared] },
+      floor: { waterfalls: atmosphere.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
       player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashTime, dashCooldown, swordAngle: player.userData.sword.rotation.y, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
-      enemies: enemyData.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, windup: e.windup })),
+      enemies: enemyData.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, windup: e.windup, room: e.room, awake: e.awake })),
     });
     const animate = (now: number) => {
       if (stopped) return; raf = requestAnimationFrame(animate);
@@ -431,28 +460,33 @@ export default function DungeonGame() {
 
   const guardCount = floorMap?.guardCount ?? 0;
   const roomCount = floorMap?.rooms.length ?? 0;
+  const goalName = floorMap?.rooms[floorMap.goal].name ?? 'The Sunken Stair';
+  const goalDepth = floorMap?.rooms[floorMap.goal].depth ?? 0;
+  const deadEnds = floorMap?.rooms.filter(r => r.role === 'branch').length ?? 0;
+  const xpTarget = guardCount * XP_PER_ENEMY + deadEnds * XP_DEAD_END;
   const action = (detail: string) => window.dispatchEvent(new CustomEvent('dungeon-action', { detail }));
   return (
     <main className="game-shell">
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
       <header className="game-title"><span className="sigil">✦</span><div><p>THE DROWNED KEEP</p><span>{roomName}</span></div></header>
       <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || status !== 'playing'} aria-label="Pause game">Ⅱ</button><button onClick={() => action('mute')} aria-label={muted ? 'Enable sound' : 'Mute sound'}>{muted ? 'SOUND OFF' : 'SOUND ON'}</button><button onClick={() => action('fullscreen')} aria-label="Toggle fullscreen">⛶</button></nav>
-      <section className="hud" aria-live="polite"><div className="health-row"><span>VITALITY</span><b>{health}</b></div><div className="health-track"><i style={{ width: `${health}%` }} /></div><div className="enemy-count"><span>☠</span>{enemies} GUARDS REMAIN</div><div className="dash-status"><span>EVASION</span><progress ref={dashMeter} max="1" value="1" aria-label="Dash readiness" /></div>
+      <section className="hud" aria-live="polite"><div className="health-row"><span>VITALITY</span><b>{health}</b></div><div className="health-track"><i style={{ width: `${health}%` }} /></div><div className="dash-status"><span>EVASION</span><progress ref={dashMeter} max="1" value="1" aria-label="Dash readiness" /></div>
         <div className="xp-panel"><div className="xp-row"><span>TOTAL XP</span><b>{experience}</b></div>
-          <progress className="xp-track" aria-label="Encounter experience" max={(guardCount * XP_PER_ENEMY)} value={experience}>{experience} / {(guardCount * XP_PER_ENEMY)} XP</progress>
-          <div className="xp-caption"><span>{experience} / {(guardCount * XP_PER_ENEMY)} this run</span><strong>{xpReward > 0 ? `+${xpReward} XP` : '25 XP / guard'}</strong></div>
+          <progress className="xp-track" aria-label="Encounter experience" max={xpTarget} value={experience}>{experience} / {xpTarget} XP</progress>
+          <div className="xp-caption"><span>{experience} / {xpTarget} this run</span><strong>{xpReward > 0 ? `+${xpReward} XP` : '25 XP / guard'}</strong></div>
         </div></section>
       {floorMap && <aside className="floor-map" aria-label="Floor map: your position and connected chambers"><svg viewBox={`${floorMap.bounds.minX - 3} ${floorMap.bounds.minZ - 3} ${floorMap.bounds.maxX - floorMap.bounds.minX + 6} ${floorMap.bounds.maxZ - floorMap.bounds.minZ + 6}`}>
         <path d={floorMap.tiles.map(t => `M${t.x - 0.5},${t.z - 0.5}h1v1h-1z`).join('')} fill="#334e56" />
-        {floorMap.rooms.map(r => <path key={r.id} id={`map-room-${r.id}`} d={floorMap.tiles.filter(t=>t.room===r.id).map(t=>`M${t.x-.5},${t.z-.5}h1v1h-1z`).join('')} fill={r.id===0?'#6a9995':'#3e6066'} />)}
+        {floorMap.rooms.map(r => <path key={r.id} id={`map-room-${r.id}`} d={floorMap.tiles.filter(t=>t.room===r.id).map(t=>`M${t.x-.5},${t.z-.5}h1v1h-1z`).join('')} fill={r.id===0?'#6a9995':r.role==='goal'?'#7a5f3c':'#3e6066'} />)}
+        <circle cx={floorMap.rooms[floorMap.goal].x} cy={floorMap.rooms[floorMap.goal].z} r="3.4" fill="none" stroke="#ffc573" strokeWidth="0.9" opacity="0.8" />
         <circle ref={mapPlayer} cx={floorMap.rooms[0].x} cy={floorMap.rooms[0].z} r="1.8" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
-      </svg><span>{visitedCount} / {roomCount} areas explored</span></aside>}
-      <div className="floor-objective"><span>BREAK THE CISTERN’S WATCH</span><b>{clearedCount} <i>/ {Math.max(0,roomCount - 1)} areas cleansed</i></b></div>
-      {notice && started && !paused && <output className="chamber-notice"><span>✦</span><b>{notice}</b><small>+20 vitality restored</small></output>}
+      </svg><span>{visitedCount} / {roomCount} areas explored · {plundered} / {deadEnds} dead ends plundered</span></aside>}
+      <div className="floor-objective"><span>REACH {goalName.toUpperCase()}</span><b>{advance} <i>/ {goalDepth} halls onward</i></b></div>
+      {notice && started && !paused && <output className="chamber-notice"><span>✦</span><b>{notice}</b><small>{noticeDetail}</small></output>}
       <aside className="controls"><span><kbd>WASD</kbd> MOVE</span><span><kbd>SPACE</kbd> HOLD TO STRIKE</span><span><kbd>SHIFT</kbd> DASH</span><span><kbd>ESC</kbd> PAUSE</span></aside>
-      {showHelp && started && !paused && status === 'playing' && <div className="start-prompt"><b>EXPLORE THE CISTERN</b><span>Clear each chamber · recover 20 vitality</span></div>}
-      {(!started || paused) && <div className="intro-screen"><section className="intro-card"><span className="end-kicker">{paused ? 'A MOMENT OF STILLNESS' : 'CHAPTER I · THE LOWER CISTERN'}</span><h1>{paused ? 'The keep can wait.' : <>The Drowned<br /><em>Keep</em></>}</h1><p>{paused ? 'Gather yourself. Your journey is held here.' : 'Beneath the tide, the old watch still stands. Cross the drowned halls and put its restless guardians to rest.'}</p><div className="intro-controls"><span><kbd>WASD / ↑↓←→</kbd> Move</span><span><kbd>SPACE</kbd> Hold to strike</span><span><kbd>SHIFT</kbd> Dodge attacks</span></div><button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'ENTERING THE KEEP…' : paused ? 'RESUME JOURNEY' : 'ENTER THE KEEP'} <span>→</span></button><small>{roomCount} distinct areas · a new floor every journey<br />Cleanse a chamber to recover vitality.</small></section></div>}
-      {status !== 'playing' && <div className="end-screen"><div className="end-card"><span className="end-kicker">FLOOR {status === 'won' ? 'CLEARED' : 'FAILED'}</span><h1>{status === 'won' ? 'The watch is broken.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'The cistern falls quiet. Beyond the tide, dawn waits.' : 'Steel yourself and enter once more.'}</p><div className="xp-summary"><strong>{experience} XP earned</strong><span>{guardCount - enemies} / {guardCount} guards defeated · XP resets on a new run</span></div><button onClick={() => location.reload()}>NEW FLOOR</button></div></div>}
+      {showHelp && started && !paused && status === 'playing' && <div className="start-prompt"><b>PRESS ON TO {goalName.toUpperCase()}</b><span>Side chambers are optional · they pay in XP and vitality</span></div>}
+      {(!started || paused) && <div className="intro-screen"><section className="intro-card"><span className="end-kicker">{paused ? 'A MOMENT OF STILLNESS' : 'CHAPTER I · THE LOWER CISTERN'}</span><h1>{paused ? 'The keep can wait.' : <>The Drowned<br /><em>Keep</em></>}</h1><p>{paused ? 'Gather yourself. Your journey is held here.' : 'Beneath the tide, the old watch still stands. Fight your way down the drowned halls to the sunken stair — and rob the dead ends on the way if you dare.'}</p><div className="intro-controls"><span><kbd>WASD / ↑↓←→</kbd> Move</span><span><kbd>SPACE</kbd> Hold to strike</span><span><kbd>SHIFT</kbd> Dodge attacks</span></div><button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'ENTERING THE KEEP…' : paused ? 'RESUME JOURNEY' : 'ENTER THE KEEP'} <span>→</span></button><small>{goalDepth} halls to the stair · {deadEnds} optional dead ends<br />Clearing a dead end pays {XP_DEAD_END} XP and 30 vitality.</small></section></div>}
+      {status !== 'playing' && <div className="end-screen"><div className="end-card"><span className="end-kicker">FLOOR {status === 'won' ? 'ESCAPED' : 'FAILED'}</span><h1>{status === 'won' ? 'The stair is yours.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'You climb out of the cistern. Beyond the tide, dawn waits.' : 'Steel yourself and enter once more.'}</p><div className="xp-summary"><strong>{experience} XP earned</strong><span>{defeated} / {guardCount} guards defeated · {plundered} / {deadEnds} dead ends plundered · XP resets on a new run</span></div><button onClick={() => location.reload()}>NEW FLOOR</button></div></div>}
       <div className="touch-pad" aria-label="Touch movement controls">{['up', 'left', 'down', 'right'].map((dir) => <button key={dir} className={dir} aria-label={`Move ${dir}`} onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action(`move:${dir}`); }} onLostPointerCapture={() => action(`stop:${dir}`)} onPointerUp={() => action(`stop:${dir}`)} onPointerCancel={() => action(`stop:${dir}`)}>{dir === 'up' ? '▲' : dir === 'down' ? '▼' : dir === 'left' ? '◀' : '▶'}</button>)}</div>
       <div className="touch-actions"><button onPointerDown={() => action('dash')}>DASH</button><button className="strike" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action('hold-attack'); }} onPointerUp={() => action('release-attack')} onPointerCancel={() => action('release-attack')} onLostPointerCapture={() => action('release-attack')}>STRIKE</button></div><div className="vignette" />
     </main>
