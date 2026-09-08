@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TILE, cellKey, type generateFloor } from './dungeon-floor';
+import { TILE, type generateFloor } from './dungeon-floor';
 
 export function stoneTexture() {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
@@ -15,6 +15,21 @@ export function stoneTexture() {
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace=THREE.SRGBColorSpace; texture.anisotropy=4; return texture;
 }
 
+// Prop shapes repeat on every floor, so they are built once and varied by scale rather than regenerated.
+const keep = <T extends THREE.BufferGeometry>(geometry: T) => { geometry.userData.shared = true; return geometry; };
+const PROP = {
+  base: keep(new THREE.BoxGeometry(TILE, .42, TILE)),
+  bowl: keep(new THREE.CylinderGeometry(.34, .5, .8, 6)),
+  rim: keep(new THREE.CylinderGeometry(.5, .3, .24, 8)),
+  flame: keep(new THREE.OctahedronGeometry(.24)),
+  barrel: keep(new THREE.CylinderGeometry(.44, .4, 1.0, 9)),
+  hoop: keep(new THREE.CylinderGeometry(.46, .46, .09, 9)),
+  plinth: keep(new THREE.BoxGeometry(.95, .25, .95)),
+  column: keep(new THREE.CylinderGeometry(.35, .45, 1, 6)),
+  capital: keep(new THREE.BoxGeometry(.84, .2, .84)),
+  rock: keep(new THREE.DodecahedronGeometry(1)),
+};
+
 export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generateFloor>) {
   const stone=new THREE.MeshStandardMaterial({color:0x566169,roughness:.95}),trim=new THREE.MeshStandardMaterial({color:0x8c7352,roughness:.72,metalness:.25});
   const wood=new THREE.MeshStandardMaterial({color:0x51382b,roughness:1}),moss=new THREE.MeshStandardMaterial({color:0x42594b,roughness:1});
@@ -28,27 +43,30 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   let state=floor.seed^0x12345;const random=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/4294967296;};
   function mesh(geo:THREE.BufferGeometry,material:THREE.Material,x:number,y:number,z:number){const m=new THREE.Mesh(geo,material);m.position.set(x,y,z);m.castShadow=m.receiveShadow=true;world.add(m);return m;}
   for(const p of floor.props){const x=p.x*TILE,z=p.z*TILE;
-    mesh(new THREE.BoxGeometry(TILE,.42,TILE),stone,x,-.18,z);
+    mesh(PROP.base,stone,x,-.18,z);
     if(p.kind==='brazier'){
-      mesh(new THREE.CylinderGeometry(.34,.5,.8,6),stone,x,.42,z);mesh(new THREE.CylinderGeometry(.5,.3,.24,8),trim,x,.95,z);
-      const flame=mesh(new THREE.OctahedronGeometry(.24),warm,x,1.33,z);flame.castShadow=false;flames.push(flame);torchPositions.push(new THREE.Vector3(x,1.7,z));
+      mesh(PROP.bowl,stone,x,.42,z);mesh(PROP.rim,trim,x,.95,z);
+      const flame=mesh(PROP.flame,warm,x,1.33,z);flame.castShadow=false;flames.push(flame);torchPositions.push(new THREE.Vector3(x,1.7,z));
     } else if(p.kind==='barrel'){
-      mesh(new THREE.CylinderGeometry(.44,.4,1.0,9),wood,x,.52,z);
-      for(const y of [.2,.78])mesh(new THREE.CylinderGeometry(.46,.46,.09,9),trim,x,y,z);
+      mesh(PROP.barrel,wood,x,.52,z);
+      for(const y of [.2,.78])mesh(PROP.hoop,trim,x,y,z);
     } else if(p.kind==='pillar'){
-      mesh(new THREE.BoxGeometry(.95,.25,.95),trim,x,.2,z);
-      const h=1.4+random()*1.1;mesh(new THREE.CylinderGeometry(.35,.45,h,6),stone,x,h/2+.2,z);mesh(new THREE.BoxGeometry(.84,.2,.84),stone,x,h+.3,z);
+      mesh(PROP.plinth,trim,x,.2,z);
+      const h=1.4+random()*1.1;mesh(PROP.column,stone,x,h/2+.2,z).scale.y=h;mesh(PROP.capital,stone,x,h+.3,z);
     } else {
-      for(let i=0;i<4;i++){const rock=mesh(new THREE.DodecahedronGeometry(.3+random()*.27),i===0?moss:stone,x+(random()-.5)*.65,.22+random()*.2,z+(random()-.5)*.65);rock.scale.y=.55+random()*.4;rock.rotation.set(random(),random(),random());}
+      for(let i=0;i<4;i++){const rock=mesh(PROP.rock,i===0?moss:stone,x+(random()-.5)*.65,.22+random()*.2,z+(random()-.5)*.65),r=.3+random()*.27;rock.scale.set(r,r*(.55+random()*.4),r);rock.rotation.set(random(),random(),random());}
     }
   }
-  const blocked=new Set(floor.props.map(p=>cellKey(p.x,p.z))),blocks:{x:number;y:number;z:number;sx:number;sy:number;sz:number;color:number;room:number}[]=[];
+  const packed=(x:number,z:number)=>(x+4096)*8192+(z+4096);
+  const solid=new Set<number>();for(const t of floor.tiles)solid.add(packed(t.x,t.z));
+  for(const p of floor.props)solid.add(packed(p.x,p.z));
+  const blocks:{x:number;y:number;z:number;sx:number;sy:number;sz:number;color:number;room:number}[]=[];
   const bannerRooms=new Set<number>();
   for(const tile of floor.tiles){
     if(tile.room<0)continue;
     const room=floor.rooms[tile.room];
     for(const [dx,dz] of [[-1,0],[0,-1]]){
-      if(floor.cells.has(cellKey(tile.x+dx,tile.z+dz))||blocked.has(cellKey(tile.x+dx,tile.z+dz)))continue;
+      if(solid.has(packed(tile.x+dx,tile.z+dz)))continue;
       const x=(tile.x+dx*.52)*TILE,z=(tile.z+dz*.52)*TILE;
       const layers=room.theme==='ruins'?1+Math.floor(random()*4):3+Math.floor(random()*3);
       for(let layer=0;layer<layers;layer++)for(let half=0;half<2;half++){
@@ -62,18 +80,24 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
 
     }
   }
+  const tilesByRoom=new Map<number,typeof floor.tiles>();
+  for(const t of floor.tiles)if(t.room>=0){const list=tilesByRoom.get(t.room);if(list)list.push(t);else tilesByRoom.set(t.room,[t]);}
   for(const room of floor.rooms.filter(r=>r.theme==='flooded')){
-    const edges=floor.tiles.filter(t=>t.room===room.id).flatMap(t=>[[1,0],[0,1]].filter(([dx,dz])=>!floor.cells.has(cellKey(t.x+dx,t.z+dz))&&!blocked.has(cellKey(t.x+dx,t.z+dz))).map(([dx,dz])=>({x:t.x,z:t.z,dx,dz})));
+    const edges=(tilesByRoom.get(room.id)??[]).flatMap(t=>[[1,0],[0,1]].filter(([dx,dz])=>!solid.has(packed(t.x+dx,t.z+dz))).map(([dx,dz])=>({x:t.x,z:t.z,dx,dz})));
     if(!edges.length)continue;const e=edges[Math.floor(random()*edges.length)],x=(e.x+e.dx*.58)*TILE,z=(e.z+e.dz*.58)*TILE;
     const fall=mesh(new THREE.PlaneGeometry(1.15,2.8,3,5),flowing,x,-1.38,z);if(e.dx)fall.rotation.y=Math.PI/2;fall.castShadow=false;falls.push(fall);
     for(let i=0;i<4;i++){const ring=mesh(new THREE.RingGeometry(.22+i*.13,.25+i*.13,24),foam,x,-2.73,z);ring.rotation.x=-Math.PI/2;ring.castShadow=false;}
   }
-  const chips:THREE.Vector3[]=[];for(const room of floor.rooms){const local=floor.tiles.filter(t=>t.room===room.id);for(let i=0;i<(room.theme==='ruins'?25:9);i++){const t=local[Math.floor(random()*local.length)];if(t)chips.push(new THREE.Vector3((t.x+random()-.5)*TILE,.05,(t.z+random()-.5)*TILE));}}
-  const debris=new THREE.InstancedMesh(new THREE.DodecahedronGeometry(.2),stone,chips.length),chipMatrix=new THREE.Matrix4();chips.forEach((p,i)=>{chipMatrix.compose(p,new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),random()*6.28),new THREE.Vector3(.5+random(),.22,.5+random()));debris.setMatrixAt(i,chipMatrix);});debris.receiveShadow=true;world.add(debris);
+  const chips:THREE.Vector3[]=[];for(const room of floor.rooms){const local=tilesByRoom.get(room.id)??[];for(let i=0;i<(room.theme==='ruins'?25:9);i++){const t=local[Math.floor(random()*local.length)];if(t)chips.push(new THREE.Vector3((t.x+random()-.5)*TILE,.05,(t.z+random()-.5)*TILE));}}
+  const debris=new THREE.InstancedMesh(new THREE.DodecahedronGeometry(.2),stone,chips.length),chipMatrix=new THREE.Matrix4();const up=new THREE.Vector3(0,1,0),chipSpin=new THREE.Quaternion(),chipSize=new THREE.Vector3();chips.forEach((p,i)=>{chipMatrix.compose(p,chipSpin.setFromAxisAngle(up,random()*6.28),chipSize.set(.5+random(),.22,.5+random()));debris.setMatrixAt(i,chipMatrix);});debris.receiveShadow=true;world.add(debris);
   const geometry=new THREE.BoxGeometry(1,1,1),wallMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.95}),matrix=new THREE.Matrix4();
   // Separate chamber batches let the view and shadow frusta skip distant masonry.
-  for(const room of floor.rooms){const local=blocks.filter(b=>b.room===room.id),masonry=new THREE.InstancedMesh(geometry,wallMaterial,local.length);
-    local.forEach((b,i)=>{matrix.compose(new THREE.Vector3(b.x,b.y,b.z),new THREE.Quaternion(),new THREE.Vector3(b.sx,b.sy,b.sz));masonry.setMatrixAt(i,matrix);masonry.setColorAt(i,new THREE.Color(b.color).multiplyScalar(.9+random()*.22));});masonry.castShadow=masonry.receiveShadow=true;world.add(masonry);
+  const blocksByRoom=new Map<number,typeof blocks>();
+  for(const b of blocks){const list=blocksByRoom.get(b.room);if(list)list.push(b);else blocksByRoom.set(b.room,[b]);}
+  // Reused scratch objects: this loop runs tens of thousands of times on a deep floor.
+  const at=new THREE.Vector3(),spin=new THREE.Quaternion(),size=new THREE.Vector3(),tint=new THREE.Color();
+  for(const room of floor.rooms){const local=blocksByRoom.get(room.id)??[],masonry=new THREE.InstancedMesh(geometry,wallMaterial,local.length);
+    local.forEach((b,i)=>{matrix.compose(at.set(b.x,b.y,b.z),spin,size.set(b.sx,b.sy,b.sz));masonry.setMatrixAt(i,matrix);masonry.setColorAt(i,tint.setHex(b.color).multiplyScalar(.9+random()*.22));});masonry.castShadow=masonry.receiveShadow=true;world.add(masonry);
   }
   // Different landmarks distinguish shrines from plain halls and ruined courts.
   for(const room of floor.rooms){const x=room.x*TILE,z=room.z*TILE;

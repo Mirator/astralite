@@ -4,7 +4,9 @@ export type Spawn = { x: number; z: number; kind: 'guard' | 'stalker' | 'warden'
 export type FloorProp = { x: number; z: number; kind: 'brazier' | 'pillar' | 'rubble' | 'barrel'; room: number };
 export const cellKey = (x: number, z: number) => `${x},${z}`;
 
-export function generateFloor(seed: number) {
+// `level` is how deep in the keep this floor sits: it lengthens the trunk and drags the whole
+// encounter curve forward, so floor 3 opens with what floor 1 kept for its last halls.
+export function generateFloor(seed: number, level = 1) {
   let state = seed >>> 0;
   const random = () => { state += 0x6d2b79f5; let t=state; t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return ((t^t>>>14)>>>0)/4294967296; };
   const int = (a:number,b:number) => a+Math.floor(random()*(b-a+1));
@@ -23,27 +25,33 @@ export function generateFloor(seed: number) {
       if(keep){const key=cellKey(r.x+x,r.z+z);cells.add(key);ownership.set(key,r.id);}
     }
   };
+  // Cell lookups during placement used to build a string key every time, which made rejected placements
+  // by far the most expensive part of generation; corridors are tracked by a packed numeric key instead.
+  const numKey=(x:number,z:number)=>(x+4096)*8192+(z+4096);
+  const corridorCells=new Set<number>();
   const planPath=(from:{x:number;z:number},to:{x:number;z:number})=>{
     let x=from.x,z=from.z;const wooden=random()<.5,width=random()<.3?2:1,path:string[]=[],centre:[number,number][]=[];
     const step=()=>{centre.push([x,z]);for(let dx=-width;dx<=width;dx++)for(let dz=-width;dz<=width;dz++)path.push(cellKey(x+dx,z+dz));};
     const bend={x:Math.round((from.x+to.x)/2)+int(-1,1),z:Math.round((from.z+to.z)/2)+int(-1,1)};
     step();for(const goal of [bend,to])for(const axis of random()<.5?['x','z']:['z','x'])while(axis==='x'?x!==goal.x:z!==goal.z){if(axis==='x')x+=Math.sign(goal.x-x);else z+=Math.sign(goal.z-z);step();}
-    return {wooden,path,centre};
+    return {wooden,path,centre,width};
   };
-  // A corridor that grazes a third room, or merges with a corridor already carved, would hand the player a
+  // A corridor that clips a third room, or merges with a corridor already carved, would hand the player a
   // shortcut the room graph never granted - and would quietly give every dead end a second mouth.
-  const crossesExistingFloor=(path:string[],parent:Room)=>path.some(key=>{
-    const [x,z]=key.split(',').map(Number);
-    return [[0,0],[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dz])=>{
-      const probe=cellKey(x+dx,z+dz),owner=ownership.get(probe);
-      if(owner!==undefined)return owner!==parent.id;
+  const crossesExistingFloor=(plan:ReturnType<typeof planPath>,parent:Room)=>{
+    const pad=plan.width+1;
+    for(const [x,z] of plan.centre){
+      for(const other of rooms)if(other.id!==parent.id&&Math.abs(x-other.x)<=other.halfX+pad&&Math.abs(z-other.z)<=other.halfZ+pad)return true;
       // Mouths crowd together right outside the room they leave from; that overlap is expected.
-      return cells.has(probe)&&(Math.abs(x-parent.x)>parent.halfX+5||Math.abs(z-parent.z)>parent.halfZ+5);
-    });
-  });
+      if(Math.abs(x-parent.x)<=parent.halfX+5&&Math.abs(z-parent.z)<=parent.halfZ+5)continue;
+      for(let dx=-pad;dx<=pad;dx++)for(let dz=-pad;dz<=pad;dz++)if(corridorCells.has(numKey(x+dx,z+dz)))return true;
+    }
+    return false;
+  };
   const connect=(a:number,b:number,plan:ReturnType<typeof planPath>)=>{
     edges.push([a,b]);
     for(const key of plan.path){cells.add(key);if(plan.wooden&&!ownership.has(key))wood.add(key);}
+    for(const [x,z] of plan.centre)for(let dx=-plan.width;dx<=plan.width;dx++)for(let dz=-plan.width;dz<=plan.width;dz++)if(!ownership.has(cellKey(x+dx,z+dz)))corridorCells.add(numKey(x+dx,z+dz));
   };
   const sizeFor=(shape:Room['shape'])=>{
     let halfX=int(5,9),halfZ=int(4,8);
@@ -52,7 +60,7 @@ export function generateFloor(seed: number) {
     return {halfX,halfZ};
   };
   const fits=(x:number,z:number,halfX:number,halfZ:number)=>rooms.every(o=>Math.abs(x-o.x)>halfX+o.halfX+3||Math.abs(z-o.z)>halfZ+o.halfZ+3);
-  const spineTarget=int(8,10);
+  const spineTarget=int(8,10)+level-1;
   // Every room hangs off exactly one predecessor and nothing ever links back, so the floor is a tree:
   // one long trunk from the gate to the stair, plus a few short stubs that visibly die out.
   const addRoom=(parentId:number,heading:number,spread:number,role:Room['role'])=>{
@@ -65,7 +73,7 @@ export function generateFloor(seed: number) {
       const plan=planPath(parent,{x,z});
       // A doorway-to-doorway trudge is dead time; keep the open stretch between rooms short.
       if(plan.centre.filter(([cx,cz])=>!ownership.has(cellKey(cx,cz))&&(Math.abs(cx-x)>halfX||Math.abs(cz-z)>halfZ)).length>12)continue;
-      if(crossesExistingFloor(plan.path,parent))continue;
+      if(crossesExistingFloor(plan,parent))continue;
       const depth=parent.depth+1,progress=depth/spineTarget;
       const theme:Room['theme']=role==='branch'?themes[int(0,2)]:progress<.3?'keep':progress<.66?'ruins':'flooded';
       const r:Room={id:rooms.length,x,z,halfX,halfZ,shape,theme,name:`${prefixes[int(0,7)]} ${names[shape]}`,role,depth,heading:angle};
@@ -113,10 +121,11 @@ export function generateFloor(seed: number) {
   // The roster is drawn per room instead: some halls are empty on purpose, some spring, dead ends are packed.
   const spawns:Spawn[]=[];
   let quietRun=false;
+  const menace=(level-1)*.3;
   const roster=(room:Room)=>{
-    const progress=room.depth/goal.depth,pick=(count:number,odds:number):Spawn['kind'][]=>Array.from({length:count},()=>random()<odds?'stalker':'guard');
-    if(room.role==='goal')return ['warden','warden'] as Spawn['kind'][];
-    if(room.role==='branch'){const pack=pick(int(2,4),.35);if(progress>.55&&random()<.35)pack.push('warden');return pack;}
+    const progress=room.depth/goal.depth+menace,pick=(count:number,odds:number):Spawn['kind'][]=>Array.from({length:count},()=>random()<odds?'stalker':'guard');
+    if(room.role==='goal')return (level>=3?['warden','warden','warden']:['warden','warden']) as Spawn['kind'][];
+    if(room.role==='branch'){const pack=pick(int(2,4+Math.min(2,level-1)),.35);if(progress>.55&&random()<.35)pack.push('warden');return pack;}
     // A hall with nothing in it is pacing, not a gap: it lets the last fight land before the next one starts.
     // Two of them back to back is just a long empty walk, so a quiet hall is always followed by a fight.
     if(!quietRun&&random()<.25){quietRun=true;return [];}
@@ -125,9 +134,11 @@ export function generateFloor(seed: number) {
     if(progress<.7)return pick(int(2,3),.4);
     return [...pick(int(2,3),.5),'warden' as const];
   };
+  const tilesByRoom=new Map<number,typeof tiles>();
+  for(const t of tiles)if(t.room>=0){const list=tilesByRoom.get(t.room);if(list)list.push(t);else tilesByRoom.set(t.room,[t]);}
   for(const room of rooms){
     if(room.id===0)continue;
-    const open=tiles.filter(t=>t.room===room.id);if(!open.length)continue;
+    const open=tilesByRoom.get(room.id);if(!open?.length)continue;
     const pack=roster(room),ambush=room.role!=='goal'&&pack.length>0&&random()<.3;
     for(const kind of pack)for(let tries=0;tries<40;tries++){
       const t=open[int(0,open.length-1)];
@@ -135,7 +146,7 @@ export function generateFloor(seed: number) {
       spawns.push({x:t.x,z:t.z,kind,room:room.id,ambush});break;
     }
   }
-  return {seed,rooms,edges,cells,tiles,bounds,props,spawns,start:0,goal:goal.id,spine:spine.map(r=>r.id),guardCount:spawns.length};
+  return {seed,level,rooms,edges,cells,tiles,bounds,props,spawns,start:0,goal:goal.id,spine:spine.map(r=>r.id),guardCount:spawns.length};
 }
 
 export function canStand(cells: Set<string>, x: number, z: number, radius = 0.32) {

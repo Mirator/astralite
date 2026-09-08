@@ -25,6 +25,17 @@ button, kbd { font: inherit; }
 .xp-track::-moz-progress-bar { background: #74d9bd; }
 .xp-caption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; color: #acbbb8; font-size: 12px; }
 .xp-caption strong { color: #a8f3de; font-weight: 500; }
+.health-row b small { color: #7f918f; font-size: .62em; font-weight: 500; }
+.boon-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 9px; }
+.boon-list span { padding: 2px 6px; border: 1px solid #cf9c5b44; background: #cf9c5b14; color: #e6c68d; font: 600 9px/1.4 var(--font-geist-mono); letter-spacing: .06em; }
+.end-card.boon-card { width: min(660px, calc(100% - 36px)); padding: 34px 30px; }
+.end-card.boon-card h1 { font-size: clamp(24px, 4vw, 34px); margin: 12px 0 4px; }
+.boon-card .boon-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 22px; }
+/* Beats the shared `.end-card button` skin, which is meant for the single red restart button. */
+.end-card .boon-option { display: grid; align-content: start; gap: 7px; margin: 0; padding: 15px 13px; text-align: left; border: 1px solid #8fb8ae55; background: #0d1a1fd9; color: inherit; font: inherit; letter-spacing: normal; cursor: pointer; transition: border-color .12s, background .12s; }
+.end-card .boon-option:hover, .end-card .boon-option:focus-visible { border-color: #f2c47b; background: #16262cf2; }
+.end-card .boon-option strong { color: #e9c98f; font: 650 12px/1.3 var(--font-geist-mono); letter-spacing: .06em; }
+.end-card .boon-option span { color: #a9bfbb; font-size: 12px; line-height: 1.5; }
 .xp-summary { display: grid; gap: 6px; margin-top: 20px; }
 .xp-summary strong { color: #a8f3de; font-size: 22px; }
 .xp-summary span { color: #acbbb8; font-size: 12px; }
@@ -94,6 +105,7 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
  .floor-map { top: 72px; right: 14px; left: auto; width: 115px; padding: 7px; }.floor-map svg { height: 75px; }.floor-map span { font-size: 10px; }
  .floor-objective { left: auto; right: 14px; top: 201px; width: 115px; gap: 4px; }.floor-objective > span { font-size: 8px; line-height: 1.5; }.floor-objective b { font-size: 17px; }.floor-objective i { font-size: 10px; }
  .intro-screen { justify-content: center; padding: 70px 28px 25px; background: #041015e6; }.intro-card h1 { font-size: 60px; margin: 16px 0; }.intro-card > p { font-size: 14px; line-height: 1.6; }.intro-controls { margin: 20px 0; }.intro-card > small { margin-top: 15px; }
+ .boon-card .boon-options { grid-template-columns: 1fr; gap: 7px; }.end-card .boon-option { padding: 11px; }.end-card.boon-card { padding: 24px 18px; }
  .chamber-notice { top: 32%; width: 90%; }.chamber-notice b { font-size: 20px; white-space: normal; }.start-prompt { bottom: 172px; width: 80%; }
  .touch-pad { bottom: 24px; }.touch-actions { bottom: 39px; }
 }
