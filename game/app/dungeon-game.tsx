@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
 import { createDungeonAudio } from './dungeon-audio';
+import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
 import { generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 
 type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh };
@@ -36,7 +37,7 @@ function makeKnight() {
   const g = new THREE.Group();
   const dark = new THREE.MeshStandardMaterial({ color: 0x17202a, roughness: 0.8 });
   const steel = new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.48, metalness: 0.35 });
-  const red = new THREE.MeshStandardMaterial({ color: 0x851f22, roughness: 0.9 });
+  const red = new THREE.MeshStandardMaterial({ color: 0x9b292d, roughness: 0.9, side: THREE.DoubleSide });
   const leather = new THREE.MeshStandardMaterial({ color: 0x5b3728, roughness: 1 });
   const body = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.48, 0.8, 6), dark);
   body.position.y = 0.72;
@@ -44,8 +45,11 @@ function makeKnight() {
   head.position.y = 1.36; head.scale.z = 0.86;
   const visor = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.09, 0.12), dark);
   visor.position.set(0, 1.38, -0.26);
-  const cape = new THREE.Mesh(new THREE.ConeGeometry(0.56, 1.18, 5, 1, true, 0.3), red);
-  cape.position.set(0, 0.68, 0.31); cape.rotation.x = 0.1;
+  const capeGeometry = new THREE.PlaneGeometry(.88,1.12,6,8);
+  const cloth = capeGeometry.getAttribute('position');
+  for(let i=0;i<cloth.count;i++){const free=(.56-cloth.getY(i))/1.12;cloth.setX(i,cloth.getX(i)*(.65+free*.4));cloth.setZ(i,free*.2);}
+  const cape = new THREE.Mesh(capeGeometry, red);
+  cape.position.set(0, 0.69, 0.3); cape.rotation.x = 0.1;
   const belt = new THREE.Mesh(new THREE.TorusGeometry(0.39, 0.055, 5, 8), leather);
   belt.position.y = 0.67; belt.rotation.x = Math.PI / 2;
   const swordPivot = new THREE.Group();
@@ -105,6 +109,7 @@ function makeSkeleton(index: number) {
   weapon.position.set(0.42, 0.84, -0.28); weapon.rotation.x = -0.4;
   g.add(pelvis, spine, ribs, skull, ...sockets, ...limbs, shield, weapon);
   g.userData.weapon = weapon;
+  g.userData.limbs = limbs; g.userData.skull = skull; g.userData.shield = shield;
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
   return g;
 }
@@ -172,6 +177,7 @@ export default function DungeonGame() {
     let reached = 0, loot = 0, level = 1;
     let floorGroup = new THREE.Group();
     let water: THREE.Mesh | null = null;
+    let tide: ReturnType<typeof tidalMaterial> | null = null;
     // Building a floor is the only place this game can stutter, so each phase is timed and reported.
     let buildMs: Record<string, number> = {};
     const goalRoom = () => floor.rooms[floor.goal];
@@ -217,6 +223,7 @@ export default function DungeonGame() {
     scene.add(new THREE.HemisphereLight(0x7396a0, 0x25343b, 2.0));
     const moon = new THREE.DirectionalLight(0x89afc0, 2.8);
     moon.position.set(-7, 12, 9); moon.castShadow = true; moon.shadow.mapSize.set(1536, 1536);
+    moon.shadow.radius = 2; moon.shadow.normalBias = .035; moon.shadow.bias = -.00015;
     moon.shadow.camera.left = moon.shadow.camera.bottom = -12; moon.shadow.camera.right = moon.shadow.camera.top = 12; scene.add(moon);
     const world = new THREE.Group(); scene.add(world);
     const matrix = new THREE.Matrix4();
@@ -238,6 +245,20 @@ export default function DungeonGame() {
     const burst = (at: THREE.Vector3, color = 0xffb24a, amount = 12) => { for (let i = 0; i < amount; i++) { const mesh = new THREE.Mesh(sparkGeo, color === 0xffb24a ? sparkMat : new THREE.MeshBasicMaterial({ color, toneMapped: false })); mesh.position.copy(at).add(new THREE.Vector3(0, 0.8, 0)); const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 3.5; particles.push({ mesh, velocity: new THREE.Vector3(Math.cos(a) * s, 1.5 + Math.random() * 3, Math.sin(a) * s), life: 0.35 + Math.random() * 0.3 }); world.add(mesh); } };
     const slash = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.15, 28, 1, -1.15, 2.3), new THREE.MeshBasicMaterial({ color: 0xfff0c6, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
     slash.rotation.x = -Math.PI / 2; slash.position.y = 0.72; world.add(slash);
+    // A tapered sweep carries the blade direction through the contact pose.
+    const slashPositions = slash.geometry.getAttribute('position');
+    for(let i=0;i<slashPositions.count;i++){
+      const x=slashPositions.getX(i),y=slashPositions.getY(i),angle=Math.atan2(y,x),radius=Math.hypot(x,y);
+      const taper=THREE.MathUtils.clamp((angle+1.15)/2.3,0,1);
+      const r=radius<1.05?1.15-(.025+.23*taper):1.15;
+      slashPositions.setXY(i,Math.cos(angle)*r,Math.sin(angle)*r);
+    }
+    const trailGeo=new THREE.PlaneGeometry(.11,1.15);
+    const dashTrails=Array.from({length:12},()=>{
+      const m=new THREE.Mesh(trailGeo,new THREE.MeshBasicMaterial({color:0xa9e5db,transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending}));
+      m.rotation.x=-Math.PI/2;m.userData.life=0;world.add(m);return m;
+    });
+    let trailCursor=0,trailClock=0;
     let pathCell = '';
     const distances = new Map<string,number>();
     const updatePaths = () => {
@@ -254,6 +275,7 @@ export default function DungeonGame() {
       world.remove(floorGroup);
       particles.forEach(p => { world.remove(p.mesh); if (p.mesh.material !== sparkMat) (p.mesh.material as THREE.Material).dispose(); });
       particles.length = 0;
+      dashTrails.forEach(m=>{m.userData.life=0;(m.material as THREE.MeshBasicMaterial).opacity=0;});
     };
     const buildFloor = (nextLevel: number) => {
       const clock = performance.now(); let mark = clock;
@@ -269,6 +291,7 @@ export default function DungeonGame() {
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
       reached = 0; loot = 0; activeRoom = 0; pathCell = ''; distances.clear();
       const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, color: 0xffffff, roughness: 0.98, emissive: 0x253b42, emissiveIntensity: 0.35 });
+      weatherStone(floorMaterial);
       const stoneTiles = floor.tiles.filter(t=>!t.wood), bridgeTiles = floor.tiles.filter(t=>t.wood);
       const tiles = new THREE.InstancedMesh(new THREE.BoxGeometry(1.44, 2.8, 1.44), floorMaterial, stoneTiles.length);
       stoneTiles.forEach(({x,z,room},i)=>{matrix.makeTranslation(x*TILE,-1.38,z*TILE);tiles.setMatrixAt(i,matrix);const theme=room>=0?floor.rooms[room].theme:'keep';const color=new THREE.Color(theme==='ruins'?0x8b9480:theme==='flooded'?0x78908e:0x969185);color.multiplyScalar(.88+Math.abs(x*7+z*3)%5*.045);tiles.setColorAt(i,color);});
@@ -277,7 +300,8 @@ export default function DungeonGame() {
       const planks = new THREE.InstancedMesh(new THREE.BoxGeometry(1.43,.2,.34),new THREE.MeshStandardMaterial({color:0x665040,roughness:.95}),bridgeTiles.length*4);
       bridgeTiles.forEach(({x,z},i)=>{for(let n=0;n<4;n++){matrix.makeTranslation(x*TILE,-.09,z*TILE+(n-1.5)*.365);planks.setMatrixAt(i*4+n,matrix);planks.setColorAt(i*4+n,new THREE.Color(n%2?0xbca17d:0xd0b68f));}});planks.receiveShadow=true;floorGroup.add(planks);
       const { minX, maxX, minZ, maxZ } = floor.bounds;
-      water = new THREE.Mesh(new THREE.PlaneGeometry((maxX - minX + 40) * TILE, (maxZ - minZ + 40) * TILE), new THREE.MeshStandardMaterial({ color: 0x0b6670, emissive: 0x062e39, emissiveIntensity: 0.7, roughness: 0.24, metalness: 0.22 }));
+      tide = tidalMaterial();
+      water = new THREE.Mesh(new THREE.PlaneGeometry((maxX - minX + 40) * TILE, (maxZ - minZ + 40) * TILE), tide.material);
       water.rotation.x = -Math.PI / 2; water.position.set((minX + maxX) * TILE / 2, -2.8, (minZ + maxZ) * TILE / 2); floorGroup.add(water);
       const borders: { x: number; z: number; horizontal: boolean }[] = [];
       floor.tiles.forEach(({ x, z }) => { for (const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]) if (!floor.cells.has(cellKey(x + dx,z + dz))) borders.push({ x: (x + dx * 0.5) * TILE, z: (z + dz * 0.5) * TILE, horizontal: dz !== 0 }); });
@@ -392,6 +416,14 @@ export default function DungeonGame() {
       const dt = hitStop > 0 ? 0 : frameDt; hitStop = Math.max(0, hitStop - frameDt);
       torchLights.forEach((l, i) => { l.intensity = 16 + Math.sin(t * 9 + i * 2.2) * 1.4 + Math.sin(t * 17) * 0.5; });
       if (water) water.position.y = -2.8 + Math.sin(t * 0.9) * 0.05;
+      if (tide) tide.time.value=t;
+      animateCloth(player.userData.cape,t,dashTime>0?.32:velocity.lengthSq()>0?.16:.045);
+      trailClock-=dt;
+      if(dashTime>0 && trailClock<=0){
+        const trail=dashTrails[trailCursor++%dashTrails.length];trail.position.copy(player.position);trail.position.y=.09;
+        trail.rotation.z=Math.atan2(-dashFacing.z,dashFacing.x)+Math.PI/2;trail.userData.life=.26;trailClock=.025;
+      }
+      dashTrails.forEach(m=>{m.userData.life=Math.max(0,m.userData.life-dt);(m.material as THREE.MeshBasicMaterial).opacity=m.userData.life*1.8;m.scale.x=.6+m.userData.life*2;});
       if (hasStarted && gameStatus === 'playing') {
         attackBuffer = Math.max(0, attackBuffer - dt);
         if (attackBuffer === 0) bufferedFacing = null;
@@ -424,7 +456,7 @@ export default function DungeonGame() {
         if (moving) { footstepTime -= dt; if (footstepTime <= 0 && dashTime <= 0) { audio.play('step'); footstepTime = 0.29; } walkPhase += dt * speed * 3.3; setShowHelp(false); }
         const stride = moving && dashTime <= 0 ? Math.sin(walkPhase) * 0.6 : 0;
         player.userData.legs.forEach((leg: THREE.Group, i: number) => { leg.rotation.x = THREE.MathUtils.damp(leg.rotation.x, i ? -stride : stride, 28, dt); });
-        player.position.y = 0.03 + (moving ? Math.abs(Math.sin(walkPhase)) * 0.055 : 0);
+        player.position.y = 0.03 + (moving ? Math.abs(Math.sin(walkPhase)) * 0.055 : Math.sin(t*2.4)*.012);
         player.rotation.x = THREE.MathUtils.damp(player.rotation.x, dashTime > 0 ? -0.3 : moving ? -0.07 : 0, 24, dt);
         player.userData.cape.rotation.x = THREE.MathUtils.damp(player.userData.cape.rotation.x, dashTime > 0 ? 0.95 : moving ? 0.35 + Math.sin(walkPhase) * 0.08 : 0.1, 16, dt);
         dashTime = Math.max(0, dashTime - dt);
@@ -436,10 +468,10 @@ export default function DungeonGame() {
           player.userData.sword.rotation.y = swing;
           player.userData.body.rotation.z = -Math.sin(age / 0.38 * Math.PI) * 0.13;
           slash.position.copy(player.position); slash.position.y += 0.72;
-          slash.rotation.z = Math.atan2(-attackFacing.z, attackFacing.x);
+          slash.rotation.z = Math.atan2(-attackFacing.z, attackFacing.x) + swing*.24;
           const active = age >= 0.065 && age <= 0.175;
           (slash.material as THREE.MeshBasicMaterial).opacity = active ? 0.65 : Math.max(0, 1 - (age - 0.175) / 0.09) * (age > 0.175 ? 0.35 : 0);
-          slash.scale.setScalar(1.45);
+          slash.scale.setScalar(1.45+reach*.55);
           if (active) enemyData.forEach((enemy) => {
             if (enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
             const delta = enemy.group.position.clone().sub(player.position); delta.y = 0;
@@ -499,6 +531,12 @@ export default function DungeonGame() {
             }
           }
           enemy.group.position.y = 0.03 + Math.abs(Math.sin(t * 6 + enemy.phase)) * 0.045;
+          const walking=dist>1.15&&enemy.windup<=0&&enemy.hitFlash<=0;
+          const gait=walking?Math.sin(t*enemy.speed*5+enemy.phase)*.48:0;
+          enemy.group.userData.limbs.forEach((limb:THREE.Mesh,i:number)=>{limb.rotation.x=THREE.MathUtils.damp(limb.rotation.x,(i<2?1:-1)*(i%2?gait:-gait*.55),18,dt);});
+          enemy.group.rotation.x=THREE.MathUtils.damp(enemy.group.rotation.x,enemy.hitFlash>0?-.2:enemy.windup>0?-.12:0,18,dt);
+          enemy.group.userData.skull.rotation.y=Math.sin(t*1.5+enemy.phase)*.06;
+          enemy.group.userData.shield.rotation.z=enemy.windup>0?-.25:gait*.16;
           enemy.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.emissive.setHex(enemy.hitFlash > 0 ? 0xffa34a : enemy.windup > 0 ? 0xb83915 : 0x000000); o.material.emissiveIntensity = enemy.hitFlash > 0 ? 0.8 : 0.5; } });
         });
         // Separate bodies without moving a guard during its committed windup.

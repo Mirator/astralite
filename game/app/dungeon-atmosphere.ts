@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { TILE, type generateFloor } from './dungeon-floor';
+import { animateCloth, glowTexture } from './dungeon-motion';
 
 export function stoneTexture() {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
@@ -39,7 +40,10 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const flowTexture=new THREE.CanvasTexture(waterCanvas);flowTexture.wrapT=THREE.RepeatWrapping;flowTexture.repeat.y=2;flowTexture.colorSpace=THREE.SRGBColorSpace;
   const flowing=new THREE.MeshBasicMaterial({map:flowTexture,color:0xc6f0e7,transparent:true,opacity:.85,side:THREE.DoubleSide});
   const warm=new THREE.MeshBasicMaterial({color:0xffba65,toneMapped:false}),foam=new THREE.MeshBasicMaterial({color:0xb4e6de,transparent:true,opacity:.7,depthWrite:false});
-  const flames:THREE.Mesh[]=[],torchPositions:THREE.Vector3[]=[],banners:THREE.Mesh[]=[],seals:THREE.Mesh[]=[],falls:THREE.Mesh[]=[];
+  const flames:THREE.Mesh[]=[],torchPositions:THREE.Vector3[]=[],banners:THREE.Mesh[]=[],seals:THREE.Mesh[]=[],falls:THREE.Mesh[]=[],ripples:THREE.Mesh[]=[];
+  const glowMap=glowTexture(),halos:THREE.Sprite[]=[];
+  const haloMaterial=new THREE.SpriteMaterial({map:glowMap,color:0xffbc70,transparent:true,opacity:.55,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false});
+  const coreMaterial=new THREE.MeshBasicMaterial({color:0xffefb9,toneMapped:false});
   let state=floor.seed^0x12345;const random=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/4294967296;};
   function mesh(geo:THREE.BufferGeometry,material:THREE.Material,x:number,y:number,z:number){const m=new THREE.Mesh(geo,material);m.position.set(x,y,z);m.castShadow=m.receiveShadow=true;world.add(m);return m;}
   for(const p of floor.props){const x=p.x*TILE,z=p.z*TILE;
@@ -47,6 +51,8 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     if(p.kind==='brazier'){
       mesh(PROP.bowl,stone,x,.42,z);mesh(PROP.rim,trim,x,.95,z);
       const flame=mesh(PROP.flame,warm,x,1.33,z);flame.castShadow=false;flames.push(flame);torchPositions.push(new THREE.Vector3(x,1.7,z));
+      const core=new THREE.Mesh(PROP.flame,coreMaterial);core.scale.set(.55,.8,.55);core.position.y=-.04;flame.add(core);
+      const halo=new THREE.Sprite(haloMaterial);halo.position.set(x,1.48,z);halo.scale.set(2.7,3.5,1);world.add(halo);halos.push(halo);
     } else if(p.kind==='barrel'){
       mesh(PROP.barrel,wood,x,.52,z);
       for(const y of [.2,.78])mesh(PROP.hoop,trim,x,y,z);
@@ -86,7 +92,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     const edges=(tilesByRoom.get(room.id)??[]).flatMap(t=>[[1,0],[0,1]].filter(([dx,dz])=>!solid.has(packed(t.x+dx,t.z+dz))).map(([dx,dz])=>({x:t.x,z:t.z,dx,dz})));
     if(!edges.length)continue;const e=edges[Math.floor(random()*edges.length)],x=(e.x+e.dx*.58)*TILE,z=(e.z+e.dz*.58)*TILE;
     const fall=mesh(new THREE.PlaneGeometry(1.15,2.8,3,5),flowing,x,-1.38,z);if(e.dx)fall.rotation.y=Math.PI/2;fall.castShadow=false;falls.push(fall);
-    for(let i=0;i<4;i++){const ring=mesh(new THREE.RingGeometry(.22+i*.13,.25+i*.13,24),foam,x,-2.73,z);ring.rotation.x=-Math.PI/2;ring.castShadow=false;}
+    for(let i=0;i<4;i++){const ring=mesh(new THREE.RingGeometry(.22+i*.13,.25+i*.13,24),foam,x,-2.69+i*.008,z);ring.rotation.x=-Math.PI/2;ring.castShadow=false;ripples.push(ring);}
   }
   const chips:THREE.Vector3[]=[];for(const room of floor.rooms){const local=tilesByRoom.get(room.id)??[];for(let i=0;i<(room.theme==='ruins'?25:9);i++){const t=local[Math.floor(random()*local.length)];if(t)chips.push(new THREE.Vector3((t.x+random()-.5)*TILE,.05,(t.z+random()-.5)*TILE));}}
   const debris=new THREE.InstancedMesh(new THREE.DodecahedronGeometry(.2),stone,chips.length),chipMatrix=new THREE.Matrix4();const up=new THREE.Vector3(0,1,0),chipSpin=new THREE.Quaternion(),chipSize=new THREE.Vector3();chips.forEach((p,i)=>{chipMatrix.compose(p,chipSpin.setFromAxisAngle(up,random()*6.28),chipSize.set(.5+random(),.22,.5+random()));debris.setMatrixAt(i,chipMatrix);});debris.receiveShadow=true;world.add(debris);
@@ -107,11 +113,19 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   }
   const motesGeo=new THREE.BufferGeometry(),positions=new Float32Array(100*3);for(let i=0;i<100;i++){positions[i*3]=(random()-.5)*30;positions[i*3+1]=random()*4;positions[i*3+2]=(random()-.5)*30;}
   motesGeo.setAttribute('position',new THREE.BufferAttribute(positions,3));const motes=new THREE.Points(motesGeo,new THREE.PointsMaterial({color:0xb6d6c8,size:.035,transparent:true,opacity:.5,depthWrite:false}));world.add(motes);
+  const emberGeo=new THREE.BufferGeometry(),emberPositions=new Float32Array(torchPositions.length*6*3);
+  emberGeo.setAttribute('position',new THREE.BufferAttribute(emberPositions,3));
+  const emberMaterial=new THREE.PointsMaterial({color:0xffb45b,size:.065,transparent:true,opacity:.8,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false});
+  const embers=new THREE.Points(emberGeo,emberMaterial);embers.frustumCulled=false;world.add(embers);
   return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,update(t:number,player:THREE.Vector3,cleared:Set<number>){
     motes.position.set(player.x,Math.sin(t*.2)*.2,player.z);motes.rotation.y=t*.01;
     flames.forEach((f,i)=>{f.scale.set(.9+Math.sin(t*7+i)*.1,1.65+Math.sin(t*9+i)*.3,.85);f.rotation.y=t+i;});
-    banners.forEach((b,i)=>{b.rotation.z=Math.sin(t*1.3+i)*.035;});
+    banners.forEach((b,i)=>{if(b.position.distanceToSquared(player)<900)animateCloth(b,t+i,.1);});
+    halos.forEach((h,i)=>{const pulse=1+Math.sin(t*9+i)*.06;h.scale.set(2.7*pulse,3.5*pulse,1);});
+    torchPositions.forEach((p,i)=>{for(let j=0;j<6;j++){const phase=(t*.48+j/6+i*.17)%1,k=(i*6+j)*3;emberPositions[k]=p.x+Math.sin(t*1.4+j*5+i)*phase*.3;emberPositions[k+1]=p.y-.3+phase*1.6;emberPositions[k+2]=p.z+Math.cos(t+j*4)*phase*.25;}});
+    emberGeo.attributes.position.needsUpdate=true;
+    ripples.forEach((r,i)=>{const phase=(t*.65+(i%4)*.25)%1;r.scale.setScalar(.65+phase*1.7);});
     seals.forEach((seal,i)=>{const m=seal.material as THREE.MeshBasicMaterial;m.color.setHex(cleared.has(i)?0x9dcf9e:0x7faeae);m.opacity=cleared.has(i)?.6:.16;});
     flowTexture.offset.y=t*.5;falls.forEach((f,i)=>{f.scale.x=1+Math.sin(t*4+i)*.06;});
-  },dispose(){flowTexture.dispose();motesGeo.dispose();(motes.material as THREE.Material).dispose();}};
+  },dispose(){flowTexture.dispose();glowMap.dispose();haloMaterial.dispose();coreMaterial.dispose();emberGeo.dispose();emberMaterial.dispose();motesGeo.dispose();(motes.material as THREE.Material).dispose();}};
 }

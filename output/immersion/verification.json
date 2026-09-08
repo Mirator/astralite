@@ -1,0 +1,33 @@
+{
+  "checks": [
+    "movement",
+    "dash",
+    "pause freeze",
+    "guard kill and XP",
+    "waterfall motion",
+    "boon selection",
+    "floor rebuild disposal",
+    "mobile held strike release"
+  ],
+  "resources": [
+    {
+      "geometries": 50,
+      "textures": 5,
+      "calls": 112,
+      "triangles": 87302
+    },
+    {
+      "geometries": 49,
+      "textures": 5,
+      "calls": 121,
+      "triangles": 54992
+    },
+    {
+      "geometries": 49,
+      "textures": 5,
+      "calls": 106,
+      "triangles": 72758
+    }
+  ],
+  "errors": []
+}
