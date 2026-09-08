@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: 'The Drowned Keep',
-  description: 'A short isometric dungeon combat encounter.',
+  description: 'Explore a procedural drowned fortress in an atmospheric isometric dungeon adventure.',
 };
 
 export default function RootLayout({
