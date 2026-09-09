@@ -5,9 +5,9 @@ import * as THREE from 'three';
 import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
 import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
-import { generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
+import { generateFloor, moveOnFloor, hasClearPath, cellKey, TILE } from './dungeon-floor';
 
-type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh };
+type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh };
 type GameToolContext = {
   registerTool: (tool: {
     name: string;
@@ -128,6 +128,7 @@ export default function DungeonGame() {
   const [visitedCount, setVisitedCount] = useState(1);
   const mapPlayer = useRef<SVGCircleElement>(null);
   const [status, setStatus] = useState<'playing' | 'complete' | 'won' | 'lost'>('playing');
+  const [mapOpen, setMapOpen] = useState(false);
   const [floorResult, setFloorResult] = useState({ kills: 0, xp: 0, seconds: 0 });
   const [started, setStarted] = useState(false), [paused, setPaused] = useState(false), [muted, setMuted] = useState(false);
   const [roomName, setRoomName] = useState('The Tide Gate'), [plundered, setPlundered] = useState(0);
@@ -338,13 +339,13 @@ export default function DungeonGame() {
       phase('atmosphere');
       enemyData = floor.spawns.map((spawn, index) => {
         const kind = spawn.kind;
-        const maxHp = kind === 'warden' ? 4 : 2, tell = kind === 'warden' ? 0.72 : kind === 'stalker' ? 0.36 : 0.5;
+        const maxHp = kind === 'warden' ? 4 : 2, tell = kind === 'warden' ? 0.72 : kind === 'stalker' ? 0.58 : 0.5;
         const group = makeSkeleton(kind === 'stalker' ? 1 : 0); group.position.set(spawn.x * TILE,0.03,spawn.z * TILE); group.visible = !spawn.ambush; floorGroup.add(group);
         if (kind === 'warden') { group.scale.setScalar(1.3); const crown = new THREE.Mesh(BONES.crown,new THREE.MeshStandardMaterial({color:0xc5a264,metalness:0.6,roughness:0.45}));crown.position.y=1.7;group.add(crown); }
         if (kind === 'stalker') group.scale.set(0.82,0.94,0.82);
-        const cue = new THREE.Mesh(BONES.cue,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xff522b:0xffae52,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false}));cue.rotation.x=-Math.PI/2;floorGroup.add(cue);
+        const cue = new THREE.Mesh(kind === 'stalker' ? new THREE.PlaneGeometry(5,1.7).translate(2.5,0,0) : BONES.cue,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xff522b:0xffae52,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false}));cue.rotation.x=-Math.PI/2;floorGroup.add(cue);
         const bar = new THREE.Mesh(BONES.bar,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xffb65f:0xe89a79,depthTest:false}));bar.renderOrder=10;floorGroup.add(bar);
-        return { group, hp:maxHp, maxHp, kind, tell, damage:kind==='warden'?20:kind==='stalker'?8:12, cue, bar, speed:kind==='stalker'?3.2:kind==='warden'?1.65:2.2, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, phase:spawn.room*1.7+index*0.6, windup:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush };
+        return { group, hp:maxHp, maxHp, kind, tell, damage:kind==='warden'?20:kind==='stalker'?8:12, cue, bar, speed:kind==='stalker'?3.2:kind==='warden'?1.65:2.2, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush };
       });
       phase('enemies');
       player.position.set(floor.rooms[0].x * TILE, 0.03, floor.rooms[0].z * TILE);
@@ -358,7 +359,7 @@ export default function DungeonGame() {
       if (gameStatus !== 'playing' || choosing || activeRoom !== floor.goal || !stairClear()) return;
       gameStatus = 'complete'; setStatus('complete'); keys.clear(); attackBuffer = 0; bufferedFacing = null; velocity.set(0,0,0);
       setFloorResult({kills: kills - floorKills, xp: totalXp - floorXp, seconds: Math.round(elapsed - floorStart)});
-      setNotice(''); audio.play('win'); audio.pause(true);
+      setNotice(''); audio.play('win');
     };
     const continueDescent = () => {
       if (gameStatus !== 'complete') return;
@@ -401,12 +402,12 @@ export default function DungeonGame() {
     const togglePause = () => {
       // Pausing on top of an open boon draft would stack two overlays; the draft already holds the world still.
       if (!hasStarted || gameStatus !== 'playing' || choosing) return;
-      isPaused = !isPaused; keys.clear(); attackBuffer = 0; bufferedFacing = null; setPaused(isPaused); audio.pause(isPaused);
+      isPaused = !isPaused; setMapOpen(false); keys.clear(); attackBuffer = 0; bufferedFacing = null; setPaused(isPaused); audio.pause(isPaused);
     };
     const toggleMute = () => { isMuted = !isMuted; audio.mute(isMuted); setMuted(isMuted); };
     const fullscreen = () => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); else void mount.parentElement?.requestFullscreen?.().catch(() => undefined); };
     const keyDown = (e: KeyboardEvent) => {
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+      if (hasStarted && !isPaused && !choosing && gameStatus === 'playing' && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
       if (!e.repeat && e.code === 'Escape') { togglePause(); return; }
       if (!e.repeat && e.code === 'KeyM') { toggleMute(); return; }
       if (!e.repeat && e.code === 'KeyF') { fullscreen(); return; }
@@ -421,6 +422,7 @@ export default function DungeonGame() {
       const detail = (e as CustomEvent<string>).detail;
       if (detail === 'continue') { continueDescent(); return; }
       if (detail === 'start') { if (hasStarted) return; floorStart = elapsed; hasStarted = true; setStarted(true); audio.start(); return; }
+      if (detail === 'map') { if (!hasStarted || choosing || gameStatus !== 'playing') return; if (!isPaused) togglePause(); setMapOpen(true); return; }
       if (detail === 'pause') { togglePause(); return; }
       if (detail === 'mute') { toggleMute(); return; }
       if (detail === 'fullscreen') { fullscreen(); return; }
@@ -469,9 +471,12 @@ export default function DungeonGame() {
         velocity.copy(dashTime > 0 ? dashFacing : input).multiplyScalar(speed);
         moveOnFloor(floor.cells, player.position, velocity.x * dt, velocity.z * dt);
         updatePaths();
-        const currentRoom = floor.rooms.find(r => Math.abs(player.position.x / TILE-r.x)<=r.halfX && Math.abs(player.position.z / TILE-r.z)<=r.halfZ);
-        if (currentRoom && activeRoom !== currentRoom.id) {
-          activeRoom = currentRoom.id; setRoomName(floor.rooms[activeRoom].name);
+        const roomId = floor.roomByCell.get(cellKey(Math.round(player.position.x/TILE),Math.round(player.position.z/TILE))) ?? -1;
+        const currentRoom = floor.rooms[roomId];
+        const entered = activeRoom !== roomId;
+        if (entered) { activeRoom = roomId; setRoomName(currentRoom?.name ?? 'Passage'); }
+        if (currentRoom && entered) {
+          if (!visited.has(roomId)) { visited.add(roomId); setVisitedCount(visited.size); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#6a9995'); }
           // Only the trunk counts as progress; a dead end must never read as ground gained.
           if (spineRooms.has(currentRoom.id) && currentRoom.depth > reached) { reached = currentRoom.depth; setAdvance(reached); }
           if (currentRoom.id === floor.goal && !stairClear()) { setNotice(`${goalRoom().name} · wardens bar the stair`); setNoticeDetail('Break them to leave the keep'); noticeTime = 4; }
@@ -500,7 +505,7 @@ export default function DungeonGame() {
             if (firing && near < 1.8 && dashTime <= 0 && hurtFlash <= 0) { hp = Math.max(0,hp-10); setHealth(hp); hurtFlash = .65; shake = .1; audio.play('hurt'); burst(player.position,0xff782c,8); if(hp===0){gameStatus='lost';setStatus('lost');} }
           }
         }
-        floor.rooms.forEach(r => { if (Math.abs(player.position.x / TILE - r.x) <= r.halfX && Math.abs(player.position.z / TILE - r.z) <= r.halfZ && !visited.has(r.id)) { visited.add(r.id); setVisitedCount(visited.size); document.getElementById(`map-room-${r.id}`)?.setAttribute("fill", "#6a9995"); } });
+
         if (moving) { footstepTime -= dt; if (footstepTime <= 0 && dashTime <= 0) { audio.play('step'); footstepTime = 0.29; } walkPhase += dt * speed * 3.3; }
         const stride = moving && dashTime <= 0 ? Math.sin(walkPhase) * 0.6 : 0;
         player.userData.legs.forEach((leg: THREE.Group, i: number) => { leg.rotation.x = THREE.MathUtils.damp(leg.rotation.x, i ? -stride : stride, 28, dt); });
@@ -521,11 +526,11 @@ export default function DungeonGame() {
           (slash.material as THREE.MeshBasicMaterial).opacity = active ? 0.65 : Math.max(0, 1 - (age - 0.175) / 0.09) * (age > 0.175 ? 0.35 : 0);
           slash.scale.setScalar(1.45+reach*.55);
           if (active) enemyData.forEach((enemy) => {
-            if (enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
+            if (gameStatus !== 'playing' || enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
             const delta = enemy.group.position.clone().sub(player.position); delta.y = 0;
             if (delta.length() < 1.8 + reach && delta.normalize().dot(attackFacing) > 0.35 - reach * 0.12) {
               audio.play('hit');
-              swingHits.add(enemy); enemy.hp -= strike; enemy.hitFlash = 0.2; if (enemy.kind !== 'warden') enemy.windup = 0;
+              swingHits.add(enemy); enemy.hp -= strike; enemy.hitFlash = 0.2; if (enemy.kind !== 'warden' && enemy.windup > .18) enemy.windup = 0;
               enemy.cooldown = Math.max(enemy.cooldown, 0.4);
               moveOnFloor(floor.cells, enemy.group.position, delta.x * (enemy.kind === 'warden' ? 0.1 : 0.38), delta.z * (enemy.kind === 'warden' ? 0.1 : 0.38)); burst(enemy.group.position, 0xffb24a, 7); shake = 0.07; hitStop = 0.035;
               if (enemy.hp <= 0) { enemy.dead = true; kills++; gainXp(XP_PER_ENEMY); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(kills); if (draught) { hp = Math.min(maxHp, hp + draught); setHealth(hp); } if (!cleared.has(enemy.room) && enemyData.every(e => e.room !== enemy.room || e.dead)) {
@@ -544,8 +549,9 @@ export default function DungeonGame() {
         } else { player.userData.sword.rotation.y = THREE.MathUtils.damp(player.userData.sword.rotation.y, 0, 24, dt); player.userData.body.rotation.z = 0; (slash.material as THREE.MeshBasicMaterial).opacity = 0; }
         enemyData.forEach((enemy) => {
           if (!enemy.awake) { enemy.cue.visible = false; enemy.bar.visible = false; return; }
-          enemy.cue.visible = !enemy.dead && enemy.windup > 0; enemy.bar.visible = !enemy.dead && enemy.hp < enemy.maxHp;
+          enemy.cue.visible = !enemy.dead && (enemy.windup > 0 || enemy.lunge > 0); enemy.bar.visible = !enemy.dead && enemy.hp < enemy.maxHp;
           enemy.bar.position.copy(enemy.group.position).add(new THREE.Vector3(0,enemy.kind === 'warden'?2.65:2.05,0)); enemy.bar.quaternion.copy(camera.quaternion); enemy.bar.scale.x = enemy.hp / enemy.maxHp;
+          enemy.cue.scale.setScalar(enemy.kind === 'warden' ? 1.7 : 1);
           enemy.cue.position.copy(enemy.group.position); enemy.cue.position.y = 0.055; enemy.cue.rotation.z = Math.atan2(-enemy.aim.z,enemy.aim.x);
           (enemy.cue.material as THREE.MeshBasicMaterial).opacity = 0.2 + (1 - enemy.windup / enemy.tell) * 0.5;
           if (enemy.dead) { enemy.group.rotation.z += dt * 5; enemy.group.scale.multiplyScalar(Math.max(0.001, 1 - dt * 4.5)); return; }
@@ -553,29 +559,53 @@ export default function DungeonGame() {
           const ex = Math.round(enemy.group.position.x / TILE), ez = Math.round(enemy.group.position.z / TILE);
           if ((distances.get(cellKey(ex,ez)) ?? Infinity) > (enemy.room === activeRoom ? 22 : 10)) return;
           const toPlayer = player.position.clone().sub(enemy.group.position); toPlayer.y = 0; const dist = toPlayer.length();
+          const strikeRange = enemy.kind === 'warden' ? 2.55 : 1.55;
+          const hurtPlayer = () => {
+            if (dashTime > 0 || hurtFlash > 0 || gameStatus !== 'playing') return;
+            hp = Math.max(0,hp-Math.round(enemy.damage*guardAgainst)); setHealth(hp);
+            audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4c2f,8);
+            if(hp===0){gameStatus='lost';setStatus('lost');}
+          };
+          if (enemy.lunge > 0) {
+            const before = enemy.group.position.clone();
+            moveOnFloor(floor.cells,enemy.group.position,enemy.aim.x*13*dt,enemy.aim.z*13*dt);
+            enemy.lunge = Math.max(0,enemy.lunge-dt);
+            // Swept contact prevents a fast pounce from tunnelling through the knight.
+            const travel = enemy.group.position.clone().sub(before), toward = player.position.clone().sub(before); travel.y=0; toward.y=0;
+            const fraction = THREE.MathUtils.clamp(toward.dot(travel)/Math.max(.0001,travel.lengthSq()),0,1);
+            const closest = before.addScaledVector(travel,fraction); closest.y=player.position.y;
+            if(closest.distanceTo(player.position)<.85){hurtPlayer();enemy.lunge=0;}
+            enemy.group.position.y=.03+Math.sin(enemy.lunge/.32*Math.PI)*.3;
+            enemy.group.rotation.x=-.3; enemy.group.userData.weapon.rotation.x=.55;
+            enemy.group.userData.limbs.forEach((limb:THREE.Mesh,i:number)=>{limb.rotation.x=i%2?.75:-.75;});
+            return;
+          }
           if (enemy.windup > 0) {
             enemy.windup = Math.max(0, enemy.windup - dt);
             enemy.group.userData.weapon.rotation.x = -0.4 - Math.sin((1 - enemy.windup / enemy.tell) * Math.PI / 2) * 1.7;
             if (enemy.windup === 0) {
-              enemy.cooldown = 1.25; enemy.group.userData.weapon.rotation.x = 0.55;
-              if (dist < 1.55 && toPlayer.normalize().dot(enemy.aim) > 0.45 && dashTime <= 0 && hurtFlash <= 0 && gameStatus === 'playing') {
-                hp = Math.max(0, hp - Math.round(enemy.damage * guardAgainst)); audio.play('hurt'); hurtFlash = 0.35; shake = 0.12; burst(player.position, 0xff4c2f, 8); setHealth(hp);
-                if (hp <= 0) { gameStatus = 'lost'; setStatus('lost'); }
-              }
+              enemy.cooldown = enemy.kind === 'stalker' ? 1.7 : enemy.kind === 'warden' ? 1.6 : 1.25;
+              enemy.group.userData.weapon.rotation.x = 0.55;
+              if (enemy.kind === 'stalker') { enemy.lunge = .32; audio.play('dash'); }
+              else if (dist < strikeRange && hasClearPath(floor.cells,enemy.group.position,player.position) && toPlayer.normalize().dot(enemy.aim) > .45) hurtPlayer();
             }
           } else {
             enemy.group.rotation.y = Math.atan2(-toPlayer.x, -toPlayer.z);
             enemy.group.userData.weapon.rotation.x = THREE.MathUtils.damp(enemy.group.userData.weapon.rotation.x, -0.4, 10, dt);
             if (enemy.hitFlash <= 0) {
-              if (dist > 1.15) {
+              const attackDistance = enemy.kind === 'stalker' ? 4.2 : enemy.kind === 'warden' ? 2.2 : 1.15;
+              const clearAttackLine = dist <= attackDistance && hasClearPath(floor.cells,enemy.group.position,player.position);
+              if (clearAttackLine && enemy.cooldown <= 0) {
+                enemy.windup=enemy.tell; audio.play('warn'); enemy.aim.copy(toPlayer).normalize();
+              } else if ((dist > (enemy.kind === 'warden' ? 2.0 : 1.15) || !clearAttackLine) && (enemy.kind !== 'stalker' || enemy.cooldown < .9)) {
                 const direction = toPlayer.clone();
-                if (dist > TILE * 1.5) {
+                if (dist > TILE * 1.5 || !clearAttackLine) {
                   const next = [[ex + 1,ez],[ex - 1,ez],[ex,ez + 1],[ex,ez - 1]].filter(([x,z]) => floor.cells.has(cellKey(x,z))).sort((a,b) => (distances.get(cellKey(a[0],a[1])) ?? Infinity) - (distances.get(cellKey(b[0],b[1])) ?? Infinity))[0];
                   if (next) direction.set(next[0] * TILE - enemy.group.position.x,0,next[1] * TILE - enemy.group.position.z);
                 }
                 direction.normalize(); moveOnFloor(floor.cells,enemy.group.position,direction.x * enemy.speed * dt,direction.z * enemy.speed * dt);
               }
-              else if (enemy.cooldown <= 0) { enemy.windup = enemy.tell; audio.play('warn'); enemy.aim.copy(toPlayer).normalize(); }
+
             }
           }
           enemy.group.position.y = 0.03 + Math.abs(Math.sin(t * 6 + enemy.phase)) * 0.045;
@@ -642,7 +672,7 @@ export default function DungeonGame() {
       if (draw) renderer.render(scene, camera);
     };
     hooks.render_game_to_text = () => JSON.stringify({
-      coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, boonOffer: choosing, muted: isMuted, roomName: floor.rooms[activeRoom].name,
+      coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, boonOffer: choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
       health: hp, maxHealth: maxHp, rank: rankLevel, boons: { strike, reach, draught, dashSpan, guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), deadEndsPlundered: loot },
       experience: { total: totalXp, perEnemy: XP_PER_ENEMY, intoRank: rankProgress, rankCost: rankCost(rankLevel), resetsOnNewRun: true },
@@ -651,7 +681,7 @@ export default function DungeonGame() {
       buildMs,
       floor: { level, waterfalls: atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
       player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashTime, dashCooldown, swordAngle: player.userData.sword.rotation.y, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
-      enemies: enemyData.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, windup: e.windup, room: e.room, awake: e.awake })),
+      enemies: enemyData.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake })),
     });
     const animate = (now: number) => {
       if (stopped) return; raf = requestAnimationFrame(animate);
@@ -668,26 +698,30 @@ export default function DungeonGame() {
   const goalName = floorMap?.rooms[floorMap.goal].name ?? 'The Sunken Stair';
   const goalDepth = floorMap?.rooms[floorMap.goal].depth ?? 0;
   const deadEnds = floorMap?.rooms.filter(r => r.role === 'branch').length ?? 0;
+  const mapAngle = Math.atan2(9.2,11.5), mapCos = Math.cos(mapAngle), mapSin = Math.sin(mapAngle);
+  const mapCorners = floorMap ? [[floorMap.bounds.minX,floorMap.bounds.minZ],[floorMap.bounds.maxX,floorMap.bounds.minZ],[floorMap.bounds.minX,floorMap.bounds.maxZ],[floorMap.bounds.maxX,floorMap.bounds.maxZ]].map(([x,z])=>({x:x*mapCos-z*mapSin,y:x*mapSin+z*mapCos})) : [{x:0,y:0}];
+  const mapBounds = {x:Math.min(...mapCorners.map(p=>p.x))-4,y:Math.min(...mapCorners.map(p=>p.y))-4,width:Math.max(...mapCorners.map(p=>p.x))-Math.min(...mapCorners.map(p=>p.x))+8,height:Math.max(...mapCorners.map(p=>p.y))-Math.min(...mapCorners.map(p=>p.y))+8};
   const action = (detail: string) => window.dispatchEvent(new CustomEvent('dungeon-action', { detail }));
   return (
-    <main className="game-shell">
+    <main className={`game-shell${mapOpen ? ' map-expanded' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
       <header className="game-title"><span>{floorLevel} / {FLOORS} · {roomName}</span></header>
       <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || status !== 'playing' || boonChoice.length > 0} aria-label="Pause game">☰</button></nav>
       <section className="hud" aria-label="Player status"><div className="health-row"><span>♥</span><b>{health}<small>/{maxHealth}</small></b></div><div className="health-track" aria-label="Vitality"><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div><div className="dash-status"><progress ref={dashMeter} max="1" value="1" aria-label="Dash readiness" /></div><progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} /></section>
-      {floorMap && <aside className="floor-map" aria-label="Floor map: your position and connected chambers"><svg key={floorMap.seed} viewBox={`${floorMap.bounds.minX - 3} ${floorMap.bounds.minZ - 3} ${floorMap.bounds.maxX - floorMap.bounds.minX + 6} ${floorMap.bounds.maxZ - floorMap.bounds.minZ + 6}`}>
+      {floorMap && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action(mapOpen ? 'pause' : 'map')} aria-label={mapOpen ? 'Close floor map' : 'Open floor map'}><svg key={floorMap.seed} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g transform={`rotate(${mapAngle*180/Math.PI})`}>
         <path d={floorMap.tiles.map(t => `M${t.x - 0.5},${t.z - 0.5}h1v1h-1z`).join('')} fill="#334e56" />
         {floorMap.rooms.map(r => <path key={r.id} id={`map-room-${r.id}`} d={floorMap.tiles.filter(t=>t.room===r.id).map(t=>`M${t.x-.5},${t.z-.5}h1v1h-1z`).join('')} fill={r.id===0?'#6a9995':r.role==='goal'?'#7a5f3c':'#3e6066'} />)}
         <circle cx={floorMap.rooms[floorMap.goal].x} cy={floorMap.rooms[floorMap.goal].z} r="3.4" fill="none" stroke="#ffc573" strokeWidth="0.9" opacity="0.8" />
         <circle ref={mapPlayer} cx={floorMap.rooms[0].x} cy={floorMap.rooms[0].z} r="1.8" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
-      </svg></aside>}
+      </g></svg></button>}
       {notice && started && !paused && status === 'playing' && boonChoice.length === 0 && <output className="chamber-notice"><b>{notice.split(' · ').pop()}</b></output>}
-      {(!started || paused) && <div className="intro-screen"><section className="intro-card"><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : 'THE DROWNED KEEP'}</span><h1>{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
+      {(!started || (paused && !mapOpen)) && <div className="intro-screen"><section className="intro-card"><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : 'THE DROWNED KEEP'}</span><h1>{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
         {paused && <p>{advance} / {goalDepth} halls · {visitedCount} / {roomCount} explored · {plundered} / {deadEnds} plundered<br />Rank {rank} · {experience} XP · {rankXp} / {rankNeed} to next boon{xpReward > 0 ? ` · +${xpReward} XP` : ''}</p>}
         <button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'LOADING…' : paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
         <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>WASD / ↑↓←→</kbd> Move</span><span><kbd>SPACE</kbd> Hold to strike</span><span><kbd>SHIFT</kbd> Dodge</span><span><kbd>ESC</kbd> Pause</span><span><kbd>F</kbd> Fullscreen</span></div><p>Reach {goalName}. Defeat the stair wardens to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality.</p>{taken.length > 0 && <p>{taken.join(' · ')}</p>}</details>
-        <div className="menu-settings"><button onClick={() => action('mute')}>{muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button></div>
+        <div className="menu-settings">{started && <button onClick={() => action('map')}>Map</button>}<button onClick={() => action('mute')}>{muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button></div>
       </section></div>}
+      {mapOpen && <div className="map-screen"><h1>Floor {floorLevel}</h1><p>Gold ring: stair · Bright rooms: explored</p><button className="primary-action" onClick={() => action('pause')}>RESUME</button></div>}
       {status === 'complete' && <div className="end-screen success-screen"><div className="end-card"><span className="success-sigil">✦</span><span className="end-kicker">FLOOR {floorLevel} COMPLETE</span><h1>The watch falls silent.</h1><div className="floor-results"><span><strong>{floorResult.kills}</strong>guards felled</span><span><strong>{floorResult.xp}</strong>XP earned</span><span><strong>{Math.floor(floorResult.seconds / 60)}:{String(floorResult.seconds % 60).padStart(2,'0')}</strong>elapsed</span></div><button onClick={() => action('continue')}>{floorLevel < FLOORS ? 'DESCEND TO FLOOR ' + (floorLevel + 1) : 'STEP INTO THE DAWN'} →</button>{floorLevel < FLOORS && <p className="recovery-note">Recover 25% vitality on descent</p>}</div></div>}
       {boonChoice.length > 0 && status === 'playing' && <div className="end-screen boon-screen"><div className="end-card boon-card">
         <span className="end-kicker">RANK {rank} · CHOOSE A BOON</span><h1>The tide gives back.</h1>

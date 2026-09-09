@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { generateFloor, cellKey } from '../app/dungeon-floor.ts';
+import { generateFloor, cellKey, hasClearPath, TILE } from '../app/dungeon-floor.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
 
@@ -161,4 +161,20 @@ test('encounter roles provide safe shrines, hidden ambushes and live gauntlets',
       if (room.encounter === 'gauntlet') assert.ok(pack.length === 2 && pack.every(s => s.kind === 'stalker'));
     }
   }
+});
+
+test('seeded encounter bags vary the route rhythm while preserving safe breaks', () => {
+  const rhythms = new Set(floors().map(floor => floor.spine.slice(1,-1).map(id => floor.rooms[id].encounter).join(',')));
+  assert.ok(rhythms.size > 12, `only ${rhythms.size} encounter sequences across 40 seeds`);
+});
+
+
+test('attack lanes respect walls and narrow corners while permitting open approaches', () => {
+  const cells=new Set<string>();for(let x=-2;x<=2;x++)for(let z=-2;z<=2;z++)cells.add(cellKey(x,z));
+  const left={x:-TILE,z:0},right={x:TILE,z:0};
+  assert.equal(hasClearPath(cells,left,right),true);
+  cells.delete(cellKey(0,0));
+  assert.equal(hasClearPath(cells,left,right),false,'solid prop blocks direct pounce');
+  assert.equal(hasClearPath(cells,{x:-TILE,z:-TILE},{x:TILE,z:TILE}),false,'diagonal cannot cut a blocked corner');
+  assert.equal(hasClearPath(cells,{x:-TILE,z:TILE},{x:TILE,z:TILE}),true,'open lane beside prop remains usable');
 });

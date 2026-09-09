@@ -121,8 +121,23 @@ export function generateFloor(seed: number, level = 1) {
   // Every hall reading the same - two guards, always awake, always visible - is what makes a floor feel flat.
   // The roster is drawn per room instead: some halls are empty on purpose, some spring, dead ends are packed.
   const spawns:Spawn[]=[];
+  // A shuffled bag preserves encounter variety without announcing each beat by depth.
+  let encounterBag:Encounter[]=[];
+  let previous:Encounter='watch';
   for (const room of rooms) {
-    room.encounter = room.role === 'goal' ? 'warden' : room.id === 0 ? 'sanctuary' : room.role === 'branch' ? 'ambush' : room.depth % 4 === 0 ? 'sanctuary' : room.depth % 3 === 0 ? 'gauntlet' : room.depth % 2 === 0 ? 'ambush' : 'watch';
+    if(room.role==='goal')room.encounter='warden';
+    else if(room.id===0)room.encounter='sanctuary';
+    else if(room.role==='branch')room.encounter='ambush';
+    else if(room.depth===1)room.encounter='watch';
+    else {
+      if(!encounterBag.length){
+        encounterBag=['watch','ambush','gauntlet','sanctuary'];
+        for(let i=encounterBag.length-1;i>0;i--){const j=int(0,i);[encounterBag[i],encounterBag[j]]=[encounterBag[j],encounterBag[i]];}
+      }
+      if(previous==='sanctuary'&&encounterBag[0]==='sanctuary') [encounterBag[0],encounterBag[1]]=[encounterBag[1],encounterBag[0]];
+      room.encounter=encounterBag.shift()!;
+    }
+    if(room.role==='path')previous=room.encounter;
     if (room.role !== 'goal' && room.id !== 0) room.name = room.encounter === 'sanctuary' ? 'The Stillwater Shrine' : room.encounter === 'gauntlet' ? 'The Ember Crossing' : room.encounter === 'ambush' ? 'The Bone Crypt' : room.name;
   }
   const menace=(level-1)*.3;
@@ -149,7 +164,7 @@ export function generateFloor(seed: number, level = 1) {
       spawns.push({x:t.x,z:t.z,kind,room:room.id,ambush});break;
     }
   }
-  return {seed,level,rooms,edges,cells,tiles,bounds,props,spawns,start:0,goal:goal.id,spine:spine.map(r=>r.id),guardCount:spawns.length};
+  return {seed,level,rooms,edges,cells,tiles,roomByCell:new Map(tiles.filter(t=>t.room>=0).map(t=>[cellKey(t.x,t.z),t.room])),bounds,props,spawns,start:0,goal:goal.id,spine:spine.map(r=>r.id),guardCount:spawns.length};
 }
 
 export function canStand(cells: Set<string>, x: number, z: number, radius = 0.32) {
@@ -163,4 +178,11 @@ export function moveOnFloor(cells: Set<string>, position: { x: number; z: number
     if (canStand(cells, position.x + dx / steps, position.z)) position.x += dx / steps;
     if (canStand(cells, position.x, position.z + dz / steps)) position.z += dz / steps;
   }
+}
+
+// Sample at less than a tile width, including body radius, so corners and props block attack lanes.
+export function hasClearPath(cells:Set<string>, from:{x:number;z:number}, to:{x:number;z:number}) {
+  const dx=to.x-from.x,dz=to.z-from.z,steps=Math.max(1,Math.ceil(Math.hypot(dx,dz)/.25));
+  for(let i=0;i<=steps;i++)if(!canStand(cells,from.x+dx*i/steps,from.z+dz*i/steps))return false;
+  return true;
 }
