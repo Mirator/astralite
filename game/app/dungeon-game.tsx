@@ -127,12 +127,12 @@ export default function DungeonGame() {
   const [floorMap, setFloorMap] = useState<ReturnType<typeof generateFloor> | null>(null);
   const [visitedCount, setVisitedCount] = useState(1);
   const mapPlayer = useRef<SVGCircleElement>(null);
-  const [status, setStatus] = useState<'playing' | 'won' | 'lost'>('playing');
-  const [showHelp, setShowHelp] = useState(true);
+  const [status, setStatus] = useState<'playing' | 'complete' | 'won' | 'lost'>('playing');
+  const [floorResult, setFloorResult] = useState({ kills: 0, xp: 0, seconds: 0 });
   const [started, setStarted] = useState(false), [paused, setPaused] = useState(false), [muted, setMuted] = useState(false);
   const [roomName, setRoomName] = useState('The Tide Gate'), [plundered, setPlundered] = useState(0);
   const [advance, setAdvance] = useState(0);
-  const [notice, setNotice] = useState(''), [noticeDetail, setNoticeDetail] = useState(''), [ready, setReady] = useState(false);
+  const [notice, setNotice] = useState(''), [, setNoticeDetail] = useState(''), [ready, setReady] = useState(false);
   const dashMeter = useRef<HTMLProgressElement>(null);
 
   useEffect(() => {
@@ -175,6 +175,8 @@ export default function DungeonGame() {
     let atmosphere: ReturnType<typeof addAtmosphere> | null = null;
     let visited = new Set<number>([0]), cleared = new Set<number>([0]), spineRooms = new Set<number>();
     let reached = 0, loot = 0, level = 1;
+    let floorStart = 0, floorKills = 0, floorXp = 0;
+    let features: { mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; room: number; shrine: boolean; used: boolean; phase: number }[] = [];
     let floorGroup = new THREE.Group();
     let water: THREE.Mesh | null = null;
     let tide: ReturnType<typeof tidalMaterial> | null = null;
@@ -182,7 +184,7 @@ export default function DungeonGame() {
     let buildMs: Record<string, number> = {};
     const goalRoom = () => floor.rooms[floor.goal];
     const swingHits = new Set<Enemy>();
-    let gameStatus: 'playing' | 'won' | 'lost' = 'playing';
+    let gameStatus: 'playing' | 'complete' | 'won' | 'lost' = 'playing';
     const stairClear = () => enemyData.every(e => e.room !== floor.goal || e.dead);
     const offerBoon = () => {
       choosing = true; keys.clear();
@@ -283,7 +285,8 @@ export default function DungeonGame() {
       buildMs = {};
       if (atmosphere) clearFloor();
       phase('dispose');
-      level = nextLevel;
+      level = nextLevel; floorStart = elapsed; floorKills = kills; floorXp = totalXp; features = [];
+      gameStatus = 'playing'; setStatus('playing');
       floor = generateFloor(crypto.getRandomValues(new Uint32Array(1))[0], level);
       phase('generate');
       floorGroup = new THREE.Group(); world.add(floorGroup);
@@ -311,6 +314,27 @@ export default function DungeonGame() {
       walls.receiveShadow = true; floorGroup.add(walls);
       phase('walls');
       atmosphere = addAtmosphere(floorGroup, floor);
+      for (const room of floor.rooms) {
+        if (room.id === 0 || !['sanctuary', 'gauntlet'].includes(room.encounter)) continue;
+        const shrine = room.encounter === 'sanctuary';
+        for (const offset of shrine ? [0] : [-2.5, 0, 2.5]) {
+          const mesh = new THREE.Mesh(new THREE.RingGeometry(shrine ? .9 : 1.58, shrine ? 1.35 : 1.8, 48), new THREE.MeshBasicMaterial({ color: shrine ? 0x83ffd7 : 0xff6c28, transparent: true, opacity: .55, side: THREE.DoubleSide, depthWrite: false }));
+          mesh.rotation.x = -Math.PI / 2; mesh.position.set(room.x * TILE + offset, .08, room.z * TILE);
+          floorGroup.add(mesh); features.push({mesh, room: room.id, shrine, used: false, phase: 0});
+          if (!shrine) {
+            const grate = new THREE.Mesh(new THREE.CylinderGeometry(1.56,1.56,.035,32), new THREE.MeshStandardMaterial({color:0x241b17,metalness:.8,roughness:.65}));
+            grate.position.copy(mesh.position); grate.position.y=.045; floorGroup.add(grate);
+            for (let n=-3;n<=3;n++) {
+              const rail = new THREE.Mesh(new THREE.BoxGeometry(Math.sqrt(1.5**2-(n*.38)**2)*2,.04,.07),new THREE.MeshStandardMaterial({color:0x836445,metalness:.8,roughness:.5}));
+              rail.position.set(mesh.position.x,.08,mesh.position.z+n*.38);floorGroup.add(rail);
+            }
+          }
+          if (shrine) {
+            const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(.5), new THREE.MeshStandardMaterial({color:0x9affe0,emissive:0x48cba0,emissiveIntensity:2,metalness:.3,roughness:.2}));
+            crystal.position.set(room.x*TILE,1.2,room.z*TILE); floorGroup.add(crystal); mesh.userData.crystal = crystal;
+          }
+        }
+      }
       phase('atmosphere');
       enemyData = floor.spawns.map((spawn, index) => {
         const kind = spawn.kind;
@@ -320,7 +344,7 @@ export default function DungeonGame() {
         if (kind === 'stalker') group.scale.set(0.82,0.94,0.82);
         const cue = new THREE.Mesh(BONES.cue,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xff522b:0xffae52,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false}));cue.rotation.x=-Math.PI/2;floorGroup.add(cue);
         const bar = new THREE.Mesh(BONES.bar,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xffb65f:0xe89a79,depthTest:false}));bar.renderOrder=10;floorGroup.add(bar);
-        return { group, hp:maxHp, maxHp, kind, tell, damage:kind==='warden'?20:kind==='stalker'?8:12, cue, bar, speed:kind==='stalker'?2.0:kind==='warden'?1.15:1.5, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, phase:spawn.room*1.7+index*0.6, windup:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush };
+        return { group, hp:maxHp, maxHp, kind, tell, damage:kind==='warden'?20:kind==='stalker'?8:12, cue, bar, speed:kind==='stalker'?3.2:kind==='warden'?1.65:2.2, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, phase:spawn.room*1.7+index*0.6, windup:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush };
       });
       phase('enemies');
       player.position.set(floor.rooms[0].x * TILE, 0.03, floor.rooms[0].z * TILE);
@@ -330,15 +354,19 @@ export default function DungeonGame() {
       setVisitedCount(1); setPlundered(0); setAdvance(0);
       buildMs.total = +(performance.now() - clock).toFixed(1);
     };
-    // The stair is a door, not an ending - until the last floor, where it is the way out.
     const descend = () => {
-      if (gameStatus !== 'playing' || activeRoom !== floor.goal || !stairClear()) return;
-      if (level >= FLOORS) { gameStatus = 'won'; setStatus('won'); audio.play('win'); return; }
-      const next = level + 1;
-      buildFloor(next);
-      hp = Math.min(maxHp, hp + Math.round(maxHp * 0.25)); setHealth(hp);
-      audio.play('win'); burst(player.position, 0x8de9be, 22);
-      setNotice(`You descend · Floor ${next} of ${FLOORS}`); setNoticeDetail('+25% vitality · the keep grows meaner'); noticeTime = 4.5;
+      if (gameStatus !== 'playing' || choosing || activeRoom !== floor.goal || !stairClear()) return;
+      gameStatus = 'complete'; setStatus('complete'); keys.clear(); attackBuffer = 0; bufferedFacing = null; velocity.set(0,0,0);
+      setFloorResult({kills: kills - floorKills, xp: totalXp - floorXp, seconds: Math.round(elapsed - floorStart)});
+      setNotice(''); audio.play('win'); audio.pause(true);
+    };
+    const continueDescent = () => {
+      if (gameStatus !== 'complete') return;
+      if (level >= FLOORS) { gameStatus = 'won'; setStatus('won'); return; }
+      buildFloor(level + 1);
+      hp = Math.min(maxHp, hp + Math.round(maxHp * .25)); setHealth(hp);
+      keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; audio.pause(false);
+      burst(player.position, 0x8de9be, 22);
     };
     buildFloor(1);
     const moveInput = () => {
@@ -355,7 +383,7 @@ export default function DungeonGame() {
       else if (bufferedFacing) facing.copy(bufferedFacing);
       bufferedFacing = null;
       attackFacing.copy(facing); player.rotation.y = Math.atan2(-facing.x, -facing.z);
-      setShowHelp(false);
+
     };
     const requestAttack = () => {
       if (!hasStarted || isPaused || gameStatus !== 'playing') return;
@@ -368,7 +396,7 @@ export default function DungeonGame() {
       audio.play('dash');
       facing.copy(dashFacing); dashTime = 0.18; dashCooldown = dashSpan;
       attackTime = 0; attackBuffer = 0; bufferedFacing = null; hitStop = 0;
-      setShowHelp(false);
+
     };
     const togglePause = () => {
       // Pausing on top of an open boon draft would stack two overlays; the draft already holds the world still.
@@ -382,7 +410,7 @@ export default function DungeonGame() {
       if (!e.repeat && e.code === 'Escape') { togglePause(); return; }
       if (!e.repeat && e.code === 'KeyM') { toggleMute(); return; }
       if (!e.repeat && e.code === 'KeyF') { fullscreen(); return; }
-      if (!hasStarted || isPaused) return;
+      if (!hasStarted || isPaused || choosing || gameStatus !== 'playing') return;
       keys.add(e.code); if (e.repeat) return;
       if (e.code === 'Space') requestAttack();
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') requestDash();
@@ -391,12 +419,13 @@ export default function DungeonGame() {
     const clearInput = () => { keys.clear(); attackBuffer = 0; bufferedFacing = null; };
     const trigger = (e: Event) => {
       const detail = (e as CustomEvent<string>).detail;
-      if (detail === 'start') { hasStarted = true; setStarted(true); audio.start(); return; }
+      if (detail === 'continue') { continueDescent(); return; }
+      if (detail === 'start') { if (hasStarted) return; floorStart = elapsed; hasStarted = true; setStarted(true); audio.start(); return; }
       if (detail === 'pause') { togglePause(); return; }
       if (detail === 'mute') { toggleMute(); return; }
       if (detail === 'fullscreen') { fullscreen(); return; }
       if (detail.startsWith('boon:')) { takeBoon(detail.slice(5)); return; }
-      if (!hasStarted || isPaused) return;
+      if (!hasStarted || isPaused || choosing || gameStatus !== 'playing') return;
       if (detail === 'attack') requestAttack();
       if (detail === 'hold-attack') { keys.add('Space'); requestAttack(); }
       if (detail === 'release-attack') keys.delete('Space');
@@ -411,7 +440,7 @@ export default function DungeonGame() {
     window.addEventListener('blur', blur); window.addEventListener('dungeon-action', trigger);
     let last = performance.now(), raf = 0;
     const update = (frameDt: number) => {
-      if (isPaused || choosing) return;
+      if (isPaused || choosing || gameStatus === 'complete') return;
       elapsed += frameDt; const t = elapsed;
       const dt = hitStop > 0 ? 0 : frameDt; hitStop = Math.max(0, hitStop - frameDt);
       torchLights.forEach((l, i) => { l.intensity = 16 + Math.sin(t * 9 + i * 2.2) * 1.4 + Math.sin(t * 17) * 0.5; });
@@ -435,7 +464,8 @@ export default function DungeonGame() {
         const targetAngle = Math.atan2(-direction.x, -direction.z);
         const angleDelta = Math.atan2(Math.sin(targetAngle - player.rotation.y), Math.cos(targetAngle - player.rotation.y));
         player.rotation.y += angleDelta * (1 - Math.exp(-28 * dt));
-        const speed = dashTime > 0 ? 9.5 : attackTime > 0 ? 2.6 : 4.6;
+        const threatened = enemyData.some(e => !e.dead && e.awake && e.group.position.distanceToSquared(player.position) < 100);
+        const speed = dashTime > 0 ? 12 : attackTime > 0 ? 3.2 : threatened ? 5.8 : 8.5;
         velocity.copy(dashTime > 0 ? dashFacing : input).multiplyScalar(speed);
         moveOnFloor(floor.cells, player.position, velocity.x * dt, velocity.z * dt);
         updatePaths();
@@ -452,8 +482,26 @@ export default function DungeonGame() {
           }
         }
         descend();
+        if (gameStatus !== 'playing') return;
+        for (const feature of features) {
+          const near = Math.hypot(player.position.x-feature.mesh.position.x, player.position.z-feature.mesh.position.z);
+          if (feature.shrine) {
+            const crystal = feature.mesh.userData.crystal as THREE.Mesh<THREE.OctahedronGeometry,THREE.MeshStandardMaterial>;
+            crystal.rotation.y = t*.65; crystal.position.y = 1.25+Math.sin(t*2)*.12; crystal.material.emissiveIntensity = feature.used ? .15 : 2;
+            feature.mesh.material.opacity = feature.used ? .12 : .5 + Math.sin(t*3)*.2;
+            if (!feature.used && near < 1.5 && hp < maxHp) { feature.used = true; hp = Math.min(maxHp, hp + 35); setHealth(hp); audio.play('clear'); burst(player.position,0x83ffd7,20); setNotice('+35 vitality'); setNoticeDetail(''); noticeTime = 2; }
+          } else {
+            const wasFiring = feature.phase > 2.6;
+            feature.phase = (t + feature.room*.7) % 3.6;
+            if (!wasFiring && feature.phase > 2.6 && near < 20) { burst(feature.mesh.position, 0xff8c38, 16); audio.play('warn'); }
+            const firing = feature.phase > 2.6;
+            feature.mesh.material.opacity = firing ? .85 : .12 + feature.phase*.14;
+            feature.mesh.material.color.setHex(firing ? 0xffe49c : 0xff6c28);
+            if (firing && near < 1.8 && dashTime <= 0 && hurtFlash <= 0) { hp = Math.max(0,hp-10); setHealth(hp); hurtFlash = .65; shake = .1; audio.play('hurt'); burst(player.position,0xff782c,8); if(hp===0){gameStatus='lost';setStatus('lost');} }
+          }
+        }
         floor.rooms.forEach(r => { if (Math.abs(player.position.x / TILE - r.x) <= r.halfX && Math.abs(player.position.z / TILE - r.z) <= r.halfZ && !visited.has(r.id)) { visited.add(r.id); setVisitedCount(visited.size); document.getElementById(`map-room-${r.id}`)?.setAttribute("fill", "#6a9995"); } });
-        if (moving) { footstepTime -= dt; if (footstepTime <= 0 && dashTime <= 0) { audio.play('step'); footstepTime = 0.29; } walkPhase += dt * speed * 3.3; setShowHelp(false); }
+        if (moving) { footstepTime -= dt; if (footstepTime <= 0 && dashTime <= 0) { audio.play('step'); footstepTime = 0.29; } walkPhase += dt * speed * 3.3; }
         const stride = moving && dashTime <= 0 ? Math.sin(walkPhase) * 0.6 : 0;
         player.userData.legs.forEach((leg: THREE.Group, i: number) => { leg.rotation.x = THREE.MathUtils.damp(leg.rotation.x, i ? -stride : stride, 28, dt); });
         player.position.y = 0.03 + (moving ? Math.abs(Math.sin(walkPhase)) * 0.055 : Math.sin(t*2.4)*.012);
@@ -503,7 +551,7 @@ export default function DungeonGame() {
           if (enemy.dead) { enemy.group.rotation.z += dt * 5; enemy.group.scale.multiplyScalar(Math.max(0.001, 1 - dt * 4.5)); return; }
           enemy.hitFlash = Math.max(0, enemy.hitFlash - dt); enemy.cooldown -= dt;
           const ex = Math.round(enemy.group.position.x / TILE), ez = Math.round(enemy.group.position.z / TILE);
-          if ((distances.get(cellKey(ex,ez)) ?? Infinity) > 10) return;
+          if ((distances.get(cellKey(ex,ez)) ?? Infinity) > (enemy.room === activeRoom ? 22 : 10)) return;
           const toPlayer = player.position.clone().sub(enemy.group.position); toPlayer.y = 0; const dist = toPlayer.length();
           if (enemy.windup > 0) {
             enemy.windup = Math.max(0, enemy.windup - dt);
@@ -599,6 +647,7 @@ export default function DungeonGame() {
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), deadEndsPlundered: loot },
       experience: { total: totalXp, perEnemy: XP_PER_ENEMY, intoRank: rankProgress, rankCost: rankCost(rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
+      features: features.map(f => ({room:f.room, shrine:f.shrine, used:f.used, phase:f.phase, x:f.mesh.position.x,z:f.mesh.position.z,radius:f.shrine?1.5:1.8})),
       buildMs,
       floor: { level, waterfalls: atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
       player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashTime, dashCooldown, swordAngle: player.userData.sword.rotation.y, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
@@ -623,30 +672,28 @@ export default function DungeonGame() {
   return (
     <main className="game-shell">
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
-      <header className="game-title"><span className="sigil">✦</span><div><p>THE DROWNED KEEP</p><span>FLOOR {floorLevel} / {FLOORS} · {roomName}</span></div></header>
-      <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || status !== 'playing'} aria-label="Pause game">Ⅱ</button><button onClick={() => action('mute')} aria-label={muted ? 'Enable sound' : 'Mute sound'}>{muted ? 'SOUND OFF' : 'SOUND ON'}</button><button onClick={() => action('fullscreen')} aria-label="Toggle fullscreen">⛶</button></nav>
-      <section className="hud" aria-live="polite"><div className="health-row"><span>VITALITY</span><b>{health}<small>/{maxHealth}</small></b></div><div className="health-track"><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div><div className="dash-status"><span>EVASION</span><progress ref={dashMeter} max="1" value="1" aria-label="Dash readiness" /></div>
-        <div className="xp-panel"><div className="xp-row"><span>RANK {rank}</span><b>{experience}<small> XP</small></b></div>
-          <progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp}>{rankXp} / {rankNeed} XP</progress>
-          <div className="xp-caption"><span>{rankXp} / {rankNeed} to next boon</span><strong>{xpReward > 0 ? `+${xpReward} XP` : '25 XP / guard'}</strong></div>
-          {taken.length > 0 && <div className="boon-list">{taken.map((name, i) => <span key={`${name}-${i}`}>{name}</span>)}</div>}
-        </div></section>
+      <header className="game-title"><span>{floorLevel} / {FLOORS} · {roomName}</span></header>
+      <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || status !== 'playing' || boonChoice.length > 0} aria-label="Pause game">☰</button></nav>
+      <section className="hud" aria-label="Player status"><div className="health-row"><span>♥</span><b>{health}<small>/{maxHealth}</small></b></div><div className="health-track" aria-label="Vitality"><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div><div className="dash-status"><progress ref={dashMeter} max="1" value="1" aria-label="Dash readiness" /></div><progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} /></section>
       {floorMap && <aside className="floor-map" aria-label="Floor map: your position and connected chambers"><svg key={floorMap.seed} viewBox={`${floorMap.bounds.minX - 3} ${floorMap.bounds.minZ - 3} ${floorMap.bounds.maxX - floorMap.bounds.minX + 6} ${floorMap.bounds.maxZ - floorMap.bounds.minZ + 6}`}>
         <path d={floorMap.tiles.map(t => `M${t.x - 0.5},${t.z - 0.5}h1v1h-1z`).join('')} fill="#334e56" />
         {floorMap.rooms.map(r => <path key={r.id} id={`map-room-${r.id}`} d={floorMap.tiles.filter(t=>t.room===r.id).map(t=>`M${t.x-.5},${t.z-.5}h1v1h-1z`).join('')} fill={r.id===0?'#6a9995':r.role==='goal'?'#7a5f3c':'#3e6066'} />)}
         <circle cx={floorMap.rooms[floorMap.goal].x} cy={floorMap.rooms[floorMap.goal].z} r="3.4" fill="none" stroke="#ffc573" strokeWidth="0.9" opacity="0.8" />
         <circle ref={mapPlayer} cx={floorMap.rooms[0].x} cy={floorMap.rooms[0].z} r="1.8" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
-      </svg><span>{visitedCount} / {roomCount} areas explored · {plundered} / {deadEnds} dead ends plundered</span></aside>}
-      <div className="floor-objective"><span>REACH {goalName.toUpperCase()}</span><b>{advance} <i>/ {goalDepth} halls onward</i></b></div>
-      {notice && started && !paused && <output className="chamber-notice"><span>✦</span><b>{notice}</b><small>{noticeDetail}</small></output>}
-      <aside className="controls"><span><kbd>WASD</kbd> MOVE</span><span><kbd>SPACE</kbd> HOLD TO STRIKE</span><span><kbd>SHIFT</kbd> DASH</span><span><kbd>ESC</kbd> PAUSE</span></aside>
-      {showHelp && started && !paused && status === 'playing' && <div className="start-prompt"><b>PRESS ON TO {goalName.toUpperCase()}</b><span>Side chambers are optional · they pay in XP and vitality</span></div>}
-      {(!started || paused) && <div className="intro-screen"><section className="intro-card"><span className="end-kicker">{paused ? 'A MOMENT OF STILLNESS' : 'CHAPTER I · THE LOWER CISTERN'}</span><h1>{paused ? 'The keep can wait.' : <>The Drowned<br /><em>Keep</em></>}</h1><p>{paused ? 'Gather yourself. Your journey is held here.' : 'Beneath the tide, the old watch still stands. Three floors lie between you and the dawn - take each sunken stair, and rob the dead ends on the way if you dare.'}</p><div className="intro-controls"><span><kbd>WASD / ↑↓←→</kbd> Move</span><span><kbd>SPACE</kbd> Hold to strike</span><span><kbd>SHIFT</kbd> Dodge attacks</span></div><button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'ENTERING THE KEEP…' : paused ? 'RESUME JOURNEY' : 'ENTER THE KEEP'} <span>→</span></button><small>{FLOORS} floors down · {goalDepth} halls to the first stair<br />Every {rankCost(1)} XP buys a boon of your choosing.</small></section></div>}
+      </svg></aside>}
+      {notice && started && !paused && status === 'playing' && boonChoice.length === 0 && <output className="chamber-notice"><b>{notice.split(' · ').pop()}</b></output>}
+      {(!started || paused) && <div className="intro-screen"><section className="intro-card"><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : 'THE DROWNED KEEP'}</span><h1>{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
+        {paused && <p>{advance} / {goalDepth} halls · {visitedCount} / {roomCount} explored · {plundered} / {deadEnds} plundered<br />Rank {rank} · {experience} XP · {rankXp} / {rankNeed} to next boon{xpReward > 0 ? ` · +${xpReward} XP` : ''}</p>}
+        <button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'LOADING…' : paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
+        <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>WASD / ↑↓←→</kbd> Move</span><span><kbd>SPACE</kbd> Hold to strike</span><span><kbd>SHIFT</kbd> Dodge</span><span><kbd>ESC</kbd> Pause</span><span><kbd>F</kbd> Fullscreen</span></div><p>Reach {goalName}. Defeat the stair wardens to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality.</p>{taken.length > 0 && <p>{taken.join(' · ')}</p>}</details>
+        <div className="menu-settings"><button onClick={() => action('mute')}>{muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button></div>
+      </section></div>}
+      {status === 'complete' && <div className="end-screen success-screen"><div className="end-card"><span className="success-sigil">✦</span><span className="end-kicker">FLOOR {floorLevel} COMPLETE</span><h1>The watch falls silent.</h1><div className="floor-results"><span><strong>{floorResult.kills}</strong>guards felled</span><span><strong>{floorResult.xp}</strong>XP earned</span><span><strong>{Math.floor(floorResult.seconds / 60)}:{String(floorResult.seconds % 60).padStart(2,'0')}</strong>elapsed</span></div><button onClick={() => action('continue')}>{floorLevel < FLOORS ? 'DESCEND TO FLOOR ' + (floorLevel + 1) : 'STEP INTO THE DAWN'} →</button>{floorLevel < FLOORS && <p className="recovery-note">Recover 25% vitality on descent</p>}</div></div>}
       {boonChoice.length > 0 && status === 'playing' && <div className="end-screen boon-screen"><div className="end-card boon-card">
         <span className="end-kicker">RANK {rank} · CHOOSE A BOON</span><h1>The tide gives back.</h1>
         <div className="boon-options">{boonChoice.map(boon => <button key={boon.id} className="boon-option" onClick={() => action(`boon:${boon.id}`)}><strong>{boon.name}</strong><span>{boon.detail}</span></button>)}</div>
       </div></div>}
-      {status !== 'playing' && <div className="end-screen"><div className="end-card"><span className="end-kicker">{status === 'won' ? 'THE KEEP IS BEHIND YOU' : `FLOOR ${floorLevel} · FAILED`}</span><h1>{status === 'won' ? 'You climb into the dawn.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'Three floors of the drowned watch lie still behind you.' : 'Steel yourself and enter once more.'}</p><div className="xp-summary"><strong>{experience} XP earned</strong><span>Floor {floorLevel} of {FLOORS} · rank {rank} · {defeated} guards felled · XP resets on a new run</span></div><button onClick={() => location.reload()}>NEW DESCENT</button></div></div>}
+      {(status === 'won' || status === 'lost') && <div className="end-screen"><div className="end-card"><span className="end-kicker">{status === 'won' ? 'THE KEEP IS BEHIND YOU' : `FLOOR ${floorLevel} · FAILED`}</span><h1>{status === 'won' ? 'You climb into the dawn.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'Three floors of the drowned watch lie still behind you.' : 'Steel yourself and enter once more.'}</p><div className="xp-summary"><strong>{experience} XP earned</strong><span>Floor {floorLevel} of {FLOORS} · rank {rank} · {defeated} guards felled · XP resets on a new run</span></div><button onClick={() => location.reload()}>NEW DESCENT</button></div></div>}
       <div className="touch-pad" aria-label="Touch movement controls">{['up', 'left', 'down', 'right'].map((dir) => <button key={dir} className={dir} aria-label={`Move ${dir}`} onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action(`move:${dir}`); }} onLostPointerCapture={() => action(`stop:${dir}`)} onPointerUp={() => action(`stop:${dir}`)} onPointerCancel={() => action(`stop:${dir}`)}>{dir === 'up' ? '▲' : dir === 'down' ? '▼' : dir === 'left' ? '◀' : '▶'}</button>)}</div>
       <div className="touch-actions"><button onPointerDown={() => action('dash')}>DASH</button><button className="strike" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action('hold-attack'); }} onPointerUp={() => action('release-attack')} onPointerCancel={() => action('release-attack')} onLostPointerCapture={() => action('release-attack')}>STRIKE</button></div><div className="vignette" />
     </main>

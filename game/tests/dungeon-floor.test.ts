@@ -148,3 +148,17 @@ test('generation stays cheap enough to rebuild a floor mid-run', () => {
   const each = (performance.now() - started) / runs;
   assert.ok(each < 25, `generateFloor took ${each.toFixed(1)} ms per floor`);
 });
+
+test('encounter roles provide safe shrines, hidden ambushes and live gauntlets', () => {
+  for (const floor of floors()) {
+    assert.ok(floor.rooms.some(r => r.encounter === 'gauntlet'));
+    assert.ok(floor.rooms.some(r => r.id > 0 && r.encounter === 'sanctuary'));
+    assert.ok(floor.rooms.some(r => r.encounter === 'ambush'));
+    for (const room of floor.rooms) {
+      const pack = floor.spawns.filter(s => s.room === room.id);
+      if (room.encounter === 'sanctuary') assert.equal(pack.length, 0);
+      if (room.encounter === 'ambush') assert.ok(pack.length >= 2 && pack.every(s => s.ambush));
+      if (room.encounter === 'gauntlet') assert.ok(pack.length === 2 && pack.every(s => s.kind === 'stalker'));
+    }
+  }
+});

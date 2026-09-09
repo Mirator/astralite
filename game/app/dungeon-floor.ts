@@ -1,5 +1,6 @@
 export const TILE = 1.48;
-export type Room = { id: number; x: number; z: number; halfX: number; halfZ: number; shape: 'hall' | 'round' | 'cross' | 'court' | 'gallery' | 'crypt'; theme: 'keep' | 'ruins' | 'flooded'; name: string; role: 'start' | 'path' | 'branch' | 'goal'; depth: number; heading: number };
+export type Encounter = 'watch' | 'ambush' | 'gauntlet' | 'sanctuary' | 'warden';
+export type Room = { encounter: Encounter; id: number; x: number; z: number; halfX: number; halfZ: number; shape: 'hall' | 'round' | 'cross' | 'court' | 'gallery' | 'crypt'; theme: 'keep' | 'ruins' | 'flooded'; name: string; role: 'start' | 'path' | 'branch' | 'goal'; depth: number; heading: number };
 export type Spawn = { x: number; z: number; kind: 'guard' | 'stalker' | 'warden'; room: number; ambush: boolean };
 export type FloorProp = { x: number; z: number; kind: 'brazier' | 'pillar' | 'rubble' | 'barrel'; room: number };
 export const cellKey = (x: number, z: number) => `${x},${z}`;
@@ -67,22 +68,22 @@ export function generateFloor(seed: number, level = 1) {
     const parent=rooms[parentId],shape=shapes[int(0,shapes.length-1)],{halfX,halfZ}=sizeFor(shape);
     for(let attempt=0;attempt<120;attempt++){
       const angle=heading+(random()*2-1)*spread*(1+attempt/40);
-      const distance=Math.max(parent.halfX,parent.halfZ)+Math.max(halfX,halfZ)+int(2,5);
+      const distance=Math.max(parent.halfX,parent.halfZ)+Math.max(halfX,halfZ)+int(2,4);
       const x=Math.round(parent.x+Math.cos(angle)*distance),z=Math.round(parent.z+Math.sin(angle)*distance);
       if(!fits(x,z,halfX,halfZ))continue;
       const plan=planPath(parent,{x,z});
       // A doorway-to-doorway trudge is dead time; keep the open stretch between rooms short.
-      if(plan.centre.filter(([cx,cz])=>!ownership.has(cellKey(cx,cz))&&(Math.abs(cx-x)>halfX||Math.abs(cz-z)>halfZ)).length>12)continue;
+      if(plan.centre.filter(([cx,cz])=>!ownership.has(cellKey(cx,cz))&&(Math.abs(cx-x)>halfX||Math.abs(cz-z)>halfZ)).length>8)continue;
       if(crossesExistingFloor(plan,parent))continue;
       const depth=parent.depth+1,progress=depth/spineTarget;
       const theme:Room['theme']=role==='branch'?themes[int(0,2)]:progress<.3?'keep':progress<.66?'ruins':'flooded';
-      const r:Room={id:rooms.length,x,z,halfX,halfZ,shape,theme,name:`${prefixes[int(0,7)]} ${names[shape]}`,role,depth,heading:angle};
+      const r:Room={encounter:'watch',id:rooms.length,x,z,halfX,halfZ,shape,theme,name:`${prefixes[int(0,7)]} ${names[shape]}`,role,depth,heading:angle};
       rooms.push(r);carveRoom(r);connect(parentId,r.id,plan);return r;
     }
     return null;
   };
   const gateSize=sizeFor('crypt');
-  const start:Room={id:0,x:0,z:0,...gateSize,shape:'crypt',theme:'keep',name:'The Tide Gate',role:'start',depth:0,heading:0};
+  const start:Room={encounter:'sanctuary',id:0,x:0,z:0,...gateSize,shape:'crypt',theme:'keep',name:'The Tide Gate',role:'start',depth:0,heading:0};
   rooms.push(start);carveRoom(start);
   // The trunk keeps one general bearing and only drifts, so "onward" always reads the same way to the player.
   const bearing=random()*Math.PI*2;let heading=bearing,tip=start;const spine=[start];
@@ -120,16 +121,18 @@ export function generateFloor(seed: number, level = 1) {
   // Every hall reading the same - two guards, always awake, always visible - is what makes a floor feel flat.
   // The roster is drawn per room instead: some halls are empty on purpose, some spring, dead ends are packed.
   const spawns:Spawn[]=[];
-  let quietRun=false;
+  for (const room of rooms) {
+    room.encounter = room.role === 'goal' ? 'warden' : room.id === 0 ? 'sanctuary' : room.role === 'branch' ? 'ambush' : room.depth % 4 === 0 ? 'sanctuary' : room.depth % 3 === 0 ? 'gauntlet' : room.depth % 2 === 0 ? 'ambush' : 'watch';
+    if (room.role !== 'goal' && room.id !== 0) room.name = room.encounter === 'sanctuary' ? 'The Stillwater Shrine' : room.encounter === 'gauntlet' ? 'The Ember Crossing' : room.encounter === 'ambush' ? 'The Bone Crypt' : room.name;
+  }
   const menace=(level-1)*.3;
-  const roster=(room:Room)=>{
+  const roster=(room:Room):Spawn['kind'][]=>{
     const progress=room.depth/goal.depth+menace,pick=(count:number,odds:number):Spawn['kind'][]=>Array.from({length:count},()=>random()<odds?'stalker':'guard');
     if(room.role==='goal')return (level>=3?['warden','warden','warden']:['warden','warden']) as Spawn['kind'][];
     if(room.role==='branch'){const pack=pick(int(2,4+Math.min(2,level-1)),.35);if(progress>.55&&random()<.35)pack.push('warden');return pack;}
-    // A hall with nothing in it is pacing, not a gap: it lets the last fight land before the next one starts.
-    // Two of them back to back is just a long empty walk, so a quiet hall is always followed by a fight.
-    if(!quietRun&&random()<.25){quietRun=true;return [];}
-    quietRun=false;
+    if(room.encounter==='sanctuary')return [];
+    if(room.encounter==='gauntlet')return ['stalker','stalker'];
+    if(room.encounter==='ambush')return pick(int(3,4),.85);
     if(progress<.35)return pick(int(1,2),.15);
     if(progress<.7)return pick(int(2,3),.4);
     return [...pick(int(2,3),.5),'warden' as const];
@@ -139,7 +142,7 @@ export function generateFloor(seed: number, level = 1) {
   for(const room of rooms){
     if(room.id===0)continue;
     const open=tilesByRoom.get(room.id);if(!open?.length)continue;
-    const pack=roster(room),ambush=room.role!=='goal'&&pack.length>0&&random()<.3;
+    const pack=roster(room),ambush=room.encounter==='ambush';
     for(const kind of pack)for(let tries=0;tries<40;tries++){
       const t=open[int(0,open.length-1)];
       if(spawns.some(other=>other.room===room.id&&Math.hypot(other.x-t.x,other.z-t.z)<2.2))continue;

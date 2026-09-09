@@ -117,3 +117,14 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
  .intro-controls { gap: 6px; margin: 14px 0; }.intro-controls kbd { padding: 4px; }
  .intro-card > small { margin-top: 10px; }.primary-action { padding: 13px 17px; }
 }
+
+/* The world carries the action; the menu carries the detail. */
+.hud { width: 160px; padding: 0; border: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+.health-row { font-size: 14px; }.health-track { height: 7px; }.dash-status { margin-top: 8px; }.hud .xp-track { height: 3px; border: 0; }
+.game-title { top: 28px; }.game-title span { font-size: 12px; color: #c0ceca; }
+.floor-map { width: 130px; background: #09171d66; border: 0; }.floor-map svg { height: 90px; }
+.game-options button { width: 40px; height: 40px; font-size: 20px; }
+.chamber-notice { top: 12%; }.chamber-notice b { font-size: 22px; }
+.menu-details { margin: 24px 0 16px; color: #bbceca; font-size: 14px; }.menu-details summary { cursor: pointer; }.menu-details p { line-height: 1.6; }.menu-settings { display: flex; gap: 10px; }.menu-settings button { padding: 10px 14px; border: 1px solid #96b1ab55; background: #102329; color: #dae5df; cursor: pointer; }
+.success-screen { background: radial-gradient(ellipse at 50% 40%,#254a43aa,#030c12e8); }.success-screen .end-card { width: min(550px,calc(100% - 32px)); border-color: #bce8c566; }.success-sigil { display: block; color: #a9e9c5; font-size: 48px; margin-bottom: 24px; }.success-screen .end-kicker { color: #b5ddc4; }.floor-results { display: flex; justify-content: space-around; gap: 16px; margin: 30px 0 8px; }.floor-results span { display: grid; gap: 8px; color: #a9bfb8; font-size: 13px; }.floor-results strong { color: #e6f3df; font: 30px Georgia,serif; }.end-card .recovery-note { font-size: 12px; margin-top: 16px; }.success-screen button { background: #29574d; }
+@media(max-width:720px) { .hud { top: 58px; left: 16px; bottom: auto; width: 135px; padding: 0; }.game-title span:not(.sigil) { display: block; max-width: 260px; font-size: 10px; }.floor-map { width: 95px; top: 75px; }.floor-map svg { height: 65px; }.chamber-notice { top: 24%; }.intro-screen { overflow-y: auto; }.success-screen .end-card { padding: 26px 20px; } }
