@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
 import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
-import { generateFloor, moveOnFloor, hasClearPath, cellKey, TILE } from './dungeon-floor';
+import { generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
+import { decideEnemy, separateCrowd } from './dungeon-enemy';
 import { betterRun, readBest, readSeed, writeBest, writeSeed, type BestRun } from './dungeon-save';
 import { BOONS, clearRoomReward, createRun, grantXp, heal, hurt, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
@@ -294,6 +295,9 @@ export default function DungeonGame() {
       const queue = [x,z,0];
       for (let i = 0; i < queue.length; i += 3) { const cx = queue[i], cz = queue[i + 1], distance = queue[i + 2]; if (distance >= PATH_RADIUS) break; for (const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]) { const nx = cx + dx, nz = cz + dz, next = pathKey(nx,nz); if (!distances.has(next) && floor.cells.has(cellKey(nx,nz))) { distances.set(next,distance + 1); queue.push(nx,nz,distance + 1); } } }
     };
+    // The floor this hands out is the one being played: `floor` and `activeRoom` are both reassigned as
+    // the run descends, so they are read through getters rather than snapshotted into a stale view.
+    const enemyWorld = { get cells() { return floor.cells; }, get activeRoom() { return activeRoom; }, pathDistance: (x: number, z: number) => distances.get(pathKey(x,z)) ?? Infinity };
     // Only the shared texture, the knight and the lights outlive a floor; the rest is rebuilt per descent.
     const clearFloor = () => {
       atmosphere?.dispose();
@@ -620,58 +624,34 @@ export default function DungeonGame() {
           enemy.cue.position.copy(enemy.group.position); enemy.cue.position.y = 0.055; enemy.cue.rotation.z = Math.atan2(-enemy.aim.z,enemy.aim.x);
           (enemy.cue.material as THREE.MeshBasicMaterial).opacity = 0.2 + (1 - enemy.windup / enemy.tell) * 0.5;
           if (enemy.dead) { enemy.group.rotation.z += dt * 5; enemy.group.scale.multiplyScalar(Math.max(0.001, 1 - dt * 4.5)); return; }
-          enemy.hitFlash = Math.max(0, enemy.hitFlash - dt); enemy.cooldown -= dt;
-          const ex = Math.round(enemy.group.position.x / TILE), ez = Math.round(enemy.group.position.z / TILE);
-          if ((distances.get(pathKey(ex,ez)) ?? Infinity) > (enemy.room === activeRoom ? 22 : 10)) return;
-          const toPlayer = player.position.clone().sub(enemy.group.position); toPlayer.y = 0; const dist = toPlayer.length();
-          const strikeRange = enemy.kind === 'warden' ? 2.55 : 1.55;
           const hurtPlayer = () => {
             if (gameStatus !== 'playing' || !hurt(run, enemy.damage, { dashing: dashTime > 0, warded: true })) return;
             setHealth(run.hp);
             audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4c2f,8);
             if(run.hp===0){gameStatus='lost';setStatus('lost');}
           };
-          if (enemy.lunge > 0) {
-            const before = enemy.group.position.clone();
-            moveOnFloor(floor.cells,enemy.group.position,enemy.aim.x*13*dt,enemy.aim.z*13*dt);
-            enemy.lunge = Math.max(0,enemy.lunge-dt);
-            // Swept contact prevents a fast pounce from tunnelling through the knight.
-            const travel = enemy.group.position.clone().sub(before), toward = player.position.clone().sub(before); travel.y=0; toward.y=0;
-            const fraction = THREE.MathUtils.clamp(toward.dot(travel)/Math.max(.0001,travel.lengthSq()),0,1);
-            const closest = before.addScaledVector(travel,fraction); closest.y=player.position.y;
-            if(closest.distanceTo(player.position)<.85){hurtPlayer();enemy.lunge=0;}
+          // Everything about where this body goes and whether its blow lands is decided in dungeon-enemy;
+          // what is left here is the part a node test could never see — poses, sound, flashes, particles.
+          const intent = decideEnemy({ kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z, room: enemy.room, cooldown: enemy.cooldown, hitFlash: enemy.hitFlash, windup: enemy.windup, lunge: enemy.lunge, tell: enemy.tell, speed: enemy.speed, aim: enemy.aim }, player.position, enemyWorld, dt);
+          enemy.cooldown = intent.cooldown; enemy.hitFlash = intent.hitFlash;
+          if (intent.act === 'inert') return;
+          enemy.windup = intent.windup; enemy.lunge = intent.lunge; enemy.aim.set(intent.aim.x,0,intent.aim.z);
+          enemy.group.position.x = intent.x; enemy.group.position.z = intent.z;
+          const dist = intent.distance;
+          if (intent.sound) audio.play(intent.sound);
+          if (intent.hit) hurtPlayer();
+          if (intent.act === 'lunge') {
             enemy.group.position.y=.03+Math.sin(enemy.lunge/.32*Math.PI)*.3;
             enemy.group.rotation.x=-.3; enemy.group.userData.weapon.rotation.x=.55;
             enemy.group.userData.limbs.forEach((limb:THREE.Mesh,i:number)=>{limb.rotation.x=i%2?.75:-.75;});
             return;
           }
-          if (enemy.windup > 0) {
-            enemy.windup = Math.max(0, enemy.windup - dt);
-            enemy.group.userData.weapon.rotation.x = -0.4 - Math.sin((1 - enemy.windup / enemy.tell) * Math.PI / 2) * 1.7;
-            if (enemy.windup === 0) {
-              enemy.cooldown = enemy.kind === 'stalker' ? 1.7 : enemy.kind === 'warden' ? 1.6 : 1.25;
-              enemy.group.userData.weapon.rotation.x = 0.55;
-              if (enemy.kind === 'stalker') { enemy.lunge = .32; audio.play('dash'); }
-              else if (dist < strikeRange && hasClearPath(floor.cells,enemy.group.position,player.position) && toPlayer.normalize().dot(enemy.aim) > .45) hurtPlayer();
-            }
-          } else {
-            enemy.group.rotation.y = Math.atan2(-toPlayer.x, -toPlayer.z);
+          // The weapon rises through the tell and snaps forward on the frame it lands; on guard it eases
+          // back to rest and the body turns to whatever the decision faced it at.
+          if (intent.act === 'windup') enemy.group.userData.weapon.rotation.x = enemy.windup === 0 ? 0.55 : -0.4 - Math.sin((1 - enemy.windup / enemy.tell) * Math.PI / 2) * 1.7;
+          else {
+            enemy.group.rotation.y = intent.face ?? enemy.group.rotation.y;
             enemy.group.userData.weapon.rotation.x = THREE.MathUtils.damp(enemy.group.userData.weapon.rotation.x, -0.4, 10, dt);
-            if (enemy.hitFlash <= 0) {
-              const attackDistance = enemy.kind === 'stalker' ? 4.2 : enemy.kind === 'warden' ? 2.2 : 1.15;
-              const clearAttackLine = dist <= attackDistance && hasClearPath(floor.cells,enemy.group.position,player.position);
-              if (clearAttackLine && enemy.cooldown <= 0) {
-                enemy.windup=enemy.tell; audio.play('warn'); enemy.aim.copy(toPlayer).normalize();
-              } else if ((dist > (enemy.kind === 'warden' ? 2.0 : 1.15) || !clearAttackLine) && (enemy.kind !== 'stalker' || enemy.cooldown < .9)) {
-                const direction = toPlayer.clone();
-                if (dist > TILE * 1.5 || !clearAttackLine) {
-                  const next = [[ex + 1,ez],[ex - 1,ez],[ex,ez + 1],[ex,ez - 1]].filter(([x,z]) => floor.cells.has(cellKey(x,z))).sort((a,b) => (distances.get(pathKey(a[0],a[1])) ?? Infinity) - (distances.get(pathKey(b[0],b[1])) ?? Infinity))[0];
-                  if (next) direction.set(next[0] * TILE - enemy.group.position.x,0,next[1] * TILE - enemy.group.position.z);
-                }
-                direction.normalize(); moveOnFloor(floor.cells,enemy.group.position,direction.x * enemy.speed * dt,direction.z * enemy.speed * dt);
-              }
-
-            }
           }
           enemy.group.position.y = 0.03 + Math.abs(Math.sin(t * 6 + enemy.phase)) * 0.045;
           const walking=dist>1.15&&enemy.windup<=0&&enemy.hitFlash<=0;
@@ -682,22 +662,10 @@ export default function DungeonGame() {
           enemy.group.userData.shield.rotation.z=enemy.windup>0?-.25:gait*.16;
           enemy.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.emissive.setHex(enemy.hitFlash > 0 ? 0xffa34a : enemy.windup > 0 ? 0xb83915 : 0x000000); o.material.emissiveIntensity = enemy.hitFlash > 0 ? 0.8 : 0.5; } });
         });
-        // Separate bodies without moving a guard during its committed windup.
-        // Two short passes resolve crowds while keeping the correction gentle.
-        if (dt > 0) for (let pass = 0; pass < 2; pass++) {
-          for (let i = 0; i < enemyData.length; i++) for (let j = i + 1; j < enemyData.length; j++) {
-            const a = enemyData[i], b = enemyData[j];
-            if (a.dead || b.dead) continue;
-            const delta = b.group.position.clone().sub(a.group.position); delta.y = 0;
-            const distance = delta.length(); if (distance >= 0.82) continue;
-            if (distance < 0.001) delta.set(1, 0, 0); else delta.divideScalar(distance);
-            const weightA = a.windup > 0 ? 0 : 1, weightB = b.windup > 0 ? 0 : 1;
-            const total = weightA + weightB; if (!total) continue;
-            const push = Math.min(0.82 - distance, dt * 3);
-            moveOnFloor(floor.cells,a.group.position,-delta.x * push * weightA / total,-delta.z * push * weightA / total);
-            moveOnFloor(floor.cells,b.group.position,delta.x * push * weightB / total,delta.z * push * weightB / total);
-          }
-        }
+        // Separate bodies without moving a guard during its committed windup; the rule itself lives in
+        // dungeon-enemy, and only the write back into the scene graph belongs here.
+        const spread = separateCrowd(floor.cells, enemyData.map(e => ({ x: e.group.position.x, z: e.group.position.z, windup: e.windup, dead: e.dead })), dt);
+        enemyData.forEach((e, i) => { e.group.position.x = spread[i].x; e.group.position.z = spread[i].z; });
       }
       if (noticeTime > 0) { noticeTime = Math.max(0,noticeTime-frameDt); if (noticeTime === 0) setNotice(''); }
       if (rewardTime > 0) { rewardTime = Math.max(0, rewardTime - frameDt); if (rewardTime === 0) setXpReward(0); }
