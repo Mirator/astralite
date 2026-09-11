@@ -53,7 +53,7 @@ kbd { margin-right: 6px; padding: 3px 6px; border: 1px solid #7d898755; backgrou
 .end-kicker { color: var(--ember); font: 600 11px/1 var(--font-geist-mono); letter-spacing: .22em; }
 .end-card h1 { margin: 15px 0 8px; font-family: Georgia, serif; font-weight: 400; font-size: clamp(30px, 6vw, 48px); }
 .end-card p { margin: 0; color: #aeb8b5; font-size: 14px; }.end-card button { margin-top: 26px; padding: 11px 24px; border: 1px solid #f2c47b88; background: #a43b25; color: #fff0d8; font: 650 12px/1 var(--font-geist-mono); letter-spacing: .16em; cursor: pointer; }.end-card button:hover { background: #c44b29; }
-.touch-stick, .touch-actions { display: none; }.vignette { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 130px 22px #000b; z-index: 2; }
+.touch-stick, .touch-pad, .touch-actions { display: none; }.vignette { position: absolute; inset: 0; pointer-events: none; box-shadow: inset 0 0 130px 22px #000b; z-index: 2; }
 @keyframes float { 50% { transform: translate(-50%, -5px); opacity: .78; } }
 @media (max-width: 720px), (pointer: coarse) {
   .game-title { top: 14px; left: 14px; }.game-title span:not(.sigil), .controls { display: none; }.hud { top: 14px; right: 14px; width: 180px; }
@@ -66,6 +66,11 @@ kbd { margin-right: 6px; padding: 3px 6px; border: 1px solid #7d898755; backgrou
   .touch-stick .stick-base { width: 108px; height: 108px; margin: -54px 0 0 -54px; border: 1px solid #d4ded84a; background: #07121999; backdrop-filter: blur(5px); }
   .touch-stick .stick-knob { width: 46px; height: 46px; margin: -23px 0 0 -23px; border: 1px solid #d4ded87a; background: #0c1f28cc; transform: translate(var(--kx, 0px), var(--ky, 0px)); }
   .touch-stick[data-pointer] i { opacity: 1; }
+  /* The other touch layout. Fixed positions rather than a zone, because a button a screen reader can name
+     has to stay where it was named, and 42px is the smallest of the two that a thumb still lands on. */
+  .touch-pad { position: absolute; bottom: 20px; left: 18px; z-index: 5; display: grid; grid-template: repeat(3, 42px) / repeat(3, 42px); gap: 3px; }
+  .touch-pad button { border: 1px solid #d4ded84a; background: #071219bb; color: #e4e8df; touch-action: none; backdrop-filter: blur(5px); }
+  .touch-pad .up { grid-area: 1 / 2; }.touch-pad .left { grid-area: 2 / 1; }.touch-pad .down { grid-area: 2 / 2; }.touch-pad .right { grid-area: 2 / 3; }
   .touch-actions { position: absolute; right: 18px; bottom: 30px; z-index: 5; display: flex; align-items: end; gap: 12px; }.touch-actions button { width: 62px; height: 62px; border: 1px solid #d4ded84a; background: #071219bb; color: #e4e8df; touch-action: none; backdrop-filter: blur(5px); border-radius: 50%; font: 650 10px/1 var(--font-geist-mono); letter-spacing: .08em; }.touch-actions .strike { width: 78px; height: 78px; color: #fff0d8; border-color: #ffba6777; background: #922b20cc; }.start-prompt { bottom: 135px; }
 }
 @media (max-width: 480px) {
@@ -103,7 +108,7 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 /* The one card with no world behind it and nothing to click, so the prose has to carry it alone.
    The chrome goes with the world: vitality, a dash meter and a pause button all describe a run that
    was never able to start, and a map button that opens nothing reads as broken rather than empty. */
-.no-display .game-title, .no-display .game-options, .no-display .hud, .no-display .floor-map, .no-display .touch-stick, .no-display .touch-actions { display: none; }
+.no-display .game-title, .no-display .game-options, .no-display .hud, .no-display .floor-map, .no-display .touch-stick, .no-display .touch-pad, .no-display .touch-actions { display: none; }
 .display-failed .end-card { border-color: #8fb8ae55; }
 .display-failed .end-card p { margin-top: 14px; line-height: 1.7; }
 .chamber-notice > span { color: #acdfba; }.chamber-notice b { color: #e8e2d0; font: 25px Georgia,serif; white-space: nowrap; }.chamber-notice small { color: #a6d9bd; font-size: 12px; letter-spacing: .12em; }
@@ -129,9 +134,13 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
  .intro-screen { justify-content: center; padding: 70px 28px 25px; background: #041015e6; }.intro-card h1 { font-size: 60px; margin: 16px 0; }.intro-card > p { font-size: 14px; line-height: 1.6; }.intro-controls { margin: 20px 0; }.intro-card > small { margin-top: 15px; }
  .boon-card .boon-options { grid-template-columns: 1fr; gap: 7px; }.end-card .boon-option { padding: 11px; }.end-card.boon-card { padding: 24px 18px; }
  .chamber-notice { top: 32%; width: 90%; }.chamber-notice b { font-size: 20px; white-space: normal; }.start-prompt { bottom: 172px; width: 80%; }
- .touch-stick { bottom: 24px; }.touch-actions { bottom: 39px; }
+ .touch-stick, .touch-pad { bottom: 24px; }.touch-actions { bottom: 39px; }
 }
-@media (prefers-reduced-motion: reduce) { .start-prompt, .chamber-notice { animation: none; } }
+/* The OS preference is only the default. The game stamps its effective answer on the root, so an explicit
+   "full motion" inside a reduced-motion OS gets these back, and an explicit "reduced" silences them on a
+   machine that never asked. The media query still covers the moment before the script has run. */
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion="full"]) .start-prompt, :root:not([data-motion="full"]) .chamber-notice { animation: none; } }
+:root[data-motion="reduce"] .start-prompt, :root[data-motion="reduce"] .chamber-notice { animation: none; }
 @media (max-height: 620px) {
  .intro-screen { overflow-y: auto; align-items: flex-start; padding: 26px 7vw; }
  .intro-card h1 { font-size: 48px; margin: 12px 0; }
@@ -148,7 +157,27 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 .game-options button { width: 40px; height: 40px; font-size: 20px; }
 .chamber-notice { top: 12%; }.chamber-notice b { font-size: 22px; }
 .menu-details { margin: 24px 0 16px; color: #bbceca; font-size: 14px; }.menu-details summary { cursor: pointer; }.menu-details p { line-height: 1.6; }.menu-settings { display: flex; gap: 10px; }.menu-settings button { padding: 10px 14px; border: 1px solid #96b1ab55; background: #102329; color: #dae5df; cursor: pointer; }
+/* Same folded-away weight as the journey it sits under: a label column, a control, and a quiet aside. The
+   grid keeps the three rows aligned however wide their controls turn out to be. */
+.settings-panel { margin-top: -8px; }
+.setting-row { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-top: 12px; }
+.setting-row label { color: #93aaa6; font: 600 10px/1 var(--font-geist-mono); letter-spacing: .13em; text-transform: uppercase; }
+.setting-row small { color: #7b9491; font-size: 11px; text-align: right; }
+.setting-row select { padding: 6px 8px; border: 1px solid #96b1ab55; background: #102329; color: #dae5df; font: inherit; font-size: 12px; cursor: pointer; }
+.setting-row input[type="range"] { width: 100%; accent-color: #d9bb84; cursor: pointer; }
+/* Nine narrow cells rather than a list: the card is 460px and the key is the part being read, so the
+   action name takes the smaller half and the binding sits under it in the same monospace as the HUD. */
+.key-binds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 16px; }
+.key-binds button { display: grid; gap: 4px; padding: 7px 8px; border: 1px solid #96b1ab33; background: #0d1a1f; color: #9db3af; font: 500 10px/1.2 var(--font-geist-mono); letter-spacing: .06em; text-align: left; cursor: pointer; }
+.key-binds kbd { display: block; margin: 0; padding: 3px 5px; font-size: 10px; color: #e9c98f; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.key-binds .capturing { border-color: #f2c47b; }.key-binds .capturing kbd { color: #ffd195; }
+.bind-note { display: block; margin: 10px 0 0; min-height: 2.4em; color: #7b9491; font-size: 11px; line-height: 1.5; }
+.reset-binds { margin-top: 4px; padding: 7px 12px; border: 1px solid #96b1ab55; background: #102329; color: #dae5df; font-size: 12px; cursor: pointer; }
 .success-screen { background: radial-gradient(ellipse at 50% 40%,#254a43aa,#030c12e8); }.success-screen .end-card { width: min(550px,calc(100% - 32px)); border-color: #bce8c566; }.success-sigil { display: block; color: #a9e9c5; font-size: 48px; margin-bottom: 24px; }.success-screen .end-kicker { color: #b5ddc4; }.floor-results { display: flex; justify-content: space-around; gap: 16px; margin: 30px 0 8px; }.floor-results span { display: grid; gap: 8px; color: #a9bfb8; font-size: 13px; }.floor-results strong { color: #e6f3df; font: 30px Georgia,serif; }.end-card .recovery-note { font-size: 12px; margin-top: 16px; }.success-screen button { background: #29574d; }
+/* The hint drops under its control rather than squeezing it: a select narrow enough to read "Thumbst…"
+   is worse than a hint on its own line, and the label column still carries the meaning. Declared after the
+   base rows on purpose - a media query carries no extra specificity, so only source order decides. */
+@media (max-width: 720px), (pointer: coarse) { .setting-row { grid-template-columns: 68px minmax(0, 1fr); row-gap: 4px; }.setting-row small { grid-column: 1 / -1; text-align: left; } }
 @media(max-width:720px) { .hud { top: 58px; left: 16px; bottom: auto; width: 135px; padding: 0; }.game-title span:not(.sigil) { display: block; max-width: 260px; font-size: 10px; }.floor-map { width: 95px; top: 75px; }.floor-map svg { height: 65px; }.chamber-notice { top: 24%; }.intro-screen { overflow-y: auto; }.success-screen .end-card { padding: 26px 20px; } }
 .floor-map { pointer-events: auto; cursor: pointer; }.floor-map:disabled { opacity: .4; }.floor-map svg { pointer-events: none; }
 .map-screen { position: absolute; inset: 0; z-index: 10; background: #061118ed; display: flex; flex-direction: column; align-items: center; padding: 5vh 20px; }

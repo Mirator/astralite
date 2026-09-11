@@ -12,13 +12,21 @@ Built with React 19 RSC on [vinext](https://www.npmjs.com/package/vinext)
 
 Each floor is generated from its own seed, so a reload gives a new keep.
 
+Every key below is a default and can be rebound in the pause menu; `Esc` always
+opens that menu whatever else it is set to, so a rebind cannot lock you out.
+
 | Input | Action |
 | --- | --- |
 | `WASD` / arrow keys | Move (screen-relative) |
 | `Space` | Strike — held input repeats the swing |
 | `Shift` | Dash, and cancel a committed attack |
 | `Esc` / `M` / `F` | Pause, mute, fullscreen |
-| Touch | On-screen direction pad, DASH and STRIKE buttons |
+| Touch | Thumbstick, DASH and STRIKE buttons; labelled direction buttons are the alternative touch layout |
+
+The same menu carries a volume slider and a motion setting that defaults to the
+system's `prefers-reduced-motion` and can be overridden either way. Reduced
+motion drops the camera shake and holds the hurt tint still; it does not touch
+hit-stop, which is timing the fight depends on. All of it is remembered locally.
 
 Clearing every guard in a room cleanses it and restores health. Each guard is
 worth 25 XP, awarded exactly once; XP is per-run and resets on retry. Floor
@@ -33,7 +41,7 @@ game/                    the application
     dungeon-game.tsx     game loop, input, combat, HUD
     dungeon-floor.ts     seeded procedural floor generator
     dungeon-sim.ts       vitality, XP, ranks, boons, damage rules
-    dungeon-save.ts      personal best and run seed in localStorage
+    dungeon-save.ts      best run, seed, run log and settings in localStorage
     dungeon-atmosphere.ts  lighting, particles, props
     dungeon-motion.ts    water and stone shaders, cloth motion
     dungeon-audio.ts     ambient drone and combat sounds

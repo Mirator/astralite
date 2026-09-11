@@ -11,7 +11,46 @@ export type BestRun = { floor: number; xp: number; kills: number; won: boolean }
 export type RunCause = 'guard' | 'stalker' | 'warden' | 'hazard';
 export type RunEnd = { at: number; floor: number; won: boolean; cause: RunCause | null; seconds: number; rank: number; xp: number; kills: number; boons: string[]; seed: number };
 
-const BEST_KEY = 'drowned-keep:best', SEED_KEY = 'drowned-keep:seed', RUNS_KEY = 'drowned-keep:runs';
+// What the player has asked the game to be, as opposed to what one run left behind. Every default here
+// reproduces the game exactly as it shipped, so a blank, blocked or corrupt cell is not a different game:
+// `volume: 1` is the 0.45 master gain the audio module always used, `reducedMotion: null` means "whatever
+// the OS asks for and nothing of our own", and the thumbstick is the touch layout that already exists.
+export type Action = 'up' | 'down' | 'left' | 'right' | 'attack' | 'dash' | 'pause' | 'mute' | 'fullscreen';
+export type Binds = Record<Action, string[]>;
+export type Settings = { volume: number; muted: boolean; reducedMotion: boolean | null; touchLayout: 'stick' | 'pad'; binds: Binds };
+
+export const ACTIONS: Action[] = ['up', 'down', 'left', 'right', 'attack', 'dash', 'pause', 'mute', 'fullscreen'];
+export const DEFAULT_BINDS: Binds = { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], attack: ['Space'], dash: ['ShiftLeft', 'ShiftRight'], pause: ['Escape'], mute: ['KeyM'], fullscreen: ['KeyF'] };
+// Escape belongs to pause and to nothing else, ever. It is the one key guaranteed to open the menu, and a
+// player who can hand it to `attack` can bind themselves out of the very screen that would undo it — the ☰
+// button is the other way back in, but a keyboard-only player may have no way to reach it.
+export const RESERVED = 'Escape';
+// Two bindings per action is what the defaults use (WASD beside the arrows); four is room to spare, and a
+// bound so a hand-written cell cannot grow a list long enough to cost a keystroke anything measurable.
+const BIND_CAP = 4;
+// Every KeyboardEvent.code in the standard set is ASCII alphanumeric — 'KeyW', 'Digit1', 'IntlBackslash'.
+const CODE = /^[A-Za-z0-9]{1,24}$/;
+
+// Fresh arrays every time: a parsed set is handed straight to React state and edited from there, and one
+// aliased list would let a rebind rewrite the defaults every later reset falls back to.
+const freshBinds = (): Binds => Object.fromEntries(ACTIONS.map(a => [a, [...DEFAULT_BINDS[a]]])) as Binds;
+export const defaultSettings = (): Settings => ({ volume: 1, muted: false, reducedMotion: null, touchLayout: 'stick', binds: freshBinds() });
+
+// Bind `code` to `action`, or refuse. Refusal is null rather than an unchanged set so a caller can say why
+// nothing happened. Whatever held the code loses it; if that would leave it with no key at all — an action
+// the player can no longer perform, and cannot see is gone — the two trade instead, and the displaced
+// action inherits the key this one just stopped using.
+export const bindKey = (binds: Binds, action: Action, code: string): Binds | null => {
+  if (!CODE.test(code) || (code === RESERVED && action !== 'pause')) return null;
+  const held = ACTIONS.find(a => a !== action && binds[a].includes(code));
+  const next: Binds = { ...binds, [action]: [code] };
+  // `binds[action]` cannot be empty and cannot contain `code` when some other action holds it, so the
+  // trade always hands over at least one key that nothing else is using.
+  if (held) { const kept = binds[held].filter(c => c !== code); next[held] = kept.length ? kept : binds[action]; }
+  return next;
+};
+
+const BEST_KEY = 'drowned-keep:best', SEED_KEY = 'drowned-keep:seed', RUNS_KEY = 'drowned-keep:runs', SETTINGS_KEY = 'drowned-keep:settings';
 const CAUSES = ['guard', 'stalker', 'warden', 'hazard'];
 
 // An entry is ~150 bytes of JSON, so the whole log is ~15 KB — a few hundred times under the smallest
@@ -86,6 +125,43 @@ export const parseSeed = (raw: string | null): number | null => {
   return Number.isInteger(seed) && seed >= 0 && seed <= 0xffffffff ? seed : null;
 };
 
+// Unlike a run record, a settings blob is never all-or-nothing: each field stands on its own, so a blob
+// written by a build that had no volume slider yet, or one field somebody hand-edited into nonsense, costs
+// that field and leaves the rest of the player's choices alone.
+export const parseSettings = (raw: string | null): Settings => {
+  const settings = defaultSettings();
+  if (!raw) return settings;
+  let data: unknown;
+  try { data = JSON.parse(raw); } catch { return settings; }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return settings;
+  const stored = data as Record<string, unknown>;
+  // NaN and Infinity both survive a JSON round trip through a hand-edited cell and would silence the game.
+  if (typeof stored.volume === 'number' && Number.isFinite(stored.volume)) settings.volume = Math.min(1, Math.max(0, stored.volume));
+  settings.muted = stored.muted === true;
+  // Three states, and the third is "ask the OS" — so only a real boolean counts as an explicit override.
+  if (typeof stored.reducedMotion === 'boolean') settings.reducedMotion = stored.reducedMotion;
+  if (stored.touchLayout === 'pad' || stored.touchLayout === 'stick') settings.touchLayout = stored.touchLayout;
+  const binds = stored.binds;
+  if (binds && typeof binds === 'object' && !Array.isArray(binds)) {
+    const seen = new Set<string>();
+    for (const action of ACTIONS) {
+      const list = (binds as Record<string, unknown>)[action];
+      // A code already claimed by an earlier action is dropped rather than honoured twice: one key firing
+      // two actions is exactly what the conflict rule exists to prevent, and it must not arrive by the back
+      // door of a hand-written cell. Reserved keys are stripped here too, not only when a bind is made.
+      const codes = Array.isArray(list) ? [...new Set(list.filter((c): c is string => typeof c === 'string' && CODE.test(c) && (action === 'pause' || c !== RESERVED) && !seen.has(c)))].slice(0, BIND_CAP) : [];
+      // An action left with nothing is one the player cannot perform and cannot see is missing, so it keeps
+      // its defaults — minus anything an earlier action already took, the one way defaults can collide.
+      settings.binds[action] = codes.length ? codes : DEFAULT_BINDS[action].filter(c => !seen.has(c));
+      settings.binds[action].forEach(c => seen.add(c));
+    }
+    // Even that fallback comes up empty if the stored set claimed an action's every default. An unreachable
+    // action is worse than a lost customisation, so a set that cannot be made whole goes back to defaults entire.
+    if (ACTIONS.some(a => !settings.binds[a].length)) settings.binds = freshBinds();
+  }
+  return settings;
+};
+
 // The only two places that touch the browser; both swallow everything, including the SecurityError
 // thrown merely by naming localStorage when site data is blocked.
 const read = (key: string) => { try { return localStorage.getItem(key); } catch { return null; /* storage blocked */ } };
@@ -99,3 +175,5 @@ export const readRuns = () => parseRuns(read(RUNS_KEY));
 // Trimmed again here rather than trusting the caller: `write` swallows a quota error, and a silently
 // dropped write is exactly how a log would stop growing without anyone noticing.
 export const writeRuns = (log: RunEnd[]) => write(RUNS_KEY, JSON.stringify(log.slice(-RUN_LOG_CAP)));
+export const readSettings = () => parseSettings(read(SETTINGS_KEY));
+export const writeSettings = (settings: Settings) => write(SETTINGS_KEY, JSON.stringify(settings));
