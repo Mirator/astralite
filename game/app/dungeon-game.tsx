@@ -7,7 +7,7 @@ import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
 import { generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { decideEnemy, separateCrowd } from './dungeon-enemy';
-import { betterRun, readBest, readSeed, writeBest, writeSeed, type BestRun } from './dungeon-save';
+import { appendRun, betterRun, readBest, readRuns, readSeed, summariseRuns, writeBest, writeRuns, writeSeed, type BestRun, type RunCause, type RunEnd } from './dungeon-save';
 import { BOONS, clearRoomReward, createRun, grantXp, heal, hurt, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
 type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh };
@@ -136,6 +136,9 @@ export default function DungeonGame() {
   const [displayFailed, setDisplayFailed] = useState(false);
   const [best, setBest] = useState<BestRun | null>(null);
   const [runSeed, setRunSeed] = useState<number | null>(null), [priorSeed, setPriorSeed] = useState<number | null>(null);
+  // Not derived from `best`: the record is one run, this is the distribution every balance argument in
+  // progress.md currently rests on somebody's memory of.
+  const [runLog, setRunLog] = useState<RunEnd[]>([]);
 
   // Persisting a finished run is a write to an external system, so it belongs in an effect. Both endings
   // settle every HUD value before `status` flips, which makes this the one honest place to read the run.
@@ -195,6 +198,10 @@ export default function DungeonGame() {
     let visited = new Set<number>([0]), cleared = new Set<number>([0]), spineRooms = new Set<number>();
     let reached = 0, loot = 0, level = 1;
     let floorStart = 0, floorKills = 0, floorXp = 0;
+    // Run-scoped, not floor-scoped: these three outlive a descent and are reset only by `restart`, which
+    // is what makes the logged duration, boon list and replay seed describe the whole run and not its
+    // last floor. `runStart` is the moment the keep was entered, not the moment the page mounted.
+    let runStart = 0, firstSeed = 0, boonsTaken: string[] = [];
     let features: { mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; room: number; shrine: boolean; used: boolean; phase: number; burned: boolean }[] = [];
     let floorGroup = new THREE.Group();
     let water: THREE.Mesh | null = null;
@@ -226,7 +233,20 @@ export default function DungeonGame() {
       setMaxHealth(run.maxHp); setHealth(run.hp); setBoonChoice([]);
       setTaken((list) => [...list, boon.name]);
       setNotice(`${boon.name} taken`); setNoticeDetail(boon.detail); noticeTime = 3;
+      boonsTaken.push(boon.id);
       if (run.pendingRanks > 0) offerBoon();
+    };
+    // The single door out of a run, and the only place `gameStatus` becomes 'won' or 'lost'. It refuses
+    // to act unless the run is still live, which is what makes a second entry for one run impossible:
+    // a warden's blow and an ember tick in the same frame, a repeated `continue` event, or a restart off
+    // the death screen all find the status already settled and write nothing. `cause` is null for a win.
+    const endRun = (cause: RunCause | null) => {
+      if (gameStatus === 'won' || gameStatus === 'lost') return;
+      gameStatus = cause ? 'lost' : 'won'; setStatus(gameStatus);
+      // Re-read instead of holding a snapshot: a second tab may have logged its own runs since this one
+      // began, and the log is cheap enough to reread once per run that guessing is not worth it.
+      const log = appendRun(readRuns(), { at: Date.now(), floor: level, won: !cause, cause, seconds: Math.max(0, Math.round(elapsed - runStart)), rank: run.rankLevel, xp: run.totalXp, kills: run.kills, boons: [...boonsTaken], seed: firstSeed });
+      writeRuns(log); setRunLog(log);
     };
     const keys = new Set<string>();
     const scene = new THREE.Scene();
@@ -318,8 +338,9 @@ export default function DungeonGame() {
       gameStatus = 'playing'; setStatus('playing');
       floor = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], level);
       phase('generate');
-      // Floor 1 is the run's fingerprint: keeping its seed is what lets a lost run be taken again.
-      if (level === 1) { setRunSeed(floor.seed); writeSeed(floor.seed); }
+      // Floor 1 is the run's fingerprint: keeping its seed is what lets a lost run be taken again, and it
+      // is what a logged entry carries, so the log is held here rather than read off the current floor.
+      if (level === 1) { firstSeed = floor.seed; runStart = elapsed; setRunSeed(floor.seed); writeSeed(floor.seed); }
       floorGroup = new THREE.Group(); world.add(floorGroup);
       swingHits.clear();
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
@@ -395,7 +416,7 @@ export default function DungeonGame() {
     };
     const continueDescent = () => {
       if (gameStatus !== 'complete') return;
-      if (level >= FLOORS) { gameStatus = 'won'; setStatus('won'); return; }
+      if (level >= FLOORS) { endRun(null); return; }
       buildFloor(level + 1);
       heal(run, Math.round(run.maxHp * .25)); setHealth(run.hp);
       keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; audio.pause(false);
@@ -407,7 +428,7 @@ export default function DungeonGame() {
     // but the run must be fresh first because it snapshots kills and XP as the floor's baseline. A whole
     // new `run` is the point of createRun(): a field added to the sim can never be forgotten here.
     const restart = (seed?: number) => {
-      run = createRun();
+      run = createRun(); boonsTaken = [];
       attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0;
       walkPhase = 0; footstepTime = 0; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
       isPaused = false; keys.clear(); bufferedFacing = null; velocity.set(0, 0, 0);
@@ -421,13 +442,20 @@ export default function DungeonGame() {
       audio.pause(false);
     };
     // Read before floor 1 overwrites the stored seed, so "Last keep" still offers the previous visit's.
-    const restoreSave = () => { setBest(readBest()); setPriorSeed(readSeed()); };
+    const restoreSave = () => { setBest(readBest()); setPriorSeed(readSeed()); setRunLog(readRuns()); };
     restoreSave();
     buildFloor(1);
+    // The thumbstick's screen-space direction while a thumb is planted, null the rest of the time. It is a
+    // unit vector on the very basis the keys below build on, so analog steering is a second source of the
+    // same quantity rather than a second input system.
+    let stick: { x: number; z: number } | null = null;
     const moveInput = () => {
       const x = +(keys.has('KeyD') || keys.has('ArrowRight') || keys.has('Touchright')) - +(keys.has('KeyA') || keys.has('ArrowLeft') || keys.has('Touchleft'));
       const z = +(keys.has('KeyS') || keys.has('ArrowDown') || keys.has('Touchdown')) - +(keys.has('KeyW') || keys.has('ArrowUp') || keys.has('Touchup'));
-      return screenRight.clone().multiplyScalar(x).addScaledVector(screenDown, z).normalize();
+      // A planted thumb outranks the keys for exactly as long as it is down, and lifting it hands steering
+      // straight back: neither path can strand the other, because neither ever writes to the other's state.
+      const sx = stick ? stick.x : x, sz = stick ? stick.z : z;
+      return screenRight.clone().multiplyScalar(sx).addScaledVector(screenDown, sz).normalize();
     };
     const startAttack = () => {
       if (!hasStarted || isPaused || gameStatus !== 'playing' || dashTime > 0) return;
@@ -471,18 +499,26 @@ export default function DungeonGame() {
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') requestDash();
     };
     const keyUp = (e: KeyboardEvent) => keys.delete(e.code);
-    const clearInput = () => { keys.clear(); attackBuffer = 0; bufferedFacing = null; };
+    // The stick clears with the keys: a page backgrounded mid-drag does not always fire pointercancel,
+    // and a stick left live is a knight that walks on by itself the moment the descent resumes.
+    const clearInput = () => { keys.clear(); stick = null; attackBuffer = 0; bufferedFacing = null; };
     const trigger = (e: Event) => {
       const detail = (e as CustomEvent<string>).detail;
       if (detail === 'continue') { continueDescent(); return; }
       // `restart` opens a fresh keep, `restart:<seed>` takes the same one again; a junk seed just means fresh.
       if (detail === 'restart' || detail.startsWith('restart:')) { const seed = Number.parseInt(detail.slice(8), 10); restart(Number.isNaN(seed) ? undefined : seed >>> 0); return; }
-      if (detail === 'start') { if (hasStarted) return; floorStart = elapsed; hasStarted = true; setStarted(true); audio.start(); return; }
+      // `elapsed` runs from mount, so both clocks restart here or a logged run would bill the time spent
+      // reading the menu. A restart mid-run has `hasStarted` already true and gets its reset in buildFloor.
+      if (detail === 'start') { if (hasStarted) return; floorStart = elapsed; runStart = elapsed; hasStarted = true; setStarted(true); audio.start(); return; }
       if (detail === 'map') { if (!hasStarted || run.choosing || gameStatus !== 'playing') return; if (!isPaused) togglePause(); setMapOpen(true); return; }
       if (detail === 'pause') { togglePause(); return; }
       if (detail === 'mute') { toggleMute(); return; }
       if (detail === 'fullscreen') { fullscreen(); return; }
       if (detail.startsWith('boon:')) { chooseBoon(detail.slice(5)); return; }
+      // Above the play guard on purpose: a release has to land even if the draft, the pause or a death
+      // arrived between plant and lift, or the knight would keep walking with no thumb on the glass.
+      // Junk parses as a release for the same reason.
+      if (detail.startsWith('stick:')) { const [x, z] = detail.slice(6).split(',').map(Number); stick = Number.isFinite(x) && Number.isFinite(z) ? { x, z } : null; return; }
       if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing') return;
       if (detail === 'attack') requestAttack();
       if (detail === 'hold-attack') { keys.add('Space'); requestAttack(); }
@@ -571,7 +607,7 @@ export default function DungeonGame() {
             if (!firing) feature.burned = false;
             else if (!feature.burned && near < 1.8 && hurt(run, 10, { dashing: dashTime > 0 })) {
               feature.burned = true; setHealth(run.hp); hurtFlash = .65; shake = .1; audio.play('hurt'); burst(player.position,0xff782c,8);
-              if(run.hp===0){gameStatus='lost';setStatus('lost');}
+              if(run.hp===0)endRun('hazard');
             }
           }
         }
@@ -628,7 +664,8 @@ export default function DungeonGame() {
             if (gameStatus !== 'playing' || !hurt(run, enemy.damage, { dashing: dashTime > 0, warded: true })) return;
             setHealth(run.hp);
             audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4c2f,8);
-            if(run.hp===0){gameStatus='lost';setStatus('lost');}
+            // Which kind landed the killing blow is the one thing only this call site knows.
+            if(run.hp===0)endRun(enemy.kind);
           };
           // Everything about where this body goes and whether its blow lands is decided in dungeon-enemy;
           // what is left here is the part a node test could never see — poses, sound, flashes, particles.
@@ -689,7 +726,7 @@ export default function DungeonGame() {
     const hooks = window as Window & {
       advanceTime?: (ms: number, draw?: boolean) => void;
       render_game_to_text?: () => string;
-      dungeonTest?: { teleport: (x: number, z: number) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void };
+      dungeonTest?: { teleport: (x: number, z: number) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; runLog: () => RunEnd[] };
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     hooks.dungeonTest = {
@@ -697,6 +734,9 @@ export default function DungeonGame() {
       descend: () => buildFloor(Math.min(FLOORS, level + 1)),
       buildFloor: (nextLevel) => buildFloor(nextLevel),
       grantXp: (amount) => award(grantXp(run, amount)),
+      // Straight off the store, re-validated on the way out, so what comes back is what a later session
+      // would also see — not whatever this session happens to be holding in React state.
+      runLog: () => readRuns(),
     };
     hooks.advanceTime = (ms, draw = true) => {
       manualTime = true;
@@ -735,6 +775,9 @@ export default function DungeonGame() {
   const mapCorners = floorMap ? [[floorMap.bounds.minX,floorMap.bounds.minZ],[floorMap.bounds.maxX,floorMap.bounds.minZ],[floorMap.bounds.minX,floorMap.bounds.maxZ],[floorMap.bounds.maxX,floorMap.bounds.maxZ]].map(([x,z])=>({x:x*mapCos-z*mapSin,y:x*mapSin+z*mapCos})) : [{x:0,y:0}];
   const mapBounds = {x:Math.min(...mapCorners.map(p=>p.x))-4,y:Math.min(...mapCorners.map(p=>p.y))-4,width:Math.max(...mapCorners.map(p=>p.x))-Math.min(...mapCorners.map(p=>p.x))+8,height:Math.max(...mapCorners.map(p=>p.y))-Math.min(...mapCorners.map(p=>p.y))+8};
   const action = (detail: string) => window.dispatchEvent(new CustomEvent('dungeon-action', { detail }));
+  // The HUD is deliberately bare, so the log gets one line and no more: how many descents, how many got
+  // out, and the floor that has taken the most. The full history is `window.dungeonTest.runLog()`.
+  const tally = summariseRuns(runLog);
   return (
     <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
@@ -751,6 +794,7 @@ export default function DungeonGame() {
       {!displayFailed && (!started || (paused && !mapOpen)) && <div className="intro-screen"><section className="intro-card"><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : 'THE DROWNED KEEP'}</span><h1>{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
         {paused && <p>{advance} / {goalDepth} halls · {visitedCount} / {roomCount} explored · {plundered} / {deadEnds} plundered<br />Rank {rank} · {experience} XP · {rankXp} / {rankNeed} to next boon{xpReward > 0 ? ` · +${xpReward} XP` : ''}</p>}
         {!paused && best && <p className="best-run">Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</p>}
+        {!paused && tally.runs > 0 && <p className="run-log">{tally.runs} {tally.runs === 1 ? 'descent' : 'descents'} logged · {tally.wins} escaped{tally.worstFalls > 0 ? ` · floor ${tally.worstFloor} has taken ${tally.worstFalls}` : ''}</p>}
         <button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'LOADING…' : paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
         <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>WASD / ↑↓←→</kbd> Move</span><span><kbd>SPACE</kbd> Hold to strike</span><span><kbd>SHIFT</kbd> Dodge</span><span><kbd>ESC</kbd> Pause</span><span><kbd>F</kbd> Fullscreen</span></div><p>Reach {goalName}. Defeat the stair wardens to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality.</p>{taken.length > 0 && <p>{taken.join(' · ')}</p>}</details>
         <div className="menu-settings">{started && <button onClick={() => action('map')}>Map</button>}<button onClick={() => action('mute')}>{muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button>{!started && priorSeed !== null && <button onClick={() => action(`restart:${priorSeed}`)}>Last keep</button>}</div>
@@ -765,7 +809,17 @@ export default function DungeonGame() {
       {/* Plain markup on purpose: the canvas was never mounted, so this is the only thing left to look at. */}
       {displayFailed && <div className="end-screen display-failed"><div className="end-card"><span className="end-kicker">THE GATE STAYS SHUT</span><h1>No light to see by.</h1><p>This browser could not open a 3D display, so the keep cannot be drawn. That most often means hardware acceleration is switched off in the browser&rsquo;s settings.</p></div></div>}
       {displayLost && <output className="display-notice">Display interrupted · the descent is paused</output>}
-      <div className="touch-pad" aria-label="Touch movement controls">{['up', 'left', 'down', 'right'].map((dir) => <button key={dir} className={dir} aria-label={`Move ${dir}`} onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action(`move:${dir}`); }} onLostPointerCapture={() => action(`stop:${dir}`)} onPointerUp={() => action(`stop:${dir}`)} onPointerCancel={() => action(`stop:${dir}`)}>{dir === 'up' ? '▲' : dir === 'down' ? '▼' : dir === 'left' ? '◀' : '▶'}</button>)}</div>
+      {/* A zone, not four keys: movement is screen-relative and diagonal most of the time, so the base plants
+          wherever the thumb lands and carries a continuous direction. State lives on the element (data-pointer,
+          the origin, the last detail sent) rather than in React, because a drag writes on every pointer frame and
+          none of it belongs in a render. Capture is taken first: if it is refused nothing below runs and nothing
+          is live, which is what lets a single lost-capture handler own every way a drag can end - a lift, a
+          cancel, the element going away - with no path that leaves the knight walking on its own. */}
+      <div className="touch-stick" aria-hidden="true"
+        onPointerDown={(e) => { const z = e.currentTarget; if (z.dataset.pointer) return; z.setPointerCapture(e.pointerId); const r = z.getBoundingClientRect(); z.dataset.pointer = `${e.pointerId}`; z.dataset.ox = `${e.clientX}`; z.dataset.oy = `${e.clientY}`; z.dataset.sent = 'stick:0,0'; z.style.setProperty('--ox', `${e.clientX - r.left}px`); z.style.setProperty('--oy', `${e.clientY - r.top}px`); action('stick:0,0'); }}
+        onPointerMove={(e) => { const z = e.currentTarget; if (z.dataset.pointer !== `${e.pointerId}`) return; const dx = e.clientX - Number(z.dataset.ox), dy = e.clientY - Number(z.dataset.oy), span = Math.hypot(dx, dy), live = span > 8; z.style.setProperty('--kx', `${live ? dx * Math.min(span, 44) / span : 0}px`); z.style.setProperty('--ky', `${live ? dy * Math.min(span, 44) / span : 0}px`); const detail = live ? `stick:${(dx / span).toFixed(3)},${(dy / span).toFixed(3)}` : 'stick:0,0'; if (detail !== z.dataset.sent) { z.dataset.sent = detail; action(detail); } }}
+        onLostPointerCapture={(e) => { const z = e.currentTarget; if (!z.dataset.pointer) return; delete z.dataset.pointer; z.removeAttribute('style'); action('stick:off'); }}>
+        <i className="stick-base" /><i className="stick-knob" /></div>
       <div className="touch-actions"><button onPointerDown={() => action('dash')}>DASH</button><button className="strike" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action('hold-attack'); }} onPointerUp={() => action('release-attack')} onPointerCancel={() => action('release-attack')} onLostPointerCapture={() => action('release-attack')}>STRIKE</button></div><div className="vignette" />
     </main>
   );

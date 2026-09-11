@@ -60,14 +60,26 @@ automated drivers; nothing in the game itself calls them.
 | `dungeonTest.descend()` | Takes the stair without fighting, capped at the last floor |
 | `dungeonTest.buildFloor(level)` | Rebuilds the floor at any level, including past the last one |
 | `dungeonTest.grantXp(amount)` | Awards XP, so the boon draft can be reached in one line |
+| `dungeonTest.runLog()` | The stored history of finished runs, oldest first — re-read and re-validated on every call |
+
+`dungeonTest.runLog()` is how a balance question stops being a memory: `copy(JSON.stringify(window.dungeonTest.runLog()))`
+gives every finished run since the log was capped, each one `{ at, floor, won, cause, seconds, rank, xp, kills, boons, seed }`,
+so deaths can be counted per floor and per `cause` (`guard` / `stalker` / `warden` / `hazard`, null on a win)
+and any run worth seeing again replayed with `restart:<seed>`.
 
 `render_game_to_text().player` reports `invulnerable` (seconds of the damage window left) alongside
 `hurtFlash` (the visual), and each entry in `features` reports `burned` — whether that ring has already
 burned the knight during its current flare.
 
 Start a run from the console with `window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'start' }))`.
-Other useful details: `attack`, `dash`, `pause`, `move:up|down|left|right`, `stop:…`, `boon:<id>`,
-`restart`, `restart:<seed>`.
+Other useful details: `attack`, `dash`, `pause`, `move:up|down|left|right`, `stop:…`, `stick:<x>,<y>`,
+`stick:off`, `boon:<id>`, `restart`, `restart:<seed>`.
+
+`stick:<x>,<y>` is the touch thumbstick's analog path: a screen-space direction (`x` right, `y` down) on the
+same basis the four `move:` directions build, so `stick:0.707,-0.707` is up-and-right and `stick:0,0` is a
+planted thumb holding still. `stick:off` releases it, as does any value that does not parse. A live stick
+outranks `move:`, and only for as long as it is live — releasing it hands steering straight back to whatever
+`move:` keys are still held, and neither path ever clears the other's state.
 
 `restart` resets the whole run in place — health, rank, boons, XP, kills, input — and rebuilds floor 1
 from a fresh seed; no page reload, so the `AudioContext`, the GPU context and the `window` hooks all
@@ -81,10 +93,12 @@ window.dispatchEvent(new CustomEvent('dungeon-action', { detail: `restart:${seed
 
 ### Persistence
 
-Two `localStorage` keys, `drowned-keep:best` and `drowned-keep:seed`, hold the deepest run (XP breaks a
-tie on the same floor) and the current run's floor-1 seed. Every read and write is wrapped, and a
-missing, blocked or corrupt value reads as absent — the game plays identically with storage disabled.
-`tests/dungeon-save.test.ts` covers the comparison, the parsing and the throwing-storage paths.
+Three `localStorage` keys, `drowned-keep:best`, `drowned-keep:seed` and `drowned-keep:runs`, hold the
+deepest run (XP breaks a tie on the same floor), the current run's floor-1 seed, and the last 100
+finished runs. Nothing leaves the browser. Every read and write is wrapped, and a missing, blocked or
+corrupt value reads as absent — the game plays identically with storage disabled, and a single malformed
+entry is dropped without costing the rest of the history.
+`tests/dungeon-save.test.ts` covers the comparison, the parsing, the cap and the throwing-storage paths.
 
 ### Recipes
 
