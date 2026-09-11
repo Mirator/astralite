@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { appendRun, betterRun, parseBest, parseRun, parseRuns, parseSeed, readBest, readRuns, readSeed, RUN_LOG_CAP, summariseRuns, writeBest, writeRuns, writeSeed, type BestRun, type RunEnd } from '../app/dungeon-save.ts';
+import { ACTIONS, appendRun, betterRun, bindKey, DEFAULT_BINDS, defaultSettings, parseBest, parseRun, parseRuns, parseSeed, parseSettings, readBest, readRuns, readSeed, readSettings, RESERVED, RUN_LOG_CAP, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunEnd, type Settings } from '../app/dungeon-save.ts';
 
 const run = (floor: number, xp: number): BestRun => ({ floor, xp, kills: 0, won: false });
 // A plausible death on floor 2, which every history test varies one field of.
@@ -188,6 +188,153 @@ test('storage that is missing or throws is indistinguishable from an empty one',
     assert.equal(readSeed(), 0xdeadbeef);
     cell.set('drowned-keep:best', '{"floor":');
     assert.equal(readBest(), null);
+  } finally {
+    if (original) Object.defineProperty(owner, 'localStorage', original); else delete owner.localStorage;
+  }
+});
+
+// --- Settings ---------------------------------------------------------------
+// The bar every case below is held to: whatever the store says, the game that comes out has to be the game
+// that shipped unless the player asked for something else, and no field may take another down with it.
+const shipped = () => ({ volume: 1, muted: false, reducedMotion: null, touchLayout: 'stick', binds: DEFAULT_BINDS });
+
+test('nothing remembered is the game exactly as it shipped', () => {
+  for (const raw of [null, '', '   ', '{', 'null', '7', '"x"', '[]', '[{"volume":0}]']) assert.deepEqual(parseSettings(raw), shipped());
+  // The 0.45 master gain and today's keys are the defaults, so a first-ever visit is byte-identical to the
+  // build before this one existed — which is the whole promise of adding settings rather than changing the game.
+  assert.equal(defaultSettings().volume, 1);
+  assert.equal(defaultSettings().reducedMotion, null);
+  assert.deepEqual(defaultSettings().binds.up, ['KeyW', 'ArrowUp']);
+  assert.deepEqual(defaultSettings().binds.dash, ['ShiftLeft', 'ShiftRight']);
+  // Fresh arrays every call: a rebind edits what parse handed back, and one aliased list would rewrite the
+  // defaults that every later "reset keys" falls back to.
+  const first = defaultSettings();
+  first.binds.up.push('KeyZ');
+  assert.deepEqual(defaultSettings().binds.up, ['KeyW', 'ArrowUp']);
+  assert.deepEqual(parseSettings(null).binds.up, ['KeyW', 'ArrowUp']);
+});
+
+test('a partial or hostile settings blob costs that field and nothing else', () => {
+  // A blob from a build that had no slider yet keeps the choices it did have.
+  assert.deepEqual(parseSettings('{"muted":true}'), { ...shipped(), muted: true });
+  // Out of range is clamped rather than dropped: the intent is legible, only the number is not.
+  assert.equal(parseSettings('{"volume":2}').volume, 1);
+  assert.equal(parseSettings('{"volume":-3}').volume, 0);
+  assert.equal(parseSettings('{"volume":0.25}').volume, 0.25);
+  // Anything that is not a finite number is no answer at all, so the master gain stays where it was. The
+  // negative overflow is the one that matters: clamping alone would read it as a deliberate silence.
+  for (const raw of ['{"volume":"0.5"}', '{"volume":null}', '{"volume":1e400}', '{"volume":-1e400}', '{"volume":{}}']) assert.equal(parseSettings(raw).volume, 1);
+  // Reduced motion has three states and the third is "ask the OS", so only a real boolean overrides it.
+  assert.equal(parseSettings('{"reducedMotion":true}').reducedMotion, true);
+  assert.equal(parseSettings('{"reducedMotion":false}').reducedMotion, false);
+  for (const raw of ['{"reducedMotion":null}', '{"reducedMotion":"yes"}', '{"reducedMotion":1}']) assert.equal(parseSettings(raw).reducedMotion, null);
+  assert.equal(parseSettings('{"touchLayout":"pad"}').touchLayout, 'pad');
+  for (const raw of ['{"touchLayout":"dpad"}', '{"touchLayout":7}']) assert.equal(parseSettings(raw).touchLayout, 'stick');
+  // Muting is the one field with no third state, so only an explicit true silences a returning player.
+  for (const raw of ['{"muted":"true"}', '{"muted":1}']) assert.equal(parseSettings(raw).muted, false);
+  // A junk key set costs the keys and leaves the rest of the card alone.
+  assert.deepEqual(parseSettings('{"volume":0.5,"binds":"wasd"}'), { ...shipped(), volume: 0.5 });
+  assert.deepEqual(parseSettings('{"volume":0.5,"binds":[]}'), { ...shipped(), volume: 0.5 });
+});
+
+test('a stored key set is honoured only while it leaves every action reachable', () => {
+  // What a rebind actually writes: one action moved, the rest as they were.
+  assert.deepEqual(parseSettings('{"binds":{"attack":["KeyJ"]}}').binds.attack, ['KeyJ']);
+  // An action the blob says nothing about keeps its defaults rather than becoming unusable.
+  assert.deepEqual(parseSettings('{"binds":{"attack":["KeyJ"]}}').binds.dash, ['ShiftLeft', 'ShiftRight']);
+  // Non-strings, impossible codes and duplicates within one action are dropped, and the list is capped.
+  assert.deepEqual(parseSettings('{"binds":{"attack":["KeyJ",7,null,"Key J","KeyJ","KeyK"]}}').binds.attack, ['KeyJ', 'KeyK']);
+  assert.deepEqual(parseSettings(`{"binds":{"up":${JSON.stringify(['KeyA', 'KeyB', 'KeyC', 'KeyD', 'KeyE', 'KeyF'])}}}`).binds.up.length, 4);
+  // One key firing two actions is precisely what the conflict rule exists to prevent, so it cannot arrive
+  // through a hand-written cell either: the first action listed keeps it, the second loses it.
+  const shared = parseSettings('{"binds":{"up":["KeyJ"],"attack":["KeyJ"]}}');
+  assert.deepEqual(shared.binds.up, ['KeyJ']);
+  assert.deepEqual(shared.binds.attack, ['Space']);
+  // Escape smuggled onto another action is stripped wherever it appears, whatever the blob claims.
+  assert.deepEqual(parseSettings('{"binds":{"attack":["Escape","KeyJ"]}}').binds.attack, ['KeyJ']);
+  assert.deepEqual(parseSettings('{"binds":{"attack":["Escape"]}}').binds.attack, ['Space']);
+  assert.deepEqual(parseSettings('{"binds":{"pause":["Escape","KeyP"]}}').binds.pause, ['Escape', 'KeyP']);
+  // An action emptied by the blob falls back to its defaults rather than silently disappearing.
+  assert.deepEqual(parseSettings('{"binds":{"dash":[]}}').binds.dash, ['ShiftLeft', 'ShiftRight']);
+  assert.deepEqual(parseSettings('{"binds":{"dash":["nope!"]}}').binds.dash, ['ShiftLeft', 'ShiftRight']);
+  // And when the fallback itself has been claimed, the whole set goes back to defaults: an action nobody
+  // can perform, on a card that shows no sign of it, is worse than a lost customisation.
+  const stolen = parseSettings('{"binds":{"up":["Space"],"left":["ShiftLeft"],"right":["ShiftRight"]}}');
+  assert.deepEqual(stolen.binds, DEFAULT_BINDS);
+});
+
+test('binding a key takes it from whatever held it, and trades rather than disabling it', () => {
+  const binds = defaultSettings().binds;
+  // The plain case: an action drops its old keys entirely and answers to the new one alone.
+  const rebound = bindKey(binds, 'attack', 'KeyJ');
+  assert.deepEqual(rebound?.attack, ['KeyJ']);
+  assert.deepEqual(rebound?.up, ['KeyW', 'ArrowUp']);
+  // Taking a key from an action that has another one left simply costs that action the key.
+  const stolen = bindKey(binds, 'attack', 'ArrowUp');
+  assert.deepEqual(stolen?.attack, ['ArrowUp']);
+  assert.deepEqual(stolen?.up, ['KeyW']);
+  // Taking an action's last key would leave it unusable and invisible, so the two trade instead: dash had
+  // only the shifts, so it inherits the key attack just stopped using.
+  const traded = bindKey(binds, 'attack', 'ShiftLeft');
+  assert.deepEqual(traded?.attack, ['ShiftLeft']);
+  assert.deepEqual(traded?.dash, ['ShiftRight']);
+  const swapped = bindKey({ ...binds, dash: ['ShiftLeft'] }, 'attack', 'ShiftLeft');
+  assert.deepEqual(swapped?.attack, ['ShiftLeft']);
+  assert.deepEqual(swapped?.dash, ['Space']);
+  // Whatever the trade, no key ends up answering for two actions and no action ends up with none.
+  for (const [action, code] of [['attack', 'ShiftLeft'], ['up', 'KeyS'], ['mute', 'KeyF'], ['dash', 'KeyW']] as [Action, string][]) {
+    const next = bindKey(binds, action, code);
+    assert.ok(next, `${action}/${code} was refused`);
+    const all = ACTIONS.flatMap(a => next[a]);
+    assert.equal(new Set(all).size, all.length, `${code} answers twice`);
+    assert.ok(ACTIONS.every(a => next[a].length > 0), `${action}/${code} left an action unreachable`);
+  }
+  // Rebinding to a key the action already holds is a no-op in meaning, and never empties anything.
+  assert.deepEqual(bindKey(binds, 'up', 'KeyW')?.up, ['KeyW']);
+  // The set handed in is never mutated, so a refused or abandoned rebind cannot half-apply.
+  assert.deepEqual(binds, DEFAULT_BINDS);
+});
+
+test('nothing can bind away the one key that opens the menu', () => {
+  const binds = defaultSettings().binds;
+  // Escape on anything but pause is refused outright rather than quietly ignored, so the card can say why.
+  for (const action of ACTIONS.filter(a => a !== 'pause')) assert.equal(bindKey(binds, action, RESERVED), null);
+  assert.deepEqual(bindKey(binds, 'pause', RESERVED)?.pause, [RESERVED]);
+  // Moving pause elsewhere is allowed — Escape still opens the menu, because the game answers it whether or
+  // not it is bound — but it must not leave Escape loose for another action to claim.
+  const moved = bindKey(binds, 'pause', 'KeyP');
+  assert.deepEqual(moved?.pause, ['KeyP']);
+  assert.equal(bindKey(moved!, 'attack', RESERVED), null);
+  // Nothing that is not a key code gets through either: a blank, a legend, or a whole word.
+  for (const code of ['', ' ', 'w', 'Key W', 'Key-W', '{}', 'A'.repeat(25)]) if (!/^[A-Za-z0-9]{1,24}$/.test(code)) assert.equal(bindKey(binds, 'attack', code), null);
+});
+
+test('settings survive a reload, and a store that will not have them costs only the customisation', () => {
+  const owner = globalThis as { localStorage?: unknown };
+  const original = Object.getOwnPropertyDescriptor(owner, 'localStorage');
+  try {
+    // No storage object at all: naming it throws, and the game still has to come up playable.
+    delete owner.localStorage;
+    assert.deepEqual(readSettings(), shipped());
+    writeSettings({ ...shipped(), volume: 0.3 } as Settings);
+    // Present but hostile, as in a private window with site data blocked.
+    owner.localStorage = { getItem() { throw new Error('SecurityError'); }, setItem() { throw new Error('QuotaExceededError'); } };
+    assert.deepEqual(readSettings(), shipped());
+    writeSettings({ ...shipped(), muted: true } as Settings);
+    // A working store is the reload: what the card wrote is what the next visit plays with.
+    const cell = new Map<string, string>();
+    owner.localStorage = { getItem: (k: string) => cell.get(k) ?? null, setItem: (k: string, v: string) => { cell.set(k, v); } };
+    const chosen: Settings = { volume: 0.4, muted: true, reducedMotion: true, touchLayout: 'pad', binds: bindKey(defaultSettings().binds, 'attack', 'KeyJ')! };
+    writeSettings(chosen);
+    assert.deepEqual(readSettings(), chosen);
+    // Settings live in their own cell, so remembering them cannot cost the run history or the record.
+    assert.equal(cell.has('drowned-keep:settings'), true);
+    assert.equal(cell.has('drowned-keep:runs'), false);
+    // Junk in the cell reads as the shipped game rather than crashing the only screen that could fix it.
+    cell.set('drowned-keep:settings', '{"volume":');
+    assert.deepEqual(readSettings(), shipped());
+    cell.set('drowned-keep:settings', '{"volume":0.2,"binds":{"up":"KeyW"}}');
+    assert.deepEqual(readSettings(), { ...shipped(), volume: 0.2 });
   } finally {
     if (original) Object.defineProperty(owner, 'localStorage', original); else delete owner.localStorage;
   }

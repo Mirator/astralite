@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
 import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
 import { generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { decideEnemy, separateCrowd } from './dungeon-enemy';
-import { appendRun, betterRun, readBest, readRuns, readSeed, summariseRuns, writeBest, writeRuns, writeSeed, type BestRun, type RunCause, type RunEnd } from './dungeon-save';
+import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
 import { BOONS, clearRoomReward, createRun, grantXp, heal, hurt, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
 type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh };
@@ -22,6 +22,27 @@ type GameToolContext = {
   }, options: { signal: AbortSignal }) => void | Promise<void>;
 };
 const FLOORS = 3;
+// Keys the browser acts on itself — scrolling, quick-find, back-navigation. Only ever swallowed while one
+// of them is actually bound to something, so the list follows a rebind instead of being frozen at the
+// defaults: an arrow freed by a rebind goes back to scrolling the page, and a newly bound PageDown stops.
+// Tab is deliberately absent. Trapping it would cost a keyboard-only player the way out of the canvas.
+const SCROLL_KEYS = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', 'Backspace', 'Slash', 'Quote']);
+const ACTION_LABELS: Record<Action, string> = { up: 'Up', down: 'Down', left: 'Left', right: 'Right', attack: 'Strike', dash: 'Dodge', pause: 'Pause', mute: 'Sound', fullscreen: 'Fullscreen' };
+// One funnel for every settings change: React state for the card, storage for the next visit, and the ref
+// the render loop reads, all in the same breath, so a second change in the same tick builds on the first
+// rather than on a render that has not happened yet. Built from a ref and a setState — both stable for the
+// life of the mount — so the world's one long-lived closure can hold its own copy and never go stale.
+const changeSettings = (ref: { current: Settings }, set: (next: Settings) => void) => (patch: Partial<Settings>) => {
+  const next = { ...ref.current, ...patch };
+  ref.current = next; writeSettings(next); set(next);
+};
+// A KeyboardEvent.code is a hardware position, not a legend, and 'KeyW' on the card would be nonsense to
+// the AZERTY player this exists for. `key` is the legend but is unstable under modifiers, so the code is
+// shortened where its tail is already the character and left whole where it is not.
+const keyLabel = (code: string) => code.startsWith('Key') || code.startsWith('Digit') ? code.replace(/^(Key|Digit)/, '') : code.startsWith('Arrow') ? ({ ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' })[code] ?? code : code.replace(/^(Shift|Control|Alt|Meta)(Left|Right)$/, '$1');
+// Deduplicated after labelling, not before: the two shift keys are distinct codes and one legend, and
+// "Shift / Shift" tells a player nothing except that the card is not thinking.
+const bindLabel = (codes: string[], join = ' / ') => [...new Set(codes.map(keyLabel))].join(join);
 
 function makeKnight() {
   const g = new THREE.Group();
@@ -125,7 +146,17 @@ export default function DungeonGame() {
   const [status, setStatus] = useState<'playing' | 'complete' | 'won' | 'lost'>('playing');
   const [mapOpen, setMapOpen] = useState(false);
   const [floorResult, setFloorResult] = useState({ kills: 0, xp: 0, seconds: 0 });
-  const [started, setStarted] = useState(false), [paused, setPaused] = useState(false), [muted, setMuted] = useState(false);
+  const [started, setStarted] = useState(false), [paused, setPaused] = useState(false);
+  // Settings start at the shipped defaults and are read from storage in an effect rather than during
+  // render: the server has no localStorage, and a first paint that disagreed with it would be a hydration
+  // mismatch. `osReduce` is the media query's answer, which is the default the player can then override.
+  const [settings, setSettings] = useState<Settings>(defaultSettings), [osReduce, setOsReduce] = useState(false);
+  const [capturing, setCapturing] = useState<Action | null>(null), [bindNote, setBindNote] = useState('');
+  // Written by the two places that change settings, never during render, so what the closure reads is always
+  // what the card last committed rather than whatever the last render happened to see.
+  const settingsRef = useRef(settings);
+  const applyRef = useRef<((settings: Settings, reduceMotion: boolean) => void) | null>(null);
+  const reduceMotion = settings.reducedMotion ?? osReduce;
   const [roomName, setRoomName] = useState('The Tide Gate'), [plundered, setPlundered] = useState(0);
   const [advance, setAdvance] = useState(0);
   const [notice, setNotice] = useState(''), [, setNoticeDetail] = useState(''), [ready, setReady] = useState(false);
@@ -139,6 +170,56 @@ export default function DungeonGame() {
   // Not derived from `best`: the record is one run, this is the distribution every balance argument in
   // progress.md currently rests on somebody's memory of.
   const [runLog, setRunLog] = useState<RunEnd[]>([]);
+
+  // Built at call time, not at render time: the ref is only ever read inside a handler, which is the one
+  // place a ref may be read at all.
+  const change = useCallback((patch: Partial<Settings>) => changeSettings(settingsRef, setSettings)(patch), []);
+
+  // Storage is read once, on mount. A second tab writing its own settings mid-run and having them appear
+  // under the player's hands would be worse than the two tabs simply disagreeing until the next visit.
+  // Read here rather than in a state initialiser because the server has no storage, and a first paint that
+  // disagreed with what came back would be a hydration mismatch over a slider position.
+  useEffect(() => {
+    const query = matchMedia('(prefers-reduced-motion: reduce)');
+    const restore = () => { const stored = readSettings(); settingsRef.current = stored; setSettings(stored); setOsReduce(query.matches); };
+    restore();
+    // The preference can change while the page is open — a system toggle, or a driver emulating one — and
+    // a player who flips it mid-run should not have to reload before the game believes them.
+    const follow = (e: MediaQueryListEvent) => setOsReduce(e.matches);
+    query.addEventListener('change', follow);
+    return () => query.removeEventListener('change', follow);
+  }, []);
+
+  // The world lives in one closure that cannot be rebuilt without restarting the run, so settings are
+  // pushed into it rather than read back out of a capture that went stale on the first render after mount.
+  useEffect(() => { applyRef.current?.(settings, reduceMotion); }, [settings, reduceMotion]);
+  // The two decorative CSS animations follow the same effective answer, so an explicit "full motion" wins
+  // over the media query in both directions instead of the OS always having the last word.
+  useEffect(() => { document.documentElement.dataset.motion = reduceMotion ? 'reduce' : 'full'; }, [reduceMotion]);
+
+  // Capture phase, stopped dead: the game's own keydown sits on window too, so without this a player
+  // rebinding Sound would mute the game on the way past. Escape cancels rather than binds — it is reserved,
+  // so it could never be the answer, and cancelling is what a player pressing it expects anyway.
+  useEffect(() => {
+    if (!capturing) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault(); e.stopImmediatePropagation();
+      // A focused button activates on the key's *release*, which would drop straight back into capture; the
+      // matching keyup is swallowed once so binding Space or Enter behaves like binding anything else.
+      window.addEventListener('keyup', (up: KeyboardEvent) => { up.preventDefault(); up.stopImmediatePropagation(); }, { capture: true, once: true });
+      setCapturing(null);
+      if (e.code === RESERVED) { setBindNote('Escape always opens this menu, so it stays on Pause.'); return; }
+      const held = ACTIONS.find(a => a !== capturing && settingsRef.current.binds[a].includes(e.code));
+      const binds = bindKey(settingsRef.current.binds, capturing, e.code);
+      if (!binds) { setBindNote(`${keyLabel(e.code)} cannot be bound.`); return; }
+      change({ binds });
+      // Say what the key cost, because the action it was taken from is somewhere else on the card and the
+      // player would otherwise find out mid-fight.
+      setBindNote(held ? `${keyLabel(e.code)} taken from ${ACTION_LABELS[held]} — now ${bindLabel(binds[held])}.` : '');
+    };
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => window.removeEventListener('keydown', onKey, { capture: true });
+  }, [capturing, change]);
 
   // Persisting a finished run is a write to an external system, so it belongs in an effect. Both endings
   // settle every HUD value before `status` flips, which makes this the one honest place to read the run.
@@ -191,6 +272,17 @@ export default function DungeonGame() {
     let rewardTime = 0, noticeTime = 0, footstepTime = 0;
     let hasStarted = false, isPaused = false, isMuted = false, activeRoom = 0;
     const audio = createDungeonAudio();
+    // The one piece of settings state the loop reads every frame, so it is a plain local rather than a
+    // property lookup through the ref; everything else is read at the moment a key or a menu asks for it.
+    let easeMotion = false;
+    // The closure's own handle on the same funnel the card uses — built here from a ref and a setState, both
+    // stable for the life of the mount, so this effect stays dependency-free and the world is never rebuilt.
+    const updateSettings = changeSettings(settingsRef, setSettings);
+    applyRef.current = (next, reduce) => { easeMotion = reduce; audio.volume(next.volume); audio.mute(next.muted); isMuted = next.muted; };
+    // And called once for whatever is already stored. The effect that pushes later changes may well have
+    // run before this one mounted, in which case it found no `applyRef` and did nothing; without this the
+    // world would sit on the defaults until the player happened to change something else.
+    applyRef.current(settingsRef.current, settingsRef.current.reducedMotion ?? matchMedia('(prefers-reduced-motion: reduce)').matches);
     // Floor-scoped state: everything here is torn down and rebuilt when the knight takes the stair down.
     let floor!: ReturnType<typeof generateFloor>;
     let enemyData: Enemy[] = [];
@@ -449,9 +541,12 @@ export default function DungeonGame() {
     // unit vector on the very basis the keys below build on, so analog steering is a second source of the
     // same quantity rather than a second input system.
     let stick: { x: number; z: number } | null = null;
+    // Bindings are read at the moment they are asked for, never snapshotted: the card can rebind a key while
+    // the run is paused behind it. `Touch<action>` is the touch d-pad's own slot and belongs to no binding,
+    // so the discrete move:/stop: protocol steers identically whatever the keyboard has been set to.
+    const held = (action: Action) => settingsRef.current.binds[action].some(c => keys.has(c)) || keys.has(`Touch${action}`);
     const moveInput = () => {
-      const x = +(keys.has('KeyD') || keys.has('ArrowRight') || keys.has('Touchright')) - +(keys.has('KeyA') || keys.has('ArrowLeft') || keys.has('Touchleft'));
-      const z = +(keys.has('KeyS') || keys.has('ArrowDown') || keys.has('Touchdown')) - +(keys.has('KeyW') || keys.has('ArrowUp') || keys.has('Touchup'));
+      const x = +held('right') - +held('left'), z = +held('down') - +held('up');
       // A planted thumb outranks the keys for exactly as long as it is down, and lifting it hands steering
       // straight back: neither path can strand the other, because neither ever writes to the other's state.
       const sx = stick ? stick.x : x, sz = stick ? stick.z : z;
@@ -484,19 +579,28 @@ export default function DungeonGame() {
     const togglePause = () => {
       // Pausing on top of an open boon draft would stack two overlays; the draft already holds the world still.
       if (!hasStarted || gameStatus !== 'playing' || run.choosing) return;
-      isPaused = !isPaused; setMapOpen(false); keys.clear(); attackBuffer = 0; bufferedFacing = null; setPaused(isPaused); audio.pause(isPaused);
+      // An armed rebind goes with the card. Left live, the first key pressed back in the fight would be
+      // bound instead of swung, which is the worst possible moment to find out the capture was still open.
+      isPaused = !isPaused; setMapOpen(false); setCapturing(null); keys.clear(); attackBuffer = 0; bufferedFacing = null; setPaused(isPaused); audio.pause(isPaused);
     };
-    const toggleMute = () => { isMuted = !isMuted; audio.mute(isMuted); setMuted(isMuted); };
+    // Mute is a setting like any other now, so it goes out through the same funnel and comes back through
+    // applyRef — one path, whether it was the M key, the menu button or a `mute` event that asked.
+    const toggleMute = () => updateSettings({ muted: !settingsRef.current.muted });
     const fullscreen = () => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); else void mount.parentElement?.requestFullscreen?.().catch(() => undefined); };
     const keyDown = (e: KeyboardEvent) => {
-      if (hasStarted && !isPaused && !run.choosing && gameStatus === 'playing' && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
-      if (!e.repeat && e.code === 'Escape') { togglePause(); return; }
-      if (!e.repeat && e.code === 'KeyM') { toggleMute(); return; }
-      if (!e.repeat && e.code === 'KeyF') { fullscreen(); return; }
+      const binds = settingsRef.current.binds, does = (action: Action) => binds[action].includes(e.code);
+      // Swallow a browser key only while it is bound to something: freeing an arrow by rebinding hands page
+      // scrolling straight back, and binding PageDown stops the page jumping out from under the fight.
+      if (hasStarted && !isPaused && !run.choosing && gameStatus === 'playing' && SCROLL_KEYS.has(e.code) && ACTIONS.some(does)) e.preventDefault();
+      // Escape answers whatever else it is set to. It is the one key no rebind can take away, so a player
+      // cannot shut themselves out of the menu that would let them undo the rebind.
+      if (!e.repeat && (e.code === RESERVED || does('pause'))) { togglePause(); return; }
+      if (!e.repeat && does('mute')) { toggleMute(); return; }
+      if (!e.repeat && does('fullscreen')) { fullscreen(); return; }
       if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing') return;
       keys.add(e.code); if (e.repeat) return;
-      if (e.code === 'Space') requestAttack();
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') requestDash();
+      if (does('attack')) requestAttack();
+      if (does('dash')) requestDash();
     };
     const keyUp = (e: KeyboardEvent) => keys.delete(e.code);
     // The stick clears with the keys: a page backgrounded mid-drag does not always fire pointercancel,
@@ -509,7 +613,7 @@ export default function DungeonGame() {
       if (detail === 'restart' || detail.startsWith('restart:')) { const seed = Number.parseInt(detail.slice(8), 10); restart(Number.isNaN(seed) ? undefined : seed >>> 0); return; }
       // `elapsed` runs from mount, so both clocks restart here or a logged run would bill the time spent
       // reading the menu. A restart mid-run has `hasStarted` already true and gets its reset in buildFloor.
-      if (detail === 'start') { if (hasStarted) return; floorStart = elapsed; runStart = elapsed; hasStarted = true; setStarted(true); audio.start(); return; }
+      if (detail === 'start') { if (hasStarted) return; floorStart = elapsed; runStart = elapsed; hasStarted = true; setStarted(true); setCapturing(null); audio.start(); return; }
       if (detail === 'map') { if (!hasStarted || run.choosing || gameStatus !== 'playing') return; if (!isPaused) togglePause(); setMapOpen(true); return; }
       if (detail === 'pause') { togglePause(); return; }
       if (detail === 'mute') { toggleMute(); return; }
@@ -521,8 +625,10 @@ export default function DungeonGame() {
       if (detail.startsWith('stick:')) { const [x, z] = detail.slice(6).split(',').map(Number); stick = Number.isFinite(x) && Number.isFinite(z) ? { x, z } : null; return; }
       if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing') return;
       if (detail === 'attack') requestAttack();
-      if (detail === 'hold-attack') { keys.add('Space'); requestAttack(); }
-      if (detail === 'release-attack') keys.delete('Space');
+      // Its own slot rather than the attack binding's: the touch STRIKE button must hold a swing going
+      // whatever the keyboard has been rebound to, and must not be released by letting go of a key.
+      if (detail === 'hold-attack') { keys.add('Touchattack'); requestAttack(); }
+      if (detail === 'release-attack') keys.delete('Touchattack');
       if (detail === 'dash') requestDash();
       if (detail.startsWith('move:')) keys.add(`Touch${detail.slice(5)}`);
       if (detail.startsWith('stop:')) keys.delete(`Touch${detail.slice(5)}`);
@@ -543,6 +649,9 @@ export default function DungeonGame() {
     const update = (frameDt: number) => {
       if (isPaused || run.choosing || gameStatus === 'complete') return;
       elapsed += frameDt; const t = elapsed;
+      // Deliberately not touched by reduced motion. 35ms of hit-stop is the absence of movement, not
+      // movement, and it is also 35ms the enemies do not get: shortening it would hand every landed blow
+      // back to them a frame sooner, which is a balance change wearing an accessibility label.
       const dt = hitStop > 0 ? 0 : frameDt; hitStop = Math.max(0, hitStop - frameDt);
       torchLights.forEach((l, i) => { l.intensity = 16 + Math.sin(t * 9 + i * 2.2) * 1.4 + Math.sin(t * 17) * 0.5; });
       if (water) water.position.y = -2.8 + Math.sin(t * 0.9) * 0.05;
@@ -558,7 +667,7 @@ export default function DungeonGame() {
         attackBuffer = Math.max(0, attackBuffer - dt);
         if (attackBuffer === 0) bufferedFacing = null;
         dashCooldown = Math.max(0, dashCooldown - dt);
-        if (attackTime <= 0 && dashTime <= 0 && (attackBuffer > 0 || keys.has('Space'))) startAttack();
+        if (attackTime <= 0 && dashTime <= 0 && (attackBuffer > 0 || held('attack'))) startAttack();
         const input = moveInput(), moving = input.lengthSq() > 0;
         if (moving && attackTime <= 0 && dashTime <= 0) facing.copy(input);
         const direction = dashTime > 0 ? dashFacing : facing;
@@ -719,9 +828,14 @@ export default function DungeonGame() {
       if (dashMeter.current) dashMeter.current.value = Math.max(0,1-dashCooldown/run.dashSpan);
       const target = player.position.clone().addScaledVector(velocity,0.12); cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
       camera.position.set(cameraFocus.x + 9.2,12.5,cameraFocus.z + 11.5);
-      if (shake > 0) camera.position.add(new THREE.Vector3(Math.sin(t*95)*shake,0,Math.cos(t*83)*shake));
+      // Reduced motion drops the shake outright: it is ~90 Hz camera translation that carries nothing the
+      // particles, the sound and the health bar do not already say, so nothing is lost by not moving at all.
+      if (shake > 0 && !easeMotion) camera.position.add(new THREE.Vector3(Math.sin(t*95)*shake,0,Math.cos(t*83)*shake));
       camera.lookAt(cameraFocus.x,0,cameraFocus.z);
-      renderer.domElement.style.filter = hurtFlash > 0 ? `sepia(.3) saturate(1.3) brightness(${0.9 + hurtFlash * 0.3})` : '';
+      // The hurt filter is reduced, not removed. Its discomfort is the brightness ramping across the whole
+      // screen as the flash decays; its job is telling the player they were hit, which is gameplay. So the
+      // tint stays for exactly as long, holds still, and drops the brightness change entirely.
+      renderer.domElement.style.filter = hurtFlash <= 0 ? '' : easeMotion ? 'sepia(.18) saturate(1.15)' : `sepia(.3) saturate(1.3) brightness(${0.9 + hurtFlash * 0.3})`;
     };
     const hooks = window as Window & {
       advanceTime?: (ms: number, draw?: boolean) => void;
@@ -750,6 +864,12 @@ export default function DungeonGame() {
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), deadEndsPlundered: loot },
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
+      // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
+      // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.
+      settings: { ...settingsRef.current, reduceMotion: easeMotion, filter: renderer.domElement.style.filter, shake, hitStop, sound: audio.level() },
+      // The camera's rest position is focus plus a fixed offset, so anything left over is the shake — which
+      // makes "reduced motion actually stopped the camera moving" something a driver can read rather than see.
+      camera: { x: camera.position.x, z: camera.position.z, focusX: cameraFocus.x, focusZ: cameraFocus.z, restX: cameraFocus.x + 9.2, restZ: cameraFocus.z + 11.5 },
       features: features.map(f => ({room:f.room, shrine:f.shrine, used:f.used, burned:f.burned, phase:f.phase, x:f.mesh.position.x,z:f.mesh.position.z,radius:f.shrine?1.5:1.8})),
       buildMs,
       floor: { level, waterfalls: atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
@@ -764,7 +884,7 @@ export default function DungeonGame() {
     raf = requestAnimationFrame(animate);
     const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 6.3 : 7.2; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); };
     window.addEventListener('resize', resize); resize(); setReady(true);
-    return () => { stopped = true; cancelAnimationFrame(raf); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); atmosphere?.dispose(); texture.dispose(); delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
+    return () => { stopped = true; cancelAnimationFrame(raf); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); atmosphere?.dispose(); texture.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
   }, []);
 
   const roomCount = floorMap?.rooms.length ?? 0;
@@ -796,8 +916,21 @@ export default function DungeonGame() {
         {!paused && best && <p className="best-run">Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</p>}
         {!paused && tally.runs > 0 && <p className="run-log">{tally.runs} {tally.runs === 1 ? 'descent' : 'descents'} logged · {tally.wins} escaped{tally.worstFalls > 0 ? ` · floor ${tally.worstFloor} has taken ${tally.worstFalls}` : ''}</p>}
         <button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'LOADING…' : paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
-        <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>WASD / ↑↓←→</kbd> Move</span><span><kbd>SPACE</kbd> Hold to strike</span><span><kbd>SHIFT</kbd> Dodge</span><span><kbd>ESC</kbd> Pause</span><span><kbd>F</kbd> Fullscreen</span></div><p>Reach {goalName}. Defeat the stair wardens to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality.</p>{taken.length > 0 && <p>{taken.join(' · ')}</p>}</details>
-        <div className="menu-settings">{started && <button onClick={() => action('map')}>Map</button>}<button onClick={() => action('mute')}>{muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button>{!started && priorSeed !== null && <button onClick={() => action(`restart:${priorSeed}`)}>Last keep</button>}</div>
+        {/* Read off the bindings rather than written out, or this card would go on promising WASD to a player
+            who rebound it ten seconds ago — which is the exact moment they would come here to check. */}
+        <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><p>Reach {goalName}. Defeat the stair wardens to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality.</p>{taken.length > 0 && <p>{taken.join(' · ')}</p>}</details>
+        {/* Folded away beside the journey, not added to the HUD: this card is where detail belongs, and the
+            world stays bare. Everything here persists, and everything here has a default that is the game
+            exactly as it shipped, so a player who never opens this changes nothing by not opening it. */}
+        <details className="menu-details settings-panel"><summary>Settings</summary>
+          <div className="setting-row"><label htmlFor="set-volume">Volume</label><input id="set-volume" type="range" min="0" max="100" step="5" value={Math.round(settings.volume * 100)} onChange={(e) => change({ volume: Number(e.target.value) / 100 })} /><small>{settings.muted ? 'muted' : `${Math.round(settings.volume * 100)}%`}</small></div>
+          <div className="setting-row"><label htmlFor="set-motion">Motion</label><select id="set-motion" value={settings.reducedMotion === null ? 'system' : settings.reducedMotion ? 'reduce' : 'full'} onChange={(e) => change({ reducedMotion: e.target.value === 'system' ? null : e.target.value === 'reduce' })}><option value="system">System · {osReduce ? 'reduced' : 'full'}</option><option value="reduce">Reduced</option><option value="full">Full</option></select><small>{reduceMotion ? 'no camera shake; the hurt tint holds still' : 'camera shake and a hurt flash'}</small></div>
+          <div className="setting-row"><label htmlFor="set-touch">Touch</label><select id="set-touch" value={settings.touchLayout} onChange={(e) => change({ touchLayout: e.target.value === 'pad' ? 'pad' : 'stick' })}><option value="stick">Thumbstick</option><option value="pad">Direction buttons</option></select><small>buttons are labelled; the stick is not</small></div>
+          <div className="key-binds">{ACTIONS.map(a => <button key={a} className={capturing === a ? 'capturing' : ''} aria-label={`${ACTION_LABELS[a]}: ${bindLabel(settings.binds[a], ' or ')}. Activate to rebind.`} onClick={() => { setBindNote(''); setCapturing(capturing === a ? null : a); }}><span>{ACTION_LABELS[a]}</span><kbd>{capturing === a ? 'press a key' : bindLabel(settings.binds[a])}</kbd></button>)}</div>
+          <output className="bind-note">{bindNote || (capturing ? 'Press any key. Escape cancels.' : 'Escape always opens this menu, so it cannot be rebound.')}</output>
+          <button className="reset-binds" onClick={() => { setCapturing(null); setBindNote(''); change({ binds: defaultSettings().binds }); }}>Reset keys</button>
+        </details>
+        <div className="menu-settings">{started && <button onClick={() => action('map')}>Map</button>}<button onClick={() => action('mute')}>{settings.muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button>{!started && priorSeed !== null && <button onClick={() => action(`restart:${priorSeed}`)}>Last keep</button>}</div>
       </section></div>}
       {mapOpen && <div className="map-screen"><h1>Floor {floorLevel}</h1><p>Gold ring: stair · Bright rooms: explored</p><button className="primary-action" onClick={() => action('pause')}>RESUME</button></div>}
       {status === 'complete' && <div className="end-screen success-screen"><div className="end-card"><span className="success-sigil">✦</span><span className="end-kicker">FLOOR {floorLevel} COMPLETE</span><h1>The watch falls silent.</h1><div className="floor-results"><span><strong>{floorResult.kills}</strong>guards felled</span><span><strong>{floorResult.xp}</strong>XP earned</span><span><strong>{Math.floor(floorResult.seconds / 60)}:{String(floorResult.seconds % 60).padStart(2,'0')}</strong>elapsed</span></div><button onClick={() => action('continue')}>{floorLevel < FLOORS ? 'DESCEND TO FLOOR ' + (floorLevel + 1) : 'STEP INTO THE DAWN'} →</button>{floorLevel < FLOORS && <p className="recovery-note">Recover 25% vitality on descent</p>}</div></div>}
@@ -809,17 +942,23 @@ export default function DungeonGame() {
       {/* Plain markup on purpose: the canvas was never mounted, so this is the only thing left to look at. */}
       {displayFailed && <div className="end-screen display-failed"><div className="end-card"><span className="end-kicker">THE GATE STAYS SHUT</span><h1>No light to see by.</h1><p>This browser could not open a 3D display, so the keep cannot be drawn. That most often means hardware acceleration is switched off in the browser&rsquo;s settings.</p></div></div>}
       {displayLost && <output className="display-notice">Display interrupted · the descent is paused</output>}
+      {/* The alternative layout, not a fallback bolted onto the stick: four buttons a screen reader can name
+          and reach, each speaking the same discrete move:/stop: protocol every automated driver uses. It is
+          the worse way to play — one direction at a time, no diagonals — and the only way to play at all if
+          the stick's aria-hidden zone is invisible to you, so it is the player's choice and not ours. */}
       {/* A zone, not four keys: movement is screen-relative and diagonal most of the time, so the base plants
           wherever the thumb lands and carries a continuous direction. State lives on the element (data-pointer,
           the origin, the last detail sent) rather than in React, because a drag writes on every pointer frame and
           none of it belongs in a render. Capture is taken first: if it is refused nothing below runs and nothing
           is live, which is what lets a single lost-capture handler own every way a drag can end - a lift, a
           cancel, the element going away - with no path that leaves the knight walking on its own. */}
-      <div className="touch-stick" aria-hidden="true"
+      {settings.touchLayout === 'pad'
+        ? <div className="touch-pad" aria-label="Touch movement controls">{(['up', 'left', 'down', 'right'] as const).map((dir) => <button key={dir} className={dir} aria-label={`Move ${dir}`} onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action(`move:${dir}`); }} onLostPointerCapture={() => action(`stop:${dir}`)} onPointerUp={() => action(`stop:${dir}`)} onPointerCancel={() => action(`stop:${dir}`)}>{dir === 'up' ? '▲' : dir === 'down' ? '▼' : dir === 'left' ? '◀' : '▶'}</button>)}</div>
+        : <div className="touch-stick" aria-hidden="true"
         onPointerDown={(e) => { const z = e.currentTarget; if (z.dataset.pointer) return; z.setPointerCapture(e.pointerId); const r = z.getBoundingClientRect(); z.dataset.pointer = `${e.pointerId}`; z.dataset.ox = `${e.clientX}`; z.dataset.oy = `${e.clientY}`; z.dataset.sent = 'stick:0,0'; z.style.setProperty('--ox', `${e.clientX - r.left}px`); z.style.setProperty('--oy', `${e.clientY - r.top}px`); action('stick:0,0'); }}
         onPointerMove={(e) => { const z = e.currentTarget; if (z.dataset.pointer !== `${e.pointerId}`) return; const dx = e.clientX - Number(z.dataset.ox), dy = e.clientY - Number(z.dataset.oy), span = Math.hypot(dx, dy), live = span > 8; z.style.setProperty('--kx', `${live ? dx * Math.min(span, 44) / span : 0}px`); z.style.setProperty('--ky', `${live ? dy * Math.min(span, 44) / span : 0}px`); const detail = live ? `stick:${(dx / span).toFixed(3)},${(dy / span).toFixed(3)}` : 'stick:0,0'; if (detail !== z.dataset.sent) { z.dataset.sent = detail; action(detail); } }}
         onLostPointerCapture={(e) => { const z = e.currentTarget; if (!z.dataset.pointer) return; delete z.dataset.pointer; z.removeAttribute('style'); action('stick:off'); }}>
-        <i className="stick-base" /><i className="stick-knob" /></div>
+        <i className="stick-base" /><i className="stick-knob" /></div>}
       <div className="touch-actions"><button onPointerDown={() => action('dash')}>DASH</button><button className="strike" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action('hold-attack'); }} onPointerUp={() => action('release-attack')} onPointerCancel={() => action('release-attack')} onLostPointerCapture={() => action('release-attack')}>STRIKE</button></div><div className="vignette" />
     </main>
   );

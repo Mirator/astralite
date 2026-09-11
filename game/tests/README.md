@@ -54,7 +54,7 @@ automated drivers; nothing in the game itself calls them.
 
 | Hook | What it does |
 | --- | --- |
-| `render_game_to_text()` | JSON snapshot: mode, health, rank, boons, objective, floor, enemies, `buildMs`, `render` counters |
+| `render_game_to_text()` | JSON snapshot: mode, health, rank, boons, objective, floor, enemies, `buildMs`, `render` counters, `settings`, `camera` |
 | `advanceTime(ms, draw = true)` | Steps the simulation deterministically. **The normal rAF loop stops after the first call** — reload to get it back |
 | `dungeonTest.teleport(x, z)` | Moves the knight in world units (`tileX * TILE`) |
 | `dungeonTest.descend()` | Takes the stair without fighting, capped at the last floor |
@@ -66,6 +66,12 @@ automated drivers; nothing in the game itself calls them.
 gives every finished run since the log was capped, each one `{ at, floor, won, cause, seconds, rank, xp, kills, boons, seed }`,
 so deaths can be counted per floor and per `cause` (`guard` / `stalker` / `warden` / `hazard`, null on a win)
 and any run worth seeing again replayed with `restart:<seed>`.
+
+`render_game_to_text().settings` reports the stored settings plus what they currently amount to:
+`reduceMotion` (the effective answer, OS preference included), `filter` (what the canvas is wearing this
+frame), `shake`, `hitStop` and `sound` (`volume`, `muted`, the mixer `target` and the live `gain`).
+`render_game_to_text().camera` gives the camera's position beside its shake-free rest position
+(`restX`/`restZ`), so "reduced motion stopped the camera moving" is a number rather than an impression.
 
 `render_game_to_text().player` reports `invulnerable` (seconds of the damage window left) alongside
 `hurtFlash` (the visual), and each entry in `features` reports `burned` — whether that ring has already
@@ -93,12 +99,36 @@ window.dispatchEvent(new CustomEvent('dungeon-action', { detail: `restart:${seed
 
 ### Persistence
 
-Three `localStorage` keys, `drowned-keep:best`, `drowned-keep:seed` and `drowned-keep:runs`, hold the
-deepest run (XP breaks a tie on the same floor), the current run's floor-1 seed, and the last 100
-finished runs. Nothing leaves the browser. Every read and write is wrapped, and a missing, blocked or
-corrupt value reads as absent — the game plays identically with storage disabled, and a single malformed
-entry is dropped without costing the rest of the history.
-`tests/dungeon-save.test.ts` covers the comparison, the parsing, the cap and the throwing-storage paths.
+Four `localStorage` keys, `drowned-keep:best`, `drowned-keep:seed`, `drowned-keep:runs` and
+`drowned-keep:settings`, hold the deepest run (XP breaks a tie on the same floor), the current run's
+floor-1 seed, the last 100 finished runs, and what the player asked the game to be. Nothing leaves the
+browser. Every read and write is wrapped, and a missing, blocked or corrupt value reads as absent — the
+game plays identically with storage disabled, and a single malformed entry is dropped without costing
+the rest of the history. `tests/dungeon-save.test.ts` covers the comparison, the parsing, the cap, the
+throwing-storage paths, and the settings schema below.
+
+### Settings
+
+Volume (a multiplier on the fixed 0.45 master gain, so `1` is the game as it shipped), mute, reduced
+motion, touch layout and the key bindings. Unlike a run record the blob is never all-or-nothing: each
+field is validated on its own and falls back to its own default, so a partial or hand-edited cell costs
+that field and nothing else.
+
+Reduced motion is three-state: `null` follows `prefers-reduced-motion` and is the default, `true` and
+`false` override it either way, and a change to the media query while the page is open is followed.
+Reduced means **no camera shake at all** and a **still** hurt tint (`sepia(.18) saturate(1.15)` for the
+same duration, with the brightness ramp dropped); hit-stop is deliberately untouched, because 35ms of
+stillness is not motion and shortening it would hand every landed blow back to the enemies sooner.
+
+Bindings map nine actions (`up`/`down`/`left`/`right`/`attack`/`dash`/`pause`/`mute`/`fullscreen`) to
+`KeyboardEvent.code` lists. Binding a code takes it from whatever held it; if that would leave the other
+action with no key at all the two trade instead. `Escape` belongs to pause and can never be bound to
+anything else, and the game answers `Escape` with a pause whether or not it is bound — so no rebind can
+shut a player out of the menu that would undo it. The `preventDefault` list follows the bindings: a
+browser key (space, arrows, page keys) is swallowed only while something is bound to it.
+
+`Touch<action>` slots in the held-key set belong to the touch controls alone and are never part of a
+binding, so `move:`/`stop:`/`hold-attack` steer identically whatever the keyboard has been set to.
 
 ### Recipes
 
