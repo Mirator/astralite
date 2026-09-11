@@ -1,6 +1,6 @@
 # Testing the Drowned Keep
 
-Two layers: a node suite over the floor generator, and hooks the running game exposes so a browser
+Two layers: a node suite over the pure modules, and hooks the running game exposes so a browser
 console (or an automated driver) can steer a run without playing it by hand.
 
 ## Node suite
@@ -9,13 +9,27 @@ console (or an automated driver) can steer a run without playing it by hand.
 npm test
 ```
 
-Runs `tests/*.test.ts` through node's type stripping — no build step, no DOM. It covers the floor
-generator only: the room graph is a tree, every room is reachable, the stair sits at the end of the
-trunk, dead ends are stubs, corridors never bypass the trunk, guards spawn on walkable floor, the
-gate is safe, quiet halls never come in pairs, deeper floors are meaner, and generation stays fast
-enough to rebuild a floor mid-run.
+Runs `tests/*.test.ts` through node's type stripping — no build step, no DOM. It covers the three
+pure modules:
+
+- **The floor generator** (`dungeon-floor.ts`): the room graph is a tree, every room is reachable, the
+  stair sits at the end of the trunk, dead ends are stubs, corridors never bypass the trunk, guards
+  spawn on walkable floor, the gate is safe, quiet halls never come in pairs, deeper floors are meaner,
+  and generation stays fast enough to rebuild a floor mid-run.
+- **The run simulation** (`dungeon-sim.ts`): the shape of a fresh run, the rank ladder, every boon, the
+  damage and invulnerability rules, kill rewards and the room-clear payouts.
+- **Persistence** (`dungeon-save.ts`), described under Persistence below.
 
 Anything involving three.js, the DOM or input is **not** covered here — use the browser hooks.
+
+### Invulnerability
+
+One window, `INVULN` in `dungeon-sim.ts`, for every damage source. `hurtFlash` in the game file still
+drives the screen filter and the camera shake and still runs longer after an ember burn (0.65s) than
+after a sword (0.35s), but it no longer gates damage — it used to, which meant a 10-damage hazard tick
+bought more immunity than a 20-damage warden swing. The hazard's once-per-flare throttle now belongs to
+the flare: each ring carries its own `burned` flag, cleared the moment it stops firing. Dash cover
+(`dashTime > 0`) is separate and unchanged.
 
 ## Browser hooks
 
@@ -30,6 +44,10 @@ automated drivers; nothing in the game itself calls them.
 | `dungeonTest.descend()` | Takes the stair without fighting, capped at the last floor |
 | `dungeonTest.buildFloor(level)` | Rebuilds the floor at any level, including past the last one |
 | `dungeonTest.grantXp(amount)` | Awards XP, so the boon draft can be reached in one line |
+
+`render_game_to_text().player` reports `invulnerable` (seconds of the damage window left) alongside
+`hurtFlash` (the visual), and each entry in `features` reports `burned` — whether that ring has already
+burned the knight during its current flare.
 
 Start a run from the console with `window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'start' }))`.
 Other useful details: `attack`, `dash`, `pause`, `move:up|down|left|right`, `stop:…`, `boon:<id>`,
