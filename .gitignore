@@ -43,3 +43,11 @@ work/
 
 # TypeScript incremental build state
 *.tsbuildinfo
+
+# playtest screenshots: the dev scripts in output/ recapture these on demand and
+# they dwarf the source; the replay JSON and scripts there stay tracked
+output/**/*.png
+output/**/*.jpg
+output/**/*.jpeg
+output/**/*.webp
+output/**/*.gif

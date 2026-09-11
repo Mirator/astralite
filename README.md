@@ -1,8 +1,8 @@
 # Astralite — The Drowned Keep
 
 An isometric browser dungeon crawler. Every run generates a fresh drowned
-fortress: 16–23 freely-branching rooms of six footprint types, joined by
-bent corridors, wooden bridges and shortcuts, populated with guards,
+fortress: three floors, each 10–25 freely-branching rooms of six footprint
+types, joined by bent corridors and wooden bridges, populated with guards,
 stalkers and wardens to cut down.
 
 Built with React 19 RSC on [vinext](https://www.npmjs.com/package/vinext)
@@ -10,17 +10,20 @@ Built with React 19 RSC on [vinext](https://www.npmjs.com/package/vinext)
 
 ## Play
 
-The floor is generated from a seed at load, so a reload gives a new keep.
+Each floor is generated from its own seed, so a reload gives a new keep.
 
 | Input | Action |
 | --- | --- |
 | `WASD` / arrow keys | Move (screen-relative) |
-| Hold mouse / `Space` | Strike — held input repeats the swing |
+| `Space` | Strike — held input repeats the swing |
 | `Shift` | Dash, and cancel a committed attack |
-| Touch | Drag to move, second finger to hold-strike |
+| `Esc` / `M` / `F` | Pause, mute, fullscreen |
+| Touch | On-screen direction pad, DASH and STRIKE buttons |
 
 Clearing every guard in a room cleanses it and restores health. Each guard is
-worth 25 XP, awarded exactly once; XP is per-run and resets on retry.
+worth 25 XP, awarded exactly once; XP is per-run and resets on retry. Floor
+one's seed is kept, so a lost run can be taken again from the death screen,
+and the deepest descent survives a reload.
 
 ## Layout
 
@@ -29,15 +32,20 @@ game/                    the application
   app/
     dungeon-game.tsx     game loop, input, combat, HUD
     dungeon-floor.ts     seeded procedural floor generator
+    dungeon-sim.ts       vitality, XP, ranks, boons, damage rules
+    dungeon-save.ts      personal best and run seed in localStorage
     dungeon-atmosphere.ts  lighting, particles, props
+    dungeon-motion.ts    water and stone shaders, cloth motion
     dungeon-audio.ts     ambient drone and combat sounds
   scripts/
     pages-relative-paths.mjs  rewrites the export for sub-path hosting
-output/                  playtest artifacts: screenshots, replay JSON, dev scripts
+  tests/                 node suite over the pure modules
+output/                  playtest artifacts: replay JSON and the dev scripts
 ```
 
 `game/progress.md` is the running development log — what was changed, how it
-was validated, and what remains.
+was validated, and what remains. `game/tests/README.md` covers the node suite
+and the browser hooks a driver can steer a run with.
 
 ## Develop
 
@@ -50,8 +58,8 @@ npm run dev
 ```
 
 Other scripts: `npm run build` (production build into `game/dist`),
-`npm start` (serve the built worker via Wrangler), `npm run lint` (oxlint),
-`npm run format` (oxfmt).
+`npm start` (serve the built worker via Wrangler), `npm test` (the node
+suite), `npm run lint` (oxlint), `npm run format` (oxfmt).
 
 ## Deploy
 

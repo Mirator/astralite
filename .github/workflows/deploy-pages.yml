@@ -1,23 +1,27 @@
-name: Deploy to GitHub Pages
+name: Verify and Deploy
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
+# The default for every job, and therefore everything a pull request can reach —
+# including a pull request from a fork. Only the deploy job widens it, and a pull
+# request cannot start the deploy job.
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-# Let a running deployment finish; queue at most one more behind it.
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
+    # A superseded pull request commit is not worth finishing. A superseded main
+    # commit is: it is a deployment candidate, and cancelling it here would mean
+    # it never reaches Pages.
+    concurrency:
+      group: verify-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     defaults:
       run:
         working-directory: game
@@ -34,24 +38,51 @@ jobs:
 
       - run: npm run lint
 
+      # vinext build strips types rather than checking them, so nothing else in
+      # this pipeline would notice a type error before it shipped.
+      - run: npx tsc --noEmit
+
+      - run: npm test
+
+      # The build runs on pull requests too: a build that no longer compiles is
+      # exactly what a pull request should catch, before main is the thing broken.
       - run: npm run build
 
       # GitHub Pages serves from a repository sub-path; the export writes
       # root-absolute asset URLs. See scripts/pages-relative-paths.mjs.
+      # Unconditional so that a regression in the rewrite surfaces on the pull
+      # request rather than on the deploy that follows the merge.
       - run: node scripts/pages-relative-paths.mjs dist/client
 
-      - uses: actions/configure-pages@v5
-
-      - uses: actions/upload-pages-artifact@v3
+      # Not verification — this only hands the built site to the deploy job, so
+      # it is skipped when no deploy can follow. Uploading an artifact needs no
+      # GITHUB_TOKEN permission, which is why it can stay in this read-only job.
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: game/dist/client
 
   deploy:
-    needs: build
+    needs: verify
+    # A pull request must never be able to publish to Pages, whatever it changed.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # Write access lives here alone, in the one job no pull request can trigger.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    # Let a running deployment finish; queue at most one more behind it.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # Moved off the build job because it reads the Pages API with the workflow
+      # token, which a pull request run is deliberately not given.
+      - uses: actions/configure-pages@v5
+
       - id: deployment
         uses: actions/deploy-pages@v4

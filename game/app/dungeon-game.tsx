@@ -103,6 +103,11 @@ function makeSkeleton(index: number) {
   return g;
 }
 
+// three.js throws outright when the browser will not hand out a context at all — no GPU, WebGL off by
+// policy or setting, a browser too old. That is not the same as losing a context mid-run, which three.js
+// gets back by itself: nothing is coming back here, so the throw is caught and answered with a screen.
+const makeRenderer = () => { try { return new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' }); } catch { return null; } };
+
 export default function DungeonGame() {
   const mountRef = useRef<HTMLDivElement>(null);
   const [experience, setExperience] = useState(0);
@@ -125,6 +130,9 @@ export default function DungeonGame() {
   const [notice, setNotice] = useState(''), [, setNoticeDetail] = useState(''), [ready, setReady] = useState(false);
   const dashMeter = useRef<HTMLProgressElement>(null);
   const [displayLost, setDisplayLost] = useState(false), [floorBuild, setFloorBuild] = useState(0);
+  // Deliberately not the same flag as displayLost: that is a context taken away mid-descent and handed
+  // back, this is one never granted, so there is no run to pause and nothing that could restore it.
+  const [displayFailed, setDisplayFailed] = useState(false);
   const [best, setBest] = useState<BestRun | null>(null);
   const [runSeed, setRunSeed] = useState<number | null>(null), [priorSeed, setPriorSeed] = useState<number | null>(null);
 
@@ -163,7 +171,13 @@ export default function DungeonGame() {
 
   useEffect(() => {
     const mount = mountRef.current;
-    if (!mount) return;
+    // The renderer is built before anything else because it is the one piece of setup that can fail
+    // outright, and both ways of failing want the same bail-out: nothing below has been constructed yet,
+    // so there is no audio context, no listener, no loop and no window hook to undo — which is why this
+    // effect can leave without a cleanup function at all. A missing mount is React between renders and
+    // says nothing; a refused context is the browser declining to draw and has to say so on screen.
+    const renderer = mount && makeRenderer();
+    if (!mount || !renderer) { if (mount) setDisplayFailed(true); return; }
     // Every number a combat or progression outcome depends on lives in `run`, in dungeon-sim.ts, where it
     // can be tested without a browser. What is left here is the world: timers that only drive visuals,
     // input, and anything holding a THREE object.
@@ -217,7 +231,6 @@ export default function DungeonGame() {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x07121a);
     scene.fog = new THREE.FogExp2(0x07121a, 0.018);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
     mount.appendChild(renderer.domElement);
@@ -755,7 +768,7 @@ export default function DungeonGame() {
   const mapBounds = {x:Math.min(...mapCorners.map(p=>p.x))-4,y:Math.min(...mapCorners.map(p=>p.y))-4,width:Math.max(...mapCorners.map(p=>p.x))-Math.min(...mapCorners.map(p=>p.x))+8,height:Math.max(...mapCorners.map(p=>p.y))-Math.min(...mapCorners.map(p=>p.y))+8};
   const action = (detail: string) => window.dispatchEvent(new CustomEvent('dungeon-action', { detail }));
   return (
-    <main className={`game-shell${mapOpen ? ' map-expanded' : ''}`}>
+    <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
       <header className="game-title"><span>{floorLevel} / {FLOORS} · {roomName}</span></header>
       <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || status !== 'playing' || boonChoice.length > 0} aria-label="Pause game">☰</button></nav>
@@ -767,7 +780,7 @@ export default function DungeonGame() {
         <circle ref={mapPlayer} cx={floorMap.rooms[0].x} cy={floorMap.rooms[0].z} r="1.8" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
       </g></svg></button>}
       {notice && started && !paused && status === 'playing' && boonChoice.length === 0 && <output className="chamber-notice"><b>{notice.split(' · ').pop()}</b></output>}
-      {(!started || (paused && !mapOpen)) && <div className="intro-screen"><section className="intro-card"><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : 'THE DROWNED KEEP'}</span><h1>{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
+      {!displayFailed && (!started || (paused && !mapOpen)) && <div className="intro-screen"><section className="intro-card"><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : 'THE DROWNED KEEP'}</span><h1>{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
         {paused && <p>{advance} / {goalDepth} halls · {visitedCount} / {roomCount} explored · {plundered} / {deadEnds} plundered<br />Rank {rank} · {experience} XP · {rankXp} / {rankNeed} to next boon{xpReward > 0 ? ` · +${xpReward} XP` : ''}</p>}
         {!paused && best && <p className="best-run">Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</p>}
         <button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'LOADING…' : paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
@@ -781,6 +794,8 @@ export default function DungeonGame() {
         <div className="boon-options">{boonChoice.map(boon => <button key={boon.id} className="boon-option" onClick={() => action(`boon:${boon.id}`)}><strong>{boon.name}</strong><span>{boon.detail}</span></button>)}</div>
       </div></div>}
       {(status === 'won' || status === 'lost') && <div className="end-screen"><div className="end-card"><span className="end-kicker">{status === 'won' ? 'THE KEEP IS BEHIND YOU' : `FLOOR ${floorLevel} · FAILED`}</span><h1>{status === 'won' ? 'You climb into the dawn.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'Three floors of the drowned watch lie still behind you.' : 'Steel yourself and enter once more.'}</p><div className="xp-summary"><strong>{experience} XP earned</strong><span>Floor {floorLevel} of {FLOORS} · rank {rank} · {defeated} guards felled · XP resets on a new run</span>{best && <small>Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</small>}</div><button onClick={() => action('restart')}>NEW DESCENT</button>{status === 'lost' && runSeed !== null && <button className="seed-retry" onClick={() => action(`restart:${runSeed}`)}>SAME KEEP</button>}</div></div>}
+      {/* Plain markup on purpose: the canvas was never mounted, so this is the only thing left to look at. */}
+      {displayFailed && <div className="end-screen display-failed"><div className="end-card"><span className="end-kicker">THE GATE STAYS SHUT</span><h1>No light to see by.</h1><p>This browser could not open a 3D display, so the keep cannot be drawn. That most often means hardware acceleration is switched off in the browser&rsquo;s settings.</p></div></div>}
       {displayLost && <output className="display-notice">Display interrupted · the descent is paused</output>}
       <div className="touch-pad" aria-label="Touch movement controls">{['up', 'left', 'down', 'right'].map((dir) => <button key={dir} className={dir} aria-label={`Move ${dir}`} onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action(`move:${dir}`); }} onLostPointerCapture={() => action(`stop:${dir}`)} onPointerUp={() => action(`stop:${dir}`)} onPointerCancel={() => action(`stop:${dir}`)}>{dir === 'up' ? '▲' : dir === 'down' ? '▼' : dir === 'left' ? '◀' : '▶'}</button>)}</div>
       <div className="touch-actions"><button onPointerDown={() => action('dash')}>DASH</button><button className="strike" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action('hold-attack'); }} onPointerUp={() => action('release-attack')} onPointerCancel={() => action('release-attack')} onLostPointerCapture={() => action('release-attack')}>STRIKE</button></div><div className="vignette" />
