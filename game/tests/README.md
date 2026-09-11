@@ -32,7 +32,25 @@ automated drivers; nothing in the game itself calls them.
 | `dungeonTest.grantXp(amount)` | Awards XP, so the boon draft can be reached in one line |
 
 Start a run from the console with `window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'start' }))`.
-Other useful details: `attack`, `dash`, `pause`, `move:up|down|left|right`, `stop:…`, `boon:<id>`.
+Other useful details: `attack`, `dash`, `pause`, `move:up|down|left|right`, `stop:…`, `boon:<id>`,
+`restart`, `restart:<seed>`.
+
+`restart` resets the whole run in place — health, rank, boons, XP, kills, input — and rebuilds floor 1
+from a fresh seed; no page reload, so the `AudioContext`, the GPU context and the `window` hooks all
+survive it. `restart:<seed>` does the same but replays that exact floor 1 (`render_game_to_text().floor.seed`
+reports the current one), which makes a deterministic run reproducible from the console:
+
+```js
+const seed = JSON.parse(window.render_game_to_text()).floor.seed;
+window.dispatchEvent(new CustomEvent('dungeon-action', { detail: `restart:${seed}` }));
+```
+
+### Persistence
+
+Two `localStorage` keys, `drowned-keep:best` and `drowned-keep:seed`, hold the deepest run (XP breaks a
+tie on the same floor) and the current run's floor-1 seed. Every read and write is wrapped, and a
+missing, blocked or corrupt value reads as absent — the game plays identically with storage disabled.
+`tests/dungeon-save.test.ts` covers the comparison, the parsing and the throwing-storage paths.
 
 ### Recipes
 
