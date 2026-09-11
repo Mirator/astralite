@@ -9,7 +9,7 @@ console (or an automated driver) can steer a run without playing it by hand.
 npm test
 ```
 
-Runs `tests/*.test.ts` through node's type stripping — no build step, no DOM. It covers the three
+Runs `tests/*.test.ts` through node's type stripping — no build step, no DOM. It covers the four
 pure modules:
 
 - **The floor generator** (`dungeon-floor.ts`): the room graph is a tree, every room is reachable, the
@@ -18,9 +18,25 @@ pure modules:
   and generation stays fast enough to rebuild a floor mid-run.
 - **The run simulation** (`dungeon-sim.ts`): the shape of a fresh run, the rank ladder, every boon, the
   damage and invulnerability rules, kill rewards and the room-clear payouts.
+- **The spatial rules** (`dungeon-enemy.ts`): the activation cutoff, pursuit steps off the flood map,
+  when a windup starts and whether the committed swing connects, the stalker pounce and its swept
+  contact test, and the crowd-separation pass. Collision itself (`canStand`, `moveOnFloor`) is covered
+  alongside the generator in `dungeon-floor.test.ts`: walls, sliding, diagonal gaps, tunnelling and
+  body radius.
 - **Persistence** (`dungeon-save.ts`), described under Persistence below.
 
 Anything involving three.js, the DOM or input is **not** covered here — use the browser hooks.
+
+### Where an enemy decision lives
+
+`dungeon-enemy.ts` decides *what* a body does; `dungeon-game.tsx` does it. `decideEnemy` takes a plain
+snapshot of one enemy (kind, position, room, cooldown, hitFlash, windup, lunge, tell, speed, aim), the
+knight's position, the floor's walkable cells plus the flood distances, and a frame delta, and returns an
+`EnemyIntent` — `act` (`inert` / `lunge` / `windup` / `ready`), the new position and timers, the yaw to
+face, whether the blow connects and which cue to sound. It mutates nothing. The renderer keeps the
+`THREE.Group`, limb and weapon poses, audio, particles, emissive flashes, health bars and telegraphs —
+all of which consume the intent rather than deciding it. `separateCrowd` is the same deal for the
+crowd pass: bodies in, fresh points out.
 
 ### Invulnerability
 
