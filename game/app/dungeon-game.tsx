@@ -6,6 +6,7 @@ import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
 import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
 import { generateFloor, moveOnFloor, hasClearPath, cellKey, TILE } from './dungeon-floor';
+import { betterRun, readBest, readSeed, writeBest, writeSeed, type BestRun } from './dungeon-save';
 
 type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh };
 type GameToolContext = {
@@ -135,6 +136,18 @@ export default function DungeonGame() {
   const [advance, setAdvance] = useState(0);
   const [notice, setNotice] = useState(''), [, setNoticeDetail] = useState(''), [ready, setReady] = useState(false);
   const dashMeter = useRef<HTMLProgressElement>(null);
+  const [displayLost, setDisplayLost] = useState(false), [floorBuild, setFloorBuild] = useState(0);
+  const [best, setBest] = useState<BestRun | null>(null);
+  const [runSeed, setRunSeed] = useState<number | null>(null), [priorSeed, setPriorSeed] = useState<number | null>(null);
+
+  // Persisting a finished run is a write to an external system, so it belongs in an effect. Both endings
+  // settle every HUD value before `status` flips, which makes this the one honest place to read the run.
+  useEffect(() => {
+    if (status !== 'won' && status !== 'lost') return;
+    const record = (run: BestRun) => { setBest(run); writeBest(run); };
+    const next = betterRun(best, { floor: floorLevel, xp: experience, kills: defeated, won: status === 'won' });
+    if (next && next !== best) record(next);
+  }, [status, floorLevel, experience, defeated, best]);
 
   useEffect(() => {
     const context = (document as Document & { modelContext?: GameToolContext }).modelContext;
@@ -263,13 +276,23 @@ export default function DungeonGame() {
     });
     let trailCursor=0,trailClock=0;
     let pathCell = '';
-    const distances = new Map<string,number>();
+    // An enemy past distance 22 is skipped outright, and the one that isn't picks its step from its four
+    // neighbours, so nothing beyond 23 is ever read back: flooding to 24 is identical to flooding the whole
+    // floor while touching ~1200 cells instead of 2-7k. Raise this alongside the activation radius below,
+    // or pursuit will stall at the old edge.
+    const PATH_RADIUS = 24;
+    // Packed keys for the reason dungeon-floor packs its corridor cells: a Map keyed by a string built fresh
+    // on each probe re-hashes every time, and the flood probes four times per cell.
+    const pathKey = (x: number, z: number) => (x + 4096) * 8192 + (z + 4096);
+    const distances = new Map<number,number>();
     const updatePaths = () => {
       const x = Math.round(player.position.x / TILE), z = Math.round(player.position.z / TILE), key = cellKey(x,z);
       if (pathCell === key) return;
-      pathCell = key; distances.clear(); distances.set(key,0);
-      const queue = [{ x,z }];
-      for (let i = 0; i < queue.length; i++) { const c = queue[i], distance = distances.get(cellKey(c.x,c.z))!; for (const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]) { const next = cellKey(c.x + dx,c.z + dz); if (floor.cells.has(next) && !distances.has(next)) { distances.set(next,distance + 1); queue.push({ x: c.x + dx,z: c.z + dz }); } } }
+      pathCell = key; distances.clear(); distances.set(pathKey(x,z),0);
+      // Flat x,z,distance triples. The queue stays in non-decreasing distance, so the first node sitting at
+      // the radius ends the whole flood rather than merely skipping its own expansion.
+      const queue = [x,z,0];
+      for (let i = 0; i < queue.length; i += 3) { const cx = queue[i], cz = queue[i + 1], distance = queue[i + 2]; if (distance >= PATH_RADIUS) break; for (const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]) { const nx = cx + dx, nz = cz + dz, next = pathKey(nx,nz); if (!distances.has(next) && floor.cells.has(cellKey(nx,nz))) { distances.set(next,distance + 1); queue.push(nx,nz,distance + 1); } } }
     };
     // Only the shared texture, the knight and the lights outlive a floor; the rest is rebuilt per descent.
     const clearFloor = () => {
@@ -280,7 +303,8 @@ export default function DungeonGame() {
       particles.length = 0;
       dashTrails.forEach(m=>{m.userData.life=0;(m.material as THREE.MeshBasicMaterial).opacity=0;});
     };
-    const buildFloor = (nextLevel: number) => {
+    // An explicit seed replays a floor verbatim; without one the keep is new every descent.
+    const buildFloor = (nextLevel: number, seed?: number) => {
       const clock = performance.now(); let mark = clock;
       const phase = (name: string) => { const now = performance.now(); buildMs[name] = +(now - mark).toFixed(1); mark = now; };
       buildMs = {};
@@ -288,8 +312,10 @@ export default function DungeonGame() {
       phase('dispose');
       level = nextLevel; floorStart = elapsed; floorKills = kills; floorXp = totalXp; features = [];
       gameStatus = 'playing'; setStatus('playing');
-      floor = generateFloor(crypto.getRandomValues(new Uint32Array(1))[0], level);
+      floor = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], level);
       phase('generate');
+      // Floor 1 is the run's fingerprint: keeping its seed is what lets a lost run be taken again.
+      if (level === 1) { setRunSeed(floor.seed); writeSeed(floor.seed); }
       floorGroup = new THREE.Group(); world.add(floorGroup);
       swingHits.clear();
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
@@ -351,7 +377,9 @@ export default function DungeonGame() {
       player.position.set(floor.rooms[0].x * TILE, 0.03, floor.rooms[0].z * TILE);
       cameraFocus.copy(player.position);
       updatePaths();
-      setFloorMap(floor); setFloorLevel(level); setRoomName(floor.rooms[0].name);
+      // Room fills are painted imperatively as rooms are explored, so the map has to be a new element
+      // every build — keying it on the seed alone would keep a retried floor's old fills on screen.
+      setFloorMap(floor); setFloorBuild(build => build + 1); setFloorLevel(level); setRoomName(floor.rooms[0].name);
       setVisitedCount(1); setPlundered(0); setAdvance(0);
       buildMs.total = +(performance.now() - clock).toFixed(1);
     };
@@ -369,6 +397,29 @@ export default function DungeonGame() {
       keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; audio.pause(false);
       burst(player.position, 0x8de9be, 22);
     };
+    // A run is nothing but this closure's counters plus floor 1, so it restarts in place: reloading
+    // would refetch the bundle and throw away the AudioContext and the GPU context for no gain.
+    // Everything buildFloor(1) already rebuilds (floor, level, rooms, enemies, map, status) is left to it,
+    // but kills and totalXp must be zeroed first because it snapshots them as the floor's baseline.
+    const restart = (seed?: number) => {
+      hp = 100; maxHp = 100; kills = 0; totalXp = 0;
+      strike = 1; dashSpan = 1.35; reach = 0; draught = 0; guardAgainst = 1;
+      rankLevel = 1; rankProgress = 0; pendingRanks = 0; choosing = false;
+      attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0;
+      walkPhase = 0; footstepTime = 0; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
+      isPaused = false; keys.clear(); bufferedFacing = null; velocity.set(0, 0, 0);
+      facing.set(1, 0, -0.6).normalize(); attackFacing.copy(facing); dashFacing.copy(facing);
+      setHealth(hp); setMaxHealth(maxHp); setDefeated(0); setExperience(0); setXpReward(0);
+      setRank(1); setRankXp(0); setRankNeed(rankCost(1)); setTaken([]); setBoonChoice([]);
+      setNotice(''); setNoticeDetail(''); setFloorResult({ kills: 0, xp: 0, seconds: 0 });
+      setPaused(false); setMapOpen(false);
+      buildFloor(1, seed);
+      player.rotation.set(0, Math.atan2(-facing.x, -facing.z), 0); player.userData.sword.rotation.y = 0;
+      audio.pause(false);
+    };
+    // Read before floor 1 overwrites the stored seed, so "Last keep" still offers the previous visit's.
+    const restoreSave = () => { setBest(readBest()); setPriorSeed(readSeed()); };
+    restoreSave();
     buildFloor(1);
     const moveInput = () => {
       const x = +(keys.has('KeyD') || keys.has('ArrowRight') || keys.has('Touchright')) - +(keys.has('KeyA') || keys.has('ArrowLeft') || keys.has('Touchleft'));
@@ -421,6 +472,8 @@ export default function DungeonGame() {
     const trigger = (e: Event) => {
       const detail = (e as CustomEvent<string>).detail;
       if (detail === 'continue') { continueDescent(); return; }
+      // `restart` opens a fresh keep, `restart:<seed>` takes the same one again; a junk seed just means fresh.
+      if (detail === 'restart' || detail.startsWith('restart:')) { const seed = Number.parseInt(detail.slice(8), 10); restart(Number.isNaN(seed) ? undefined : seed >>> 0); return; }
       if (detail === 'start') { if (hasStarted) return; floorStart = elapsed; hasStarted = true; setStarted(true); audio.start(); return; }
       if (detail === 'map') { if (!hasStarted || choosing || gameStatus !== 'playing') return; if (!isPaused) togglePause(); setMapOpen(true); return; }
       if (detail === 'pause') { togglePause(); return; }
@@ -440,6 +493,13 @@ export default function DungeonGame() {
     const visibility = () => { if (document.hidden) blur(); };
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('blur', blur); window.addEventListener('dungeon-action', trigger);
+    // three.js restores the GPU context on its own; what it cannot do is stop the simulation, so without
+    // this the knight goes on taking damage behind a frozen image. Restoring never resumes by itself —
+    // whoever was pulled away picks the moment to step back into the fight.
+    const contextLost = () => { setDisplayLost(true); blur(); };
+    const contextRestored = () => setDisplayLost(false);
+    renderer.domElement.addEventListener('webglcontextlost', contextLost);
+    renderer.domElement.addEventListener('webglcontextrestored', contextRestored);
     let last = performance.now(), raf = 0;
     const update = (frameDt: number) => {
       if (isPaused || choosing || gameStatus === 'complete') return;
@@ -557,7 +617,7 @@ export default function DungeonGame() {
           if (enemy.dead) { enemy.group.rotation.z += dt * 5; enemy.group.scale.multiplyScalar(Math.max(0.001, 1 - dt * 4.5)); return; }
           enemy.hitFlash = Math.max(0, enemy.hitFlash - dt); enemy.cooldown -= dt;
           const ex = Math.round(enemy.group.position.x / TILE), ez = Math.round(enemy.group.position.z / TILE);
-          if ((distances.get(cellKey(ex,ez)) ?? Infinity) > (enemy.room === activeRoom ? 22 : 10)) return;
+          if ((distances.get(pathKey(ex,ez)) ?? Infinity) > (enemy.room === activeRoom ? 22 : 10)) return;
           const toPlayer = player.position.clone().sub(enemy.group.position); toPlayer.y = 0; const dist = toPlayer.length();
           const strikeRange = enemy.kind === 'warden' ? 2.55 : 1.55;
           const hurtPlayer = () => {
@@ -600,7 +660,7 @@ export default function DungeonGame() {
               } else if ((dist > (enemy.kind === 'warden' ? 2.0 : 1.15) || !clearAttackLine) && (enemy.kind !== 'stalker' || enemy.cooldown < .9)) {
                 const direction = toPlayer.clone();
                 if (dist > TILE * 1.5 || !clearAttackLine) {
-                  const next = [[ex + 1,ez],[ex - 1,ez],[ex,ez + 1],[ex,ez - 1]].filter(([x,z]) => floor.cells.has(cellKey(x,z))).sort((a,b) => (distances.get(cellKey(a[0],a[1])) ?? Infinity) - (distances.get(cellKey(b[0],b[1])) ?? Infinity))[0];
+                  const next = [[ex + 1,ez],[ex - 1,ez],[ex,ez + 1],[ex,ez - 1]].filter(([x,z]) => floor.cells.has(cellKey(x,z))).sort((a,b) => (distances.get(pathKey(a[0],a[1])) ?? Infinity) - (distances.get(pathKey(b[0],b[1])) ?? Infinity))[0];
                   if (next) direction.set(next[0] * TILE - enemy.group.position.x,0,next[1] * TILE - enemy.group.position.z);
                 }
                 direction.normalize(); moveOnFloor(floor.cells,enemy.group.position,direction.x * enemy.speed * dt,direction.z * enemy.speed * dt);
@@ -691,7 +751,7 @@ export default function DungeonGame() {
     raf = requestAnimationFrame(animate);
     const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 6.3 : 7.2; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); };
     window.addEventListener('resize', resize); resize(); setReady(true);
-    return () => { stopped = true; cancelAnimationFrame(raf); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); audio.dispose(); atmosphere?.dispose(); texture.dispose(); delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
+    return () => { stopped = true; cancelAnimationFrame(raf); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); atmosphere?.dispose(); texture.dispose(); delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
   }, []);
 
   const roomCount = floorMap?.rooms.length ?? 0;
@@ -708,7 +768,7 @@ export default function DungeonGame() {
       <header className="game-title"><span>{floorLevel} / {FLOORS} · {roomName}</span></header>
       <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || status !== 'playing' || boonChoice.length > 0} aria-label="Pause game">☰</button></nav>
       <section className="hud" aria-label="Player status"><div className="health-row"><span>♥</span><b>{health}<small>/{maxHealth}</small></b></div><div className="health-track" aria-label="Vitality"><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div><div className="dash-status"><progress ref={dashMeter} max="1" value="1" aria-label="Dash readiness" /></div><progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} /></section>
-      {floorMap && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action(mapOpen ? 'pause' : 'map')} aria-label={mapOpen ? 'Close floor map' : 'Open floor map'}><svg key={floorMap.seed} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g transform={`rotate(${mapAngle*180/Math.PI})`}>
+      {floorMap && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action(mapOpen ? 'pause' : 'map')} aria-label={mapOpen ? 'Close floor map' : 'Open floor map'}><svg key={floorBuild} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g transform={`rotate(${mapAngle*180/Math.PI})`}>
         <path d={floorMap.tiles.map(t => `M${t.x - 0.5},${t.z - 0.5}h1v1h-1z`).join('')} fill="#334e56" />
         {floorMap.rooms.map(r => <path key={r.id} id={`map-room-${r.id}`} d={floorMap.tiles.filter(t=>t.room===r.id).map(t=>`M${t.x-.5},${t.z-.5}h1v1h-1z`).join('')} fill={r.id===0?'#6a9995':r.role==='goal'?'#7a5f3c':'#3e6066'} />)}
         <circle cx={floorMap.rooms[floorMap.goal].x} cy={floorMap.rooms[floorMap.goal].z} r="3.4" fill="none" stroke="#ffc573" strokeWidth="0.9" opacity="0.8" />
@@ -717,9 +777,10 @@ export default function DungeonGame() {
       {notice && started && !paused && status === 'playing' && boonChoice.length === 0 && <output className="chamber-notice"><b>{notice.split(' · ').pop()}</b></output>}
       {(!started || (paused && !mapOpen)) && <div className="intro-screen"><section className="intro-card"><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : 'THE DROWNED KEEP'}</span><h1>{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
         {paused && <p>{advance} / {goalDepth} halls · {visitedCount} / {roomCount} explored · {plundered} / {deadEnds} plundered<br />Rank {rank} · {experience} XP · {rankXp} / {rankNeed} to next boon{xpReward > 0 ? ` · +${xpReward} XP` : ''}</p>}
+        {!paused && best && <p className="best-run">Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</p>}
         <button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'LOADING…' : paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
         <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>WASD / ↑↓←→</kbd> Move</span><span><kbd>SPACE</kbd> Hold to strike</span><span><kbd>SHIFT</kbd> Dodge</span><span><kbd>ESC</kbd> Pause</span><span><kbd>F</kbd> Fullscreen</span></div><p>Reach {goalName}. Defeat the stair wardens to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality.</p>{taken.length > 0 && <p>{taken.join(' · ')}</p>}</details>
-        <div className="menu-settings">{started && <button onClick={() => action('map')}>Map</button>}<button onClick={() => action('mute')}>{muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button></div>
+        <div className="menu-settings">{started && <button onClick={() => action('map')}>Map</button>}<button onClick={() => action('mute')}>{muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button>{!started && priorSeed !== null && <button onClick={() => action(`restart:${priorSeed}`)}>Last keep</button>}</div>
       </section></div>}
       {mapOpen && <div className="map-screen"><h1>Floor {floorLevel}</h1><p>Gold ring: stair · Bright rooms: explored</p><button className="primary-action" onClick={() => action('pause')}>RESUME</button></div>}
       {status === 'complete' && <div className="end-screen success-screen"><div className="end-card"><span className="success-sigil">✦</span><span className="end-kicker">FLOOR {floorLevel} COMPLETE</span><h1>The watch falls silent.</h1><div className="floor-results"><span><strong>{floorResult.kills}</strong>guards felled</span><span><strong>{floorResult.xp}</strong>XP earned</span><span><strong>{Math.floor(floorResult.seconds / 60)}:{String(floorResult.seconds % 60).padStart(2,'0')}</strong>elapsed</span></div><button onClick={() => action('continue')}>{floorLevel < FLOORS ? 'DESCEND TO FLOOR ' + (floorLevel + 1) : 'STEP INTO THE DAWN'} →</button>{floorLevel < FLOORS && <p className="recovery-note">Recover 25% vitality on descent</p>}</div></div>}
@@ -727,7 +788,8 @@ export default function DungeonGame() {
         <span className="end-kicker">RANK {rank} · CHOOSE A BOON</span><h1>The tide gives back.</h1>
         <div className="boon-options">{boonChoice.map(boon => <button key={boon.id} className="boon-option" onClick={() => action(`boon:${boon.id}`)}><strong>{boon.name}</strong><span>{boon.detail}</span></button>)}</div>
       </div></div>}
-      {(status === 'won' || status === 'lost') && <div className="end-screen"><div className="end-card"><span className="end-kicker">{status === 'won' ? 'THE KEEP IS BEHIND YOU' : `FLOOR ${floorLevel} · FAILED`}</span><h1>{status === 'won' ? 'You climb into the dawn.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'Three floors of the drowned watch lie still behind you.' : 'Steel yourself and enter once more.'}</p><div className="xp-summary"><strong>{experience} XP earned</strong><span>Floor {floorLevel} of {FLOORS} · rank {rank} · {defeated} guards felled · XP resets on a new run</span></div><button onClick={() => location.reload()}>NEW DESCENT</button></div></div>}
+      {(status === 'won' || status === 'lost') && <div className="end-screen"><div className="end-card"><span className="end-kicker">{status === 'won' ? 'THE KEEP IS BEHIND YOU' : `FLOOR ${floorLevel} · FAILED`}</span><h1>{status === 'won' ? 'You climb into the dawn.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'Three floors of the drowned watch lie still behind you.' : 'Steel yourself and enter once more.'}</p><div className="xp-summary"><strong>{experience} XP earned</strong><span>Floor {floorLevel} of {FLOORS} · rank {rank} · {defeated} guards felled · XP resets on a new run</span>{best && <small>Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</small>}</div><button onClick={() => action('restart')}>NEW DESCENT</button>{status === 'lost' && runSeed !== null && <button className="seed-retry" onClick={() => action(`restart:${runSeed}`)}>SAME KEEP</button>}</div></div>}
+      {displayLost && <output className="display-notice">Display interrupted · the descent is paused</output>}
       <div className="touch-pad" aria-label="Touch movement controls">{['up', 'left', 'down', 'right'].map((dir) => <button key={dir} className={dir} aria-label={`Move ${dir}`} onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action(`move:${dir}`); }} onLostPointerCapture={() => action(`stop:${dir}`)} onPointerUp={() => action(`stop:${dir}`)} onPointerCancel={() => action(`stop:${dir}`)}>{dir === 'up' ? '▲' : dir === 'down' ? '▼' : dir === 'left' ? '◀' : '▶'}</button>)}</div>
       <div className="touch-actions"><button onPointerDown={() => action('dash')}>DASH</button><button className="strike" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action('hold-attack'); }} onPointerUp={() => action('release-attack')} onPointerCancel={() => action('release-attack')} onLostPointerCapture={() => action('release-attack')}>STRIKE</button></div><div className="vignette" />
     </main>
