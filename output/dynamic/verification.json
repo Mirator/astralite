@@ -1,0 +1,17 @@
+{
+  "checks": [
+    "fast travel",
+    "dash",
+    "pause freeze",
+    "menu sound",
+    "hazard damage",
+    "shrine single use",
+    "ambush activation",
+    "three real warden fights",
+    "success freeze each floor",
+    "explicit continuation",
+    "final victory",
+    "mobile attack release"
+  ],
+  "errors": []
+}

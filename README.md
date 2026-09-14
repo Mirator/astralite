@@ -39,6 +39,7 @@ and the deepest descent survives a reload.
 game/                    the application
   app/
     dungeon-game.tsx     game loop, input, combat, HUD
+    dungeon-combat.ts    pure sword-contact and damage-rounding rules
     dungeon-floor.ts     seeded procedural floor generator
     dungeon-sim.ts       vitality, XP, ranks, boons, damage rules
     dungeon-save.ts      best run, seed, run log and settings in localStorage
@@ -48,6 +49,7 @@ game/                    the application
   scripts/
     pages-relative-paths.mjs  rewrites the export for sub-path hosting
   tests/                 node suite over the pure modules
+    browser/             Playwright scenarios over the running game
 output/                  playtest artifacts: replay JSON and the dev scripts
 ```
 

@@ -1,0 +1,11 @@
+{
+  "checks": [
+    "pounce warning and hit",
+    "committed aim dodge",
+    "warden longer sweep",
+    "map pause and resume",
+    "desktop/mobile map",
+    "carved-cell room identity"
+  ],
+  "errors": []
+}

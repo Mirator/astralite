@@ -5,7 +5,8 @@ import * as THREE from 'three';
 import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
 import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
-import { generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
+import { canStand, generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
+import { swordContacts } from './dungeon-combat';
 import { decideEnemy, separateCrowd } from './dungeon-enemy';
 import { enemyPose } from './dungeon-enemy-pose';
 import { playerAttackPose, PLAYER_ATTACK_DURATION } from './dungeon-attack-pose';
@@ -14,6 +15,12 @@ import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, read
 import { BOONS, clearRoomReward, createRun, grantXp, heal, hurt, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
 type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[] };
+// Development-only test fixture payload: which existing actors to move, and to what. Deliberately narrow —
+// no code, no arbitrary paths, no new combat rules.
+type CombatFixture = {
+  health?: number;
+  enemies?: { index: number; x?: number; z?: number; hp?: number; windup?: number; cooldown?: number; aim?: { x: number; z: number } }[];
+};
 type GameToolContext = {
   registerTool: (tool: {
     name: string;
@@ -769,7 +776,9 @@ export default function DungeonGame() {
           if (active) enemyData.forEach((enemy) => {
             if (gameStatus !== 'playing' || enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
             const delta = enemy.group.position.clone().sub(player.position); delta.y = 0;
-            if (delta.length() < 1.8 + run.reach && delta.normalize().dot(attackFacing) > 0.35 - run.reach * 0.12) {
+            // The same rule the node suite runs: inside the arc, and with no wall between the blade and the body.
+            if (swordContacts(floor.cells, player.position, attackFacing, enemy.group.position, run.reach)) {
+              delta.normalize();
               audio.play('hit');
               swingHits.add(enemy); enemy.hp -= run.strike; enemy.hitFlash = 0.2; if (enemy.kind !== 'warden' && enemy.windup > .18) {enemy.windup = 0;enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
               enemy.cooldown = Math.max(enemy.cooldown, 0.4);
@@ -787,6 +796,10 @@ export default function DungeonGame() {
             }
           });
         } else { posePlayer(0);slash.update(dt,false,player.userData.sword,bladeInner,bladeTip); }
+        // A kill can open a boon draft, and a hazard can end the run, part-way through this update. Every
+        // eligible hit and its exactly-once reward is resolved above; from here the world is frozen, so the
+        // skeletons must not get one more move out of this tick.
+        if (run.choosing || gameStatus !== 'playing') return;
         enemyData.forEach((enemy) => {
           if (!enemy.awake) { enemy.cue.visible = false; enemy.bar.visible = false;enemy.trails.forEach(trail=>trail.effect.clear()); return; }
           enemy.cue.visible = !enemy.dead && (enemy.windup > 0 || enemy.lunge > 0); enemy.bar.visible = !enemy.dead && enemy.hp < enemy.maxHp;
@@ -864,7 +877,7 @@ export default function DungeonGame() {
     const hooks = window as Window & {
       advanceTime?: (ms: number, draw?: boolean) => void;
       render_game_to_text?: () => string;
-      dungeonTest?: { teleport: (x: number, z: number) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; runLog: () => RunEnd[] };
+      dungeonTest?: { teleport: (x: number, z: number) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void };
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     hooks.dungeonTest = {
@@ -876,6 +889,56 @@ export default function DungeonGame() {
       // would also see — not whatever this session happens to be holding in React state.
       runLog: () => readRuns(),
     };
+    // Development only. A guard one blow from death while another attacker's windup expires in the very
+    // same update is not a state real play reaches, and the freeze-on-rank-up regression needs exactly that
+    // tick. This moves actors the floor already spawned; it never replaces a rule and never takes code. The
+    // bundler inlines NODE_ENV, so the whole block is dropped from a production build rather than switched off.
+    if (process.env.NODE_ENV !== 'production') {
+      const finite = (value: number, label: string) => {
+        if (!Number.isFinite(value)) throw new Error(`${label} must be a finite number`);
+        return value;
+      };
+      hooks.dungeonTest.configureCombatFixture = (fixture) => {
+        if (!hasStarted) throw new Error('start the run before staging a combat fixture');
+        if (!isPaused && !manualTime) throw new Error('pause or take manual time before staging a combat fixture');
+        if (fixture.health !== undefined) {
+          const value = Math.round(finite(fixture.health, 'health'));
+          if (value < 1 || value > run.maxHp) throw new Error(`health must be between 1 and ${run.maxHp}`);
+          run.hp = value; setHealth(run.hp);
+        }
+        for (const change of fixture.enemies ?? []) {
+          const enemy = enemyData[change.index];
+          if (!enemy) throw new Error(`no enemy at spawn index ${change.index}`);
+          if (enemy.dead) throw new Error(`enemy ${change.index} is already dead`);
+          if (change.x !== undefined || change.z !== undefined) {
+            const x = finite(change.x ?? enemy.group.position.x, 'x');
+            const z = finite(change.z ?? enemy.group.position.z, 'z');
+            if (!canStand(floor.cells, x, z)) throw new Error(`enemy ${change.index} cannot stand at ${x}, ${z}`);
+            enemy.group.position.set(x, enemy.group.position.y, z);
+          }
+          if (change.hp !== undefined) {
+            const value = Math.round(finite(change.hp, 'hp'));
+            if (value < 1 || value > enemy.maxHp) throw new Error(`enemy ${change.index} hp must be 1..${enemy.maxHp}`);
+            enemy.hp = value;
+          }
+          if (change.windup !== undefined) {
+            const value = finite(change.windup, 'windup');
+            if (value < 0 || value > enemy.tell) throw new Error(`enemy ${change.index} windup must be 0..${enemy.tell}`);
+            enemy.windup = value;
+          }
+          if (change.cooldown !== undefined) {
+            const value = finite(change.cooldown, 'cooldown');
+            if (value < 0) throw new Error(`enemy ${change.index} cooldown cannot be negative`);
+            enemy.cooldown = value;
+          }
+          if (change.aim !== undefined) {
+            const x = finite(change.aim.x, 'aim.x'), z = finite(change.aim.z, 'aim.z');
+            if (!Math.hypot(x, z)) throw new Error(`enemy ${change.index} aim cannot be zero`);
+            enemy.aim.set(x, 0, z).normalize();
+          }
+        }
+      };
+    }
     hooks.advanceTime = (ms, draw = true) => {
       manualTime = true;
       const steps = Math.max(1, Math.ceil(ms / (1000 / 60)));

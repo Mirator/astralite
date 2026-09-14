@@ -13,36 +13,70 @@ on:
 permissions:
   contents: read
 
+# A superseded pull request commit is not worth finishing. A superseded main
+# commit is: it is a deployment candidate, and cancelling it here would mean it
+# never reaches Pages.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The gates and the build run side by side, and `deploy` waits on all of them.
+# Building publishes nothing — `upload-pages-artifact` writes to this run's own
+# artifact storage — so a failed gate still means nothing reaches Pages, and the
+# happy path does not pay for the gates twice over in wall-clock time.
 jobs:
-  verify:
+  # The fast gates. Nothing here needs a browser, so nothing here waits for one.
+  checks:
     runs-on: ubuntu-latest
-    # A superseded pull request commit is not worth finishing. A superseded main
-    # commit is: it is a deployment candidate, and cancelling it here would mean
-    # it never reaches Pages.
-    concurrency:
-      group: verify-${{ github.ref }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     defaults:
       run:
         working-directory: game
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: game/package-lock.json
-
-      - run: npm ci
-
-      - run: npm run lint
-
+      - uses: ./.github/actions/setup
       # vinext build strips types rather than checking them, so nothing else in
       # this pipeline would notice a type error before it shipped.
-      - run: npx tsc --noEmit
-
+      - run: npm run typecheck
+      - run: npm run lint
       - run: npm test
+
+  # The browser suite runs one worker per machine, so the way to make it quicker
+  # is more machines rather than more workers: a second WebGL context sharing a
+  # runner is exactly the noise this suite exists to detect.
+  browser:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    defaults:
+      run:
+        working-directory: game
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          browser: 'true'
+      - run: npm run test:browser -- --shard=${{ matrix.shard }}/2
+      # Traces and screenshots are only written when something failed, and they
+      # are the whole reason a red run is diagnosable without a local repro.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-shard-${{ matrix.shard }}
+          path: |
+            game/playwright-report
+            game/test-results
+          retention-days: 7
+
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: game
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
 
       # The build runs on pull requests too: a build that no longer compiles is
       # exactly what a pull request should catch, before main is the thing broken.
@@ -63,7 +97,9 @@ jobs:
           path: game/dist/client
 
   deploy:
-    needs: verify
+    # Every gate, then the deployment. This is the line that keeps a red suite
+    # off the live site.
+    needs: [checks, browser, build]
     # A pull request must never be able to publish to Pages, whatever it changed.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
