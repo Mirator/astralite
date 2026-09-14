@@ -90,6 +90,7 @@ export type Snapshot = {
     velocity: Point;
     attackTime: number;
     attackBuffer: number;
+    dashBuffer: number;
     dashTime: number;
     dashCooldown: number;
     swordAngle: number;

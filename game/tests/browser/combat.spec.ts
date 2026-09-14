@@ -610,3 +610,44 @@ test('a lethal gauntlet ends the tick: nothing moves after the knight falls', as
   }
   throw new Error(`the gauntlet never killed the knight\n${await game.report()}`);
 });
+
+test('a live blade is a commitment: a dash in anticipation aborts the swing, one pressed later waits it out', async ({
+  game,
+  page,
+}) => {
+  await game.enter();
+  await game.step(120);
+
+  // Anticipation is the first 65ms: two frames in, the dash still wins and the swing never happens.
+  await page.keyboard.press('Space');
+  await game.step(32);
+  expect((await game.state()).player.attackTime).toBeGreaterThan(0);
+  await page.keyboard.press('ShiftLeft');
+  await game.step(16);
+  const aborted = await game.state();
+  expect(aborted.player.attackTime).toBe(0);
+  expect(aborted.player.dashTime).toBeGreaterThan(0);
+  expect(aborted.player.dashBuffer).toBe(0);
+
+  // Let the dash and its cooldown run out.
+  await game.step(1600);
+  expect((await game.state()).player.dashCooldown).toBe(0);
+
+  // Past anticipation the blade is live: the dash is held, the swing finishes, then the dash fires.
+  await page.keyboard.press('Space');
+  await game.step(130);
+  const live = await game.state();
+  expect(live.player.attackTime).toBeGreaterThan(0);
+  await page.keyboard.press('ShiftLeft');
+  await game.step(16);
+  const waiting = await game.state();
+  expect(waiting.player.dashTime).toBe(0);
+  expect(waiting.player.attackTime).toBeGreaterThan(0);
+  expect(waiting.player.dashBuffer).toBeGreaterThan(0);
+  await game.capture('dash-waits-for-live-blade');
+  await game.step(300);
+  const fired = await game.state();
+  expect(fired.player.attackTime).toBe(0);
+  expect(fired.player.dashCooldown).toBeGreaterThan(0);
+  expect(fired.player.dashBuffer).toBe(0);
+});

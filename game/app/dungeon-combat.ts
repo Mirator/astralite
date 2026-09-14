@@ -4,6 +4,7 @@
 // than a copy of them.
 
 import { hasClearPath } from './dungeon-floor.ts';
+import { PLAYER_ATTACK_ANTICIPATION, PLAYER_ATTACK_DURATION } from './dungeon-attack-pose.ts';
 
 export type Spot = { x: number; z: number };
 
@@ -33,6 +34,22 @@ export function swordContacts(
   // to pass to swing at the knight. A wall stops steel in both directions.
   return hasClearPath(cells, from, target);
 }
+
+/**
+ * Whether a dash may abort the current swing. `attackTime` is the seconds of swing left, 0 when idle.
+ * Only the anticipation can be aborted: once the blade is live the swing is a commitment, and a dash
+ * pressed during it waits for the recovery to end rather than cutting it short. Before this a dash
+ * cancelled any swing at any point for free, so committing to an attack never cost anything and the
+ * only timing that mattered was the enemy's.
+ */
+export const canAbortSwing = (attackTime: number) =>
+  attackTime <= 0 || attackTime > PLAYER_ATTACK_DURATION - PLAYER_ATTACK_ANTICIPATION;
+
+/**
+ * How long a dash pressed into a live blade waits for the swing to end. Longer than any swing
+ * remainder, so a press at the moment of contact is never dropped.
+ */
+export const DASH_BUFFER = 0.4;
 
 /** What a hit actually costs once the knight's wards are applied. */
 export const incomingDamage = (amount: number, guardAgainst: number) =>

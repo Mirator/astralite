@@ -19,7 +19,7 @@ opens that menu whatever else it is set to, so a rebind cannot lock you out.
 | --- | --- |
 | `WASD` / arrow keys | Move (screen-relative) |
 | `Space` | Strike — held input repeats the swing |
-| `Shift` | Dash, and cancel a committed attack |
+| `Shift` | Dash. It aborts a swing only in its first instant; a live blade finishes, then the dash fires |
 | `Esc` / `M` / `F` | Pause, mute, fullscreen |
 | Touch | Thumbstick, DASH and STRIKE buttons; labelled direction buttons are the alternative touch layout |
 

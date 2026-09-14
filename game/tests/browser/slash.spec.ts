@@ -32,8 +32,10 @@ test('pause freezes a slash, dodge clears it, and held strikes settle on release
   await page.keyboard.press('Escape');await game.step(500);
   expect(playerPose(await game.state())).toEqual(playerPose(swinging));
   expect((await game.state()).player.attackTime).toBe(swinging.player.attackTime);
+  // The blade is live, so the dodge waits for the swing to end rather than cutting it short.
   await page.keyboard.press('Escape');await page.keyboard.press('ShiftLeft');await game.step(16);
-  const dashed=await game.state();expect(dashed.player.dashTime).toBeGreaterThan(0);
+  const waiting=await game.state();expect(waiting.player.dashTime).toBe(0);expect(waiting.player.attackTime).toBeGreaterThan(0);expect(waiting.player.dashBuffer).toBeGreaterThan(0);
+  await game.step(300);const dashed=await game.state();expect(dashed.player.dashCooldown).toBeGreaterThan(0);expect(dashed.player.attackTime).toBe(0);
   expect(playerPose(dashed).trail).toBe(false);expect(dashed.player.swordAngle).toBe(0);
   await game.step(250);await page.keyboard.down('Space');await game.step(900);
   expect((await game.state()).player.attackTime).toBeGreaterThan(0);
