@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { incomingDamage, swordContacts } from '../app/dungeon-combat.ts';
+import { PLAYER_ATTACK_ANTICIPATION, PLAYER_ATTACK_DURATION } from '../app/dungeon-attack-pose.ts';
+import { canAbortSwing, DASH_BUFFER, incomingDamage, swordContacts } from '../app/dungeon-combat.ts';
 import { canStand, cellKey, hasClearPath, TILE } from '../app/dungeon-floor.ts';
 
 /** A five-by-five patch of open floor centred on cell (0, 0). */
@@ -149,4 +150,18 @@ test('every damage source shares one mitigation and one rounding rule', () => {
 
 test('the tile size the fixtures assume has not moved', () => {
   assert.equal(TILE, 1.48);
+});
+
+test('a swing can be aborted only in its anticipation; a live blade is a commitment the dash waits out', () => {
+  const live = PLAYER_ATTACK_DURATION - PLAYER_ATTACK_ANTICIPATION;
+  // Idle, or a swing that has only just begun, can give way to a dash.
+  assert.equal(canAbortSwing(0), true);
+  assert.equal(canAbortSwing(PLAYER_ATTACK_DURATION), true);
+  assert.equal(canAbortSwing(live + 0.001), true);
+  // From the first frame the blade is live to the end of the recovery, it cannot.
+  assert.equal(canAbortSwing(live), false);
+  assert.equal(canAbortSwing(0.2), false);
+  assert.equal(canAbortSwing(0.001), false);
+  // The buffer outlasts any swing remainder, so a dash pressed at contact is never dropped.
+  assert.ok(DASH_BUFFER > live);
 });

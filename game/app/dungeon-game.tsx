@@ -6,7 +6,7 @@ import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
 import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
 import { canStand, generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
-import { swordContacts } from './dungeon-combat';
+import { canAbortSwing, DASH_BUFFER, swordContacts } from './dungeon-combat';
 import { decideEnemy, enemyStats, interruptsWindup, separateCrowd } from './dungeon-enemy';
 import { enemyPose } from './dungeon-enemy-pose';
 import { playerAttackPose, PLAYER_ATTACK_DURATION } from './dungeon-attack-pose';
@@ -306,7 +306,7 @@ export default function DungeonGame() {
     // input, and anything holding a THREE object.
     let run = createRun();
     let stopped = false, attackTime = 0, dashTime = 0, dashCooldown = 0, hurtFlash = 0, shake = 0;
-    let attackBuffer = 0, walkPhase = 0, elapsed = 0, manualTime = false, hitStop = 0;
+    let attackBuffer = 0, dashBuffer = 0, walkPhase = 0, elapsed = 0, manualTime = false, hitStop = 0;
     let rewardTime = 0, noticeTime = 0, footstepTime = 0;
     let hasStarted = false, isPaused = false, isMuted = false, activeRoom = 0;
     const audio = createDungeonAudio();
@@ -543,7 +543,7 @@ export default function DungeonGame() {
     };
     const descend = () => {
       if (gameStatus !== 'playing' || run.choosing || activeRoom !== floor.goal || !stairClear()) return;
-      gameStatus = 'complete'; setStatus('complete'); keys.clear(); attackBuffer = 0; bufferedFacing = null; velocity.set(0,0,0);
+      gameStatus = 'complete'; setStatus('complete'); keys.clear(); attackBuffer = 0; dashBuffer = 0; bufferedFacing = null; velocity.set(0,0,0);
       setFloorResult({kills: run.kills - floorKills, xp: run.totalXp - floorXp, seconds: Math.round(elapsed - floorStart)});
       setNotice(''); audio.play('win');
     };
@@ -552,7 +552,7 @@ export default function DungeonGame() {
       if (level >= FLOORS) { endRun(null); return; }
       buildFloor(level + 1);
       heal(run, Math.round(run.maxHp * .25)); setHealth(run.hp);
-      keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; audio.pause(false);
+      keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; dashBuffer = 0; audio.pause(false);
       burst(player.position, 0x8de9be, 22);
     };
     // A run is nothing but this closure's counters plus floor 1, so it restarts in place: reloading
@@ -562,7 +562,7 @@ export default function DungeonGame() {
     // new `run` is the point of createRun(): a field added to the sim can never be forgotten here.
     const restart = (seed?: number) => {
       run = createRun(); boonsTaken = [];
-      attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0;
+      attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; dashBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0;
       walkPhase = 0; footstepTime = 0; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
       isPaused = false; keys.clear(); bufferedFacing = null; velocity.set(0, 0, 0);
       facing.set(1, 0, -0.6).normalize(); attackFacing.copy(facing); dashFacing.copy(facing);
@@ -611,10 +611,14 @@ export default function DungeonGame() {
     };
     const requestDash = () => {
       if (!hasStarted || isPaused || gameStatus !== 'playing' || dashCooldown > 0) return;
+      // Once the blade is live the swing is a commitment: the dash waits for the recovery to end instead of
+      // cutting it short, which is what makes swinging into a tell a mistake rather than a free action.
+      if (!canAbortSwing(attackTime)) { dashBuffer = DASH_BUFFER; return; }
+      dashBuffer = 0;
       const input = moveInput(); dashFacing.copy(input.lengthSq() ? input : facing);
       audio.play('dash');
       facing.copy(dashFacing); dashTime = 0.18; dashCooldown = run.dashSpan;
-      attackTime = 0; attackBuffer = 0; bufferedFacing = null; hitStop = 0;slash.clear();posePlayer(0);
+      attackTime = 0; attackBuffer = 0; dashBuffer = 0; bufferedFacing = null; hitStop = 0;slash.clear();posePlayer(0);
 
     };
     const togglePause = () => {
@@ -622,7 +626,7 @@ export default function DungeonGame() {
       if (!hasStarted || gameStatus !== 'playing' || run.choosing) return;
       // An armed rebind goes with the card. Left live, the first key pressed back in the fight would be
       // bound instead of swung, which is the worst possible moment to find out the capture was still open.
-      isPaused = !isPaused; setMapOpen(false); setCapturing(null); keys.clear(); attackBuffer = 0; bufferedFacing = null; setPaused(isPaused); audio.pause(isPaused);
+      isPaused = !isPaused; setMapOpen(false); setCapturing(null); keys.clear(); attackBuffer = 0; dashBuffer = 0; bufferedFacing = null; setPaused(isPaused); audio.pause(isPaused);
     };
     // Mute is a setting like any other now, so it goes out through the same funnel and comes back through
     // applyRef — one path, whether it was the M key, the menu button or a `mute` event that asked.
@@ -646,7 +650,7 @@ export default function DungeonGame() {
     const keyUp = (e: KeyboardEvent) => keys.delete(e.code);
     // The stick clears with the keys: a page backgrounded mid-drag does not always fire pointercancel,
     // and a stick left live is a knight that walks on by itself the moment the descent resumes.
-    const clearInput = () => { keys.clear(); stick = null; attackBuffer = 0; bufferedFacing = null; };
+    const clearInput = () => { keys.clear(); stick = null; attackBuffer = 0; dashBuffer = 0; bufferedFacing = null; };
     const trigger = (e: Event) => {
       const detail = (e as CustomEvent<string>).detail;
       if (detail === 'continue') { continueDescent(); return; }
@@ -705,9 +709,12 @@ export default function DungeonGame() {
       }
       dashTrails.forEach(m=>{m.userData.life=Math.max(0,m.userData.life-dt);(m.material as THREE.MeshBasicMaterial).opacity=m.userData.life*1.8;m.scale.x=.6+m.userData.life*2;});
       if (hasStarted && gameStatus === 'playing') {
-        attackBuffer = Math.max(0, attackBuffer - dt);
+        attackBuffer = Math.max(0, attackBuffer - dt); dashBuffer = Math.max(0, dashBuffer - dt);
         if (attackBuffer === 0) bufferedFacing = null;
         dashCooldown = Math.max(0, dashCooldown - dt);
+        // A dash that waited out a swing goes first, ahead of the next held swing, or holding strike would
+        // swallow every dodge pressed mid-swing.
+        if (attackTime <= 0 && dashTime <= 0 && dashBuffer > 0) requestDash();
         if (attackTime <= 0 && dashTime <= 0 && (attackBuffer > 0 || held('attack'))) startAttack();
         const input = moveInput(), moving = input.lengthSq() > 0;
         if (moving && attackTime <= 0 && dashTime <= 0) facing.copy(input);
@@ -960,7 +967,7 @@ export default function DungeonGame() {
       features: features.map(f => ({room:f.room, shrine:f.shrine, used:f.used, burned:f.burned, phase:f.phase, x:f.mesh.position.x,z:f.mesh.position.z,radius:f.shrine?1.5:1.8})),
       buildMs,
       floor: { level, waterfalls: atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
-      player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashTime, dashCooldown, invulnerable: run.invuln, hurtFlash, swordAngle: player.userData.sword.rotation.y, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
+      player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashBuffer, dashTime, dashCooldown, invulnerable: run.invuln, hurtFlash, swordAngle: player.userData.sword.rotation.y, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
       enemies: enemyData.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, pose: {pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x,weaponYaw:e.group.userData.weapon.rotation.y,attackAge:Number.isFinite(e.attackAge)?e.attackAge:null,trails:e.trails.filter(trail=>trail.effect.mesh.visible).length,cue:e.cue.visible} })),
     });
     const animate = (now: number) => {

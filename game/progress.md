@@ -114,3 +114,9 @@ Guards commit from 1.5 instead of 1.15 and a blow interrupts a guard or stalker 
 Forcing the opening halls changes the seeded draw order, so the pinned browser seeds moved to 0x1, 0x7 and 0xc, found by a pure search over every fixture predicate the specs use. The progression stair fight now leaves wardens one blow from death through the combat fixture, since tougher floor-three wardens killed a knight standing in reach of three of them and the fight itself is not what that test checks.
 
 Verification: typecheck, lint, 87/87 node tests, full Playwright suite 30/30. One seed-pin assertion in slash.spec flaked once during the first full run and passed alone and in the final run; noted, not chased.
+
+2026-09-14 — A live blade is a commitment (item 6 from the second analysis round).
+
+A dash used to zero the attack timer at any point in a swing for nothing, so committing to an attack never cost anything and the only timing that mattered was the enemy's. Now canAbortSwing in dungeon-combat.ts allows the abort only during the 65ms anticipation; once the blade is live a dash press is held in a 0.4s buffer and fires the moment the swing ends, ahead of the next held auto-swing, so a dodge pressed mid-swing is delayed rather than swallowed. The buffer drops with the attack buffer on pause, floor end, restart and focus loss. dashBuffer is in the player snapshot. Swinging into a tell is now a mistake with a cost: enemy tells run 0.5 to 0.72s against a 0.38s swing, so a swing started as a tell begins still leaves room to dodge, one started late does not.
+
+The slash regression that expected an instant mid-swing dodge now asserts the wait and the deferred dash; a new combat regression covers both branches. README and GAME_OVERVIEW no longer promise a free cancel. Verification: typecheck, lint, 88/88 node tests, Playwright 31/31.

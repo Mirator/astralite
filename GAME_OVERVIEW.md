@@ -36,7 +36,7 @@ Rooms are assigned encounter identities so exploration changes the immediate pla
 
 ## Combat and movement
 
-Combat is deliberately built around two verbs: **strike** and **dash**. Movement is screen-relative, attacks can be held to repeat, and a dash can cancel a committed player attack. The knight’s swing has anticipation, contact, and recovery phases, allowing attacks to feel responsive without losing visual clarity. A directional slash, hit-stop, particles, sound, recoil, and enemy health bars communicate impact.
+Combat is deliberately built around two verbs: **strike** and **dash**. Movement is screen-relative, attacks can be held to repeat, and a dash can abort a swing only before the blade is live; a committed swing finishes first, then the dash follows. The knight’s swing has anticipation, contact, and recovery phases, allowing attacks to feel responsive without losing visual clarity. A directional slash, hit-stop, particles, sound, recoil, and enemy health bars communicate impact.
 
 Enemy behavior is meant to be learned at a glance:
 
