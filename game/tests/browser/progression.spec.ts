@@ -58,6 +58,17 @@ const fightStair = async (
 ) => {
   const autoBoon = options.autoBoon ?? true;
   const floor = await game.floor();
+  // Real strikes clear the stair, but the trade itself is not under test here: the floor ending, freezing
+  // and waiting for the click is. Wardens grow with the floor, so a knight standing in reach of three of
+  // them on floor three died before the results screen. The fixture leaves each warden one blow from death;
+  // spawn indices match the snapshot because nothing on a fresh floor has died yet.
+  const opening = await game.state();
+  await game.configureCombat({
+    enemies: stairEnemies(opening).map((enemy) => ({
+      index: opening.enemies.indexOf(enemy),
+      hp: 1,
+    })),
+  });
   for (let swing = 0; swing < 90; swing++) {
     const state = await game.state();
     if (state.mode === 'lost') {

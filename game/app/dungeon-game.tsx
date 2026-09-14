@@ -7,12 +7,12 @@ import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
 import { canStand, generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { swordContacts } from './dungeon-combat';
-import { decideEnemy, separateCrowd } from './dungeon-enemy';
+import { decideEnemy, enemyStats, interruptsWindup, separateCrowd } from './dungeon-enemy';
 import { enemyPose } from './dungeon-enemy-pose';
 import { playerAttackPose, PLAYER_ATTACK_DURATION } from './dungeon-attack-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
-import { BOONS, clearRoomReward, createRun, grantXp, heal, hurt, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
 type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[] };
 // Development-only test fixture payload: which existing actors to move, and to what. Deliberately narrow —
@@ -344,7 +344,7 @@ export default function DungeonGame() {
     const stairClear = () => enemyData.every(e => e.room !== floor.goal || e.dead);
     const offerBoon = () => {
       run.choosing = true; keys.clear();
-      setBoonChoice([...BOONS].sort(() => Math.random() - 0.5).slice(0, 3));
+      setBoonChoice(draftBoons(run));
       audio.play('clear');
     };
     // Every reward the sim hands back funnels through here, so the HUD, the XP ticker and the boon draft
@@ -521,7 +521,7 @@ export default function DungeonGame() {
       phase('atmosphere');
       enemyData = floor.spawns.map((spawn, index) => {
         const kind = spawn.kind;
-        const maxHp = kind === 'warden' ? 4 : 2, tell = kind === 'warden' ? 0.72 : kind === 'stalker' ? 0.58 : 0.5;
+        const stats = enemyStats(kind, level), maxHp = stats.hp, tell = stats.tell;
         const group = makeSkeleton(kind); group.position.set(spawn.x * TILE,0.03,spawn.z * TILE); group.visible = !spawn.ambush; floorGroup.add(group);
         if (kind === 'warden') group.scale.setScalar(1.3);
         if (kind === 'stalker') group.scale.set(.94,1,.94);
@@ -529,7 +529,7 @@ export default function DungeonGame() {
         const bar = new THREE.Mesh(BONES.bar,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xffb65f:0xe89a79,depthTest:false}));bar.renderOrder=10;floorGroup.add(bar);
         const anchors:THREE.Object3D[]=kind==='stalker'?group.userData.limbs.slice(0,2):[group.userData.weapon];
         const trails=anchors.map(anchor=>{const effect=weaponTrail(kind==='warden'?0xffa15c:kind==='stalker'?0xffcc90:0xffd39b,kind==='warden'?.13:.095);floorGroup.add(effect.mesh);return {effect,anchor,inner:kind==='stalker'?new THREE.Vector3(0,-.72,-.12):new THREE.Vector3(0,0,-.24),tip:kind==='stalker'?new THREE.Vector3(0,-.87,-.5):new THREE.Vector3(0,0,kind==='warden'?-1.2:-.86)};});
-        return { group, hp:maxHp, maxHp, kind, tell, damage:kind==='warden'?20:kind==='stalker'?8:12, cue, bar, trails, attackAge:Infinity, speed:kind==='stalker'?3.2:kind==='warden'?1.65:2.2, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush };
+        return { group, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush };
       });
       phase('enemies');
       player.position.set(floor.rooms[0].x * TILE, 0.03, floor.rooms[0].z * TILE);
@@ -780,7 +780,7 @@ export default function DungeonGame() {
             if (swordContacts(floor.cells, player.position, attackFacing, enemy.group.position, run.reach)) {
               delta.normalize();
               audio.play('hit');
-              swingHits.add(enemy); enemy.hp -= run.strike; enemy.hitFlash = 0.2; if (enemy.kind !== 'warden' && enemy.windup > .18) {enemy.windup = 0;enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
+              swingHits.add(enemy); enemy.hp -= run.strike; enemy.hitFlash = 0.2; if (interruptsWindup(enemy.kind, enemy.windup)) {enemy.windup = 0;enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
               enemy.cooldown = Math.max(enemy.cooldown, 0.4);
               moveOnFloor(floor.cells, enemy.group.position, delta.x * (enemy.kind === 'warden' ? 0.1 : 0.38), delta.z * (enemy.kind === 'warden' ? 0.1 : 0.38)); burst(enemy.group.position, 0xffb24a, 7); shake = 0.07; hitStop = 0.035;
               if (enemy.hp <= 0) { enemy.dead = true; award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills); if (!cleared.has(enemy.room) && enemyData.every(e => e.room !== enemy.room || e.dead)) {

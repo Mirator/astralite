@@ -249,3 +249,13 @@ test('the body has width, so it cannot tuck into a corner a point would fit thro
   assert.equal(canStand(cells, body.x, body.z), true);
   assert.ok(!(body.x > REACH && body.z > REACH), `cut the corner to ${body.x.toFixed(3)},${body.z.toFixed(3)}`);
 });
+
+test('the first two halls past the gate are always a straight fight, never an ambush or a gauntlet', () => {
+  for (const floor of floors()) {
+    const opening = floor.rooms.filter(room => room.role === 'path' && room.depth >= 1 && room.depth <= 2);
+    assert.ok(opening.length >= 1, `seed ${floor.seed} has no opening halls`);
+    for (const room of opening) assert.equal(room.encounter, 'watch', `seed ${floor.seed} room ${room.id} at depth ${room.depth} is ${room.encounter}`);
+    // Nothing waits hidden in them either: an ambush pack is what killed a fresh run in under a minute.
+    for (const spawn of floor.spawns) if (opening.some(room => room.id === spawn.room)) assert.equal(spawn.ambush, false);
+  }
+});
