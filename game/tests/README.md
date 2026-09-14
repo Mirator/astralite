@@ -127,7 +127,7 @@ that field and nothing else.
 
 Reduced motion is three-state: `null` follows `prefers-reduced-motion` and is the default, `true` and
 `false` override it either way, and a change to the media query while the page is open is followed.
-Reduced means **no camera shake at all** and a **still** hurt tint (`sepia(.18) saturate(1.15)` for the
+Reduced means **no camera shake at all** and a **still** hurt tint (`sepia(.3) saturate(1.5) hue-rotate(-22deg)` for the
 same duration, with the brightness ramp dropped); hit-stop is deliberately untouched, because 35ms of
 stillness is not motion and shortening it would hand every landed blow back to the enemies sooner.
 
