@@ -8,10 +8,12 @@ import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
 import { generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { decideEnemy, separateCrowd } from './dungeon-enemy';
 import { enemyPose } from './dungeon-enemy-pose';
+import { playerAttackPose, PLAYER_ATTACK_DURATION } from './dungeon-attack-pose';
+import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
 import { BOONS, clearRoomReward, createRun, grantXp, heal, hurt, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
-type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh };
+type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[] };
 type GameToolContext = {
   registerTool: (tool: {
     name: string;
@@ -73,8 +75,8 @@ function makeKnight() {
   const breastplate = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.48,0.16),steel); breastplate.position.set(0,0.91,-0.29);
   const pauldrons = [-1,1].map(side => { const shoulder = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22),steel);shoulder.position.set(side*0.38,1.09,0);shoulder.scale.set(1,0.7,1);return shoulder; });
   const glove = new THREE.Mesh(new THREE.DodecahedronGeometry(0.14),leather);glove.position.set(0,-0.02,0.03);swordPivot.add(glove);
-  g.add(breastplate,...pauldrons);
-  g.add(body, head, visor, cape, belt, swordPivot);
+  const torso=new THREE.Group();torso.position.y=.7;
+  for(const part of [breastplate,...pauldrons,body,head,visor,cape,belt,swordPivot]){part.position.y-=.7;torso.add(part);}g.add(torso);
   const legs = [-1, 1].map((side) => {
     const hip = new THREE.Group(); hip.position.set(side * 0.2, 0.48, 0);
     const leg = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.36, 0.2), dark); leg.position.y = -0.13;
@@ -82,7 +84,7 @@ function makeKnight() {
     hip.add(leg, boot); g.add(hip); return hip;
   });
   g.userData.legs = legs; g.userData.cape = cape; g.userData.body = body;
-  g.userData.sword = swordPivot;
+  g.userData.sword = swordPivot;g.userData.torso=torso;
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
   return g;
 }
@@ -364,6 +366,7 @@ export default function DungeonGame() {
     const endRun = (cause: RunCause | null) => {
       if (gameStatus === 'won' || gameStatus === 'lost') return;
       gameStatus = cause ? 'lost' : 'won'; setStatus(gameStatus);
+      slash.clear();enemyData.forEach(enemy=>enemy.trails.forEach(trail=>trail.effect.clear()));
       // Re-read instead of holding a snapshot: a second tab may have logged its own runs since this one
       // began, and the log is cheap enough to reread once per run that guessing is not worth it.
       const log = appendRun(readRuns(), { at: Date.now(), floor: level, won: !cause, cause, seconds: Math.max(0, Math.round(elapsed - runStart)), rank: run.rankLevel, xp: run.totalXp, kills: run.kills, boons: [...boonsTaken], seed: firstSeed });
@@ -401,16 +404,16 @@ export default function DungeonGame() {
     const particles: { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }[] = [];
     const sparkGeo = new THREE.TetrahedronGeometry(0.075, 0), sparkMat = new THREE.MeshBasicMaterial({ color: 0xffb24a, toneMapped: false });
     const burst = (at: THREE.Vector3, color = 0xffb24a, amount = 12) => { for (let i = 0; i < amount; i++) { const mesh = new THREE.Mesh(sparkGeo, color === 0xffb24a ? sparkMat : new THREE.MeshBasicMaterial({ color, toneMapped: false })); mesh.position.copy(at).add(new THREE.Vector3(0, 0.8, 0)); const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 3.5; particles.push({ mesh, velocity: new THREE.Vector3(Math.cos(a) * s, 1.5 + Math.random() * 3, Math.sin(a) * s), life: 0.35 + Math.random() * 0.3 }); world.add(mesh); } };
-    const slash = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.15, 28, 1, -1.15, 2.3), new THREE.MeshBasicMaterial({ color: 0xfff0c6, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
-    slash.rotation.x = -Math.PI / 2; slash.position.y = 0.72; world.add(slash);
-    // A tapered sweep carries the blade direction through the contact pose.
-    const slashPositions = slash.geometry.getAttribute('position');
-    for(let i=0;i<slashPositions.count;i++){
-      const x=slashPositions.getX(i),y=slashPositions.getY(i),angle=Math.atan2(y,x),radius=Math.hypot(x,y);
-      const taper=THREE.MathUtils.clamp((angle+1.15)/2.3,0,1);
-      const r=radius<1.05?1.15-(.025+.23*taper):1.15;
-      slashPositions.setXY(i,Math.cos(angle)*r,Math.sin(angle)*r);
-    }
+    const slash=weaponTrail(0xffedc5,.105);world.add(slash.mesh);
+    const bladeInner=new THREE.Vector3(0,0,-.32),bladeTip=new THREE.Vector3(0,0,-1.17);
+    const posePlayer=(age:number)=>{
+      const pose=playerAttackPose(age),sword=player.userData.sword as THREE.Group;
+      sword.rotation.set(pose.swordPitch,pose.swordYaw,pose.swordRoll);
+      sword.position.set(.44,.3,-.02-pose.armReach);
+      sword.scale.z=1+run.reach*.5;
+      player.userData.torso.rotation.set(0,pose.bodyYaw,pose.bodyRoll);
+      return pose;
+    };
     const trailGeo=new THREE.PlaneGeometry(.11,1.15);
     const dashTrails=Array.from({length:12},()=>{
       const m=new THREE.Mesh(trailGeo,new THREE.MeshBasicMaterial({color:0xa9e5db,transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending}));
@@ -463,7 +466,7 @@ export default function DungeonGame() {
       // is what a logged entry carries, so the log is held here rather than read off the current floor.
       if (level === 1) { firstSeed = floor.seed; runStart = elapsed; setRunSeed(floor.seed); writeSeed(floor.seed); }
       floorGroup = new THREE.Group(); world.add(floorGroup);
-      swingHits.clear();
+      swingHits.clear();slash.clear();posePlayer(0);
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
       reached = 0; loot = 0; activeRoom = 0; pathCell = ''; distances.clear();
       const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, bumpMap: texture, bumpScale: .045, color: 0xffffff, roughness: 0.98, emissive: 0x253b42, emissiveIntensity: 0.12 });
@@ -517,7 +520,9 @@ export default function DungeonGame() {
         if (kind === 'stalker') group.scale.set(.94,1,.94);
         const cue = new THREE.Mesh(kind === 'stalker' ? new THREE.PlaneGeometry(5,1.7).translate(2.5,0,0) : BONES.cue,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xff522b:0xffae52,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false}));cue.rotation.x=-Math.PI/2;floorGroup.add(cue);
         const bar = new THREE.Mesh(BONES.bar,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xffb65f:0xe89a79,depthTest:false}));bar.renderOrder=10;floorGroup.add(bar);
-        return { group, hp:maxHp, maxHp, kind, tell, damage:kind==='warden'?20:kind==='stalker'?8:12, cue, bar, speed:kind==='stalker'?3.2:kind==='warden'?1.65:2.2, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush };
+        const anchors:THREE.Object3D[]=kind==='stalker'?group.userData.limbs.slice(0,2):[group.userData.weapon];
+        const trails=anchors.map(anchor=>{const effect=weaponTrail(kind==='warden'?0xffa15c:kind==='stalker'?0xffcc90:0xffd39b,kind==='warden'?.13:.095);floorGroup.add(effect.mesh);return {effect,anchor,inner:kind==='stalker'?new THREE.Vector3(0,-.72,-.12):new THREE.Vector3(0,0,-.24),tip:kind==='stalker'?new THREE.Vector3(0,-.87,-.5):new THREE.Vector3(0,0,kind==='warden'?-1.2:-.86)};});
+        return { group, hp:maxHp, maxHp, kind, tell, damage:kind==='warden'?20:kind==='stalker'?8:12, cue, bar, trails, attackAge:Infinity, speed:kind==='stalker'?3.2:kind==='warden'?1.65:2.2, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush };
       });
       phase('enemies');
       player.position.set(floor.rooms[0].x * TILE, 0.03, floor.rooms[0].z * TILE);
@@ -584,7 +589,7 @@ export default function DungeonGame() {
     const startAttack = () => {
       if (!hasStarted || isPaused || gameStatus !== 'playing' || dashTime > 0) return;
       audio.play('slash');
-      attackTime = 0.38; attackBuffer = 0; swingHits.clear();
+      attackTime = PLAYER_ATTACK_DURATION; attackBuffer = 0; swingHits.clear();slash.clear();
       const input = moveInput();
       if (input.lengthSq()) facing.copy(input);
       else if (bufferedFacing) facing.copy(bufferedFacing);
@@ -602,7 +607,7 @@ export default function DungeonGame() {
       const input = moveInput(); dashFacing.copy(input.lengthSq() ? input : facing);
       audio.play('dash');
       facing.copy(dashFacing); dashTime = 0.18; dashCooldown = run.dashSpan;
-      attackTime = 0; attackBuffer = 0; bufferedFacing = null; hitStop = 0;
+      attackTime = 0; attackBuffer = 0; bufferedFacing = null; hitStop = 0;slash.clear();posePlayer(0);
 
     };
     const togglePause = () => {
@@ -759,22 +764,14 @@ export default function DungeonGame() {
         dashTime = Math.max(0, dashTime - dt);
         if (attackTime > 0) {
           attackTime = Math.max(0, attackTime - dt);
-          const age = 0.38 - attackTime;
-          // Brief anticipation, fast contact, then a readable recovery to guard.
-          const swing = age < 0.065 ? -0.65 - age / 0.065 * 0.65 : age < 0.175 ? -1.3 + (age - 0.065) / 0.11 * 2.6 : 1.3 * (1 - (age - 0.175) / 0.205);
-          player.userData.sword.rotation.y = swing;
-          player.userData.body.rotation.z = -Math.sin(age / 0.38 * Math.PI) * 0.13;
-          slash.position.copy(player.position); slash.position.y += 0.72;
-          slash.rotation.z = Math.atan2(-attackFacing.z, attackFacing.x) + swing*.24;
-          const active = age >= 0.065 && age <= 0.175;
-          (slash.material as THREE.MeshBasicMaterial).opacity = active ? 0.65 : Math.max(0, 1 - (age - 0.175) / 0.09) * (age > 0.175 ? 0.35 : 0);
-          slash.scale.setScalar(1.45+run.reach*.55);
+          const pose=posePlayer(PLAYER_ATTACK_DURATION-attackTime),active=pose.active;
+          slash.update(dt,pose.trail,player.userData.sword,bladeInner,bladeTip);
           if (active) enemyData.forEach((enemy) => {
             if (gameStatus !== 'playing' || enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
             const delta = enemy.group.position.clone().sub(player.position); delta.y = 0;
             if (delta.length() < 1.8 + run.reach && delta.normalize().dot(attackFacing) > 0.35 - run.reach * 0.12) {
               audio.play('hit');
-              swingHits.add(enemy); enemy.hp -= run.strike; enemy.hitFlash = 0.2; if (enemy.kind !== 'warden' && enemy.windup > .18) enemy.windup = 0;
+              swingHits.add(enemy); enemy.hp -= run.strike; enemy.hitFlash = 0.2; if (enemy.kind !== 'warden' && enemy.windup > .18) {enemy.windup = 0;enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
               enemy.cooldown = Math.max(enemy.cooldown, 0.4);
               moveOnFloor(floor.cells, enemy.group.position, delta.x * (enemy.kind === 'warden' ? 0.1 : 0.38), delta.z * (enemy.kind === 'warden' ? 0.1 : 0.38)); burst(enemy.group.position, 0xffb24a, 7); shake = 0.07; hitStop = 0.035;
               if (enemy.hp <= 0) { enemy.dead = true; award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills); if (!cleared.has(enemy.room) && enemyData.every(e => e.room !== enemy.room || e.dead)) {
@@ -789,15 +786,15 @@ export default function DungeonGame() {
               } descend(); }
             }
           });
-        } else { player.userData.sword.rotation.y = THREE.MathUtils.damp(player.userData.sword.rotation.y, 0, 24, dt); player.userData.body.rotation.z = 0; (slash.material as THREE.MeshBasicMaterial).opacity = 0; }
+        } else { posePlayer(0);slash.update(dt,false,player.userData.sword,bladeInner,bladeTip); }
         enemyData.forEach((enemy) => {
-          if (!enemy.awake) { enemy.cue.visible = false; enemy.bar.visible = false; return; }
+          if (!enemy.awake) { enemy.cue.visible = false; enemy.bar.visible = false;enemy.trails.forEach(trail=>trail.effect.clear()); return; }
           enemy.cue.visible = !enemy.dead && (enemy.windup > 0 || enemy.lunge > 0); enemy.bar.visible = !enemy.dead && enemy.hp < enemy.maxHp;
           enemy.bar.position.copy(enemy.group.position).add(new THREE.Vector3(0,enemy.kind === 'warden'?2.65:2.05,0)); enemy.bar.quaternion.copy(camera.quaternion); enemy.bar.scale.x = enemy.hp / enemy.maxHp;
           enemy.cue.scale.setScalar(enemy.kind === 'warden' ? 1.7 : 1);
           enemy.cue.position.copy(enemy.group.position); enemy.cue.position.y = 0.055; enemy.cue.rotation.z = Math.atan2(-enemy.aim.z,enemy.aim.x);
           (enemy.cue.material as THREE.MeshBasicMaterial).opacity = 0.2 + (1 - enemy.windup / enemy.tell) * 0.5;
-          if (enemy.dead) { enemy.group.rotation.z += dt * 5; enemy.group.scale.multiplyScalar(Math.max(0.001, 1 - dt * 4.5)); return; }
+          if (enemy.dead) { enemy.trails.forEach(trail=>trail.effect.clear());enemy.group.rotation.z += dt * 5; enemy.group.scale.multiplyScalar(Math.max(0.001, 1 - dt * 4.5)); return; }
           const hurtPlayer = () => {
             if (gameStatus !== 'playing' || !hurt(run, enemy.damage, { dashing: dashTime > 0, warded: true })) return;
             setHealth(run.hp);
@@ -807,24 +804,32 @@ export default function DungeonGame() {
           };
           // Everything about where this body goes and whether its blow lands is decided in dungeon-enemy;
           // what is left here is the part a node test could never see — poses, sound, flashes, particles.
+          const previousWindup=enemy.windup;
           const intent = decideEnemy({ kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z, room: enemy.room, cooldown: enemy.cooldown, hitFlash: enemy.hitFlash, windup: enemy.windup, lunge: enemy.lunge, tell: enemy.tell, speed: enemy.speed, aim: enemy.aim }, player.position, enemyWorld, dt);
           enemy.cooldown = intent.cooldown; enemy.hitFlash = intent.hitFlash;
-          if (intent.act === 'inert') return;
+          if (Number.isFinite(enemy.attackAge)) enemy.attackAge+=dt;
+          if (intent.act === 'inert') {enemy.trails.forEach(trail=>trail.effect.clear());return;}
           enemy.windup = intent.windup; enemy.lunge = intent.lunge; enemy.aim.set(intent.aim.x,0,intent.aim.z);
+          if(previousWindup>0&&enemy.windup===0)enemy.attackAge=0;
+          else if(previousWindup<=0&&enemy.windup>0)enemy.attackAge=Infinity;
           enemy.group.position.x = intent.x; enemy.group.position.z = intent.z;
           if (intent.sound) audio.play(intent.sound);
           if (intent.hit) hurtPlayer();
-          const pose=enemyPose(enemy.kind,enemy.windup,enemy.tell,enemy.cooldown,enemy.lunge);
-          enemy.group.rotation.y=intent.face??enemy.group.rotation.y;
+          const pose=enemyPose(enemy.kind,enemy.windup,enemy.tell,enemy.cooldown,enemy.lunge,enemy.attackAge);
+          if(!pose.trail)enemy.group.rotation.y=intent.face??enemy.group.rotation.y;
           const walking=intent.act==='ready'&&intent.distance>1.15&&enemy.hitFlash<=0&&pose.recovery===0;
           const gait=walking?Math.sin(t*enemy.speed*5+enemy.phase)*(enemy.kind==='warden'?.28:.48):0;
           enemy.group.position.y=.03;
           enemy.group.userData.rig.position.y=pose.height+(walking?Math.abs(gait)*.07:0);
           enemy.group.userData.rig.rotation.x=pose.pitch+(enemy.hitFlash>0?.15:0);
-          enemy.group.userData.weapon.rotation.x=pose.weapon;
+          enemy.group.userData.rig.rotation.y=pose.bodyYaw;
+          enemy.group.userData.weapon.rotation.set(pose.weapon,pose.weaponYaw,pose.weaponRoll);
           enemy.group.userData.limbs.forEach((limb:THREE.Group,i:number)=>{limb.rotation.x=(i<2?pose.arms:0)+(i%2?gait:-gait);});
           enemy.group.userData.skull.rotation.y=Math.sin(t*1.5+enemy.phase)*.06;
           enemy.group.userData.shield.rotation.z=enemy.windup>0?-.25:gait*.16;
+          enemy.cue.visible=enemy.windup>0||(enemy.lunge>0&&enemy.attackAge<.09);
+          if(enemy.windup<=0)(enemy.cue.material as THREE.MeshBasicMaterial).opacity=.5*Math.max(0,1-enemy.attackAge/.09);
+          enemy.trails.forEach(trail=>trail.effect.update(dt,pose.trail,trail.anchor,trail.inner,trail.tip));
           enemy.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.emissive.setHex(enemy.hitFlash > 0 ? 0xffa34a : enemy.windup > 0 ? 0xb83915 : 0x000000); o.material.emissiveIntensity = enemy.hitFlash > 0 ? 0.8 : 0.5; } });
         });
         // Separate bodies without moving a guard during its committed windup; the rule itself lives in
@@ -863,7 +868,7 @@ export default function DungeonGame() {
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     hooks.dungeonTest = {
-      teleport: (x, z) => player.position.set(x, 0.03, z),
+      teleport: (x, z) => {player.position.set(x, 0.03, z);slash.clear();},
       descend: () => buildFloor(Math.min(FLOORS, level + 1)),
       buildFloor: (nextLevel) => buildFloor(nextLevel),
       grantXp: (amount) => award(grantXp(run, amount)),
@@ -892,8 +897,8 @@ export default function DungeonGame() {
       features: features.map(f => ({room:f.room, shrine:f.shrine, used:f.used, burned:f.burned, phase:f.phase, x:f.mesh.position.x,z:f.mesh.position.z,radius:f.shrine?1.5:1.8})),
       buildMs,
       floor: { level, waterfalls: atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
-      player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashTime, dashCooldown, invulnerable: run.invuln, hurtFlash, swordAngle: player.userData.sword.rotation.y, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
-      enemies: enemyData.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, pose: {pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x} })),
+      player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashTime, dashCooldown, invulnerable: run.invuln, hurtFlash, swordAngle: player.userData.sword.rotation.y, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
+      enemies: enemyData.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, pose: {pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x,weaponYaw:e.group.userData.weapon.rotation.y,attackAge:Number.isFinite(e.attackAge)?e.attackAge:null,trails:e.trails.filter(trail=>trail.effect.mesh.visible).length,cue:e.cue.visible} })),
     });
     const animate = (now: number) => {
       if (stopped) return; raf = requestAnimationFrame(animate);

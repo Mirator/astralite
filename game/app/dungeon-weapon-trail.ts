@@ -1,0 +1,57 @@
+import * as THREE from 'three';
+
+// A short history of the blade in world space. Fixed buffers are shared across
+// every swing of this weapon; neither a swing nor a frame allocates geometry.
+export function weaponTrail(color: number, lifetime = .1) {
+  const capacity = 24, samples = new Float32Array(capacity * 7);
+  const positions = new Float32Array(capacity * 6), colors = new Float32Array(capacity * 8);
+  const indices: number[] = [];
+  for (let i = 0; i < capacity - 1; i++) indices.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 4).setUsage(THREE.DynamicDrawUsage));
+  geometry.setIndex(indices); geometry.setDrawRange(0, 0);
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, vertexColors: true, transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  mesh.frustumCulled = false; mesh.visible = false;
+  const root = new THREE.Vector3(), tip = new THREE.Vector3();
+  let count = 0, wasEmitting = false;
+  const clear = () => { count = 0; wasEmitting = false; mesh.visible = false; geometry.setDrawRange(0, 0); };
+  return {
+    mesh,
+    clear,
+    update(dt: number, emitting: boolean, weapon: THREE.Object3D, inner: THREE.Vector3, outer: THREE.Vector3) {
+      // Redrawing a paused/manual frame must not add a second sample or age it.
+      if (!(dt > 0)) return;
+      if (emitting && !wasEmitting) count = 0;
+      wasEmitting = emitting;
+      for (let i = 0; i < count; i++) samples[i * 7 + 6] += dt;
+      let expired = 0;
+      while (expired < count && samples[expired * 7 + 6] >= lifetime) expired++;
+      if (expired) { samples.copyWithin(0, expired * 7, count * 7); count -= expired; }
+      if (emitting) {
+        weapon.updateWorldMatrix(true, false);
+        root.copy(inner).applyMatrix4(weapon.matrixWorld); tip.copy(outer).applyMatrix4(weapon.matrixWorld);
+        if (count === capacity) { samples.copyWithin(0, 7); count--; }
+        const offset = count++ * 7;
+        samples[offset] = root.x; samples[offset + 1] = root.y; samples[offset + 2] = root.z;
+        samples[offset + 3] = tip.x; samples[offset + 4] = tip.y; samples[offset + 5] = tip.z; samples[offset + 6] = 0;
+      }
+      for (let i = 0; i < count; i++) {
+        const offset = i * 7, fade = Math.max(0, 1 - samples[offset + 6] / lifetime);
+        const width = fade * (i === 0 ? 0 : 1);
+        for (let axis = 0; axis < 3; axis++) {
+          const end = samples[offset + 3 + axis];
+          positions[i * 6 + axis] = end + (samples[offset + axis] - end) * width;
+          positions[i * 6 + 3 + axis] = end;
+        }
+        for (let vertex = 0; vertex < 2; vertex++) {
+          const c = i * 8 + vertex * 4;
+          colors[c] = colors[c + 1] = colors[c + 2] = 1;
+          colors[c + 3] = i === 0 ? 0 : fade * fade * (vertex ? .85 : .08);
+        }
+      }
+      geometry.attributes.position.needsUpdate = true; geometry.attributes.color.needsUpdate = true;
+      geometry.setDrawRange(0, Math.max(0, count - 1) * 6); mesh.visible = count > 1;
+    },
+  };
+}
