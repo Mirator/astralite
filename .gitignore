@@ -12,6 +12,8 @@ node_modules/
 coverage/
 game/test-results/
 game/playwright-report/
+game/blob-report/
+game/.playwright/
 
 # build output
 .next/

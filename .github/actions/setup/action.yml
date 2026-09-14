@@ -1,0 +1,42 @@
+name: Set up the game workspace
+description: Node 22, this project's dependencies, and optionally a cached Chromium.
+
+inputs:
+  browser:
+    description: Install the Playwright browser the browser suite drives.
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: game/package-lock.json
+
+    - shell: bash
+      working-directory: game
+      run: npm ci
+
+    # Chromium is ~120 MB and only changes when Playwright does, so key the
+    # cache on the lockfile: bumping @playwright/test invalidates it, and
+    # nothing else does. This is the download that used to run every time.
+    - if: inputs.browser == 'true'
+      id: chromium
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-${{ runner.os }}-${{ hashFiles('game/package-lock.json') }}
+
+    # The browser's system libraries live outside that cache, so they are still
+    # installed on a hit — only the download itself is skipped.
+    - if: inputs.browser == 'true' && steps.chromium.outputs.cache-hit == 'true'
+      shell: bash
+      working-directory: game
+      run: npx playwright install-deps chromium
+
+    - if: inputs.browser == 'true' && steps.chromium.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: game
+      run: npx playwright install --with-deps chromium
