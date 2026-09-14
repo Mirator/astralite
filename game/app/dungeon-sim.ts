@@ -1,3 +1,7 @@
+// One rounding rule for every blow that lands, shared with the game's contact test so a node test and the
+// running keep agree on the number.
+import { incomingDamage } from './dungeon-combat.ts';
+
 // The numeric half of a run: vitality, experience, rank, boons and the rules that decide whether a hit
 // lands. Nothing here knows about three.js, the DOM or a clock — dungeon-game.tsx owns the world and
 // calls in for every number an outcome depends on, so these rules can be tested in node instead of by
@@ -10,7 +14,7 @@ export const BOONS: Boon[] = [
   { id: 'step', name: 'Quick Step', detail: 'Evasion recovers 30% faster' },
   { id: 'reach', name: 'Long Guard', detail: 'Longer, wider strike arc' },
   { id: 'draught', name: 'Grave Draught', detail: '+6 vitality per guard felled' },
-  { id: 'ward', name: 'Salt Ward', detail: 'Take 20% less damage' },
+  { id: 'ward', name: 'Salt Ward', detail: 'Take 20% less damage from enemy blows' },
 ];
 
 export const XP_PER_ENEMY = 25;
@@ -74,7 +78,7 @@ export const hurt = (run: Run, value: number, options: { dashing?: boolean; ward
   if (run.hp <= 0 || run.invuln > 0 || options.dashing) return 0;
   const raw = amount(value);
   if (!raw) return 0;
-  const dealt = Math.max(0, Math.round(options.warded ? raw * run.guardAgainst : raw));
+  const dealt = Math.max(0, incomingDamage(raw, options.warded ? run.guardAgainst : 1));
   run.hp = Math.max(0, run.hp - dealt);
   run.invuln = INVULN;
   return dealt;

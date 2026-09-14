@@ -97,6 +97,17 @@ const seed = JSON.parse(window.render_game_to_text()).floor.seed;
 window.dispatchEvent(new CustomEvent('dungeon-action', { detail: `restart:${seed}` }));
 ```
 
+### Staging a fight
+
+`window.dungeonTest.configureCombatFixture({ health, enemies: [{ index, x, z, hp, windup, cooldown, aim }] })`
+moves actors the floor already spawned so a test can stage a tick real play never quite reaches — a
+skeleton one blow from death while another's windup expires in the same update. `index` is the spawn
+index, which matches the snapshot's `enemies` array only while nothing has died. Every field is validated:
+positions must be standable, `hp` stays within `1..maxHp`, `windup` within `0..tell`, `aim` non-zero. The
+run must have started and be paused or under manual time. It never replaces a rule and never takes code,
+and the branch that installs it is dropped from a production build, so `tests/browser/combat.spec.ts`
+asserts it is present rather than skipping when it is not.
+
 ### Persistence
 
 Four `localStorage` keys, `drowned-keep:best`, `drowned-keep:seed`, `drowned-keep:runs` and
