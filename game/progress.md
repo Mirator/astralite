@@ -114,3 +114,9 @@ Guards commit from 1.5 instead of 1.15 and a blow interrupts a guard or stalker 
 Forcing the opening halls changes the seeded draw order, so the pinned browser seeds moved to 0x1, 0x7 and 0xc, found by a pure search over every fixture predicate the specs use. The progression stair fight now leaves wardens one blow from death through the combat fixture, since tougher floor-three wardens killed a knight standing in reach of three of them and the fight itself is not what that test checks.
 
 Verification: typecheck, lint, 87/87 node tests, full Playwright suite 30/30. One seed-pin assertion in slash.spec flaked once during the first full run and passed alone and in the final run; noted, not chased.
+
+2026-09-14 — UI polish from the screenshot-verified findings (item 8), implemented by a lower-cost subagent and reviewed here.
+
+The corner floor label and minimap hide while any full-screen card is up, so the pause kicker no longer sits on the ghosted HUD label; the map screen keeps the same SVG expanded. The result card matches the boon card width, so the death and victory headlines hold one line at desktop widths. Minimap rooms are brighter and the goal ring and player mark are scaled up in the corner only. The HUD fades in with the first start action instead of ghosting through the intro. The hurt tint shifts red: sepia(.4) saturate(1.75) hue-rotate(-25deg) with the brightness ramp, and a single held sepia(.3) saturate(1.5) hue-rotate(-22deg) under reduced motion. The nine rebind buttons fold under a Key bindings summary inside Settings, and the pause card labels held boons.
+
+Verified against a fresh capture of the same 26 screenshots used to find the issues, then typecheck, lint, 87/87 node tests and Playwright 30/30 after merging main (which carried the tuning pass).
