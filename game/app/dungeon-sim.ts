@@ -33,6 +33,9 @@ export type Run = {
   rankLevel: number; rankProgress: number; pendingRanks: number; choosing: boolean;
   // Boon-derived modifiers. `guardAgainst` and `dashSpan` are multipliers, the rest are additive.
   strike: number; dashSpan: number; reach: number; draught: number; guardAgainst: number;
+  // Boon ids already taken this run, in order. The draft reads it so a card is never offered again while
+  // an untaken one exists.
+  taken: string[];
   // Seconds of gameplay immunity left. Purely a gate on damage; the hurt filter and the shake are the
   // renderer's business and run on their own timers.
   invuln: number;
@@ -42,8 +45,27 @@ export const createRun = (): Run => ({
   hp: 100, maxHp: 100, kills: 0, totalXp: 0,
   rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
   strike: 1, dashSpan: 1.35, reach: 0, draught: 0, guardAgainst: 1,
-  invuln: 0,
+  invuln: 0, taken: [],
 });
+
+// Fisher-Yates over a copy. The draft used to be `sort(() => Math.random() - 0.5)`, which is not a shuffle:
+// measured over 300k draws some three-card offers came up seven times as often as others.
+const shuffle = <T,>(items: readonly T[], random: () => number) => {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [out[i], out[j]] = [out[j], out[i]]; }
+  return out;
+};
+
+// Three cards, new ones first. With six boons and five or six picks a run, drawing from the whole pool
+// every time meant a typical run still missed a boon it was never shown and, once four were held, one
+// offer in five was nothing but repeats. Stacking stays legal: once the untaken cards run out the
+// remaining slots are filled from the taken ones, so a late rank still offers something.
+export const draftBoons = (run: Run, random: () => number = Math.random, size = 3): Boon[] => {
+  const held = new Set(run.taken);
+  const fresh = shuffle(BOONS.filter(b => !held.has(b.id)), random);
+  const repeats = shuffle(BOONS.filter(b => held.has(b.id)), random);
+  return [...fresh, ...repeats].slice(0, Math.min(size, BOONS.length));
+};
 
 // Amounts arrive from the game loop, from the console hooks and from a boon's own maths, so nothing is
 // trusted: a NaN frame delta or a negative grant would otherwise corrupt the run permanently.
@@ -97,6 +119,7 @@ export const takeBoon = (run: Run, id: string): Boon | null => {
   if (id === 'reach') run.reach += 0.35;
   if (id === 'draught') run.draught += 6;
   if (id === 'ward') run.guardAgainst *= 0.8;
+  run.taken.push(id);
   run.pendingRanks = Math.max(0, run.pendingRanks - 1); run.choosing = false;
   return boon;
 };

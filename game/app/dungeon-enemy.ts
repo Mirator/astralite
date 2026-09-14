@@ -15,7 +15,10 @@ export const ACTIVATION = { sameRoom: 22, elsewhere: 10 };
 // How far a committed blow actually reaches, versus how far away the enemy will start winding one up.
 // The gap between the two is the telegraph: it commits while you are still walking in.
 export const STRIKE_RANGE: Record<EnemyKind, number> = { guard: 1.55, stalker: 1.55, warden: 2.55 };
-export const ATTACK_RANGE: Record<EnemyKind, number> = { guard: 1.15, stalker: 4.2, warden: 2.2 };
+// A guard used to commit only from 1.15, inside the knight's own 1.8 reach, so it walked into the arc and
+// died before its tell ran out; 1.5 keeps the swing inside STRIKE_RANGE but starts it while the knight is
+// still deciding whether to step in.
+export const ATTACK_RANGE: Record<EnemyKind, number> = { guard: 1.5, stalker: 4.2, warden: 2.2 };
 // Inside this it stands its ground rather than shuffling into the knight's chest.
 export const HOLD_RANGE: Record<EnemyKind, number> = { guard: 1.15, stalker: 1.15, warden: 2.0 };
 // Recovery after a swing lands or misses. A stalker pays most for its pounce.
@@ -26,6 +29,30 @@ export const CROWD_SPACING = 0.82, CROWD_PUSH_RATE = 3;
 // Past this the enemy stops walking straight at the knight and follows the flood instead, which is what
 // gets it round a corner; inside it, a straight line is both correct and smoother to watch.
 export const DIRECT_STEP = TILE * 1.5;
+
+// A blow that lands early in a tell knocks the swing out of a guard or a stalker; once this little of the
+// tell is left the body is committed and finishes it. Wardens never flinch out of a swing. The window used
+// to be 0.18s, so a blow landing two thirds of the way through a tell still cancelled it. This is not what
+// keeps a lone guard from ever connecting against a held strike key: that is the 0.2s flinch plus the 0.4s
+// cooldown every hit refreshes against a 0.38s swing, which is deliberate - a guard is pressure in a group
+// and while the knight moves, not a duel.
+export const COMMITTED_WINDUP = 0.3;
+export const interruptsWindup = (kind: EnemyKind, windup: number) => kind !== 'warden' && windup > COMMITTED_WINDUP;
+
+// The numbers a body is made of, by kind and by floor. Only counts used to grow with depth; a floor-three
+// guard was byte-for-byte a floor-one guard while the knight's boons only ever went up, so the run got
+// easier as it went. Vitality grows by one per floor, damage by fifteen percent, and
+// tells and speeds hold still so a learned read stays true all the way down.
+export type EnemyStats = { hp: number; damage: number; tell: number; speed: number };
+export const BASE_STATS: Record<EnemyKind, EnemyStats> = {
+  guard: { hp: 2, damage: 12, tell: 0.5, speed: 2.2 },
+  stalker: { hp: 2, damage: 8, tell: 0.58, speed: 3.2 },
+  warden: { hp: 4, damage: 20, tell: 0.72, speed: 1.65 },
+};
+export const enemyStats = (kind: EnemyKind, level: number): EnemyStats => {
+  const base = BASE_STATS[kind], deeper = Math.max(0, Math.floor(Number.isFinite(level) ? level : 1) - 1);
+  return { hp: base.hp + deeper, damage: Math.round(base.damage * (1 + 0.15 * deeper)), tell: base.tell, speed: base.speed };
+};
 
 // Everything a decision reads off an enemy. The renderer's Enemy also carries a THREE.Group, a health
 // bar, a telegraph mesh and a gait phase; none of that decides anything.
