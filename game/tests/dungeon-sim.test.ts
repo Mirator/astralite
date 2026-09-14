@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BOONS, clearRoomReward, createRun, grantXp, heal, hurt, INVULN, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
+import { BOONS, clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, INVULN, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
 
 // A run with the draft already open, since every boon needs that gate held down.
 const drafting = (patch: Partial<Run> = {}): Run => Object.assign(createRun(), { choosing: true, pendingRanks: 1 }, patch);
@@ -14,7 +14,7 @@ test('a fresh run carries every field the game restores on restart, and nothing 
     hp: 100, maxHp: 100, kills: 0, totalXp: 0,
     rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
     strike: 1, dashSpan: 1.35, reach: 0, draught: 0, guardAgainst: 1,
-    invuln: 0,
+    invuln: 0, taken: [],
   });
   // Two runs never share structure, or a restart would carry the old run's boons forward.
   const a = createRun(), b = createRun();
@@ -69,6 +69,7 @@ test('every boon lands exactly once, and only while a draft is open', () => {
   const edge = drafting();
   assert.equal(takeBoon(edge, 'edge')?.name, 'Whetted Edge');
   assert.equal(edge.strike, 2);
+  assert.deepEqual(edge.taken, ['edge']);
   // Taking one boon spends one pending rank and closes the draft; the game reopens it if more are owed.
   assert.deepEqual([edge.pendingRanks, edge.choosing], [0, false]);
 
@@ -240,4 +241,47 @@ test('a sword landing just before a flare still leaves the ring exactly one tick
   // The burn waits out the window instead of being lost with it.
   assert.ok(at[0] > 2.83 && at[0] < 2.9, `burn landed at ${at[0]}s`);
   assert.equal(run.hp, 100 - 20 - 10);
+});
+
+// A small deterministic generator, so a draft test never flakes and never depends on Math.random.
+const lcg = (seed: number) => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 0x100000000; };
+
+test('a draft offers three distinct cards and never repeats a held boon while an untaken one exists', () => {
+  const run = createRun();
+  for (let trial = 0; trial < 500; trial++) {
+    const offer = draftBoons(run, lcg(trial));
+    assert.equal(offer.length, 3);
+    assert.equal(new Set(offer.map(b => b.id)).size, 3, 'a card appeared twice in one offer');
+  }
+  // Four held, two untaken: both untaken cards are always in the offer, and the third is a repeat.
+  run.taken = ['edge', 'vigor', 'step', 'reach'];
+  for (let trial = 0; trial < 200; trial++) {
+    const ids = draftBoons(run, lcg(trial)).map(b => b.id);
+    assert.ok(ids.includes('draught') && ids.includes('ward'), `untaken cards missing from ${ids.join(",")}`);
+    assert.ok(run.taken.includes(ids[2]), 'the filler must come from the taken cards');
+  }
+  // Everything held: stacking is still offered rather than an empty draft.
+  run.taken = BOONS.map(b => b.id);
+  assert.equal(draftBoons(run, lcg(1)).length, 3);
+  // Taking a card removes it from the next draft, so a full run sees every boon before any repeat.
+  const fresh = createRun();
+  const seen = new Set<string>();
+  for (let pick = 0; pick < BOONS.length; pick++) {
+    fresh.choosing = true; fresh.pendingRanks = 1;
+    const [card] = draftBoons(fresh, lcg(pick + 7));
+    assert.ok(!seen.has(card.id), `${card.id} was offered again before the pool was exhausted`);
+    seen.add(card.id); takeBoon(fresh, card.id);
+  }
+  assert.equal(seen.size, BOONS.length);
+});
+
+test('the draft shuffle is uniform: every card is equally likely to be offered', () => {
+  const random = lcg(2026), counts = new Map<string, number>(), draws = 60000;
+  for (let i = 0; i < draws; i++) for (const boon of draftBoons(createRun(), random)) counts.set(boon.id, (counts.get(boon.id) ?? 0) + 1);
+  // Each of six cards should appear in half of all drafts (3 of 6 per draw). The old comparator shuffle put
+  // some cards in an offer far more often than others; a fair shuffle lands within a couple of percent.
+  for (const boon of BOONS) {
+    const share = (counts.get(boon.id) ?? 0) / draws;
+    assert.ok(Math.abs(share - 0.5) < 0.02, `${boon.id} offered in ${(share * 100).toFixed(1)}% of drafts`);
+  }
 });

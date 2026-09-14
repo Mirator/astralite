@@ -162,7 +162,7 @@ export const ARROW_KEYS: Record<ScreenDirection, string> = {
 // Fixed seeds keep every scenario on one known floor. `crypto.getRandomValues`
 // is intercepted for the single Uint32Array `buildFloor` draws, so the real
 // generator still runs; only its entropy is pinned.
-export const DEFAULT_SEEDS = [0x5eed1a01, 0x5eed1a02, 0x5eed1a03];
+export const DEFAULT_SEEDS = [0x1, 0x7, 0xc];
 
 /** Distance the knight keeps while lining a strike up: inside 1.8, with slack. */
 export const STRIKE_STANCE = 1.05;

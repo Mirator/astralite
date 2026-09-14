@@ -128,7 +128,9 @@ export function generateFloor(seed: number, level = 1) {
     if(room.role==='goal')room.encounter='warden';
     else if(room.id===0)room.encounter='sanctuary';
     else if(room.role==='branch')room.encounter='ambush';
-    else if(room.depth===1)room.encounter='watch';
+    // The first two halls are always a straight fight: an ambush of three stalkers before the first boon
+    // (eight kills away) killed a fresh run in under a minute, and nothing had been taught yet.
+    else if(room.depth<=2)room.encounter='watch';
     else {
       if(!encounterBag.length){
         encounterBag=['watch','ambush','gauntlet','sanctuary'];

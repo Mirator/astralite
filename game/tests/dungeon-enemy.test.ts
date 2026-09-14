@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
-import { ACTIVATION, ATTACK_RANGE, CROWD_SPACING, decideEnemy, HOLD_RANGE, isActive, LUNGE_SPEED, LUNGE_TIME, pursuitStep, RECOVERY, separateCrowd, STRIKE_RANGE, sweptContact, type CrowdBody, type EnemyView, type World } from '../app/dungeon-enemy.ts';
+import { ACTIVATION, ATTACK_RANGE, BASE_STATS, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, HOLD_RANGE, interruptsWindup, isActive, LUNGE_SPEED, LUNGE_TIME, pursuitStep, RECOVERY, separateCrowd, STRIKE_RANGE, sweptContact, type CrowdBody, type EnemyView, type World } from '../app/dungeon-enemy.ts';
 
 // A square of open floor wide enough that nothing in these tests walks off it.
 const openFloor = (half = 8) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
@@ -17,7 +17,10 @@ test('the tuning table is the balance, so a rebalance has to be deliberate', () 
   // not slip through as an accident of refactoring.
   assert.deepEqual(ACTIVATION, { sameRoom: 22, elsewhere: 10 });
   assert.deepEqual(STRIKE_RANGE, { guard: 1.55, stalker: 1.55, warden: 2.55 });
-  assert.deepEqual(ATTACK_RANGE, { guard: 1.15, stalker: 4.2, warden: 2.2 });
+  assert.deepEqual(ATTACK_RANGE, { guard: 1.5, stalker: 4.2, warden: 2.2 });
+  // A guard commits from inside its own strike range, so a stationary knight is still hit when the tell
+  // runs out, and from outside the range it used to wait for, so it is no longer walking into the arc.
+  assert.ok(ATTACK_RANGE.guard < STRIKE_RANGE.guard && ATTACK_RANGE.guard > HOLD_RANGE.guard);
   assert.deepEqual(HOLD_RANGE, { guard: 1.15, stalker: 1.15, warden: 2.0 });
   assert.deepEqual(RECOVERY, { guard: 1.25, stalker: 1.7, warden: 1.6 });
   assert.deepEqual([LUNGE_SPEED, LUNGE_TIME, CROWD_SPACING], [13, 0.32, 0.82]);
@@ -92,7 +95,8 @@ test('a windup starts only in range, off cooldown, with a clear line - and aims 
   assert.deepEqual([start.act, start.windup, start.sound], ['ready', 0.5, 'warn']);
   assert.deepEqual(start.aim, { x: 0, z: 1 });
   // Out of its attack range, still on cooldown, or behind a wall: no commitment, each on its own.
-  assert.equal(decideEnemy(foe(), { x: 0, z: 1.2 }, world(cells), 0.05).windup, 0, 'past 1.15 a guard has to walk');
+  assert.equal(decideEnemy(foe(), { x: 0, z: 1.6 }, world(cells), 0.05).windup, 0, 'past 1.5 a guard has to walk');
+  assert.equal(decideEnemy(foe(), { x: 0, z: 1.4 }, world(cells), 0.05).windup, 0.5, 'at 1.4 it commits before the knight can reach it walking');
   assert.equal(decideEnemy(foe({ cooldown: 0.5 }), { x: 0, z: 1 }, world(cells), 0.05).windup, 0, 'still recovering');
   const blocked = floorFrom(['...', '.#.', '...']);
   assert.equal(decideEnemy(foe({ x: 0, z: 0 }), { x: 0, z: 2 * TILE }, world(blocked, { pathDistance: () => 0 }), 0.05).windup, 0, 'a prop between them is not an opening');
@@ -222,4 +226,40 @@ test('a guard always walks the tile grid, because its commit range and its hold 
   assert.ok(guard.z > 0);
   const warden = decideEnemy(foe({ kind: 'warden', speed: 1.65, tell: 0.72, cooldown: 0.5 }), { x: 1, z: 1.8 }, w, 0.1);
   assert.ok(warden.x > 0, 'a warden inside its commit range but outside its hold range walks straight at him');
+});
+
+test('a hit knocks a swing out of a tell only while enough of it is left; a warden never flinches out', () => {
+  assert.equal(COMMITTED_WINDUP, 0.3);
+  // Early in a guard's 0.5s tell the blow interrupts; once 0.3s or less remain the swing is committed.
+  assert.equal(interruptsWindup('guard', 0.45), true);
+  assert.equal(interruptsWindup('guard', 0.3), false);
+  assert.equal(interruptsWindup('stalker', 0.5), true);
+  assert.equal(interruptsWindup('stalker', 0.2), false);
+  assert.equal(interruptsWindup('warden', 0.7), false);
+  // The old window was 0.18s: a blow two thirds of the way through a tell still cancelled the swing.
+  assert.ok(COMMITTED_WINDUP > 0.18);
+});
+
+test('bodies grow with the floor: vitality by one a floor, damage by fifteen percent', () => {
+  assert.deepEqual(BASE_STATS, {
+    guard: { hp: 2, damage: 12, tell: 0.5, speed: 2.2 },
+    stalker: { hp: 2, damage: 8, tell: 0.58, speed: 3.2 },
+    warden: { hp: 4, damage: 20, tell: 0.72, speed: 1.65 },
+  });
+  // Floor one is exactly the base table, so every browser fixture pinned to floor one still holds.
+  for (const kind of ['guard', 'stalker', 'warden'] as const) assert.deepEqual(enemyStats(kind, 1), BASE_STATS[kind]);
+  assert.deepEqual([enemyStats('guard', 2).hp, enemyStats('guard', 3).hp], [3, 4]);
+  // A floor-three stair is three wardens; at eight vitality each that was a slog, so a warden grows like the rest.
+  assert.deepEqual([enemyStats('warden', 2).hp, enemyStats('warden', 3).hp], [5, 6]);
+  assert.deepEqual([1, 2, 3].map(level => enemyStats('guard', level).damage), [12, 14, 16]);
+  assert.deepEqual([1, 2, 3].map(level => enemyStats('stalker', level).damage), [8, 9, 10]);
+  assert.deepEqual([1, 2, 3].map(level => enemyStats('warden', level).damage), [20, 23, 26]);
+  // Tells and speeds hold still so a read learned on floor one stays true.
+  for (const level of [2, 3]) for (const kind of ['guard', 'stalker', 'warden'] as const) {
+    assert.equal(enemyStats(kind, level).tell, BASE_STATS[kind].tell);
+    assert.equal(enemyStats(kind, level).speed, BASE_STATS[kind].speed);
+  }
+  // Garbage levels fall back to floor one rather than to NaN vitality.
+  assert.deepEqual(enemyStats('guard', Number.NaN), BASE_STATS.guard);
+  assert.deepEqual(enemyStats('guard', 0), BASE_STATS.guard);
 });
