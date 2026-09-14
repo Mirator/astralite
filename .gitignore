@@ -10,6 +10,8 @@ node_modules/
 
 # testing
 coverage/
+game/test-results/
+game/playwright-report/
 
 # build output
 .next/

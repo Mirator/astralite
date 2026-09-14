@@ -7,6 +7,7 @@ import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
 import { generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { decideEnemy, separateCrowd } from './dungeon-enemy';
+import { enemyPose } from './dungeon-enemy-pose';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
 import { BOONS, clearRoomReward, createRun, grantXp, heal, hurt, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
@@ -96,15 +97,23 @@ const BONES = {
   limb: shared(new THREE.BoxGeometry(0.12, 0.65, 0.12)),
   shield: shared(new THREE.CylinderGeometry(0.38, 0.38, 0.1, 8)),
   weapon: shared(new THREE.BoxGeometry(0.09, 0.09, 0.92)),
-  crown: shared(new THREE.ConeGeometry(0.34, 0.35, 5, 1, true)),
+  crown: shared(new THREE.CylinderGeometry(.29,.28,.11,8,1,true)),
+  crownTooth: shared(new THREE.ConeGeometry(.065,.2,4)),
+  armor: shared(new THREE.DodecahedronGeometry(.32,0)),
+  plate: shared(new THREE.BoxGeometry(.72,.48,.34)),
+  haft: shared(new THREE.CylinderGeometry(.055,.075,1.3,6)),
+  hammer: shared(new THREE.BoxGeometry(.72,.36,.38)),
+  claw: shared(new THREE.ConeGeometry(.055,.48,4)),
   cue: shared(new THREE.RingGeometry(0.85, 1.5, 40, 1, -1.05, 2.1)),
   bar: shared(new THREE.PlaneGeometry(0.8, 0.07)),
 };
 
-function makeSkeleton(index: number) {
-  const g = new THREE.Group();
-  const bone = new THREE.MeshStandardMaterial({ color: 0xd9d1bd, roughness: 0.92 });
-  const iron = new THREE.MeshStandardMaterial({ color: 0x4c5156, roughness: 0.75, metalness: 0.28 });
+function makeSkeleton(kind: Enemy['kind']) {
+  const g = new THREE.Group(),rig = new THREE.Group();g.add(rig);
+  const stalker=kind==='stalker',warden=kind==='warden';
+  const bone = new THREE.MeshStandardMaterial({ color: stalker?0xadc4b6:0xd9d1bd, roughness: 0.82 });
+  const iron = new THREE.MeshStandardMaterial({ color: warden?0x344550:0x56616a, roughness: 0.48, metalness: 0.5 });
+  const brass = new THREE.MeshStandardMaterial({ color: 0xb89960, roughness: .5, metalness: .55 });
   const eye = new THREE.MeshBasicMaterial({ color: 0xff421f });
   const pelvis = new THREE.Mesh(BONES.pelvis, bone); pelvis.position.y = 0.55;
   const spine = new THREE.Mesh(BONES.spine, bone); spine.position.y = 0.91;
@@ -113,12 +122,32 @@ function makeSkeleton(index: number) {
   const skull = new THREE.Mesh(BONES.skull, bone);
   skull.position.y = 1.42; skull.scale.set(0.88, 1, 0.78);
   const sockets = [-1, 1].map((s) => { const e = new THREE.Mesh(BONES.socket, eye); e.position.set(s * 0.085, 1.45, -0.21); return e; });
-  const limbs = [-1, 1].flatMap((s) => { const arm = new THREE.Mesh(BONES.limb, bone); arm.position.set(s * 0.35, 0.95, 0); arm.rotation.z = s * 0.17; const leg = arm.clone(); leg.position.set(s * 0.18, 0.25, 0); return [arm, leg]; });
+  const arms=[-1,1].map(s=>{const pivot=new THREE.Group();pivot.position.set(s*(warden?.48:.33),1.14,0);pivot.rotation.z=s*(stalker?.25:.12);const arm=new THREE.Mesh(BONES.limb,bone);arm.position.y=stalker?-.4:-.27;arm.scale.y=stalker?1.35:.85;pivot.add(arm);return pivot;});
+  const legs=[-1,1].map(s=>{const pivot=new THREE.Group();pivot.position.set(s*(warden?.25:.18),.53,0);const leg=new THREE.Mesh(BONES.limb,bone);leg.scale.y=.75;leg.position.y=-.25;pivot.add(leg);return pivot;});
+  const limbs=[...arms,...legs];
   const shield = new THREE.Mesh(BONES.shield, iron);
-  shield.position.set(-0.45, 0.92, -0.12); shield.rotation.set(Math.PI / 2, 0, 0); shield.visible = index % 2 === 0;
-  const weapon = new THREE.Mesh(BONES.weapon, iron);
-  weapon.position.set(0.42, 0.84, -0.28); weapon.rotation.x = -0.4;
-  g.add(pelvis, spine, ribs, skull, ...sockets, ...limbs, shield, weapon);
+  shield.position.set(-.08,-.3,-.18); shield.rotation.set(Math.PI / 2, 0, 0); shield.visible = !stalker&&!warden;arms[0].add(shield);
+  const boss=new THREE.Mesh(BONES.armor,brass);boss.scale.set(.38,.16,.38);boss.position.y=.075;shield.add(boss);
+  const weapon = new THREE.Group();weapon.position.set(warden?.5:.42,.97,-.12);weapon.rotation.x=warden?.45:.1;
+  if(stalker){
+    skull.scale.set(.85,.82,1.15);skull.position.z=-.16;ribs.scale.set(.85,1,1);sockets.forEach(eye=>{eye.position.z-=.16;});
+    arms.forEach(arm=>{for(let i=0;i<3;i++){const claw=new THREE.Mesh(BONES.claw,iron);claw.rotation.x=-Math.PI/2;claw.position.set((i-1)*.11,-.83,-.16);arm.add(claw);}});
+  }else if(warden){
+    const plate=new THREE.Mesh(BONES.plate,iron);plate.position.set(0,1.0,-.05);rig.add(plate);
+    for(const s of [-1,1]){const shoulder=new THREE.Mesh(BONES.armor,iron);shoulder.position.set(s*.49,1.21,0);shoulder.scale.set(1.18,.72,1);rig.add(shoulder);}
+    const crown=new THREE.Mesh(BONES.crown,brass);crown.position.set(0,1.63,0);rig.add(crown);
+    for(let i=0;i<6;i++){const tooth=new THREE.Mesh(BONES.crownTooth,brass),angle=i*Math.PI/3;tooth.position.set(Math.cos(angle)*.26,.1,Math.sin(angle)*.26);crown.add(tooth);}
+    legs.forEach(leg=>{const greave=new THREE.Mesh(BONES.armor,iron);greave.position.y=-.29;greave.scale.set(.55,.7,.65);leg.add(greave);});
+    const haft=new THREE.Mesh(BONES.haft,brass);haft.rotation.x=Math.PI/2;haft.position.z=-.42;
+    const head=new THREE.Mesh(BONES.hammer,iron);head.position.z=-1.04;weapon.add(haft,head);
+    const band=new THREE.Mesh(BONES.hammer,brass);band.scale.set(.18,1.04,1.04);head.add(band);
+  }else{
+    const blade=new THREE.Mesh(BONES.weapon,iron);blade.position.z=-.4;weapon.add(blade);
+    const helmet=new THREE.Mesh(BONES.armor,iron);helmet.position.set(0,1.53,.04);helmet.scale.set(.94,.6,.94);rig.add(helmet);
+  }
+  rig.add(pelvis, spine, ribs, skull, ...sockets, ...limbs, weapon);
+  rig.position.y=stalker?-.18:0;rig.rotation.x=stalker?-.38:0;
+  g.userData.rig=rig;
   g.userData.weapon = weapon;
   g.userData.limbs = limbs; g.userData.skull = skull; g.userData.shield = shield;
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -349,8 +378,8 @@ export default function DungeonGame() {
     mount.appendChild(renderer.domElement);
     const camera = new THREE.OrthographicCamera(-8, 8, 5, -5, 0.1, 70);
     camera.position.set(10, 13, 13); camera.lookAt(0, 0, 0);
-    scene.add(new THREE.HemisphereLight(0x7396a0, 0x25343b, 2.0));
-    const moon = new THREE.DirectionalLight(0x89afc0, 2.8);
+    scene.add(new THREE.HemisphereLight(0x91b5c1, 0x263039, 1.35));
+    const moon = new THREE.DirectionalLight(0xa4c6d6, 3.1);
     moon.position.set(-7, 12, 9); moon.castShadow = true; moon.shadow.mapSize.set(1536, 1536);
     moon.shadow.radius = 2; moon.shadow.normalBias = .035; moon.shadow.bias = -.00015;
     moon.shadow.camera.left = moon.shadow.camera.bottom = -12; moon.shadow.camera.right = moon.shadow.camera.top = 12; scene.add(moon);
@@ -437,7 +466,7 @@ export default function DungeonGame() {
       swingHits.clear();
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
       reached = 0; loot = 0; activeRoom = 0; pathCell = ''; distances.clear();
-      const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, color: 0xffffff, roughness: 0.98, emissive: 0x253b42, emissiveIntensity: 0.35 });
+      const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, bumpMap: texture, bumpScale: .045, color: 0xffffff, roughness: 0.98, emissive: 0x253b42, emissiveIntensity: 0.12 });
       weatherStone(floorMaterial);
       const stoneTiles = floor.tiles.filter(t=>!t.wood), bridgeTiles = floor.tiles.filter(t=>t.wood);
       const tiles = new THREE.InstancedMesh(new THREE.BoxGeometry(1.44, 2.8, 1.44), floorMaterial, stoneTiles.length);
@@ -483,9 +512,9 @@ export default function DungeonGame() {
       enemyData = floor.spawns.map((spawn, index) => {
         const kind = spawn.kind;
         const maxHp = kind === 'warden' ? 4 : 2, tell = kind === 'warden' ? 0.72 : kind === 'stalker' ? 0.58 : 0.5;
-        const group = makeSkeleton(kind === 'stalker' ? 1 : 0); group.position.set(spawn.x * TILE,0.03,spawn.z * TILE); group.visible = !spawn.ambush; floorGroup.add(group);
-        if (kind === 'warden') { group.scale.setScalar(1.3); const crown = new THREE.Mesh(BONES.crown,new THREE.MeshStandardMaterial({color:0xc5a264,metalness:0.6,roughness:0.45}));crown.position.y=1.7;group.add(crown); }
-        if (kind === 'stalker') group.scale.set(0.82,0.94,0.82);
+        const group = makeSkeleton(kind); group.position.set(spawn.x * TILE,0.03,spawn.z * TILE); group.visible = !spawn.ambush; floorGroup.add(group);
+        if (kind === 'warden') group.scale.setScalar(1.3);
+        if (kind === 'stalker') group.scale.set(.94,1,.94);
         const cue = new THREE.Mesh(kind === 'stalker' ? new THREE.PlaneGeometry(5,1.7).translate(2.5,0,0) : BONES.cue,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xff522b:0xffae52,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false}));cue.rotation.x=-Math.PI/2;floorGroup.add(cue);
         const bar = new THREE.Mesh(BONES.bar,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xffb65f:0xe89a79,depthTest:false}));bar.renderOrder=10;floorGroup.add(bar);
         return { group, hp:maxHp, maxHp, kind, tell, damage:kind==='warden'?20:kind==='stalker'?8:12, cue, bar, speed:kind==='stalker'?3.2:kind==='warden'?1.65:2.2, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush };
@@ -783,27 +812,17 @@ export default function DungeonGame() {
           if (intent.act === 'inert') return;
           enemy.windup = intent.windup; enemy.lunge = intent.lunge; enemy.aim.set(intent.aim.x,0,intent.aim.z);
           enemy.group.position.x = intent.x; enemy.group.position.z = intent.z;
-          const dist = intent.distance;
           if (intent.sound) audio.play(intent.sound);
           if (intent.hit) hurtPlayer();
-          if (intent.act === 'lunge') {
-            enemy.group.position.y=.03+Math.sin(enemy.lunge/.32*Math.PI)*.3;
-            enemy.group.rotation.x=-.3; enemy.group.userData.weapon.rotation.x=.55;
-            enemy.group.userData.limbs.forEach((limb:THREE.Mesh,i:number)=>{limb.rotation.x=i%2?.75:-.75;});
-            return;
-          }
-          // The weapon rises through the tell and snaps forward on the frame it lands; on guard it eases
-          // back to rest and the body turns to whatever the decision faced it at.
-          if (intent.act === 'windup') enemy.group.userData.weapon.rotation.x = enemy.windup === 0 ? 0.55 : -0.4 - Math.sin((1 - enemy.windup / enemy.tell) * Math.PI / 2) * 1.7;
-          else {
-            enemy.group.rotation.y = intent.face ?? enemy.group.rotation.y;
-            enemy.group.userData.weapon.rotation.x = THREE.MathUtils.damp(enemy.group.userData.weapon.rotation.x, -0.4, 10, dt);
-          }
-          enemy.group.position.y = 0.03 + Math.abs(Math.sin(t * 6 + enemy.phase)) * 0.045;
-          const walking=dist>1.15&&enemy.windup<=0&&enemy.hitFlash<=0;
-          const gait=walking?Math.sin(t*enemy.speed*5+enemy.phase)*.48:0;
-          enemy.group.userData.limbs.forEach((limb:THREE.Mesh,i:number)=>{limb.rotation.x=THREE.MathUtils.damp(limb.rotation.x,(i<2?1:-1)*(i%2?gait:-gait*.55),18,dt);});
-          enemy.group.rotation.x=THREE.MathUtils.damp(enemy.group.rotation.x,enemy.hitFlash>0?-.2:enemy.windup>0?-.12:0,18,dt);
+          const pose=enemyPose(enemy.kind,enemy.windup,enemy.tell,enemy.cooldown,enemy.lunge);
+          enemy.group.rotation.y=intent.face??enemy.group.rotation.y;
+          const walking=intent.act==='ready'&&intent.distance>1.15&&enemy.hitFlash<=0&&pose.recovery===0;
+          const gait=walking?Math.sin(t*enemy.speed*5+enemy.phase)*(enemy.kind==='warden'?.28:.48):0;
+          enemy.group.position.y=.03;
+          enemy.group.userData.rig.position.y=pose.height+(walking?Math.abs(gait)*.07:0);
+          enemy.group.userData.rig.rotation.x=pose.pitch+(enemy.hitFlash>0?.15:0);
+          enemy.group.userData.weapon.rotation.x=pose.weapon;
+          enemy.group.userData.limbs.forEach((limb:THREE.Group,i:number)=>{limb.rotation.x=(i<2?pose.arms:0)+(i%2?gait:-gait);});
           enemy.group.userData.skull.rotation.y=Math.sin(t*1.5+enemy.phase)*.06;
           enemy.group.userData.shield.rotation.z=enemy.windup>0?-.25:gait*.16;
           enemy.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.emissive.setHex(enemy.hitFlash > 0 ? 0xffa34a : enemy.windup > 0 ? 0xb83915 : 0x000000); o.material.emissiveIntensity = enemy.hitFlash > 0 ? 0.8 : 0.5; } });
@@ -874,7 +893,7 @@ export default function DungeonGame() {
       buildMs,
       floor: { level, waterfalls: atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
       player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashTime, dashCooldown, invulnerable: run.invuln, hurtFlash, swordAngle: player.userData.sword.rotation.y, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
-      enemies: enemyData.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake })),
+      enemies: enemyData.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, pose: {pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x} })),
     });
     const animate = (now: number) => {
       if (stopped) return; raf = requestAnimationFrame(animate);

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { TILE, type generateFloor } from './dungeon-floor';
-import { animateCloth, glowTexture } from './dungeon-motion';
+import { animateCloth, contactTexture, glowTexture, shorelineMaterial, weatherStone } from './dungeon-motion';
 
 export function stoneTexture() {
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
@@ -33,12 +33,18 @@ const PROP = {
 
 export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generateFloor>) {
   const stone=new THREE.MeshStandardMaterial({color:0x566169,roughness:.95}),trim=new THREE.MeshStandardMaterial({color:0x8c7352,roughness:.72,metalness:.25});
+  weatherStone(stone);
   const wood=new THREE.MeshStandardMaterial({color:0x51382b,roughness:1}),moss=new THREE.MeshStandardMaterial({color:0x42594b,roughness:1});
   const red=new THREE.MeshStandardMaterial({color:0x76292b,side:THREE.DoubleSide,roughness:1});
   const waterCanvas=document.createElement('canvas');waterCanvas.width=64;waterCanvas.height=128;const wc=waterCanvas.getContext('2d')!;wc.fillStyle='#619d9e';wc.fillRect(0,0,64,128);
   for(let i=0;i<35;i++){wc.fillStyle=i%2?'#c4eee0aa':'#83c7c4aa';wc.fillRect((i*17)%64,(i*37)%128,1+i%3,15+i%25);}
   const flowTexture=new THREE.CanvasTexture(waterCanvas);flowTexture.wrapT=THREE.RepeatWrapping;flowTexture.repeat.y=2;flowTexture.colorSpace=THREE.SRGBColorSpace;
   const flowing=new THREE.MeshBasicMaterial({map:flowTexture,color:0xc6f0e7,transparent:true,opacity:.85,side:THREE.DoubleSide});
+  flowing.depthWrite=false;
+  flowing.onBeforeCompile=shader=>{shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
+    diffuseColor.a *= smoothstep(0.0,.18,vMapUv.x) * smoothstep(0.0,.18,1.0-vMapUv.x);
+  `);};
+  flowing.customProgramCacheKey=()=> 'soft-waterfall-v1';
   const warm=new THREE.MeshBasicMaterial({color:0xffba65,toneMapped:false}),foam=new THREE.MeshBasicMaterial({color:0xb4e6de,transparent:true,opacity:.7,depthWrite:false});
   const flames:THREE.Mesh[]=[],torchPositions:THREE.Vector3[]=[],banners:THREE.Mesh[]=[],seals:THREE.Mesh[]=[],falls:THREE.Mesh[]=[],ripples:THREE.Mesh[]=[];
   const glowMap=glowTexture(),halos:THREE.Sprite[]=[];
@@ -65,6 +71,12 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   }
   const packed=(x:number,z:number)=>(x+4096)*8192+(z+4096);
   const solid=new Set<number>();for(const t of floor.tiles)solid.add(packed(t.x,t.z));
+  const shore=shorelineMaterial(),shoreEdges=floor.tiles.filter(t=>!t.wood).flatMap(t=>[[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dz])=>!solid.has(packed(t.x+dx,t.z+dz))).map(([dx,dz])=>({x:t.x,z:t.z,dx,dz})));
+  const shoreline=new THREE.InstancedMesh(new THREE.PlaneGeometry(TILE*1.04,.7),shore.material,shoreEdges.length),shoreMatrix=new THREE.Matrix4(),shoreRotation=new THREE.Quaternion();
+  shoreEdges.forEach((e,i)=>{shoreRotation.setFromEuler(new THREE.Euler(-Math.PI/2,0,e.dx?Math.PI/2:0));shoreMatrix.compose(new THREE.Vector3((e.x+e.dx*.65)*TILE,-2.71,(e.z+e.dz*.65)*TILE),shoreRotation,new THREE.Vector3(1,1,1));shoreline.setMatrixAt(i,shoreMatrix);});world.add(shoreline);
+  const contactMap=contactTexture(),contactMaterial=new THREE.MeshBasicMaterial({map:contactMap,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1});
+  const contacts=new THREE.InstancedMesh(new THREE.PlaneGeometry(2.65,2.65),contactMaterial,floor.props.length),contactMatrix=new THREE.Matrix4();
+  floor.props.forEach((p,i)=>{contactMatrix.makeRotationX(-Math.PI/2);contactMatrix.setPosition(p.x*TILE,.024,p.z*TILE);contacts.setMatrixAt(i,contactMatrix);});world.add(contacts);
   for(const p of floor.props)solid.add(packed(p.x,p.z));
   const blocks:{x:number;y:number;z:number;sx:number;sy:number;sz:number;color:number;room:number}[]=[];
   const bannerRooms=new Set<number>();
@@ -95,8 +107,13 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     for(let i=0;i<4;i++){const ring=mesh(new THREE.RingGeometry(.22+i*.13,.25+i*.13,24),foam,x,-2.69+i*.008,z);ring.rotation.x=-Math.PI/2;ring.castShadow=false;ripples.push(ring);}
   }
   const chips:THREE.Vector3[]=[];for(const room of floor.rooms){const local=tilesByRoom.get(room.id)??[];for(let i=0;i<(room.theme==='ruins'?25:9);i++){const t=local[Math.floor(random()*local.length)];if(t)chips.push(new THREE.Vector3((t.x+random()-.5)*TILE,.05,(t.z+random()-.5)*TILE));}}
+  const sprayGeometry=new THREE.BufferGeometry(),sprayPositions=new Float32Array(falls.length*16*3);
+  sprayGeometry.setAttribute('position',new THREE.BufferAttribute(sprayPositions,3));
+  const sprayMaterial=new THREE.PointsMaterial({color:0xc1e3da,size:.065,transparent:true,opacity:.48,depthWrite:false});
+  const spray=new THREE.Points(sprayGeometry,sprayMaterial);spray.frustumCulled=false;world.add(spray);
   const debris=new THREE.InstancedMesh(new THREE.DodecahedronGeometry(.2),stone,chips.length),chipMatrix=new THREE.Matrix4();const up=new THREE.Vector3(0,1,0),chipSpin=new THREE.Quaternion(),chipSize=new THREE.Vector3();chips.forEach((p,i)=>{chipMatrix.compose(p,chipSpin.setFromAxisAngle(up,random()*6.28),chipSize.set(.5+random(),.22,.5+random()));debris.setMatrixAt(i,chipMatrix);});debris.receiveShadow=true;world.add(debris);
   const geometry=new THREE.BoxGeometry(1,1,1),wallMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.95}),matrix=new THREE.Matrix4();
+  weatherStone(wallMaterial);
   // Separate chamber batches let the view and shadow frusta skip distant masonry.
   const blocksByRoom=new Map<number,typeof blocks>();
   for(const b of blocks){const list=blocksByRoom.get(b.room);if(list)list.push(b);else blocksByRoom.set(b.room,[b]);}
@@ -118,14 +135,16 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const emberMaterial=new THREE.PointsMaterial({color:0xffb45b,size:.065,transparent:true,opacity:.8,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false});
   const embers=new THREE.Points(emberGeo,emberMaterial);embers.frustumCulled=false;world.add(embers);
   return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,update(t:number,player:THREE.Vector3,cleared:Set<number>){
+    shore.time.value=t;
     motes.position.set(player.x,Math.sin(t*.2)*.2,player.z);motes.rotation.y=t*.01;
     flames.forEach((f,i)=>{f.scale.set(.9+Math.sin(t*7+i)*.1,1.65+Math.sin(t*9+i)*.3,.85);f.rotation.y=t+i;});
     banners.forEach((b,i)=>{if(b.position.distanceToSquared(player)<900)animateCloth(b,t+i,.1);});
     halos.forEach((h,i)=>{const pulse=1+Math.sin(t*9+i)*.06;h.scale.set(2.7*pulse,3.5*pulse,1);});
     torchPositions.forEach((p,i)=>{for(let j=0;j<6;j++){const phase=(t*.48+j/6+i*.17)%1,k=(i*6+j)*3;emberPositions[k]=p.x+Math.sin(t*1.4+j*5+i)*phase*.3;emberPositions[k+1]=p.y-.3+phase*1.6;emberPositions[k+2]=p.z+Math.cos(t+j*4)*phase*.25;}});
     emberGeo.attributes.position.needsUpdate=true;
-    ripples.forEach((r,i)=>{const phase=(t*.65+(i%4)*.25)%1;r.scale.setScalar(.65+phase*1.7);});
+    ripples.forEach((r,i)=>{const phase=(t*.65+(i%4)*.25)%1;r.scale.setScalar(.65+phase*1.7);r.position.y=-2.7+Math.sin(t*.9)*.05+(i%4)*.008;});
+    falls.forEach((fall,i)=>{for(let j=0;j<16;j++){const phase=(t*.8+j/16+i*.31)%1,angle=j*2.4,k=(i*16+j)*3;const span=.12+phase*.65;sprayPositions[k]=fall.position.x+Math.cos(angle)*span;sprayPositions[k+1]=-2.7+Math.sin(phase*Math.PI)*(.2+(j%3)*.12);sprayPositions[k+2]=fall.position.z+Math.sin(angle)*span;}});sprayGeometry.attributes.position.needsUpdate=true;
     seals.forEach((seal,i)=>{const m=seal.material as THREE.MeshBasicMaterial;m.color.setHex(cleared.has(i)?0x9dcf9e:0x7faeae);m.opacity=cleared.has(i)?.6:.16;});
     flowTexture.offset.y=t*.5;falls.forEach((f,i)=>{f.scale.x=1+Math.sin(t*4+i)*.06;});
-  },dispose(){flowTexture.dispose();glowMap.dispose();haloMaterial.dispose();coreMaterial.dispose();emberGeo.dispose();emberMaterial.dispose();motesGeo.dispose();(motes.material as THREE.Material).dispose();}};
+  },dispose(){sprayGeometry.dispose();sprayMaterial.dispose();contactMap.dispose();flowTexture.dispose();glowMap.dispose();haloMaterial.dispose();coreMaterial.dispose();emberGeo.dispose();emberMaterial.dispose();motesGeo.dispose();(motes.material as THREE.Material).dispose();}};
 }

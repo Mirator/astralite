@@ -3,7 +3,7 @@ import * as THREE from 'three';
 // World-space currents stay the same size across differently sized generated floors.
 export function tidalMaterial() {
   const time = { value: 0 };
-  const material = new THREE.MeshStandardMaterial({ color: 0x237f84, roughness: 0.3, metalness: 0.3 });
+  const material = new THREE.MeshStandardMaterial({ color: 0x21676e, roughness: 0.24, metalness: 0.12 });
   material.onBeforeCompile = shader => {
     shader.uniforms.tideTime = time;
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 tideWorld;')
@@ -16,10 +16,16 @@ export function tidalMaterial() {
         float ribbons = smoothstep(0.94, 0.995, sin(p.x * 5.8 + p.y * 4.0 + crosswave * 1.4 + tideTime));
         ribbons *= smoothstep(0.0, 0.7, sin(p.y * 2.3 - p.x * 1.4 + tideTime * 0.4));
         diffuseColor.rgb *= 0.78 + swell * 0.12 + crosswave * 0.08;
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.40, 0.72, 0.69), ribbons * 0.24);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.40, 0.72, 0.69), ribbons * 0.14);
+      `)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        vec2 waveSlope = vec2(
+          cos(tideWorld.x * 1.7 + tideWorld.z * 1.1 + tideTime * .85) * .075,
+          cos(tideWorld.z * 3.7 - tideWorld.x * .6 - tideTime * 1.2) * .055);
+        normal = normalize(normal + mat3(viewMatrix) * vec3(waveSlope.x, 0.0, waveSlope.y));
       `);
   };
-  material.customProgramCacheKey = () => 'tidal-currents-v1';
+  material.customProgramCacheKey = () => 'tidal-currents-v2';
   return { material, time };
 }
 
@@ -39,11 +45,45 @@ export function weatherStone(material: THREE.MeshStandardMaterial) {
         float patches = sin(p.x * 0.72 + sin(p.y * 1.2)) * sin(p.y * 0.84 - p.x * 0.35);
         float grain = sin(p.x * 13.0 + sin(p.y * 9.0)) * sin(p.y * 17.0);
         float moss = smoothstep(0.25, 0.8, patches + grain * 0.18);
-        diffuseColor.rgb *= 0.94 + patches * 0.12;
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.62, 0.83, 0.57), moss * 0.65);
+        float wetStone = smoothstep(.28, .7, patches + grain * .06);
+        float tideMark = 1.0 - smoothstep(-2.35, -1.65, stoneWorld.y + patches * .16);
+        wetStone = max(wetStone * (1.0 - smoothstep(.15, 1.6, stoneWorld.y)), tideMark);
+        diffuseColor.rgb *= (.96 + patches * .10) * (1.0 - wetStone * .28);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(.62, .83, .57), moss * .38);
+        diffuseColor.rgb *= 1.0 - tideMark * .22;
+      `)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, .28, wetStone * .88);
       `);
   };
-  material.customProgramCacheKey = () => 'weathered-stone-v1';
+  material.customProgramCacheKey = () => 'weathered-stone-v2';
+}
+
+// One instanced shoreline draw, with soft broken foam rather than a bright outline of the grid.
+export function shorelineMaterial() {
+  const time = { value: 0 };
+  const material = new THREE.MeshBasicMaterial({ color: 0x9fcac0, transparent: true, opacity: .48, depthWrite: false, side: THREE.DoubleSide });
+  material.onBeforeCompile = shader => {
+    shader.uniforms.shoreTime = time;
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 shoreUv;\nvarying vec3 shoreWorld;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        shoreUv = uv;
+        vec4 shorePosition = vec4(position, 1.0);
+        #ifdef USE_INSTANCING
+          shorePosition = instanceMatrix * shorePosition;
+        #endif
+        shoreWorld = (modelMatrix * shorePosition).xyz;
+      `);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform float shoreTime;\nvarying vec2 shoreUv;\nvarying vec3 shoreWorld;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float flow = sin(shoreWorld.x * 7.0 + shoreWorld.z * 5.0 + shoreTime * 1.1);
+        float band = exp(-pow((shoreUv.y - .48 - flow * .13) * 9.0, 2.0));
+        float flecks = smoothstep(-.15, .7, sin(shoreWorld.x * 19.0 - shoreWorld.z * 13.0 + shoreTime * .6));
+        diffuseColor.a *= band * (.3 + flecks * .7) * smoothstep(0.0, .12, shoreUv.x) * smoothstep(0.0, .12, 1.0 - shoreUv.x);
+      `);
+  };
+  material.customProgramCacheKey = () => 'shore-foam-v1';
+  return { material, time };
 }
 
 // Keep the shoulder edge pinned; movement travels progressively toward the hem.
@@ -70,4 +110,13 @@ export function glowTexture() {
   ctx.fillStyle = glow; ctx.fillRect(0, 0, 64, 64);
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
+}
+
+export function contactTexture() {
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  const shade = ctx.createRadialGradient(32,32,4,32,32,32);
+  shade.addColorStop(0,'rgba(3,12,16,.55)'); shade.addColorStop(.45,'rgba(3,12,16,.3)'); shade.addColorStop(1,'rgba(3,12,16,0)');
+  ctx.fillStyle=shade;ctx.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(canvas);
 }
