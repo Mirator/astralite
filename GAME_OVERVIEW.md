@@ -17,7 +17,7 @@ The experience is designed around a simple promise: **explore, fight, grow stron
 3. Fight skeleton guards, evade stalker pounces, and break through wardens.
 4. Cleanse rooms to recover vitality and earn experience from enemies and optional detours.
 5. Rank up and choose boons that improve the current run.
-6. Defeat the wardens guarding the exit, review the floor results, and descend.
+6. Defeat the wardens guarding the exit. Their fall unseals the stair; step onto it to review the floor results and descend.
 7. Escape after three floors—or fall, begin a new descent, or retry the same keep seed.
 
 ## The Drowned Keep

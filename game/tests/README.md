@@ -151,7 +151,8 @@ window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'start' }));
 const stair = S().floor.rooms[S().floor.goal];
 window.dungeonTest.teleport(stair.x * 1.48, stair.z * 1.48);
 window.advanceTime(200, false);
-S().objective; // { floor, halls, goalDepth, atStair, stairClear, … }
+S().objective; // { floor, halls, goalDepth, atStair, stairClear, stairOpen, stairDwell, … }
+S().stair;     // { x, z, radius, dwell } — the open stair takes the knight after `dwell` seconds standing on it
 ```
 
 Open the boon draft (it freezes the world until a card is clicked, so yield to React first):

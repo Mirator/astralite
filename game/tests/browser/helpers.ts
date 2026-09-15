@@ -44,8 +44,11 @@ export type Snapshot = {
     goalDepth: number;
     atStair: boolean;
     stairClear: boolean;
+    stairOpen: boolean;
+    stairDwell: number;
     deadEndsPlundered: number;
   };
+  stair: { x: number; z: number; radius: number; dwell: number };
   experience: {
     total: number;
     perEnemy: number;
