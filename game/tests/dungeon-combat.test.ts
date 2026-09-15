@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PLAYER_ATTACK_ANTICIPATION, PLAYER_ATTACK_DURATION } from '../app/dungeon-attack-pose.ts';
+import { PLAYER_ATTACK_ANTICIPATION, PLAYER_ATTACK_CONTACT_END, PLAYER_ATTACK_DURATION } from '../app/dungeon-attack-pose.ts';
 import { canAbortSwing, DASH_BUFFER, incomingDamage, swordContacts } from '../app/dungeon-combat.ts';
 import { canStand, cellKey, hasClearPath, TILE } from '../app/dungeon-floor.ts';
 
@@ -152,16 +152,22 @@ test('the tile size the fixtures assume has not moved', () => {
   assert.equal(TILE, 1.48);
 });
 
-test('a swing can be aborted only in its anticipation; a live blade is a commitment the dash waits out', () => {
-  const live = PLAYER_ATTACK_DURATION - PLAYER_ATTACK_ANTICIPATION;
+test('only the live blade is a commitment: anticipation and recovery both give way to a dash', () => {
+  const remaining = (age: number) => PLAYER_ATTACK_DURATION - age;
   // Idle, or a swing that has only just begun, can give way to a dash.
   assert.equal(canAbortSwing(0), true);
   assert.equal(canAbortSwing(PLAYER_ATTACK_DURATION), true);
-  assert.equal(canAbortSwing(live + 0.001), true);
-  // From the first frame the blade is live to the end of the recovery, it cannot.
-  assert.equal(canAbortSwing(live), false);
-  assert.equal(canAbortSwing(0.2), false);
-  assert.equal(canAbortSwing(0.001), false);
-  // The buffer outlasts any swing remainder, so a dash pressed at contact is never dropped.
-  assert.ok(DASH_BUFFER > live);
+  assert.equal(canAbortSwing(remaining(PLAYER_ATTACK_ANTICIPATION - 0.001)), true);
+  // From the first live frame to the last frame of contact, it cannot.
+  assert.equal(canAbortSwing(remaining(PLAYER_ATTACK_ANTICIPATION)), false);
+  assert.equal(canAbortSwing(remaining(0.12)), false);
+  assert.equal(canAbortSwing(remaining(PLAYER_ATTACK_CONTACT_END - 0.001)), false);
+  // The recovery is free again: a dodge pressed there fires at once. This is what keeps a held strike
+  // key playable - the wait is at most the 0.11s of contact, not the rest of the swing.
+  assert.equal(canAbortSwing(remaining(PLAYER_ATTACK_CONTACT_END)), true);
+  assert.equal(canAbortSwing(0.2), true);
+  assert.equal(canAbortSwing(0.001), true);
+  assert.ok(PLAYER_ATTACK_CONTACT_END - PLAYER_ATTACK_ANTICIPATION < 0.12);
+  // The buffer outlasts the contact window, so a dash pressed at the first live frame is never dropped.
+  assert.ok(DASH_BUFFER > PLAYER_ATTACK_CONTACT_END - PLAYER_ATTACK_ANTICIPATION);
 });
