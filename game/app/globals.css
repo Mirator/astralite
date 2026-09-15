@@ -29,6 +29,8 @@ button, kbd { font: inherit; }
 .boon-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 9px; }
 .boon-list span { padding: 2px 6px; border: 1px solid #cf9c5b44; background: #cf9c5b14; color: #e6c68d; font: 600 9px/1.4 var(--font-geist-mono); letter-spacing: .06em; }
 .end-card.boon-card, .end-card.result-card { width: min(660px, calc(100% - 36px)); }
+/* Cards take focus when they open so a dialog announces itself; the ring belongs on the controls inside. */
+.intro-card:focus, .end-card:focus { outline: none; }
 .end-card.boon-card { padding: 34px 30px; }
 .end-card.boon-card h1 { font-size: clamp(24px, 4vw, 34px); margin: 12px 0 4px; }
 .boon-card .boon-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 22px; }
