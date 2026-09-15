@@ -649,7 +649,7 @@ export default function DungeonGame() {
     };
     const requestDash = () => {
       if (!hasStarted || isPaused || gameStatus !== 'playing' || dashCooldown > 0) return;
-      // Once the blade is live the swing is a commitment: the dash waits for the recovery to end instead of
+      // While the blade is live the swing is a commitment: the dash waits for contact to end instead of
       // cutting it short, which is what makes swinging into a tell a mistake rather than a free action.
       if (!canAbortSwing(attackTime)) { dashBuffer = DASH_BUFFER; return; }
       dashBuffer = 0;
@@ -750,9 +750,9 @@ export default function DungeonGame() {
         attackBuffer = Math.max(0, attackBuffer - dt); dashBuffer = Math.max(0, dashBuffer - dt);
         if (attackBuffer === 0) bufferedFacing = null;
         dashCooldown = Math.max(0, dashCooldown - dt);
-        // A dash that waited out a swing goes first, ahead of the next held swing, or holding strike would
-        // swallow every dodge pressed mid-swing.
-        if (attackTime <= 0 && dashTime <= 0 && dashBuffer > 0) requestDash();
+        // A dash that waited out the live blade goes first, the moment the recovery begins and ahead of the
+        // next held swing, or holding strike would swallow every dodge pressed mid-swing.
+        if (dashTime <= 0 && dashBuffer > 0 && canAbortSwing(attackTime)) requestDash();
         if (attackTime <= 0 && dashTime <= 0 && (attackBuffer > 0 || held('attack'))) startAttack();
         const input = moveInput(), moving = input.lengthSq() > 0;
         if (moving && attackTime <= 0 && dashTime <= 0) facing.copy(input);

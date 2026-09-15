@@ -4,7 +4,7 @@
 // than a copy of them.
 
 import { hasClearPath } from './dungeon-floor.ts';
-import { PLAYER_ATTACK_ANTICIPATION, PLAYER_ATTACK_DURATION } from './dungeon-attack-pose.ts';
+import { PLAYER_ATTACK_ANTICIPATION, PLAYER_ATTACK_CONTACT_END, PLAYER_ATTACK_DURATION } from './dungeon-attack-pose.ts';
 
 export type Spot = { x: number; z: number };
 
@@ -37,17 +37,22 @@ export function swordContacts(
 
 /**
  * Whether a dash may abort the current swing. `attackTime` is the seconds of swing left, 0 when idle.
- * Only the anticipation can be aborted: once the blade is live the swing is a commitment, and a dash
- * pressed during it waits for the recovery to end rather than cutting it short. Before this a dash
- * cancelled any swing at any point for free, so committing to an attack never cost anything and the
- * only timing that mattered was the enemy's.
+ * The blade is live from the end of the anticipation to the end of contact, and that window is a
+ * commitment: a dash pressed inside it waits for contact to end. Anticipation and recovery both give
+ * way at once. Before this a dash cancelled any swing at any point for free, so committing to an attack
+ * never cost anything; then for one release the whole 0.38s swing was locked, which with a held strike
+ * key meant a dodge fired up to 0.3s late and a guard's 0.5s tell landed more often than not. Locking
+ * only the 0.11s of contact keeps the cost of swinging into a tell without punishing holding the key.
  */
-export const canAbortSwing = (attackTime: number) =>
-  attackTime <= 0 || attackTime > PLAYER_ATTACK_DURATION - PLAYER_ATTACK_ANTICIPATION;
+export const canAbortSwing = (attackTime: number) => {
+  if (attackTime <= 0) return true;
+  const age = PLAYER_ATTACK_DURATION - attackTime;
+  return age < PLAYER_ATTACK_ANTICIPATION || age >= PLAYER_ATTACK_CONTACT_END;
+};
 
 /**
- * How long a dash pressed into a live blade waits for the swing to end. Longer than any swing
- * remainder, so a press at the moment of contact is never dropped.
+ * How long a dash pressed into a live blade waits for contact to end. Longer than the contact window,
+ * so a press at the first live frame is never dropped.
  */
 export const DASH_BUFFER = 0.4;
 
