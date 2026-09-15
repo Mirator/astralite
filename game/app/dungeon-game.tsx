@@ -13,7 +13,7 @@ import { playerAttackPose, PLAYER_ATTACK_DURATION } from './dungeon-attack-pose'
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
-import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, rankCost, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
 type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[] };
 // Development-only test fixture payload: which existing actors to move, and to what. Deliberately narrow —
@@ -370,6 +370,11 @@ export default function DungeonGame() {
     // last floor. `runStart` is the moment the keep was entered, not the moment the page mounted.
     let runStart = 0, firstSeed = 0, boonsTaken: string[] = [];
     let features: { mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; room: number; shrine: boolean; used: boolean; phase: number; burned: boolean }[] = [];
+    // The way down sits at the heart of the warden hall: sealed until the last warden falls, then open, and
+    // taken only once the knight has stood on it for STAIR_DWELL seconds.
+    let stairOpen = false, stairDwell = 0;
+    const stairSpot = new THREE.Vector3();
+    let stairSeal: THREE.Mesh | null = null, stairRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> | null = null, stairGlow: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial> | null = null;
     let floorGroup = new THREE.Group();
     let water: THREE.Mesh | null = null;
     let tide: ReturnType<typeof tidalMaterial> | null = null;
@@ -379,6 +384,16 @@ export default function DungeonGame() {
     const swingHits = new Set<Enemy>();
     let gameStatus: 'playing' | 'complete' | 'won' | 'lost' = 'playing';
     const stairClear = () => enemyData.every(e => e.room !== floor.goal || e.dead);
+    // The last warden's fall unseals the stair; the knight still has to take it, and nothing ends until he does.
+    const openStair = () => {
+      if (stairOpen) return;
+      stairOpen = true; stairDwell = 0;
+      if (stairSeal) stairSeal.visible = false;
+      if (stairRing) stairRing.visible = true;
+      if (stairGlow) stairGlow.visible = true;
+      burst(stairSpot, 0xffc573, 24);
+      setNotice('The stair opens'); setNoticeDetail('step onto it to descend'); noticeTime = 4;
+    };
     const offerBoon = () => {
       run.choosing = true; keys.clear();
       setBoonChoice(draftBoons(run));
@@ -503,7 +518,7 @@ export default function DungeonGame() {
       buildMs = {};
       if (atmosphere) clearFloor();
       phase('dispose');
-      level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; features = [];
+      level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; features = []; stairOpen = false; stairDwell = 0;
       gameStatus = 'playing'; setStatus('playing');
       floor = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], level);
       phase('generate');
@@ -556,6 +571,16 @@ export default function DungeonGame() {
           }
         }
       }
+      // The way down: a sealed grate at the heart of the warden hall, ringed in stone over a dark shaft. The seal
+      // lifts when the last warden falls; the gold ring is the same mark the map uses for the stair.
+      { const goal = floor.rooms[floor.goal]; stairSpot.set(goal.x * TILE, 0, goal.z * TILE);
+        const pit = new THREE.Mesh(new THREE.CircleGeometry(1.15, 32), new THREE.MeshBasicMaterial({ color: 0x04070a })); pit.rotation.x = -Math.PI / 2; pit.position.set(stairSpot.x, .07, stairSpot.z); floorGroup.add(pit);
+        const rim = new THREE.Mesh(new THREE.RingGeometry(1.15, 1.42, 32), new THREE.MeshStandardMaterial({ color: 0x55636a, roughness: .9 })); rim.rotation.x = -Math.PI / 2; rim.position.set(stairSpot.x, .075, stairSpot.z); floorGroup.add(rim);
+        stairSeal = new THREE.Mesh(new THREE.CylinderGeometry(1.16, 1.16, .05, 32), new THREE.MeshStandardMaterial({ color: 0x241b17, metalness: .8, roughness: .65 })); stairSeal.position.set(stairSpot.x, .1, stairSpot.z); floorGroup.add(stairSeal);
+        // Open: light from below fills the shaft and a wide amber ring sits clear of the stone rim, so the change reads
+        // from across the hall on every floor's lighting, not only the darkest.
+        stairGlow = new THREE.Mesh(new THREE.CircleGeometry(1.12, 32), new THREE.MeshBasicMaterial({ color: 0xffc573, transparent: true, opacity: .35, depthWrite: false })); stairGlow.rotation.x = -Math.PI / 2; stairGlow.position.set(stairSpot.x, .08, stairSpot.z); stairGlow.visible = false; stairGlow.renderOrder = 4; floorGroup.add(stairGlow);
+        stairRing = new THREE.Mesh(new THREE.RingGeometry(1.5, 1.85, 48), new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: .85, side: THREE.DoubleSide, depthWrite: false })); stairRing.rotation.x = -Math.PI / 2; stairRing.position.set(stairSpot.x, .09, stairSpot.z); stairRing.visible = false; stairRing.renderOrder = 5; floorGroup.add(stairRing); }
       phase('atmosphere');
       enemyData = floor.spawns.map((spawn, index) => {
         const kind = spawn.kind;
@@ -782,7 +807,19 @@ export default function DungeonGame() {
             setNotice(`${currentRoom.name} · ambush`); setNoticeDetail(`${sprung.length} rise from the silt`); noticeTime = 3; audio.play('warn'); shake = 0.12;
           }
         }
-        descend();
+        // The stair opens when the last warden falls and takes the knight down only once he has stood on it a
+        // moment: the floor ends on a step he chose, never in the middle of a swing. A dash across it does not count.
+        if (!stairOpen && stairClear()) openStair();
+        if (stairOpen) {
+          const onStair = Math.hypot(player.position.x - stairSpot.x, player.position.z - stairSpot.z) < STAIR_RADIUS;
+          stairDwell = stairDwellStep(stairDwell, onStair, dashTime > 0, dt);
+          const fill = stairDwell / STAIR_DWELL, pulse = Math.sin(t * 3) * .1;
+          if (stairRing) { stairRing.material.opacity = .75 + fill * .25 + pulse; stairRing.scale.setScalar(1 + fill * .15); }
+          // The shaft stays dark until the knight stands on it, then fills with light as the dwell runs: the same
+          // cue tells him the stair is his to take and how close he is to taking it.
+          if (stairGlow) stairGlow.material.opacity = .08 + fill * .7 + pulse * .3;
+          if (stairDwell >= STAIR_DWELL) descend();
+        }
         if (gameStatus !== 'playing') return;
         for (const feature of features) {
           const near = Math.hypot(player.position.x-feature.mesh.position.x, player.position.z-feature.mesh.position.z);
@@ -844,7 +881,7 @@ export default function DungeonGame() {
                 setNoticeDetail(detour ? `+${XP_DEAD_END} XP · +30 vitality` : '+12 vitality restored');
                 noticeTime = 3.5; rewardTime = 1.4; audio.play('clear'); burst(player.position,0x8de9be,18);
                 document.getElementById(`map-room-${enemy.room}`)?.setAttribute('fill', detour ? '#c2b273' : '#a8d5b0');
-              } descend(); }
+              } if (enemy.room === floor.goal && stairClear()) openStair(); }
             }
           });
         } else { posePlayer(0);slash.update(dt,false,player.userData.sword,bladeInner,bladeTip); }
@@ -1000,7 +1037,8 @@ export default function DungeonGame() {
     hooks.render_game_to_text = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
       health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
-      objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), deadEndsPlundered: loot },
+      objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, stairDwell, deadEndsPlundered: loot },
+      stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
@@ -1071,7 +1109,7 @@ export default function DungeonGame() {
         <button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'LOADING…' : paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
         {/* Read off the bindings rather than written out, or this card would go on promising WASD to a player
             who rebound it ten seconds ago — which is the exact moment they would come here to check. */}
-        <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><p>Reach {goalName}. Defeat the stair wardens to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality.</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</details>
+        <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><p>Reach {goalName}. Defeat the stair wardens, then step onto the stair they guarded to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality.</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</details>
         {/* Folded away beside the journey, not added to the HUD: this card is where detail belongs, and the
             world stays bare. Everything here persists, and everything here has a default that is the game
             exactly as it shipped, so a player who never opens this changes nothing by not opening it. */}

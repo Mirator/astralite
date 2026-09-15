@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BOONS, clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, INVULN, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
+import { BOONS, clearRoomReward, createRun, draftBoons, grantXp, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, heal, hurt, INVULN, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
 
 // A run with the draft already open, since every boon needs that gate held down.
 const drafting = (patch: Partial<Run> = {}): Run => Object.assign(createRun(), { choosing: true, pendingRanks: 1 }, patch);
@@ -284,4 +284,23 @@ test('the draft shuffle is uniform: every card is equally likely to be offered',
     const share = (counts.get(boon.id) ?? 0) / draws;
     assert.ok(Math.abs(share - 0.5) < 0.02, `${boon.id} offered in ${(share * 100).toFixed(1)}% of drafts`);
   }
+});
+
+test('the open stair takes the knight only after a moment standing on it, and a dash across it does not count', () => {
+  assert.equal(STAIR_RADIUS, 1.25);
+  assert.equal(STAIR_DWELL, 0.4);
+  // Standing fills toward the cap.
+  let dwell = 0;
+  for (let i = 0; i < 20; i++) dwell = stairDwellStep(dwell, true, false, 1 / 60);
+  assert.ok(Math.abs(dwell - 20 / 60) < 1e-9);
+  for (let i = 0; i < 20; i++) dwell = stairDwellStep(dwell, true, false, 1 / 60);
+  assert.ok(Math.abs(dwell - STAIR_DWELL) < 1e-9);
+  // Dashing over it holds nothing: the dwell drains as if off the stair.
+  assert.ok(stairDwellStep(0.3, true, true, 0.1) < 0.3);
+  assert.ok(Math.abs(stairDwellStep(0.3, true, true, 0.1) - 0.1) < 1e-9);
+  // Stepping off drains twice as fast as standing fills, and never below zero.
+  assert.ok(Math.abs(stairDwellStep(0.3, false, false, 0.1) - 0.1) < 1e-9);
+  assert.equal(stairDwellStep(0.05, false, false, 0.1), 0);
+  // A bad frame delta neither fills nor drains.
+  assert.equal(stairDwellStep(0.2, true, false, Number.NaN), 0.2);
 });

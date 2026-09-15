@@ -137,3 +137,13 @@ export const clearRoomReward = (run: Run, detour: boolean): Reward => {
   const ranks = detour ? grantXp(run, xp).ranks : 0;
   return { xp, ranks, healed: heal(run, detour ? 30 : 12) };
 };
+
+// The way down. A cleared stair opens but does not take the knight until he has stood on it this long, so a
+// floor ends on a step he chose and never in the middle of a swing; a dash across it does not count, and
+// stepping off drains the dwell twice as fast as standing fills it.
+export const STAIR_RADIUS = 1.25;
+export const STAIR_DWELL = 0.4;
+export const stairDwellStep = (dwell: number, onStair: boolean, dashing: boolean, dt: number) => {
+  const step = amount(dt);
+  return onStair && !dashing ? Math.min(STAIR_DWELL, dwell + step) : Math.max(0, dwell - step * 2);
+};

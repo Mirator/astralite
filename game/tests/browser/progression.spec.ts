@@ -120,9 +120,26 @@ test('killing the last warden ends a floor, freezes it, and waits for a real Con
     expect(wardens).toBeGreaterThan(0);
     const xpBefore = before.experience.total;
 
-    const cleared = await fightStair(game, page);
+    // The last warden's fall opens the stair but ends nothing: the results wait for the knight to take it.
+    const opened = await fightStair(game, page);
+    expect(opened.mode).toBe('playing');
+    expect(opened.objective.stairClear).toBe(true);
+    expect(opened.objective.stairOpen).toBe(true);
+    await game.step(1000);
+    expect((await game.state()).mode).toBe('playing');
+    await expect(page.locator('.success-screen')).toBeHidden();
+    await game.capture(`floor-${level}-stair-open`);
+    // A brief pass over the stair is not a descent; standing on it is.
+    await game.teleport(opened.stair.x, opened.stair.z);
+    await game.step(200);
+    expect((await game.state()).mode).toBe('playing');
+    await game.teleport(opened.stair.x + opened.stair.radius * 2, opened.stair.z);
+    await game.step(300);
+    expect((await game.state()).objective.stairDwell).toBe(0);
+    await game.teleport(opened.stair.x, opened.stair.z);
+    await game.step(opened.stair.dwell * 1000 + 100);
+    const cleared = await game.state();
     expect(cleared.mode).toBe('complete');
-    expect(cleared.objective.stairClear).toBe(true);
     await expect(page.locator('.success-screen')).toBeVisible();
     if (level < 3) {
       await expect(page.locator('.recovery-note')).toBeVisible();
@@ -230,6 +247,13 @@ test('a rank-up on the last warden opens its boon before the floor results, and 
 
   await game.takeBoon();
   await game.step(60);
+  const opened = await game.state();
+  expect(opened.boonOffer).toBe(false);
+  expect(opened.mode).toBe('playing');
+  expect(opened.objective.stairOpen).toBe(true);
+  // Only the stair itself ends the floor, once the knight has stood on it.
+  await game.teleport(opened.stair.x, opened.stair.z);
+  await game.step(opened.stair.dwell * 1000 + 100);
   const complete = await game.state();
   expect(complete.boonOffer).toBe(false);
   expect(complete.mode).toBe('complete');
