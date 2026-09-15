@@ -611,7 +611,7 @@ test('a lethal gauntlet ends the tick: nothing moves after the knight falls', as
   throw new Error(`the gauntlet never killed the knight\n${await game.report()}`);
 });
 
-test('a live blade is a commitment: a dash in anticipation aborts the swing, one pressed later waits it out', async ({
+test('only the live blade is a commitment: a dash aborts anticipation and recovery at once, and waits out contact', async ({
   game,
   page,
 }) => {
@@ -633,7 +633,8 @@ test('a live blade is a commitment: a dash in anticipation aborts the swing, one
   await game.step(1600);
   expect((await game.state()).player.dashCooldown).toBe(0);
 
-  // Past anticipation the blade is live: the dash is held, the swing finishes, then the dash fires.
+  // Contact runs from 0.065s to 0.175s: 0.13s in the blade is live, so the dash is held. It fires the
+  // moment contact ends, into the recovery, rather than waiting for the whole 0.38s swing.
   await page.keyboard.press('Space');
   await game.step(130);
   const live = await game.state();
@@ -645,9 +646,25 @@ test('a live blade is a commitment: a dash in anticipation aborts the swing, one
   expect(waiting.player.attackTime).toBeGreaterThan(0);
   expect(waiting.player.dashBuffer).toBeGreaterThan(0);
   await game.capture('dash-waits-for-live-blade');
-  await game.step(300);
+  await game.step(64);
   const fired = await game.state();
+  expect(fired.player.dashTime).toBeGreaterThan(0);
   expect(fired.player.attackTime).toBe(0);
-  expect(fired.player.dashCooldown).toBeGreaterThan(0);
   expect(fired.player.dashBuffer).toBe(0);
+
+  // Let that dash and its cooldown run out too.
+  await game.step(1600);
+  expect((await game.state()).player.dashCooldown).toBe(0);
+
+  // In the recovery, 0.2s in, the swing gives way at once: no wait, no buffer.
+  await page.keyboard.press('Space');
+  await game.step(200);
+  const recovering = await game.state();
+  expect(recovering.player.attackTime).toBeGreaterThan(0);
+  await page.keyboard.press('ShiftLeft');
+  await game.step(16);
+  const cancelled = await game.state();
+  expect(cancelled.player.attackTime).toBe(0);
+  expect(cancelled.player.dashTime).toBeGreaterThan(0);
+  expect(cancelled.player.dashBuffer).toBe(0);
 });
