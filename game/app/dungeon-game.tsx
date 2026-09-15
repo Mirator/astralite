@@ -10,6 +10,7 @@ import { canAbortSwing, DASH_BUFFER, swordContacts } from './dungeon-combat';
 import { decideEnemy, enemyStats, interruptsWindup, separateCrowd } from './dungeon-enemy';
 import { enemyPose } from './dungeon-enemy-pose';
 import { playerAttackPose, PLAYER_ATTACK_DURATION } from './dungeon-attack-pose';
+import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
 import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
@@ -56,40 +57,75 @@ const bindLabel = (codes: string[], join = ' / ') => [...new Set(codes.map(keyLa
 
 function makeKnight() {
   const g = new THREE.Group();
-  const dark = new THREE.MeshStandardMaterial({ color: 0x17202a, roughness: 0.8 });
-  const steel = new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.48, metalness: 0.35 });
-  const red = new THREE.MeshStandardMaterial({ color: 0x9b292d, roughness: 0.9, side: THREE.DoubleSide });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x202b32, roughness: 0.8 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.48, metalness: 0.35, flatShading: true });
+  const iron = new THREE.MeshStandardMaterial({ color: 0x66747b, roughness: .58, metalness: .45, flatShading: true });
+  const brass = new THREE.MeshStandardMaterial({ color: 0xc49a54, roughness: .5, metalness: .5 });
+  const shadow = new THREE.MeshStandardMaterial({ color: 0x080f14, roughness: 1 });
+  const red = new THREE.MeshStandardMaterial({ color: 0xa52c34, roughness: 0.9, side: THREE.DoubleSide });
   const leather = new THREE.MeshStandardMaterial({ color: 0x5b3728, roughness: 1 });
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.48, 0.8, 6), dark);
-  body.position.y = 0.72;
-  const head = new THREE.Mesh(new THREE.DodecahedronGeometry(0.31, 0), steel);
-  head.position.y = 1.36; head.scale.z = 0.86;
-  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.09, 0.12), dark);
-  visor.position.set(0, 1.38, -0.26);
+  // Bevelled, cut plates keep the reference's broad painted facets readable
+  // at gameplay scale. Every decorative part stays on its existing joint.
+  const plate=(outline:number[][],depth:number,material:THREE.Material)=>{
+    const shape=new THREE.Shape();outline.forEach(([x,y],i)=>{if(i)shape.lineTo(x,y);else shape.moveTo(x,y);});shape.closePath();
+    const geometry=new THREE.ExtrudeGeometry(shape,{depth,bevelEnabled:true,bevelSize:.015,bevelThickness:.012,bevelSegments:1,steps:1,curveSegments:1});
+    geometry.translate(0,0,-depth/2);return new THREE.Mesh(geometry,material);
+  };
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(.32,.28,.63,8), dark);
+  body.position.y = .81;
+  const head = new THREE.Group();head.position.y=1.37;
+  const helmet=new THREE.Mesh(new THREE.CylinderGeometry(.16,.28,.39,6),steel);helmet.position.y=.045;helmet.rotation.y=Math.PI/6;
+  const crown=plate([[-.23,.16],[-.1,.29],[.035,.34],[.23,.16],[.22,.06],[-.22,.06]],.23,steel);crown.position.z=.005;
+  const face=plate([[-.24,.14],[.24,.14],[.22,-.16],[.09,-.23],[-.09,-.23],[-.22,-.16]],.065,steel);face.position.z=-.215;
+  const visor = new THREE.Group();visor.position.set(0,0,-.264);
+  for(const side of [-1,1]){const slit=new THREE.Mesh(new THREE.BoxGeometry(.175,.052,.018),shadow);slit.position.set(side*.116,.02,0);slit.rotation.z=side*.08;visor.add(slit);}
+  const nose=plate([[-.025,.11],[.025,.11],[.035,-.18],[0,-.215],[-.035,-.18]],.045,steel);nose.position.z=-.275;
+  const mouth=new THREE.Mesh(new THREE.BoxGeometry(.035,.1,.018),shadow);mouth.position.set(0,-.13,-.257);
+  head.add(helmet,crown,face,visor,nose,mouth);
   const capeGeometry = new THREE.PlaneGeometry(.88,1.12,6,8);
   const cloth = capeGeometry.getAttribute('position');
-  for(let i=0;i<cloth.count;i++){const free=(.56-cloth.getY(i))/1.12;cloth.setX(i,cloth.getX(i)*(.65+free*.4));cloth.setZ(i,free*.2);}
+  for(let i=0;i<cloth.count;i++){const free=(.56-cloth.getY(i))/1.12,x=cloth.getX(i);cloth.setX(i,x*(.65+free*.4));cloth.setY(i,cloth.getY(i)+(free>.99?.09*(1-Math.abs(x)/.44):0));cloth.setZ(i,free*.2+Math.sin(x*22)*.035*free);}
   const cape = new THREE.Mesh(capeGeometry, red);
   cape.position.set(0, 0.69, 0.3); cape.rotation.x = 0.1;
-  const belt = new THREE.Mesh(new THREE.TorusGeometry(0.39, 0.055, 5, 8), leather);
-  belt.position.y = 0.67; belt.rotation.x = Math.PI / 2;
+  const belt = new THREE.Mesh(new THREE.TorusGeometry(.285,.047,4,8), leather);
+  belt.position.y = .66; belt.rotation.x = Math.PI / 2;
   const swordPivot = new THREE.Group();
   swordPivot.position.set(0.44, 1.0, -0.02);
-  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.08, 1.18), steel);
-  blade.position.z = -0.58;
-  const hilt = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.1, 0.1), leather);
-  swordPivot.add(blade, hilt);
-  const breastplate = new THREE.Mesh(new THREE.BoxGeometry(0.5,0.48,0.16),steel); breastplate.position.set(0,0.91,-0.29);
-  const pauldrons = [-1,1].map(side => { const shoulder = new THREE.Mesh(new THREE.DodecahedronGeometry(0.22),steel);shoulder.position.set(side*0.38,1.09,0);shoulder.scale.set(1,0.7,1);return shoulder; });
+  const blade=plate([[-.065,0],[.065,0],[.075,.87],[0,1.158],[-.075,.87]],.045,steel);blade.rotation.x=-Math.PI/2;
+  const fuller=new THREE.Mesh(new THREE.BoxGeometry(.022,.006,.66),iron);fuller.position.set(0,.038,-.45);
+  const hilt=plate([[-.23,-.035],[-.24,.045],[-.08,.075],[.08,.075],[.24,.045],[.23,-.035],[.07,.015],[-.07,.015]],.08,brass);hilt.rotation.x=-Math.PI/2;
+  const grip=new THREE.Mesh(new THREE.CylinderGeometry(.045,.045,.2,6),leather);grip.rotation.x=Math.PI/2;grip.position.z=.12;
+  const pommel=new THREE.Mesh(new THREE.DodecahedronGeometry(.072,0),brass);pommel.position.z=.24;
+  swordPivot.add(blade,fuller,hilt,grip,pommel);
+  const breastplate=plate([[-.27,.22],[.27,.22],[.3,.08],[.22,-.22],[0,-.27],[-.22,-.22],[-.3,.08]],.13,iron);breastplate.position.set(0,.92,-.25);
+  const chestRidge=plate([[-.025,.18],[.025,.18],[.035,-.19],[0,-.23],[-.035,-.19]],.02,steel);chestRidge.position.z=-.085;breastplate.add(chestRidge);
+  const pauldrons = [-1,1].map(side => { const shoulder = new THREE.Mesh(new THREE.DodecahedronGeometry(.23,0),iron);shoulder.position.set(side*.37,1.1,0);shoulder.scale.set(1,.66,1.12);const rim=new THREE.Mesh(new THREE.DodecahedronGeometry(.23,0),steel);rim.scale.set(1.08,.3,1.04);rim.position.y=-.06;shoulder.add(rim);return shoulder; });
   const glove = new THREE.Mesh(new THREE.DodecahedronGeometry(0.14),leather);glove.position.set(0,-0.02,0.03);swordPivot.add(glove);
   const torso=new THREE.Group();torso.position.y=.7;
-  for(const part of [breastplate,...pauldrons,body,head,visor,cape,belt,swordPivot]){part.position.y-=.7;torso.add(part);}g.add(torso);
+  for(const part of [breastplate,...pauldrons,body,head,cape,belt,swordPivot]){part.position.y-=.7;torso.add(part);}g.add(torso);
+  const collar=new THREE.Mesh(new THREE.TorusGeometry(.24,.075,4,8),red);collar.rotation.x=Math.PI/2;collar.position.set(0,.51,0);torso.add(collar);
+  const buckle=plate([[-.065,.055],[.065,.055],[.065,-.055],[-.065,-.055]],.045,brass);buckle.position.set(0,-.035,-.32);torso.add(buckle);
+  for(const side of [-1,1]){
+    const skirt=plate([[-.12,.12],[.12,.12],[.14,-.17],[-.1,-.2]],.055,leather);skirt.position.set(side*.19,-.17,-.14);skirt.rotation.z=side*.13;torso.add(skirt);
+    const clasp=new THREE.Mesh(new THREE.DodecahedronGeometry(.048,0),brass);clasp.position.set(side*.2,.44,-.23);torso.add(clasp);
+  }
+  const pouch=new THREE.Mesh(new THREE.BoxGeometry(.17,.2,.13),leather);pouch.position.set(.3,-.09,.1);torso.add(pouch);
+  const swordSleeve=new THREE.Mesh(new THREE.CylinderGeometry(.12,.09,.26,6),dark);swordSleeve.position.set(-.035,-.03,.13);swordSleeve.rotation.x=-.85;swordPivot.add(swordSleeve);
   const legs = [-1, 1].map((side) => {
     const hip = new THREE.Group(); hip.position.set(side * 0.2, 0.48, 0);
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.36, 0.2), dark); leg.position.y = -0.13;
-    const boot = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.16, 0.36), steel); boot.position.set(0, -0.34, -0.06);
-    hip.add(leg, boot); g.add(hip); return hip;
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.23, 0.2), dark); leg.position.y = -0.1;
+    const knee = new THREE.Group(); knee.position.y = -.22;
+    const shin = new THREE.Mesh(new THREE.BoxGeometry(.17,.16,.18), dark); shin.position.y = -.06;
+    const boot = new THREE.Mesh(new THREE.BoxGeometry(.22,.16,.34),leather); boot.position.set(0,-.12,-.06);
+    const greave=plate([[-.095,.08],[.095,.08],[.08,-.11],[0,-.14],[-.08,-.11]],.05,iron);greave.position.set(0,-.025,-.105);
+    const kneecap=new THREE.Mesh(new THREE.DodecahedronGeometry(.115,0),steel);kneecap.scale.set(.95,.8,.6);kneecap.position.z=-.11;
+    knee.add(shin,boot,greave,kneecap);hip.add(leg,knee);hip.userData.knee=knee;g.add(hip);return hip;
   });
+  const arm=new THREE.Group();arm.position.set(-.4,.34,0);
+  const sleeve=new THREE.Mesh(new THREE.BoxGeometry(.17,.28,.18),dark);sleeve.position.y=-.14;
+  const forearm=new THREE.Mesh(new THREE.BoxGeometry(.16,.17,.28),steel);forearm.position.set(0,-.28,-.09);
+  const fist=new THREE.Mesh(new THREE.DodecahedronGeometry(.12),leather);fist.position.set(0,-.28,-.24);
+  arm.add(sleeve,forearm,fist);torso.add(arm);g.userData.arm=arm;
   g.userData.legs = legs; g.userData.cape = cape; g.userData.body = body;
   g.userData.sword = swordPivot;g.userData.torso=torso;
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -306,8 +342,9 @@ export default function DungeonGame() {
     // input, and anything holding a THREE object.
     let run = createRun();
     let stopped = false, attackTime = 0, dashTime = 0, dashCooldown = 0, hurtFlash = 0, shake = 0;
-    let attackBuffer = 0, dashBuffer = 0, walkPhase = 0, elapsed = 0, manualTime = false, hitStop = 0;
-    let rewardTime = 0, noticeTime = 0, footstepTime = 0;
+    let attackBuffer = 0, dashBuffer = 0, walkPhase = 0, gaitSpeed = 0, elapsed = 0, manualTime = false, hitStop = 0;
+    let locomotion=playerRunPose(0,0);
+    let rewardTime = 0, noticeTime = 0;
     let hasStarted = false, isPaused = false, isMuted = false, activeRoom = 0;
     const audio = createDungeonAudio();
     // The one piece of settings state the loop reads every frame, so it is a plain local rather than a
@@ -419,6 +456,7 @@ export default function DungeonGame() {
       sword.position.set(.44,.3,-.02-pose.armReach);
       sword.scale.z=1+run.reach*.5;
       player.userData.torso.rotation.set(0,pose.bodyYaw,pose.bodyRoll);
+      if(age===0){player.userData.torso.rotation.x=locomotion.pitch;player.userData.torso.rotation.y+=locomotion.twist;sword.rotation.x+=locomotion.swordPitch;}
       return pose;
     };
     const trailGeo=new THREE.PlaneGeometry(.11,1.15);
@@ -563,7 +601,7 @@ export default function DungeonGame() {
     const restart = (seed?: number) => {
       run = createRun(); boonsTaken = [];
       attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; dashBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0;
-      walkPhase = 0; footstepTime = 0; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
+      walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
       isPaused = false; keys.clear(); bufferedFacing = null; velocity.set(0, 0, 0);
       facing.set(1, 0, -0.6).normalize(); attackFacing.copy(facing); dashFacing.copy(facing);
       setHealth(run.hp); setMaxHealth(run.maxHp); setDefeated(0); setExperience(0); setXpReward(0);
@@ -725,7 +763,9 @@ export default function DungeonGame() {
         const threatened = enemyData.some(e => !e.dead && e.awake && e.group.position.distanceToSquared(player.position) < 100);
         const speed = dashTime > 0 ? 12 : attackTime > 0 ? 3.2 : threatened ? 5.8 : 8.5;
         velocity.copy(dashTime > 0 ? dashFacing : input).multiplyScalar(speed);
+        const oldX=player.position.x,oldZ=player.position.z;
         moveOnFloor(floor.cells, player.position, velocity.x * dt, velocity.z * dt);
+        const travelled=Math.hypot(player.position.x-oldX,player.position.z-oldZ);
         updatePaths();
         const roomId = floor.roomByCell.get(cellKey(Math.round(player.position.x/TILE),Math.round(player.position.z/TILE))) ?? -1;
         const currentRoom = floor.rooms[roomId];
@@ -769,12 +809,17 @@ export default function DungeonGame() {
           }
         }
 
-        if (moving) { footstepTime -= dt; if (footstepTime <= 0 && dashTime <= 0) { audio.play('step'); footstepTime = 0.29; } walkPhase += dt * speed * 3.3; }
-        const stride = moving && dashTime <= 0 ? Math.sin(walkPhase) * 0.6 : 0;
-        player.userData.legs.forEach((leg: THREE.Group, i: number) => { leg.rotation.x = THREE.MathUtils.damp(leg.rotation.x, i ? -stride : stride, 28, dt); });
-        player.position.y = 0.03 + (moving ? Math.abs(Math.sin(walkPhase)) * 0.055 : Math.sin(t*2.4)*.012);
-        player.rotation.x = THREE.MathUtils.damp(player.rotation.x, dashTime > 0 ? -0.3 : moving ? -0.07 : 0, 24, dt);
-        player.userData.cape.rotation.x = THREE.MathUtils.damp(player.userData.cape.rotation.x, dashTime > 0 ? 0.95 : moving ? 0.35 + Math.sin(walkPhase) * 0.08 : 0.1, 16, dt);
+        const groundSpeed=dashTime<=0&&dt>0?travelled/dt:0;
+        gaitSpeed=THREE.MathUtils.damp(gaitSpeed,groundSpeed,14,dt);
+        const previousPhase=walkPhase;
+        if(groundSpeed>.05)walkPhase+=travelled*strideRate(gaitSpeed);
+        if(Math.floor((previousPhase+Math.PI/2)/Math.PI)!==Math.floor((walkPhase+Math.PI/2)/Math.PI))audio.play('step');
+        locomotion=playerRunPose(walkPhase,gaitSpeed);
+        player.userData.legs.forEach((leg: THREE.Group, i: number) => { leg.rotation.x = THREE.MathUtils.damp(leg.rotation.x, locomotion.legs[i].hip, 28, dt);leg.userData.knee.rotation.x=THREE.MathUtils.damp(leg.userData.knee.rotation.x,locomotion.legs[i].knee,28,dt); });
+        player.userData.arm.rotation.x=THREE.MathUtils.damp(player.userData.arm.rotation.x,attackTime>0?-.35:locomotion.arm,20,dt);
+        player.position.y = 0.03 + locomotion.height + Math.sin(t*2.4)*.012*Math.max(0,1-gaitSpeed);
+        player.rotation.x = THREE.MathUtils.damp(player.rotation.x, dashTime > 0 ? -0.3 : 0, 24, dt);
+        player.userData.cape.rotation.x = THREE.MathUtils.damp(player.userData.cape.rotation.x, dashTime > 0 ? 0.95 : locomotion.cape, 16, dt);
         dashTime = Math.max(0, dashTime - dt);
         if (attackTime > 0) {
           attackTime = Math.max(0, attackTime - dt);
@@ -967,7 +1012,7 @@ export default function DungeonGame() {
       features: features.map(f => ({room:f.room, shrine:f.shrine, used:f.used, burned:f.burned, phase:f.phase, x:f.mesh.position.x,z:f.mesh.position.z,radius:f.shrine?1.5:1.8})),
       buildMs,
       floor: { level, waterfalls: atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
-      player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashBuffer, dashTime, dashCooldown, invulnerable: run.invuln, hurtFlash, swordAngle: player.userData.sword.rotation.y, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
+      player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashBuffer, dashTime, dashCooldown, invulnerable: run.invuln, hurtFlash, swordAngle: player.userData.sword.rotation.y, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, locomotion: {speed:gaitSpeed,phase:walkPhase,sprint:locomotion.sprint,pitch:player.userData.torso.rotation.x,height:player.position.y,arm:player.userData.arm.rotation.x,knees:player.userData.legs.map((leg:THREE.Group)=>leg.userData.knee.rotation.x)}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
       enemies: enemyData.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, pose: {pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x,weaponYaw:e.group.userData.weapon.rotation.y,attackAge:Number.isFinite(e.attackAge)?e.attackAge:null,trails:e.trails.filter(trail=>trail.effect.mesh.visible).length,cue:e.cue.visible} })),
     });
     const animate = (now: number) => {
