@@ -61,7 +61,7 @@ jobs:
       # Traces and screenshots are only written when something failed, and they
       # are the whole reason a red run is diagnosable without a local repro.
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report-shard-${{ matrix.shard }}
           path: |
@@ -92,9 +92,11 @@ jobs:
       # it is skipped when no deploy can follow. Uploading an artifact needs no
       # GITHUB_TOKEN permission, which is why it can stay in this read-only job.
       - if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: game/dist/client
+          # Preserve v3's inclusion of dotfiles such as .nojekyll.
+          include-hidden-files: true
 
   deploy:
     # Every gate, then the deployment. This is the line that keeps a red suite
@@ -118,7 +120,7 @@ jobs:
     steps:
       # Moved off the build job because it reads the Pages API with the workflow
       # token, which a pull request run is deliberately not given.
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
 
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

@@ -139,3 +139,9 @@ Inspected docs/reference/dungeons-beyond-concept.png and followed its pale angul
 
 Verification: typecheck, lint, production build, all 90 node tests and 10 focused browser tests (sprint, wall stop, pause/dodge, player cuts in four directions and enemy contacts) passed. Reviewed frontal/side attack and sprint screenshots. Production build retains the existing bundle-size warning. Final supplied client capture pending. No new gameplay behaviour requiring a separate regression; the existing rig/input suites were rerun. No commit, push or deployment.
 Final supplied develop-web-game client passed; gameplay screenshot and JSON in outputs/knight/client inspected, with no console/page error file. Work completed with 60% of the short-term allowance and 56% of the weekly allowance still available at the last check. No required TODOs.
+
+2026-09-15 — Fix Node.js 20 deprecation warnings in GitHub Actions.
+
+The Pages upload wrapper v3 transitively used upload-artifact v4. Updated it to upload-pages-artifact v5 (whose pinned uploader is v7), direct failure-report uploads to v7, cache to v6, configure-pages to v6 and deploy-pages to v5. Verified each selected runtime, including the wrapper's exact nested SHA, declares node24. Checkout v5 and setup-node v5 already use node24; application Node 22 stays unchanged. Explicit include-hidden-files preserves the previous Pages archive behavior for dotfiles. Existing permissions, event guards and retention stay unchanged.
+
+Validation: checksum-verified actionlint 1.7.12 passed the workflow; the composite action parsed with PyYAML; git diff --check passed. GitHub CI and deployment verification pending.

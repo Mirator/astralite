@@ -24,7 +24,7 @@ runs:
     # nothing else does. This is the download that used to run every time.
     - if: inputs.browser == 'true'
       id: chromium
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ hashFiles('game/package-lock.json') }}
