@@ -10,8 +10,20 @@ export function weaponTrail(color: number, lifetime = .1) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3).setUsage(THREE.DynamicDrawUsage));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 4).setUsage(THREE.DynamicDrawUsage));
+  const uvs=new Float32Array(capacity*4);for(let i=0;i<capacity;i++){uvs[i*4]=0;uvs[i*4+2]=1;}
+  geometry.setAttribute('uv',new THREE.BufferAttribute(uvs,2));
   geometry.setIndex(indices); geometry.setDrawRange(0, 0);
   const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, vertexColors: true, transparent: true, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+  // A luminous cutting edge over a translucent fan, sampled from the same blade history.
+  mesh.material.onBeforeCompile=shader=>{
+    shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nvarying float bladeEdge;').replace('#include <begin_vertex>','#include <begin_vertex>\nbladeEdge = uv.x;');
+    shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nvarying float bladeEdge;').replace('#include <color_fragment>',`#include <color_fragment>
+      float edge = smoothstep(.84, .98, bladeEdge);
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.65, 1.7, 1.6), edge * .85);
+      diffuseColor.a *= smoothstep(0.0, .24, bladeEdge) * (.68 + edge * .55);
+    `);
+  };
+  mesh.material.customProgramCacheKey=()=> 'blade-edge-v1';
   mesh.frustumCulled = false; mesh.visible = false;
   const root = new THREE.Vector3(), tip = new THREE.Vector3();
   let count = 0, wasEmitting = false;
@@ -47,7 +59,7 @@ export function weaponTrail(color: number, lifetime = .1) {
         for (let vertex = 0; vertex < 2; vertex++) {
           const c = i * 8 + vertex * 4;
           colors[c] = colors[c + 1] = colors[c + 2] = 1;
-          colors[c + 3] = i === 0 ? 0 : fade * fade * (vertex ? .85 : .08);
+          colors[c + 3] = i === 0 ? 0 : fade * fade * (vertex ? 1 : .24);
         }
       }
       geometry.attributes.position.needsUpdate = true; geometry.attributes.color.needsUpdate = true;

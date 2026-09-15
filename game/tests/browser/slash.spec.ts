@@ -1,10 +1,26 @@
-import { canStand, expect, hasClearPath, test, trackEnemy, type Snapshot } from './helpers.ts';
+import { canStand, expect, hasClearPath, strikeStance, test, trackEnemy, type Snapshot } from './helpers.ts';
 import { generateFloor } from '../../app/dungeon-floor.ts';
 
 type PlayerPose = { bodyYaw:number; trail:boolean; trailTriangles:number };
 type EnemyPose = { weapon:number; weaponYaw:number; pitch:number; height:number; attackAge:number|null; trails:number; cue:boolean };
 const playerPose=(state:Snapshot)=>(state.player as Snapshot['player']&{pose:PlayerPose}).pose;
 const enemyPose=(enemy:Snapshot['enemies'][number])=>(enemy as typeof enemy&{pose:EnemyPose}).pose;
+
+test('impact accents come from real hits, freeze with pause, and expire without changing damage',async({game,page})=>{
+  const active=async()=>((await game.state()) as Snapshot&{effects:{impacts:number}}).effects.impacts;
+  await game.enter();await page.keyboard.press('Space');await game.step(450);
+  expect(await active()).toBe(0);
+  const floor=await game.floor(),spot={x:0,z:0},stance=strikeStance(floor,spot);
+  await game.teleport(stance.x,stance.z);
+  await page.keyboard.down(stance.key);await game.step(1);await page.keyboard.up(stance.key);
+  await game.configureCombat({enemies:[{index:0,x:spot.x,z:spot.z,hp:2,cooldown:10,windup:0}]});
+  await page.keyboard.press('Space');await game.step(100);
+  expect((await game.state()).enemies[0].hp).toBe(1);expect(await active()).toBe(1);
+  await game.capture('knight-impact');
+  await page.keyboard.press('Escape');await game.step(500);expect(await active()).toBe(1);
+  await page.keyboard.press('Escape');await game.step(350);expect(await active()).toBe(0);
+  expect((await game.state()).enemies[0].hp).toBe(1);
+});
 
 for(const key of ['ArrowRight','ArrowLeft','ArrowUp','ArrowDown']){
   test(`player blade trail follows the ${key} cut and expires after a miss`,async({game,page})=>{

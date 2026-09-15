@@ -3,7 +3,7 @@ import * as THREE from 'three';
 // World-space currents stay the same size across differently sized generated floors.
 export function tidalMaterial() {
   const time = { value: 0 };
-  const material = new THREE.MeshStandardMaterial({ color: 0x21676e, roughness: 0.24, metalness: 0.12 });
+  const material = new THREE.MeshStandardMaterial({ color: 0x17454d, roughness: 0.3, metalness: 0.28 });
   material.onBeforeCompile = shader => {
     shader.uniforms.tideTime = time;
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 tideWorld;')
@@ -15,8 +15,10 @@ export function tidalMaterial() {
         float crosswave = sin(p.y * 3.7 - p.x * 0.6 - tideTime * 1.2 + swell);
         float ribbons = smoothstep(0.94, 0.995, sin(p.x * 5.8 + p.y * 4.0 + crosswave * 1.4 + tideTime));
         ribbons *= smoothstep(0.0, 0.7, sin(p.y * 2.3 - p.x * 1.4 + tideTime * 0.4));
-        diffuseColor.rgb *= 0.78 + swell * 0.12 + crosswave * 0.08;
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.40, 0.72, 0.69), ribbons * 0.14);
+        float ripples = sin(p.x * 12.0 + p.y * 9.0 + crosswave + tideTime * 1.4) * sin(p.x * 7.0 - p.y * 11.0 - tideTime);
+        float caustic = pow(max(0.0, sin(p.x * 2.3 + sin(p.y * 1.7 + tideTime * .3)) * cos(p.y * 2.1 + sin(p.x * 1.6 - tideTime * .25))), 8.0);
+        diffuseColor.rgb *= 0.8 + swell * 0.13 + crosswave * 0.09 + ripples * .035;
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.28, 0.57, 0.52), ribbons * 0.065 + caustic * .12);
       `)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         vec2 waveSlope = vec2(
@@ -25,7 +27,7 @@ export function tidalMaterial() {
         normal = normalize(normal + mat3(viewMatrix) * vec3(waveSlope.x, 0.0, waveSlope.y));
       `);
   };
-  material.customProgramCacheKey = () => 'tidal-currents-v2';
+  material.customProgramCacheKey = () => 'tidal-currents-v3';
   return { material, time };
 }
 
@@ -51,12 +53,17 @@ export function weatherStone(material: THREE.MeshStandardMaterial) {
         diffuseColor.rgb *= (.96 + patches * .10) * (1.0 - wetStone * .28);
         diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(.62, .83, .57), moss * .38);
         diffuseColor.rgb *= 1.0 - tideMark * .22;
+        // Staggered submerged masonry courses keep the platform sides from reading as solid boxes.
+        float course = stoneWorld.y * 1.75;
+        vec2 joints = fract(vec2((stoneWorld.x + stoneWorld.z) * .68 + mod(floor(course), 2.0) * .5, course));
+        float seam = 1.0 - smoothstep(.012, .035, min(min(joints.x, 1.0 - joints.x), min(joints.y, 1.0 - joints.y)));
+        diffuseColor.rgb *= 1.0 - seam * .35 * (1.0 - smoothstep(-.3, -.15, stoneWorld.y));
       `)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         roughnessFactor = mix(roughnessFactor, .28, wetStone * .88);
       `);
   };
-  material.customProgramCacheKey = () => 'weathered-stone-v2';
+  material.customProgramCacheKey = () => 'weathered-stone-v3';
 }
 
 // One instanced shoreline draw, with soft broken foam rather than a bright outline of the grid.

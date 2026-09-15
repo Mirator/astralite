@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { vaultEnvironment } from './dungeon-art';
+import { enemyDetails, knightDetails } from './dungeon-characters';
+import { impactEffects } from './dungeon-impact';
 import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
 import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
@@ -128,6 +132,8 @@ function makeKnight() {
   arm.add(sleeve,forearm,fist);torso.add(arm);g.userData.arm=arm;
   g.userData.legs = legs; g.userData.cape = cape; g.userData.body = body;
   g.userData.sword = swordPivot;g.userData.torso=torso;
+  knightDetails({torso,head,sword:swordPivot,arm,legs,cape},{steel,iron,brass,red,leather,shadow});
+  pauldrons.forEach(shoulder=>{shoulder.visible=false;});
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
   return g;
 }
@@ -139,7 +145,7 @@ const BONES = {
   ribs: shared(new THREE.TorusGeometry(0.27, 0.055, 4, 7, Math.PI * 1.55)),
   skull: shared(new THREE.DodecahedronGeometry(0.27, 0)),
   socket: shared(new THREE.SphereGeometry(0.035, 5, 4)),
-  limb: shared(new THREE.BoxGeometry(0.12, 0.65, 0.12)),
+  limb: shared(new THREE.CylinderGeometry(.055,.075,.65,6)),
   shield: shared(new THREE.CylinderGeometry(0.38, 0.38, 0.1, 8)),
   weapon: shared(new THREE.BoxGeometry(0.09, 0.09, 0.92)),
   crown: shared(new THREE.CylinderGeometry(.29,.28,.11,8,1,true)),
@@ -195,6 +201,8 @@ function makeSkeleton(kind: Enemy['kind']) {
   g.userData.rig=rig;
   g.userData.weapon = weapon;
   g.userData.limbs = limbs; g.userData.skull = skull; g.userData.shield = shield;
+  enemyDetails(kind,rig,skull,limbs,weapon,shield,bone,iron,brass);
+  sockets.forEach(socket=>{socket.position.z=stalker?-.445:-.223;socket.scale.setScalar(1.2);});
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
   return g;
 }
@@ -433,17 +441,18 @@ export default function DungeonGame() {
     };
     const keys = new Set<string>();
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x07121a);
-    scene.fog = new THREE.FogExp2(0x07121a, 0.018);
+    scene.background = new THREE.Color(0x0a1b24);
+    scene.fog = new THREE.FogExp2(0x0a1b24, 0.022);
+    const environment = vaultEnvironment(); scene.environment = environment; scene.environmentIntensity = .48;
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
     mount.appendChild(renderer.domElement);
     const camera = new THREE.OrthographicCamera(-8, 8, 5, -5, 0.1, 70);
     camera.position.set(10, 13, 13); camera.lookAt(0, 0, 0);
-    scene.add(new THREE.HemisphereLight(0x91b5c1, 0x263039, 1.35));
-    const moon = new THREE.DirectionalLight(0xa4c6d6, 3.1);
+    scene.add(new THREE.HemisphereLight(0xa2c5d3, 0x243b3c, .95));
+    const moon = new THREE.DirectionalLight(0xc2d9e1, 3.5);
     moon.position.set(-7, 12, 9); moon.castShadow = true; moon.shadow.mapSize.set(1536, 1536);
-    moon.shadow.radius = 2; moon.shadow.normalBias = .035; moon.shadow.bias = -.00015;
+    moon.shadow.radius = 3.5; moon.shadow.normalBias = .035; moon.shadow.bias = -.00015;
     moon.shadow.camera.left = moon.shadow.camera.bottom = -12; moon.shadow.camera.right = moon.shadow.camera.top = 12; scene.add(moon);
     const world = new THREE.Group(); scene.add(world);
     const matrix = new THREE.Matrix4();
@@ -464,6 +473,7 @@ export default function DungeonGame() {
     const sparkGeo = new THREE.TetrahedronGeometry(0.075, 0), sparkMat = new THREE.MeshBasicMaterial({ color: 0xffb24a, toneMapped: false });
     const burst = (at: THREE.Vector3, color = 0xffb24a, amount = 12) => { for (let i = 0; i < amount; i++) { const mesh = new THREE.Mesh(sparkGeo, color === 0xffb24a ? sparkMat : new THREE.MeshBasicMaterial({ color, toneMapped: false })); mesh.position.copy(at).add(new THREE.Vector3(0, 0.8, 0)); const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 3.5; particles.push({ mesh, velocity: new THREE.Vector3(Math.cos(a) * s, 1.5 + Math.random() * 3, Math.sin(a) * s), life: 0.35 + Math.random() * 0.3 }); world.add(mesh); } };
     const slash=weaponTrail(0xffedc5,.105);world.add(slash.mesh);
+    const impacts=impactEffects();world.add(impacts.group);
     const bladeInner=new THREE.Vector3(0,0,-.32),bladeTip=new THREE.Vector3(0,0,-1.17);
     const posePlayer=(age:number)=>{
       const pose=playerAttackPose(age),sword=player.userData.sword as THREE.Group;
@@ -505,7 +515,8 @@ export default function DungeonGame() {
     // Only the shared texture, the knight and the lights outlive a floor; the rest is rebuilt per descent.
     const clearFloor = () => {
       atmosphere?.dispose();
-      floorGroup.traverse((o) => { if (o instanceof THREE.Mesh) { if (!o.geometry.userData.shared) o.geometry.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); } });
+      impacts.clear();
+      floorGroup.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); } });
       world.remove(floorGroup);
       particles.forEach(p => { world.remove(p.mesh); if (p.mesh.material !== sparkMat) (p.mesh.material as THREE.Material).dispose(); });
       particles.length = 0;
@@ -529,12 +540,18 @@ export default function DungeonGame() {
       swingHits.clear();slash.clear();posePlayer(0);
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
       reached = 0; loot = 0; activeRoom = 0; pathCell = ''; distances.clear();
-      const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, bumpMap: texture, bumpScale: .045, color: 0xffffff, roughness: 0.98, emissive: 0x253b42, emissiveIntensity: 0.12 });
+      const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, bumpMap: texture, bumpScale: .035, color: 0xffffff, roughness: .83 });
       weatherStone(floorMaterial);
       const stoneTiles = floor.tiles.filter(t=>!t.wood), bridgeTiles = floor.tiles.filter(t=>t.wood);
-      const tiles = new THREE.InstancedMesh(new THREE.BoxGeometry(1.44, 2.8, 1.44), floorMaterial, stoneTiles.length);
-      stoneTiles.forEach(({x,z,room},i)=>{matrix.makeTranslation(x*TILE,-1.38,z*TILE);tiles.setMatrixAt(i,matrix);const theme=room>=0?floor.rooms[room].theme:'keep';const color=new THREE.Color(theme==='ruins'?0x8b9480:theme==='flooded'?0x78908e:0x969185);color.multiplyScalar(.88+Math.abs(x*7+z*3)%5*.045);tiles.setColorAt(i,color);});
-      tiles.receiveShadow=true;floorGroup.add(tiles);
+      const tileGeometry=new RoundedBoxGeometry(1.45,.18,1.45,1,.045),foundationGeometry=new THREE.BoxGeometry(1.49,2.65,1.49);
+      const foundationMaterial=new THREE.MeshStandardMaterial({color:0x3a5055,roughness:.9});weatherStone(foundationMaterial);
+      // Spatial batches let both the view and shadow camera reject distant carved paving.
+      const paving=new Map<string,typeof stoneTiles>();for(const tile of stoneTiles){const key=`${Math.floor(tile.x/12)},${Math.floor(tile.z/12)}`;const batch=paving.get(key);if(batch)batch.push(tile);else paving.set(key,[tile]);}
+      for(const local of paving.values()){
+        const tiles=new THREE.InstancedMesh(tileGeometry,floorMaterial,local.length),foundations=new THREE.InstancedMesh(foundationGeometry,foundationMaterial,local.length);
+        local.forEach(({x,z,room},i)=>{matrix.makeRotationY((Math.abs(x*13+z*7)%4)*Math.PI/2);matrix.setPosition(x*TILE,-.07,z*TILE);tiles.setMatrixAt(i,matrix);const theme=room>=0?floor.rooms[room].theme:'keep';const border=room>=0&&(Math.abs(x-floor.rooms[room].x)===floor.rooms[room].halfX-1||Math.abs(z-floor.rooms[room].z)===floor.rooms[room].halfZ-1);const color=new THREE.Color(border?0x546e6a:theme==='ruins'?0x9fa98e:theme==='flooded'?0x779e9c:0xb2ada0);color.multiplyScalar(.83+Math.abs(x*7+z*3)%7*.045);tiles.setColorAt(i,color);matrix.makeTranslation(x*TILE,-1.485,z*TILE);foundations.setMatrixAt(i,matrix);});
+        foundations.receiveShadow=tiles.receiveShadow=true;floorGroup.add(foundations,tiles);
+      }
       phase('tiles');
       const planks = new THREE.InstancedMesh(new THREE.BoxGeometry(1.43,.2,.34),new THREE.MeshStandardMaterial({color:0x665040,roughness:.95}),bridgeTiles.length*4);
       bridgeTiles.forEach(({x,z},i)=>{for(let n=0;n<4;n++){matrix.makeTranslation(x*TILE,-.09,z*TILE+(n-1.5)*.365);planks.setMatrixAt(i*4+n,matrix);planks.setColorAt(i*4+n,new THREE.Color(n%2?0xbca17d:0xd0b68f));}});planks.receiveShadow=true;floorGroup.add(planks);
@@ -545,9 +562,13 @@ export default function DungeonGame() {
       const borders: { x: number; z: number; horizontal: boolean }[] = [];
       floor.tiles.forEach(({ x, z }) => { for (const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]) if (!floor.cells.has(cellKey(x + dx,z + dz))) borders.push({ x: (x + dx * 0.5) * TILE, z: (z + dz * 0.5) * TILE, horizontal: dz !== 0 }); });
       // Low parapets keep the isometric view readable, including narrow bridges.
-      const walls = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.65, 1), new THREE.MeshStandardMaterial({ color: 0x252f35, roughness: 1 }), borders.length);
-      borders.forEach((b,i) => { matrix.compose(new THREE.Vector3(b.x,0.15,b.z), new THREE.Quaternion(), new THREE.Vector3(b.horizontal ? TILE : 0.16,1,b.horizontal ? 0.16 : TILE)); walls.setMatrixAt(i,matrix); });
-      walls.receiveShadow = true; floorGroup.add(walls);
+      const parapetGeometry=new RoundedBoxGeometry(1,0.38,1,1,.045),parapetMaterial=new THREE.MeshStandardMaterial({color:0x607574,roughness:.8});
+      const parapets=new Map<string,typeof borders>();for(const b of borders){const key=`${Math.floor(b.x/18)},${Math.floor(b.z/18)}`;const batch=parapets.get(key);if(batch)batch.push(b);else parapets.set(key,[b]);}
+      for(const local of parapets.values()){
+        const walls=new THREE.InstancedMesh(parapetGeometry,parapetMaterial,local.length);
+        local.forEach((b,i)=>{matrix.compose(new THREE.Vector3(b.x,.15,b.z),new THREE.Quaternion(),new THREE.Vector3(b.horizontal?TILE:.16,1,b.horizontal?.16:TILE));walls.setMatrixAt(i,matrix);});
+        walls.receiveShadow=true;floorGroup.add(walls);
+      }
       phase('walls');
       atmosphere = addAtmosphere(floorGroup, floor);
       for (const room of floor.rooms) {
@@ -871,7 +892,7 @@ export default function DungeonGame() {
               audio.play('hit');
               swingHits.add(enemy); enemy.hp -= run.strike; enemy.hitFlash = 0.2; if (interruptsWindup(enemy.kind, enemy.windup)) {enemy.windup = 0;enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
               enemy.cooldown = Math.max(enemy.cooldown, 0.4);
-              moveOnFloor(floor.cells, enemy.group.position, delta.x * (enemy.kind === 'warden' ? 0.1 : 0.38), delta.z * (enemy.kind === 'warden' ? 0.1 : 0.38)); burst(enemy.group.position, 0xffb24a, 7); shake = 0.07; hitStop = 0.035;
+              moveOnFloor(floor.cells, enemy.group.position, delta.x * (enemy.kind === 'warden' ? 0.1 : 0.38), delta.z * (enemy.kind === 'warden' ? 0.1 : 0.38)); burst(enemy.group.position, 0xffb24a, 7); impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,enemy.kind==='warden'); shake = 0.07; hitStop = 0.035;
               if (enemy.hp <= 0) { enemy.dead = true; award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills); if (!cleared.has(enemy.room) && enemyData.every(e => e.room !== enemy.room || e.dead)) {
                 cleared.add(enemy.room);
                 const room = floor.rooms[enemy.room], detour = room.role === 'branch';
@@ -900,7 +921,7 @@ export default function DungeonGame() {
           const hurtPlayer = () => {
             if (gameStatus !== 'playing' || !hurt(run, enemy.damage, { dashing: dashTime > 0, warded: true })) return;
             setHealth(run.hp);
-            audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4c2f,8);
+            audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4c2f,8);impacts.emit(player.position,0xff8763,enemy.kind==='warden');
             // Which kind landed the killing blow is the one thing only this call site knows.
             if(run.hp===0)endRun(enemy.kind);
           };
@@ -958,6 +979,7 @@ export default function DungeonGame() {
       // particles, the sound and the health bar do not already say, so nothing is lost by not moving at all.
       if (shake > 0 && !easeMotion) camera.position.add(new THREE.Vector3(Math.sin(t*95)*shake,0,Math.cos(t*83)*shake));
       camera.lookAt(cameraFocus.x,0,cameraFocus.z);
+      impacts.update(dt,camera.quaternion);
       // The hurt filter is reduced, not removed. Its discomfort is the brightness ramping across the whole
       // screen as the flash decays; its job is telling the player they were hit, which is gameplay. So the
       // tint stays for exactly as long, holds still, and drops the brightness change entirely.
@@ -1041,6 +1063,7 @@ export default function DungeonGame() {
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
+      effects: { impacts: impacts.active },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.
       settings: { ...settingsRef.current, reduceMotion: easeMotion, filter: renderer.domElement.style.filter, shake, hitStop, sound: audio.level() },
@@ -1061,7 +1084,7 @@ export default function DungeonGame() {
     raf = requestAnimationFrame(animate);
     const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 6.3 : 7.2; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); };
     window.addEventListener('resize', resize); resize(); setReady(true);
-    return () => { stopped = true; cancelAnimationFrame(raf); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); atmosphere?.dispose(); texture.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
+    return () => { stopped = true; cancelAnimationFrame(raf); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); atmosphere?.dispose(); texture.dispose(); environment.dispose(); impacts.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
   }, []);
 
   const roomCount = floorMap?.rooms.length ?? 0;

@@ -1,41 +1,47 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { addCarvedArchitecture } from './dungeon-art';
 import { TILE, type generateFloor } from './dungeon-floor';
 import { animateCloth, contactTexture, glowTexture, shorelineMaterial, weatherStone } from './dungeon-motion';
 
 export function stoneTexture() {
-  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 256;
   const ctx = canvas.getContext('2d')!; let seed = 7123;
   const random = () => { seed = (Math.imul(seed,1664525) + 1013904223) >>> 0; return seed / 4294967296; };
-  ctx.fillStyle = '#b2b8b4'; ctx.fillRect(0,0,128,128);
-  for (let i=0;i<3400;i++) { const shade = Math.floor(90 + random()*110); ctx.fillStyle = `rgba(${shade},${shade},${shade},.18)`; ctx.fillRect(random()*128,random()*128,1+random()*4,1+random()*2); }
-  ctx.strokeStyle='#535f6066'; ctx.lineWidth=1; ctx.beginPath();ctx.moveTo(0,38);ctx.lineTo(29,49);ctx.lineTo(42,74);ctx.lineTo(57,82);ctx.stroke();
-  ctx.strokeStyle='#65706baa';ctx.lineWidth=2;
-  for(let row=1;row<3;row++){ctx.beginPath();ctx.moveTo(0,row*42);ctx.lineTo(128,row*42);ctx.stroke();}
-  for(let row=0;row<3;row++){const x=row%2?39:77;ctx.beginPath();ctx.moveTo(x,row*42);ctx.lineTo(x,(row+1)*42);ctx.stroke();}
-  ctx.strokeStyle='#e7e6d644'; ctx.strokeRect(2,2,124,124);
+  ctx.fillStyle = '#b9bbb0'; ctx.fillRect(0,0,256,256);
+  for (let i=0;i<6500;i++) { const shade = Math.floor(90 + random()*120); ctx.fillStyle = `rgba(${shade},${shade},${shade},.12)`; ctx.fillRect(random()*256,random()*256,1+random()*5,1+random()*3); }
+  // Broad mineral veins and a chipped edge, rather than miniature bricks on every floor tile.
+  for(let i=0;i<15;i++){const x=random()*256,y=random()*256,r=12+random()*60;const bloom=ctx.createRadialGradient(x,y,0,x,y,r);bloom.addColorStop(0,i%2?'#707f711a':'#e9ddbe22');bloom.addColorStop(1,'#ffffff00');ctx.fillStyle=bloom;ctx.fillRect(0,0,256,256);}
+  ctx.strokeStyle='#5d675d55';ctx.lineWidth=1.1;ctx.beginPath();ctx.moveTo(0,84);ctx.lineTo(22,97);ctx.lineTo(31,122);ctx.lineTo(54,136);ctx.lineTo(60,157);ctx.moveTo(31,122);ctx.lineTo(15,138);ctx.stroke();
+  ctx.strokeStyle='#f6eed43a';ctx.lineWidth=3;ctx.strokeRect(4,4,248,248);
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace=THREE.SRGBColorSpace; texture.anisotropy=4; return texture;
 }
 
 // Prop shapes repeat on every floor, so they are built once and varied by scale rather than regenerated.
 const keep = <T extends THREE.BufferGeometry>(geometry: T) => { geometry.userData.shared = true; return geometry; };
 const PROP = {
-  base: keep(new THREE.BoxGeometry(TILE, .42, TILE)),
+  base: keep(new RoundedBoxGeometry(TILE, .32, TILE, 1, .07)),
   bowl: keep(new THREE.CylinderGeometry(.34, .5, .8, 6)),
   rim: keep(new THREE.CylinderGeometry(.5, .3, .24, 8)),
   flame: keep(new THREE.OctahedronGeometry(.24)),
   barrel: keep(new THREE.CylinderGeometry(.44, .4, 1.0, 9)),
   hoop: keep(new THREE.CylinderGeometry(.46, .46, .09, 9)),
-  plinth: keep(new THREE.BoxGeometry(.95, .25, .95)),
-  column: keep(new THREE.CylinderGeometry(.35, .45, 1, 6)),
-  capital: keep(new THREE.BoxGeometry(.84, .2, .84)),
+  plinth: keep(new RoundedBoxGeometry(.95, .25, .95, 1, .04)),
+  column: keep(new THREE.CylinderGeometry(.3, .4, 1, 10)),
+  capital: keep(new RoundedBoxGeometry(.84, .2, .84, 1, .04)),
   rock: keep(new THREE.DodecahedronGeometry(1)),
 };
 
 export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generateFloor>) {
+  addCarvedArchitecture(world,floor);
   const stone=new THREE.MeshStandardMaterial({color:0x566169,roughness:.95}),trim=new THREE.MeshStandardMaterial({color:0x8c7352,roughness:.72,metalness:.25});
   weatherStone(stone);
   const wood=new THREE.MeshStandardMaterial({color:0x51382b,roughness:1}),moss=new THREE.MeshStandardMaterial({color:0x42594b,roughness:1});
-  const red=new THREE.MeshStandardMaterial({color:0x76292b,side:THREE.DoubleSide,roughness:1});
+  const clothCanvas=document.createElement('canvas');clothCanvas.width=128;clothCanvas.height=256;const cc=clothCanvas.getContext('2d')!;
+  cc.fillStyle='#792c38';cc.fillRect(0,0,128,256);cc.strokeStyle='#d7b375';cc.lineWidth=3;cc.strokeRect(9,8,110,240);
+  cc.beginPath();cc.moveTo(64,54);cc.lineTo(88,104);cc.lineTo(64,158);cc.lineTo(40,104);cc.closePath();cc.stroke();cc.beginPath();cc.moveTo(64,36);cc.lineTo(64,185);cc.moveTo(28,104);cc.lineTo(100,104);cc.stroke();
+  const clothTexture=new THREE.CanvasTexture(clothCanvas);clothTexture.colorSpace=THREE.SRGBColorSpace;
+  const red=new THREE.MeshStandardMaterial({map:clothTexture,side:THREE.DoubleSide,roughness:1});
   const waterCanvas=document.createElement('canvas');waterCanvas.width=64;waterCanvas.height=128;const wc=waterCanvas.getContext('2d')!;wc.fillStyle='#619d9e';wc.fillRect(0,0,64,128);
   for(let i=0;i<35;i++){wc.fillStyle=i%2?'#c4eee0aa':'#83c7c4aa';wc.fillRect((i*17)%64,(i*37)%128,1+i%3,15+i%25);}
   const flowTexture=new THREE.CanvasTexture(waterCanvas);flowTexture.wrapT=THREE.RepeatWrapping;flowTexture.repeat.y=2;flowTexture.colorSpace=THREE.SRGBColorSpace;
@@ -112,7 +118,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const sprayMaterial=new THREE.PointsMaterial({color:0xc1e3da,size:.065,transparent:true,opacity:.48,depthWrite:false});
   const spray=new THREE.Points(sprayGeometry,sprayMaterial);spray.frustumCulled=false;world.add(spray);
   const debris=new THREE.InstancedMesh(new THREE.DodecahedronGeometry(.2),stone,chips.length),chipMatrix=new THREE.Matrix4();const up=new THREE.Vector3(0,1,0),chipSpin=new THREE.Quaternion(),chipSize=new THREE.Vector3();chips.forEach((p,i)=>{chipMatrix.compose(p,chipSpin.setFromAxisAngle(up,random()*6.28),chipSize.set(.5+random(),.22,.5+random()));debris.setMatrixAt(i,chipMatrix);});debris.receiveShadow=true;world.add(debris);
-  const geometry=new THREE.BoxGeometry(1,1,1),wallMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.95}),matrix=new THREE.Matrix4();
+  const geometry=new RoundedBoxGeometry(1,1,1,1,.045),wallMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.83}),matrix=new THREE.Matrix4();
   weatherStone(wallMaterial);
   // Separate chamber batches let the view and shadow frusta skip distant masonry.
   const blocksByRoom=new Map<number,typeof blocks>();
@@ -146,5 +152,5 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     falls.forEach((fall,i)=>{for(let j=0;j<16;j++){const phase=(t*.8+j/16+i*.31)%1,angle=j*2.4,k=(i*16+j)*3;const span=.12+phase*.65;sprayPositions[k]=fall.position.x+Math.cos(angle)*span;sprayPositions[k+1]=-2.7+Math.sin(phase*Math.PI)*(.2+(j%3)*.12);sprayPositions[k+2]=fall.position.z+Math.sin(angle)*span;}});sprayGeometry.attributes.position.needsUpdate=true;
     seals.forEach((seal,i)=>{const m=seal.material as THREE.MeshBasicMaterial;m.color.setHex(cleared.has(i)?0x9dcf9e:0x7faeae);m.opacity=cleared.has(i)?.6:.16;});
     flowTexture.offset.y=t*.5;falls.forEach((f,i)=>{f.scale.x=1+Math.sin(t*4+i)*.06;});
-  },dispose(){sprayGeometry.dispose();sprayMaterial.dispose();contactMap.dispose();flowTexture.dispose();glowMap.dispose();haloMaterial.dispose();coreMaterial.dispose();emberGeo.dispose();emberMaterial.dispose();motesGeo.dispose();(motes.material as THREE.Material).dispose();}};
+  },dispose(){clothTexture.dispose();sprayGeometry.dispose();sprayMaterial.dispose();contactMap.dispose();flowTexture.dispose();glowMap.dispose();haloMaterial.dispose();coreMaterial.dispose();emberGeo.dispose();emberMaterial.dispose();motesGeo.dispose();(motes.material as THREE.Material).dispose();}};
 }

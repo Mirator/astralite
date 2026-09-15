@@ -53,7 +53,34 @@ test('wet masonry and water render across floor rebuilds without growing texture
   await game.capture('wet-stone-water');
   await game.buildFloor(3);
   await game.step(0,true);
-  expect((await game.state()).render.textures).toBeLessThanOrEqual(first.render.textures);
+  const rebuilt=await game.state();
+  expect(rebuilt.render.textures).toBeLessThanOrEqual(first.render.textures);
+  // Pinned seed repeats the same room geometry: carved niches, foliage, and shared paving
+  // must release their GPU buffers when a floor is replaced.
+  await game.buildFloor(3);
+  await game.step(0,true);
+  const repeated=await game.state();
+  expect(repeated.render.geometries).toBe(rebuilt.render.geometries);
+  expect(repeated.render.textures).toBe(rebuilt.render.textures);
+});
+
+test('carved chambers keep distant architecture out of the rendered frame',async({game})=>{
+  await game.enter();
+  await game.buildFloor(3);
+  await game.step(0,true);
+  const gate=await game.state();
+  // Covers the accidental all-floor instancing that submitted nearly a million triangles
+  // at the gate. This leaves room for art detail while bounding invisible geometry.
+  expect(gate.render.triangles).toBeLessThan(400_000);
+  for(const theme of ['keep','ruins','flooded']){
+    const floor=await game.floor(),room=floor.rooms.find(r=>r.theme===theme)!;
+    expect(room).toBeDefined();
+    const spot=floor.tiles.find(t=>t.room===room.id&&canStand(floor.cells,t.x*TILE,t.z*TILE))!;
+    await game.teleport(spot.x*TILE,spot.z*TILE);
+    await game.step(500,true);
+    await game.capture(`carved-${theme}`);
+    expect((await game.state()).render.triangles).toBeGreaterThan(1000);
+  }
 });
 
 test.describe('polish on a phone',()=>{
