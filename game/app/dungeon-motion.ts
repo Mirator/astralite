@@ -97,11 +97,15 @@ export function shorelineMaterial() {
 export function animateCloth(mesh: THREE.Mesh, time: number, strength: number) {
   const positions = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
   let rest = mesh.geometry.userData.rest as Float32Array | undefined;
-  if (!rest) { rest = new Float32Array(positions.array); mesh.geometry.userData.rest = rest; }
-  const height = mesh.geometry.boundingBox?.max.y ?? 0.6;
+  if (!rest) {
+    rest = new Float32Array(positions.array); mesh.geometry.userData.rest = rest;
+    let top=-Infinity,bottom=Infinity;for(let i=0;i<positions.count;i++){top=Math.max(top,rest[i*3+1]);bottom=Math.min(bottom,rest[i*3+1]);}
+    mesh.geometry.userData.clothSpan={top,length:Math.max(.001,top-bottom)};
+  }
+  const {top,length}=mesh.geometry.userData.clothSpan as {top:number;length:number};
   for (let i = 0; i < positions.count; i++) {
     const x = rest[i * 3], y = rest[i * 3 + 1];
-    const free = THREE.MathUtils.clamp((height - y) / (height * 2), 0, 1);
+    const free = THREE.MathUtils.clamp((top - y) / length, 0, 1);
     positions.setZ(i, rest[i * 3 + 2] + free * free * strength * (Math.sin(time * 5 - free * 3 + x * 4) + 0.35 * Math.sin(time * 8 + x * 8)));
   }
   positions.needsUpdate = true;

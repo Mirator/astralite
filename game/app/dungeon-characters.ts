@@ -71,8 +71,8 @@ export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; swor
   const positions = rig.cape.geometry.getAttribute('position'), colours = [];
   for (let i = 0; i < positions.count; i++) {
     const x = positions.getX(i), y = positions.getY(i);
-    const border = Math.abs(x) > .3 || y < -.42;
-    const sigil = y > -.12 && y < .29 && (Math.abs(x) < .055 || Math.abs(y - .08) < .045 && Math.abs(x) < .21);
+    const free=-y/.98,border=Math.abs(x)>(.3+free*.12)*.88||free>.94;
+    const sigil=free>.2&&free<.58&&(Math.abs(x)<.04||Math.abs(free-.34)<.055&&Math.abs(x)<.16);
     const color = new THREE.Color(border || sigil ? 0xe2b571 : 0xa52c34); colours.push(color.r, color.g, color.b);
   }
   rig.cape.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
