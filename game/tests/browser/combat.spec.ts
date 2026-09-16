@@ -185,8 +185,9 @@ test('the sword respects the same walls a skeleton does, and an open lane still 
     'the fixture must be a contact the rule rejects only because of the prop',
   ).toBe(false);
 
-  // Any awake skeleton will do: the wall is on trial, not the kind.
-  const victim = opening.enemies.find((enemy) => enemy.awake);
+  // A guard can be parked by its windup. A stalker can retain a pounce from
+  // the previous swing even after the fixture resets its windup and position.
+  const victim = opening.enemies.find((enemy) => enemy.awake && enemy.kind === 'guard');
   expect(victim).toBeDefined();
   const index = spawnIndex(opening, victim!);
   const startingHp = victim!.hp;

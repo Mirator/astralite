@@ -775,7 +775,7 @@ export default function DungeonGame() {
     const contextRestored = () => setDisplayLost(false);
     renderer.domElement.addEventListener('webglcontextlost', contextLost);
     renderer.domElement.addEventListener('webglcontextrestored', contextRestored);
-    let last = performance.now(), raf = 0;
+    let last: number | null = null, raf = 0;
     const update = (frameDt: number) => {
       if (isPaused || run.choosing || gameStatus === 'complete') return;
       elapsed += frameDt; const t = elapsed;
@@ -1080,7 +1080,9 @@ export default function DungeonGame() {
     });
     const animate = (now: number) => {
       if (stopped) return; raf = requestAnimationFrame(animate);
-      if (!manualTime && !document.hidden) { update(Math.min((now - last) / 1000, 0.04)); renderer.render(scene, camera); }
+      // rAF timestamps describe the frame start, which can precede effect setup.
+      // Establish the clock on the first callback so startup cannot run time backwards.
+      if (!manualTime && !document.hidden) { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); renderer.render(scene, camera); }
       last = now;
     };
     raf = requestAnimationFrame(animate);
