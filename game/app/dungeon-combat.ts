@@ -4,14 +4,15 @@
 // than a copy of them.
 
 import { hasClearPath } from './dungeon-floor.ts';
-import { PLAYER_ATTACK_ANTICIPATION, PLAYER_ATTACK_CONTACT_END, PLAYER_ATTACK_DURATION } from './dungeon-attack-pose.ts';
+import { TIDEBLADE, type Weapon } from './dungeon-weapon.ts';
 
 export type Spot = { x: number; z: number };
 
 /**
  * Whether one sword swing reaches a body: inside the arc's radius, inside its
  * angle, and with nothing in between. `facing` must be a normalised horizontal
- * vector; `reach` is the Long Guard bonus, 0 without it.
+ * vector; `reach` is the Long Guard bonus, 0 without it. The radius and the
+ * angle both come from the weapon, and Long Guard moves both from there.
  */
 export function swordContacts(
   cells: Set<string>,
@@ -19,15 +20,16 @@ export function swordContacts(
   facing: Spot,
   target: Spot,
   reach: number,
+  weapon: Weapon = TIDEBLADE,
 ) {
   const dx = target.x - from.x;
   const dz = target.z - from.z;
   const distance = Math.hypot(dx, dz);
-  if (!(distance < 1.8 + reach)) return false;
+  if (!(distance < weapon.reach + reach)) return false;
   // Three.js normalises a zero-length vector to zero rather than dividing by
   // zero, which is what keeps a body standing exactly on the knight out of arc.
   const scale = distance || 1;
-  if ((dx / scale) * facing.x + (dz / scale) * facing.z <= 0.35 - reach * 0.12) {
+  if ((dx / scale) * facing.x + (dz / scale) * facing.z <= weapon.arc - reach * 0.12) {
     return false;
   }
   // Last, because it is the expensive one: the same lane check a skeleton has
@@ -44,10 +46,10 @@ export function swordContacts(
  * key meant a dodge fired up to 0.3s late and a guard's 0.5s tell landed more often than not. Locking
  * only the 0.11s of contact keeps the cost of swinging into a tell without punishing holding the key.
  */
-export const canAbortSwing = (attackTime: number) => {
+export const canAbortSwing = (attackTime: number, weapon: Weapon = TIDEBLADE) => {
   if (attackTime <= 0) return true;
-  const age = PLAYER_ATTACK_DURATION - attackTime;
-  return age < PLAYER_ATTACK_ANTICIPATION || age >= PLAYER_ATTACK_CONTACT_END;
+  const age = weapon.duration - attackTime;
+  return age < weapon.anticipation || age >= weapon.contactEnd;
 };
 
 /**

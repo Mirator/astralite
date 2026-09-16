@@ -220,3 +220,31 @@ Seven regressions cover the harness itself: seeded replay, seed variation, arriv
 report per floor, draft independence from the dodge stream, real XP and rank movement, and damage
 attribution. They share one batch of eight runs to keep the suite quick. Verification: typecheck, lint
 and 103/103 node tests pass. No gameplay file was touched by this change.
+
+2026-09-16 — A weapon is a record, not a set of constants.
+
+`dungeon-weapon.ts` collects the nine numbers a swing used to hardcode across three files: duration,
+anticipation, contact end, reach, arc, damage, move speed while swinging, and knockback against an
+ordinary body and against a warden that plants itself. `TIDEBLADE` carries exactly the values those
+constants held, so a run holding it plays as it did.
+
+`playerAttackPose`, `swordContacts` and `canAbortSwing` all take a weapon, defaulting to the Tideblade
+so no existing caller or fixture had to change. `PLAYER_ATTACK_DURATION` and its two siblings remain
+exported, now derived from the Tideblade, because dungeon-game and the browser suite still read them.
+The pose curve's shape is deliberately not per-weapon: a slower arm sweeps the same arc over a longer
+span rather than a different arc. The game loop holds one `weapon` and reads every one of those numbers
+off it, including the two knockback literals that were inline in the hit branch, and the snapshot
+carries the held weapon so a driver can assert on it.
+
+Verified as a no-op rather than assumed to be one: the balance harness reproduces the 200-run baseline
+byte for byte — 199 escaped, 0 died, 1 stranded, median 5.5 minutes, median rank 6, median 104 kills,
+and the same warden 78.3 / stalker 13.9 / hazard 7.5 / guard 0.2 damage split. The harness was then
+changed to pass the Tideblade explicitly rather than lean on the defaults, so it exercises the
+parameterised path, and reproduced the same numbers again.
+
+Seven regressions in `tests/dungeon-weapon.test.ts` cover the table matching the exported constants,
+an unknown id falling back to an armed knight rather than an empty hand, omitting the weapon being
+identical to passing the Tideblade across pose, abort and contact, and — the ones that matter — a
+synthetic heavier weapon whose live window, reach and arc all differ from the Tideblade's, so the
+parameter cannot be silently ignored. A wall still stops a longer blade. Verification: typecheck, lint,
+110/110 node tests.

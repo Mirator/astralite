@@ -12,8 +12,9 @@
 // other, not a claim about how well a human plays.
 import { canAbortSwing, swordContacts } from '../../app/dungeon-combat.ts';
 import { decideEnemy, enemyStats, interruptsWindup, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type World } from '../../app/dungeon-enemy.ts';
-import { PLAYER_ATTACK_DURATION, playerAttackPose } from '../../app/dungeon-attack-pose.ts';
+import { playerAttackPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
+import { TIDEBLADE } from '../../app/dungeon-weapon.ts';
 import { clearRoomReward, createRun, draftBoons, heal, hurt, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
@@ -215,7 +216,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     // A tell it has had time to read, from something close enough to land, is worth a dodge.
     const threat = live.find(b => b.windup > 0 && b.tell - b.windup >= policy.reaction
       && Math.hypot(b.x - player.x, b.z - player.z) < STRIKE_RANGE[b.kind] + (b.kind === 'stalker' ? 2.6 : 0.4));
-    if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime) && nerve() < policy.dodge) {
+    if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, TIDEBLADE) && nerve() < policy.dodge) {
       // A pounce is out-run sideways; a swing is out-run backwards.
       const away = unit(player.x - threat.x, player.z - threat.z);
       const step = threat.kind === 'stalker' ? { x: -away.z, z: away.x } : away;
@@ -235,7 +236,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     if (target && dashTime <= 0) {
       const toward = unit(target.body.x - player.x, target.body.z - player.z);
       if (target.distance > 1.55 + run.reach) move = toward;
-      else if (attackTime <= 0) { attackTime = PLAYER_ATTACK_DURATION; attackFacing = toward; facing.x = toward.x; facing.z = toward.z; swingHits.clear(); }
+      else if (attackTime <= 0) { attackTime = TIDEBLADE.duration; attackFacing = toward; facing.x = toward.x; facing.z = toward.z; swingHits.clear(); }
     } else if (dashTime <= 0) {
       // Nothing awake in reach: walk the flood. A branch worth plundering first, then the stair.
       const detour = policy.explore
@@ -253,23 +254,23 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
 
     if (move) { facing.x = move.x; facing.z = move.z; }
     const threatened = live.some(b => (b.x - player.x) ** 2 + (b.z - player.z) ** 2 < 100);
-    const speed = dashTime > 0 ? 12 : attackTime > 0 ? 3.2 : threatened ? 5.8 : 8.5;
+    const speed = dashTime > 0 ? 12 : attackTime > 0 ? TIDEBLADE.moveSpeed : threatened ? 5.8 : 8.5;
     if (dashTime > 0) moveOnFloor(floor.cells, player, facing.x * speed * DT, facing.z * speed * DT);
     else if (move) moveOnFloor(floor.cells, player, move.x * speed * DT, move.z * speed * DT);
 
     // --- the blade -----------------------------------------------------------------------------
     if (attackTime > 0) {
       attackTime = Math.max(0, attackTime - DT);
-      const pose = playerAttackPose(PLAYER_ATTACK_DURATION - attackTime);
+      const pose = playerAttackPose(TIDEBLADE.duration - attackTime, TIDEBLADE);
       if (pose.active) for (const body of bodies) {
         if (body.dead || !body.awake || swingHits.has(body)) continue;
-        if (!swordContacts(floor.cells, player, attackFacing, body, run.reach)) continue;
+        if (!swordContacts(floor.cells, player, attackFacing, body, run.reach, TIDEBLADE)) continue;
         swingHits.add(body);
-        body.hp -= run.strike;
+        body.hp -= run.strike + TIDEBLADE.damage - 1;
         body.hitFlash = 0.2;
         if (interruptsWindup(body.kind, body.windup)) body.windup = 0;
         body.cooldown = Math.max(body.cooldown, 0.4);
-        const push = unit(body.x - player.x, body.z - player.z), shove = body.kind === 'warden' ? 0.1 : 0.38;
+        const push = unit(body.x - player.x, body.z - player.z), shove = body.kind === 'warden' ? TIDEBLADE.wardenKnockback : TIDEBLADE.knockback;
         moveOnFloor(floor.cells, body, push.x * shove, push.z * shove);
         if (body.hp <= 0) {
           body.dead = true;
