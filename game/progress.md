@@ -188,3 +188,35 @@ Inspected GitHub runs 35021207554 and 35071451218 and their retained Playwright 
 
 Initialize the animation clock from the first rAF callback and clamp subsequent deltas to 0..40ms. Add a browser regression that supplies an older first timestamp and asserts no startup hit-stop/shake. Use an awake guard in the wall-contact fixture so its windup reliably parks it between both swings. Existing movement, collision, damage and timing assertions remain unchanged; no retries or disabled gates. Typecheck, lint, all 96 node tests and production build passed (existing bundle-size warning). Repeated browser validation and production workflow verification pending.
 Focused stability verification: both previously failing scenarios and the new stale-frame regression passed three consecutive runs each (9/9). Publishing this repair to restore the explicitly requested production deployment; full CI and Pages verification follows.
+
+2026-09-16 — A balance harness, because seven weapons cannot be tuned by hand.
+
+`npm run balance` plays a batch of seeded runs headlessly against the real rules and reports what the
+keep did to them. Nothing in `scripts/balance/sim.ts` re-implements a rule: generateFloor lays the
+keep, decideEnemy drives every body, swordContacts decides every hit, and hurt/resolveKill/takeBoon
+move the run's numbers, so a tuning change lands in the report the same commit it lands in the game.
+What is modelled rather than shared is the renderer's own bookkeeping — ember ring placement, the
+ambush wake, the spawn cooldown stagger — and each carries the line of dungeon-game.tsx it mirrors,
+since that is the seam where the harness can silently go stale. The knight is a policy, not a player:
+it walks the flood to the stair, engages what wakes with a clear lane, and dodges a tell it has had
+time to read.
+
+Two harness bugs were found and fixed while bringing it up. Charging any body within 14 units, without
+the lane check the enemy's own attack has to pass, walked the knight into the wall of the next room and
+ground there until the timeout in eight runs of ten. And the dodge rolls originally shared an RNG
+stream with the boon draft, so raising the dodge rate silently dealt different cards — a skill sweep
+read backwards until the streams were split, with the clumsier knight simply being handed better boons.
+The dodge rate is documented as non-monotonic by design and not a difficulty dial: a dodge cancels the
+swing it interrupts and spends a 1.35s cooldown, so dodging everything draws fights out.
+
+Baseline over 200 runs at reaction 0.22s, dodge 0.8, exploring: 199 escaped, 0 died, 1 stranded;
+median run 5.5 minutes, median rank 6, median 104 kills. Death rate is 0.0% on all three floors, and
+median vitality at the stair is 80/82/74 percent by floor. Damage dealt to the knight splits warden
+78.3%, stalker 13.9%, hazard 7.5%, guard 0.2%. Two things worth saying plainly: a competent knight
+currently cannot lose, and guards are decorative — they are 0.2% of all damage taken across 200 full
+descents. Median rank 6 against a six-boon pool also confirms every run takes every boon.
+
+Seven regressions cover the harness itself: seeded replay, seed variation, arrival at the stair, one
+report per floor, draft independence from the dodge stream, real XP and rank movement, and damage
+attribution. They share one batch of eight runs to keep the suite quick. Verification: typecheck, lint
+and 103/103 node tests pass. No gameplay file was touched by this change.

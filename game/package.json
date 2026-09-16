@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit --incremental false",
     "test:browser": "playwright test",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "balance": "node --experimental-strip-types scripts/balance/main.ts"
   },
   "dependencies": {
     "@types/three": "^0.185.4",
