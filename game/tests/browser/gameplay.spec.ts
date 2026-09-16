@@ -128,7 +128,11 @@ test('held Space repeats strikes and every swing takes real health off a warden'
 
   await game.teleport(stance.x, stance.z);
   await game.step(16);
-  expect(track(await game.state(), 'warden', anchor).hp).toBe(4);
+  // Vitality is quoted in quarter-hits of a starting blade, so a floor-one warden
+  // is four blows however hard the held weapon happens to hit.
+  const armed = await game.state();
+  const blade = armed.weapon.strikeDamage;
+  expect(track(armed, 'warden', anchor).hp).toBe(4 * blade);
 
   // Latch the facing with a real arrow key, then hold only Space so the knight
   // stays put and the repeat comes from the held strike, not from walking in.
@@ -139,12 +143,12 @@ test('held Space repeats strikes and every swing takes real health off a warden'
   await game.step(120);
   expect((await game.state()).player.attackTime).toBeGreaterThan(0);
   await game.step(120);
-  expect(track(await game.state(), 'warden', anchor).hp).toBe(3);
+  expect(track(await game.state(), 'warden', anchor).hp).toBe(3 * blade);
 
   // A swing lasts 0.38s; crossing that boundary with Space held starts another.
   await game.step(400);
   const second = await game.state();
-  expect(track(second, 'warden', anchor).hp).toBe(2);
+  expect(track(second, 'warden', anchor).hp).toBe(2 * blade);
   expect(second.player.attackTime).toBeGreaterThan(0);
 
   await page.keyboard.up('Space');
@@ -152,7 +156,7 @@ test('held Space repeats strikes and every swing takes real health off a warden'
   const stopped = await game.state();
   expect(stopped.player.attackTime).toBe(0);
   expect(stopped.player.attackBuffer).toBe(0);
-  expect(track(stopped, 'warden', anchor).hp).toBe(2);
+  expect(track(stopped, 'warden', anchor).hp).toBe(2 * blade);
 });
 
 test('pause and the expanded map freeze the world, and losing focus drops held input', async ({
@@ -431,7 +435,9 @@ test.describe('touch controls', () => {
     const stance = strikeStance(floor, anchor, { distance: 1.6 });
     await game.teleport(stance.x, stance.z);
     await game.step(16);
-    expect(track(await game.state(), 'warden', anchor).hp).toBe(4);
+    const armed = await game.state();
+    const blade = armed.weapon.strikeDamage;
+    expect(track(armed, 'warden', anchor).hp).toBe(4 * blade);
 
     const strike = await game.centreOf('.touch-actions .strike');
     const pad = await game.centreOf(`.touch-pad .${stance.direction}`);
@@ -450,11 +456,11 @@ test.describe('touch controls', () => {
     expect((await game.state()).player.attackTime).toBeGreaterThan(0);
     await game.step(120);
     // Real contacts drive real damage, not just events that arrived.
-    expect(track(await game.state(), 'warden', anchor).hp).toBe(3);
+    expect(track(await game.state(), 'warden', anchor).hp).toBe(3 * blade);
     await game.step(400);
     const repeated = await game.state();
     expect(repeated.player.attackTime).toBeGreaterThan(0);
-    expect(track(repeated, 'warden', anchor).hp).toBe(2);
+    expect(track(repeated, 'warden', anchor).hp).toBe(2 * blade);
 
     // A second thumb on the pad: moving while striking must stay possible.
     await game.touch('touchStart', [

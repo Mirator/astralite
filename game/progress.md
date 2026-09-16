@@ -248,3 +248,28 @@ identical to passing the Tideblade across pose, abort and contact, and — the o
 synthetic heavier weapon whose live window, reach and arc all differ from the Tideblade's, so the
 parameter cannot be silently ignored. A wall still stops a longer blade. Verification: typecheck, lint,
 110/110 node tests.
+
+2026-09-16 — Vitality quoted in quarter-hits, so a weapon table has room to sit.
+
+Damage is an integer and a guard held two of them, so a weapon was either exactly as strong as the
+starting sword or exactly twice as strong: there is no "a fifth harder" at that grain, and five melee
+arms cannot be told apart by damage without one. `HIT = 4` in dungeon-enemy.ts; every vitality number
+and the per-floor growth are quoted as multiples of it, and the Tideblade deals 4. The same swings
+still kill in the same number of blows — what changed is that a gap now exists to tune inside.
+
+The composition was wrong and is fixed with it. `run.strike` was the damage itself, starting at 1, so
+threading a weapon through in the previous change produced `run.strike + weapon.damage - 1` to keep the
+arithmetic working. It is now a bonus on top of whatever is held, starting at 0, and a blow takes
+`weapon.damage + run.strike`. Whetted Edge adds `STRIKE_BONUS`, one more starting blade's worth, which
+is the same doubling it always was.
+
+Verified as a no-op rather than assumed to be one: the harness reproduces the 200-run baseline byte for
+byte for the third time — 199 escaped, 0 died, median 5.5 minutes, median rank 6, median 104 kills,
+warden 78.3 / stalker 13.9 / hazard 7.5 / guard 0.2.
+
+The pinned assertions were updated rather than relaxed, because they exist so a rebalance has to be
+deliberate. The enemy tuning table asserts blow counts as blow counts (`2 * HIT`), and every browser
+test that pinned a warden at four vitality now derives the number from the snapshot's new
+`weapon.strikeDamage`, so a future weapon change moves the fixtures with it instead of breaking them.
+One slash fixture that pinned a body at a literal 2 would now simply die and take the impact accent
+with it; it asks for two blades' worth instead.

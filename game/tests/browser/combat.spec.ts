@@ -236,7 +236,7 @@ test('the sword respects the same walls a skeleton does, and an open lane still 
   await game.step(220);
   const landed = await game.state();
   expect(trackEnemy(landed, victim!.kind, open!.spot, 1).hp).toBe(
-    startingHp - landed.boons.strike,
+    startingHp - landed.weapon.strikeDamage,
   );
 });
 
@@ -273,7 +273,9 @@ test('one swing takes exactly one hit off an enemy, however long the blade is on
       { index, x: spot.x, z: spot.z, windup: 0.72, aim: { x: 0, z: 1 } },
     ],
   });
-  expect(trackEnemy(await game.state(), 'warden', spot, 1).hp).toBe(4);
+  // A floor-one warden is four blows of the starting blade; vitality is quoted in quarter-hits.
+  const armed = await game.state();
+  expect(trackEnemy(armed, 'warden', spot, 1).hp).toBe(4 * armed.weapon.strikeDamage);
 
   // The blade is in contact from 0.065s to 0.175s — seven frames of overlap.
   // 0.38s of swing plus the 0.035s of hitstop a landed blow adds.
@@ -281,7 +283,9 @@ test('one swing takes exactly one hit off an enemy, however long the blade is on
   await game.step(500);
   const after = await game.state();
   expect(after.player.attackTime).toBe(0);
-  expect(trackEnemy(after, 'warden', spot, 1).hp).toBe(4 - after.boons.strike);
+  expect(trackEnemy(after, 'warden', spot, 1).hp).toBe(
+    4 * armed.weapon.strikeDamage - after.weapon.strikeDamage,
+  );
 });
 
 test('two kills in one swing pay out in full even when the first crosses a rank', async ({

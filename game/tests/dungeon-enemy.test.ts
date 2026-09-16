@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
-import { ACTIVATION, ATTACK_RANGE, BASE_STATS, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, HOLD_RANGE, interruptsWindup, isActive, LUNGE_SPEED, LUNGE_TIME, pursuitStep, RECOVERY, separateCrowd, STRIKE_RANGE, sweptContact, type CrowdBody, type EnemyView, type World } from '../app/dungeon-enemy.ts';
+import { ACTIVATION, ATTACK_RANGE, BASE_STATS, HIT, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, HOLD_RANGE, interruptsWindup, isActive, LUNGE_SPEED, LUNGE_TIME, pursuitStep, RECOVERY, separateCrowd, STRIKE_RANGE, sweptContact, type CrowdBody, type EnemyView, type World } from '../app/dungeon-enemy.ts';
 
 // A square of open floor wide enough that nothing in these tests walks off it.
 const openFloor = (half = 8) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
@@ -240,17 +240,20 @@ test('a hit knocks a swing out of a tell only while enough of it is left; a ward
   assert.ok(COMMITTED_WINDUP > 0.18);
 });
 
-test('bodies grow with the floor: vitality by one a floor, damage by fifteen percent', () => {
+test('bodies grow with the floor: vitality by one blade a floor, damage by fifteen percent', () => {
+  // Vitality is quoted in quarter-hits so a weapon table has somewhere to sit between "one blow" and
+  // "two blows". The blow counts are what the balance actually is, so they are asserted as blows.
+  assert.equal(HIT, 4);
   assert.deepEqual(BASE_STATS, {
-    guard: { hp: 2, damage: 12, tell: 0.5, speed: 2.2 },
-    stalker: { hp: 2, damage: 8, tell: 0.58, speed: 3.2 },
-    warden: { hp: 4, damage: 20, tell: 0.72, speed: 1.65 },
+    guard: { hp: 2 * HIT, damage: 12, tell: 0.5, speed: 2.2 },
+    stalker: { hp: 2 * HIT, damage: 8, tell: 0.58, speed: 3.2 },
+    warden: { hp: 4 * HIT, damage: 20, tell: 0.72, speed: 1.65 },
   });
   // Floor one is exactly the base table, so every browser fixture pinned to floor one still holds.
   for (const kind of ['guard', 'stalker', 'warden'] as const) assert.deepEqual(enemyStats(kind, 1), BASE_STATS[kind]);
-  assert.deepEqual([enemyStats('guard', 2).hp, enemyStats('guard', 3).hp], [3, 4]);
-  // A floor-three stair is three wardens; at eight vitality each that was a slog, so a warden grows like the rest.
-  assert.deepEqual([enemyStats('warden', 2).hp, enemyStats('warden', 3).hp], [5, 6]);
+  assert.deepEqual([enemyStats('guard', 2).hp, enemyStats('guard', 3).hp], [3 * HIT, 4 * HIT]);
+  // A floor-three stair is three wardens; at eight blades each that was a slog, so a warden grows like the rest.
+  assert.deepEqual([enemyStats('warden', 2).hp, enemyStats('warden', 3).hp], [5 * HIT, 6 * HIT]);
   assert.deepEqual([1, 2, 3].map(level => enemyStats('guard', level).damage), [12, 14, 16]);
   assert.deepEqual([1, 2, 3].map(level => enemyStats('stalker', level).damage), [8, 9, 10]);
   assert.deepEqual([1, 2, 3].map(level => enemyStats('warden', level).damage), [20, 23, 26]);

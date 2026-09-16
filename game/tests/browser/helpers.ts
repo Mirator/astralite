@@ -27,6 +27,15 @@ export type Snapshot = {
   health: number;
   maxHealth: number;
   rank: number;
+  weapon: {
+    id: string;
+    name: string;
+    damage: number;
+    reach: number;
+    duration: number;
+    /** What one clean blow actually takes off, weapon plus boons. */
+    strikeDamage: number;
+  };
   boons: {
     strike: number;
     reach: number;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BOONS, clearRoomReward, createRun, draftBoons, grantXp, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, heal, hurt, INVULN, rankCost, resolveKill, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
+import { BOONS, clearRoomReward, createRun, draftBoons, grantXp, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, heal, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
 
 // A run with the draft already open, since every boon needs that gate held down.
 const drafting = (patch: Partial<Run> = {}): Run => Object.assign(createRun(), { choosing: true, pendingRanks: 1 }, patch);
@@ -13,13 +13,13 @@ test('a fresh run carries every field the game restores on restart, and nothing 
   assert.deepEqual(createRun(), {
     hp: 100, maxHp: 100, kills: 0, totalXp: 0,
     rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
-    strike: 1, dashSpan: 1.35, reach: 0, draught: 0, guardAgainst: 1,
+    strike: 0, dashSpan: 1.35, reach: 0, draught: 0, guardAgainst: 1,
     invuln: 0, taken: [],
   });
   // Two runs never share structure, or a restart would carry the old run's boons forward.
   const a = createRun(), b = createRun();
   a.strike = 9;
-  assert.equal(b.strike, 1);
+  assert.equal(b.strike, 0);
 });
 
 test('the rank ladder gets steeper and banks every rank one award can pay for', () => {
@@ -68,7 +68,8 @@ test('every boon lands exactly once, and only while a draft is open', () => {
 
   const edge = drafting();
   assert.equal(takeBoon(edge, 'edge')?.name, 'Whetted Edge');
-  assert.equal(edge.strike, 2);
+  // `strike` is the bonus on top of the held weapon, not the damage: a fresh run carries none.
+  assert.equal(edge.strike, STRIKE_BONUS);
   assert.deepEqual(edge.taken, ['edge']);
   // Taking one boon spends one pending rank and closes the draft; the game reopens it if more are owed.
   assert.deepEqual([edge.pendingRanks, edge.choosing], [0, false]);

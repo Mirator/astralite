@@ -44,14 +44,20 @@ export const interruptsWindup = (kind: EnemyKind, windup: number) => kind !== 'w
 // easier as it went. Vitality grows by one per floor, damage by fifteen percent, and
 // tells and speeds hold still so a learned read stays true all the way down.
 export type EnemyStats = { hp: number; damage: number; tell: number; speed: number };
+// Vitality is quoted in quarter-hits of a starting blade rather than in whole ones. A guard used to
+// hold 2 and the sword used to deal 1, so a weapon was either as strong as the sword or twice as
+// strong, with nothing between: there is no "a fifth harder" at that grain, and five melee arms cannot
+// be told apart by damage without it. Every number below is the old one times HIT, so the same swings
+// still kill in the same number of blows; what changed is that a gap now exists to tune inside.
+export const HIT = 4;
 export const BASE_STATS: Record<EnemyKind, EnemyStats> = {
-  guard: { hp: 2, damage: 12, tell: 0.5, speed: 2.2 },
-  stalker: { hp: 2, damage: 8, tell: 0.58, speed: 3.2 },
-  warden: { hp: 4, damage: 20, tell: 0.72, speed: 1.65 },
+  guard: { hp: 2 * HIT, damage: 12, tell: 0.5, speed: 2.2 },
+  stalker: { hp: 2 * HIT, damage: 8, tell: 0.58, speed: 3.2 },
+  warden: { hp: 4 * HIT, damage: 20, tell: 0.72, speed: 1.65 },
 };
 export const enemyStats = (kind: EnemyKind, level: number): EnemyStats => {
   const base = BASE_STATS[kind], deeper = Math.max(0, Math.floor(Number.isFinite(level) ? level : 1) - 1);
-  return { hp: base.hp + deeper, damage: Math.round(base.damage * (1 + 0.15 * deeper)), tell: base.tell, speed: base.speed };
+  return { hp: base.hp + deeper * HIT, damage: Math.round(base.damage * (1 + 0.15 * deeper)), tell: base.tell, speed: base.speed };
 };
 
 // Everything a decision reads off an enemy. The renderer's Enemy also carries a THREE.Group, a health
