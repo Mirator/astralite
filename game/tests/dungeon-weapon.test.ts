@@ -98,7 +98,10 @@ test('staggering is rare on purpose', () => {
   // exactly one arm carries it and it is the slowest in the keep.
   const staggering = Object.values(WEAPONS).filter(w => w.stagger);
   assert.deepEqual(staggering.map(w => w.id), ['maul']);
-  assert.equal(Math.max(...Object.values(WEAPONS).map(w => w.duration)), staggering[0].duration);
+  // Slowest of the arms that actually swing. The crossbow takes longer still, but it is not a swing and
+  // never has to be in reach at all, so it is not what the cost of staggering is measured against.
+  const swings = Object.values(WEAPONS).filter(w => !w.ranged);
+  assert.equal(Math.max(...swings.map(w => w.duration)), staggering[0].duration);
 });
 
 test('the arms are told apart by reach, arc and rate rather than by one being better', () => {

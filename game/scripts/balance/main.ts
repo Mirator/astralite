@@ -6,6 +6,7 @@
 //   npm run balance -- --no-explore       trunk only, no detours
 //   npm run balance -- --weapon cleaver   one arm
 //   npm run balance -- --compare          every arm, side by side
+//   npm run balance -- --compare --kite   the same, with the knight backing away as he fights
 //   npm run balance -- --json             machine-readable, for diffing two branches
 //
 // The numbers are a yardstick for comparing one build against another, not a claim about how a human
@@ -28,6 +29,7 @@ const policy: Policy = {
   reaction: value('reaction', DEFAULT_POLICY.reaction),
   dodge: value('dodge', DEFAULT_POLICY.dodge),
   explore: !flag('no-explore'),
+  kite: flag('kite'),
   weapon: args.includes('--weapon') ? weaponById(args[args.indexOf('--weapon') + 1]) : DEFAULT_POLICY.weapon,
 };
 
@@ -52,16 +54,19 @@ if (flag('compare')) {
   console.log(`
   ${runs} runs an arm · reaction ${policy.reaction}s · dodge ${policy.dodge} · ${policy.explore ? 'exploring' : 'trunk only'}
 `);
-  console.log('  weapon             escaped   died   median run   median HP at stair   warden dmg   dmg surrounded');
+  console.log('  weapon             escaped   died   median run   median HP at stair   warden dmg   in reach   hit rate');
   for (const id of Object.keys(WEAPONS) as WeaponId[]) {
     const all = batch(WEAPONS[id]);
     const out = all.filter(r => r.outcome === 'escaped'), lost = all.filter(r => r.outcome === 'died');
     const hp = all.flatMap(r => r.floors.filter(f => f.outcome === 'cleared')).map(f => f.hpAfter / f.maxHpAfter * 100);
     const dealt = all.flatMap(r => r.floors);
     const fromWarden = dealt.reduce((sum, f) => sum + f.damage.warden, 0);
-    const inCrowd = dealt.reduce((sum, f) => sum + f.surrounded, 0);
     const total = dealt.reduce((sum, f) => sum + f.damage.guard + f.damage.stalker + f.damage.warden + f.damage.hazard, 0);
-    console.log(`  ${WEAPONS[id].name.padEnd(17)}  ${share(out.length, runs).padStart(7)}   ${share(lost.length, runs).padStart(4)}   ${`${(median(all.map(r => r.seconds)) / 60).toFixed(1)}m`.padStart(10)}   ${`${median(hp).toFixed(0)}%`.padStart(18)}   ${share(fromWarden, total).padStart(10)}   ${share(inCrowd, total).padStart(14)}`);
+    // Seconds spent where something could reach him, against the run's own length: an arm that wins by
+    // walking backwards reads near zero whatever its damage column says.
+    const inReach = dealt.reduce((sum, f) => sum + f.contact, 0), elapsed = all.reduce((sum, r) => sum + r.seconds, 0);
+    const fired = dealt.reduce((sum, f) => sum + f.shots, 0), stuckIn = dealt.reduce((sum, f) => sum + f.landed, 0);
+    console.log(`  ${WEAPONS[id].name.padEnd(17)}  ${share(out.length, runs).padStart(7)}   ${share(lost.length, runs).padStart(4)}   ${`${(median(all.map(r => r.seconds)) / 60).toFixed(1)}m`.padStart(10)}   ${`${median(hp).toFixed(0)}%`.padStart(18)}   ${share(fromWarden, total).padStart(10)}   ${share(inReach, elapsed).padStart(8)}   ${(fired ? share(stuckIn, fired) : '—').padStart(8)}`);
   }
   console.log('');
 } else if (flag('json')) {

@@ -98,6 +98,34 @@ export function makeWeapon(id: WeaponId, m: ArmoryPalette, plate: Plate): ArmedW
     return { group, inner: new THREE.Vector3(0, 0, -.95), tip: new THREE.Vector3(0, 0, -1.42) };
   }
 
+  if (id === 'crossbow') {
+    // Read as a machine rather than a blade: a stock along the forearm, a bow across it, and a bolt in
+    // the groove that is there whether or not the quiver is dry, because the silhouette should not
+    // change under the player mid-fight.
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(.13, .1, .92), m.leather);
+    add(stock, [0, .04, -.3]);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(.06, .05, .78), m.dark);
+    add(rail, [0, .1, -.36]);
+    const bow = new THREE.Mesh(new THREE.BoxGeometry(.96, .06, .09), m.iron);
+    add(bow, [0, .06, -.66]);
+    for (const side of [-1, 1]) {
+      const limb = new THREE.Mesh(new THREE.BoxGeometry(.3, .05, .07), m.steel);
+      add(limb, [side * .5, .06, -.62], [0, side * .32, 0]);
+    }
+    const string = new THREE.Mesh(new THREE.BoxGeometry(.9, .015, .015), m.steel);
+    add(string, [0, .07, -.3]);
+    const bolt = new THREE.Mesh(new THREE.CylinderGeometry(.022, .022, .5, 5), m.brass);
+    add(bolt, [0, .13, -.5], [Math.PI / 2, 0, 0]);
+    const head = new THREE.Mesh(new THREE.ConeGeometry(.045, .12, 4), m.steel);
+    add(head, [0, .13, -.78], [-Math.PI / 2, 0, 0]);
+    const lock = new THREE.Mesh(new THREE.BoxGeometry(.16, .12, .14), m.brass);
+    add(lock, [0, .03, -.02]);
+    const butt = new THREE.Mesh(new THREE.BoxGeometry(.12, .16, .2), m.leather);
+    add(butt, [0, -.01, .2], [.22, 0, 0]);
+    // The ribbon is the bolt leaving the groove, not a swept edge, so both ends sit on the rail.
+    return { group, inner: new THREE.Vector3(0, .13, -.5), tip: new THREE.Vector3(0, .13, -.84) };
+  }
+
   // The Tideblade, exactly as the knight has always carried it.
   const blade = plate([[-.065, 0], [.065, 0], [.075, .87], [0, 1.158], [-.075, .87]], .045, m.steel);
   add(blade, [0, 0, 0], [-Math.PI / 2, 0, 0]);
@@ -154,4 +182,19 @@ export function makeWeaponDrop(id: WeaponId, m: ArmoryPalette, plate: Plate) {
   ring.rotation.x = -Math.PI / 2; ring.position.y = .05; group.add(ring);
   group.traverse(object => { if (object instanceof THREE.Mesh) { object.castShadow = object !== ring; object.receiveShadow = object !== ring; } });
   return { group, ring, blade: arm };
+}
+
+/** A bolt in flight, pooled. Firing must never allocate: the suite asserts on GPU allocations per floor. */
+export function makeBolt(m: ArmoryPalette) {
+  const group = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.028, .028, .56, 5), m.brass);
+  shaft.rotation.x = Math.PI / 2; group.add(shaft);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(.055, .15, 4), m.steel);
+  head.rotation.x = -Math.PI / 2; head.position.z = -.35; group.add(head);
+  for (const side of [-1, 1]) {
+    const fletch = new THREE.Mesh(new THREE.BoxGeometry(.01, .11, .16), m.dark);
+    fletch.position.set(side * .03, 0, .24); group.add(fletch);
+  }
+  group.position.y = .95; group.visible = false;
+  return group;
 }

@@ -1,0 +1,108 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { cellKey, TILE } from '../app/dungeon-floor.ts';
+import { BOLT_RADIUS, blocked, flyShot, reloadStep, type Mark, type Shot } from '../app/dungeon-projectile.ts';
+import { KEEP_CROSSBOW } from '../app/dungeon-weapon.ts';
+
+const openFloor = (half = 10) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
+const cells = openFloor();
+const bolt = (patch: Partial<Shot> = {}): Shot => ({ x: 0, z: 0, dx: 0, dz: -1, speed: 19, life: .62, pierce: 0, damage: 9, spent: new Set<number>(), ...patch });
+const mark = (x: number, z: number, index = 0): Mark => ({ x, z, index });
+
+test('a bolt walks its flight rather than jumping it', () => {
+  // At 19 u/s a frame covers most of a tile, so a body standing anywhere along the step has to be hit.
+  // Testing only where it landed is what let the stalker's pounce pass clean through the knight before
+  // sweptContact existed, and a bolt is faster than a stalker.
+  const shot = bolt();
+  const flight = flyShot(shot, cells, [mark(0, -.4)], 1 / 60);
+  assert.deepEqual(flight.hits, [0], 'a body inside the step was passed through');
+  assert.ok(flight.done, 'a bolt with no pierce stops on the first body');
+});
+
+test('a wall stops a bolt, and says which kind of stop it was', () => {
+  // Cell -2 begins at -1.5 tiles, so a bolt at -2.0 is one frame of flight short of the stone.
+  const walled = new Set(cells); walled.delete(cellKey(0, -2));
+  const flight = flyShot(bolt({ z: -2 }), walled, [], 1 / 60);
+  assert.equal(flight.struck, true);
+  assert.equal(flight.done, true);
+  assert.deepEqual(flight.hits, []);
+  // And the same shot in open air keeps going.
+  assert.equal(flyShot(bolt({ z: -2 }), cells, [], 1 / 60).struck, false);
+});
+
+test('blocked reads the same stone the bodies walk on', () => {
+  assert.equal(blocked(cells, 0, 0), false);
+  assert.equal(blocked(cells, 40 * TILE, 0), true);
+});
+
+test('one bolt never bills the same body twice, however long it is in the air', () => {
+  const shot = bolt({ pierce: 3 });
+  const target = mark(0, -3);
+  let hits = 0;
+  for (let frame = 0; frame < 20; frame++) {
+    const flight = flyShot(shot, cells, [target], 1 / 60);
+    shot.x = flight.x; shot.z = flight.z; shot.life = flight.life; shot.pierce = flight.pierce;
+    hits += flight.hits.length;
+    if (flight.done) break;
+  }
+  assert.equal(hits, 1);
+});
+
+test('piercing spends itself on the nearest body first', () => {
+  // Order in the caller's array must not decide who a bolt hits: the near body is struck first and the
+  // far one only if the bolt had pierce left over.
+  const shot = bolt({ pierce: 1, speed: 240 });
+  const flight = flyShot(shot, cells, [mark(0, -3, 7), mark(0, -1, 4)], 1 / 60);
+  assert.deepEqual(flight.hits, [4, 7]);
+  assert.ok(flight.done, 'two bodies and one pierce is spent');
+
+  const single = flyShot(bolt({ speed: 240 }), cells, [mark(0, -3, 7), mark(0, -1, 4)], 1 / 60);
+  assert.deepEqual(single.hits, [4], 'without pierce only the near one');
+});
+
+test('a body off to the side of the line is missed', () => {
+  assert.deepEqual(flyShot(bolt(), cells, [mark(BOLT_RADIUS + .3, -.3)], 1 / 60).hits, []);
+  assert.deepEqual(flyShot(bolt(), cells, [mark(BOLT_RADIUS - .2, -.3)], 1 / 60).hits, [0]);
+});
+
+test('a bolt falls out of the air when its flight runs out', () => {
+  const flight = flyShot(bolt({ life: 1 / 120 }), cells, [], 1 / 60);
+  assert.equal(flight.life, 0);
+  assert.equal(flight.done, true);
+  assert.equal(flight.struck, false, 'the clock is not a wall');
+});
+
+test('a junk frame delta moves nothing', () => {
+  for (const bad of [0, -1, Number.NaN]) {
+    const flight = flyShot(bolt(), cells, [mark(0, -.4)], bad);
+    assert.deepEqual([flight.x, flight.z], [0, 0]);
+    assert.deepEqual(flight.hits, []);
+  }
+});
+
+test('the quiver refills on its own clock and never past full', () => {
+  // A cooldown would still let the knight back away and fire forever, since he outruns everything in
+  // the keep; what limits a ranged arm is a quiver that runs dry.
+  assert.deepEqual(reloadStep(0, 4, 0, 1.8, 1), { spare: 0, timer: 1 });
+  const one = reloadStep(0, 4, 1, 1.8, 1);
+  assert.equal(one.spare, 1);
+  assert.ok(Math.abs(one.timer - 0.2) < 1e-9);
+  assert.deepEqual(reloadStep(4, 4, 0, 1.8, 5), { spare: 4, timer: 0 }, 'a full quiver does not tick');
+  // A tab hidden for a minute must not hand back more than the quiver holds, but must not hand back
+  // only one either: whole refills are counted out.
+  const long = reloadStep(0, 4, 0, 1.8, 60);
+  assert.equal(long.spare, 4);
+  for (const bad of [0, -1, Number.NaN]) assert.deepEqual(reloadStep(1, 4, .5, 1.8, bad), { spare: 1, timer: .5 });
+});
+
+test('the crossbow is limited by its quiver rather than by a wait', () => {
+  const bow = KEEP_CROSSBOW.ranged;
+  assert.ok(bow, 'the crossbow is the ranged arm');
+  // Range has to clear a room without clearing the floor: rooms run to roughly 18 units across.
+  const range = bow.speed * bow.flight;
+  assert.ok(range > 8 && range < 14, `range ${range} is not a room's worth`);
+  // Firing must be slower and more rooted than any swing, because it is the only arm that never has to
+  // be in reach at all.
+  assert.ok(KEEP_CROSSBOW.moveSpeed < 2, 'firing has to root the knight');
+  assert.ok(KEEP_CROSSBOW.reach < 1, 'a dry crossbow is not a melee weapon');
+});

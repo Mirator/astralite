@@ -9,7 +9,7 @@
 // Kept free of React, the DOM and three.js so node can execute it directly: dungeon-combat and
 // dungeon-attack-pose both read from it, and both are on the pure side of the line.
 
-export type WeaponId = 'tideblade' | 'fangs' | 'spear' | 'cleaver' | 'maul';
+export type WeaponId = 'tideblade' | 'fangs' | 'spear' | 'cleaver' | 'maul' | 'crossbow';
 
 export type Weapon = {
   id: WeaponId;
@@ -47,6 +47,24 @@ export type Weapon = {
    * than a number, and it is the only answer the knight has to the body that deals most of his damage.
    */
   stagger: boolean;
+  /**
+   * Present only on an arm that throws something. The knight walks at 8.5 and the fastest thing in the
+   * keep is a stalker at 3.2, so nothing here can reach him if he simply backs away while shooting: a
+   * ranged arm that recovered on a timer would beat the whole game by walking backwards. What limits it
+   * is a quiver that runs dry and comes back slowly, plus a recovery long enough that firing is a
+   * commitment — `moveSpeed` and `contactEnd` are what pay for the range.
+   */
+  ranged?: {
+    /** Units a second the shot travels. */
+    speed: number;
+    /** Seconds of flight before it falls. Range is speed times this. */
+    flight: number;
+    /** Bodies one shot passes through beyond the first. */
+    pierce: number;
+    /** Shots in hand at full, and how many seconds one takes to come back. */
+    capacity: number;
+    refill: number;
+  };
 };
 
 /**
@@ -159,8 +177,34 @@ export const BELL_MAUL: Weapon = {
   stagger: true,
 };
 
+/**
+ * The only arm that works at a distance, and the only one that can be left useless. Four bolts, one
+ * back every 1.8s: a knight who backs away firing runs dry long before a warden runs out of patience,
+ * and a dry crossbow has a 0.2 reach and nothing to swing. Firing roots him at 1.4 against 8.5 walking,
+ * and the 0.36s the bolt is leaving cannot be dashed out of. Measured against the melee arms it is the
+ * slowest descent in the keep at 6.6 minutes against 5.4, and the only arm that loses runs at all.
+ */
+export const KEEP_CROSSBOW: Weapon = {
+  id: 'crossbow',
+  name: 'Keep Crossbow',
+  detail: 'Four bolts, slow to come back. Useless the moment the quiver is dry.',
+  duration: 0.86,
+  anticipation: 0.22,
+  contactEnd: 0.36,
+  // Not a swing. The bolt leaves from here, so the arc only has to cover the notch it leaves through.
+  reach: 0.2,
+  arc: 0.9,
+  damage: 9,
+  moveSpeed: 1.4,
+  knockback: 0.25,
+  wardenKnockback: 0.1,
+  stagger: false,
+  ranged: { speed: 19, flight: 0.62, pierce: 1, capacity: 4, refill: 1.8 },
+};
+
 export const WEAPONS: Record<WeaponId, Weapon> = {
   tideblade: TIDEBLADE,
+  crossbow: KEEP_CROSSBOW,
   fangs: TWIN_FANGS,
   spear: SALT_SPEAR,
   cleaver: WARDENS_CLEAVER,
@@ -168,7 +212,7 @@ export const WEAPONS: Record<WeaponId, Weapon> = {
 };
 
 /** Every arm but the one the knight starts with, which is what a drop on the floor is drawn from. */
-export const FOUND_WEAPONS: WeaponId[] = ['fangs', 'spear', 'cleaver', 'maul'];
+export const FOUND_WEAPONS: WeaponId[] = ['fangs', 'spear', 'cleaver', 'maul', 'crossbow'];
 
 /** What the knight starts a descent holding. */
 export const STARTING_WEAPON: WeaponId = 'tideblade';

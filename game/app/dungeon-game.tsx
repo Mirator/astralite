@@ -17,7 +17,8 @@ import { decideEnemy, enemyStats, hitCooldown, interruptsWindup, separateCrowd }
 import { enemyPose } from './dungeon-enemy-pose';
 import { playerAttackPose } from './dungeon-attack-pose';
 import { STARTING_WEAPON, TIDEBLADE, weaponById, type Weapon, type WeaponId } from './dungeon-weapon';
-import { disposeWeapon, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
+import { disposeWeapon, makeBolt, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
+import { flyShot, reloadStep, type Mark, type Shot } from './dungeon-projectile';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
@@ -225,6 +226,8 @@ export default function DungeonGame() {
   const [rank, setRank] = useState(1), [rankXp, setRankXp] = useState(0), [rankNeed, setRankNeed] = useState(rankCost(1));
   const [boonChoice, setBoonChoice] = useState<Boon[]>([]), [taken, setTaken] = useState<string[]>([]);
   const [heldWeapon, setHeldWeapon] = useState(TIDEBLADE.name);
+  // Only on screen while a ranged arm is held, so the minimal HUD stays minimal for every other weapon.
+  const [ammo, setAmmo] = useState<{ held: number; of: number } | null>(null);
   const [floorMap, setFloorMap] = useState<ReturnType<typeof generateFloor> | null>(null);
   const [visitedCount, setVisitedCount] = useState(1);
   const mapPlayer = useRef<SVGCircleElement>(null);
@@ -499,7 +502,18 @@ export default function DungeonGame() {
       bladeInner=armed.inner.clone();bladeTip=armed.tip.clone();
       // A swap mid-swing would otherwise leave the old blade's ribbon hanging in the air.
       attackTime = 0; swingHits.clear(); slash.clear(); posePlayer(0);
+      // A weapon picked up arrives loaded; bolts already in the air are the old arm's and stay in it.
+      quiver = weapon.ranged ? weapon.ranged.capacity : 0; reload = 0;
+      setAmmo(weapon.ranged ? { held: quiver, of: weapon.ranged.capacity } : null);
     };
+    // Bolts in hand, and the clock the next one comes back on. A ranged arm is limited by a quiver
+    // rather than by a cooldown: the knight walks at 8.5 against a stalker's 3.2, so a shot that merely
+    // recovered on a timer would let him back away and win the keep without ever being reachable.
+    let quiver = 0, reload = 0;
+    const shots: { shot: Shot; mesh: THREE.Group }[] = [];
+    // Fired shots come out of a pool. The suite asserts a floor allocates no new GPU memory once built.
+    const boltPool = Array.from({ length: 8 }, () => { const bolt = makeBolt((player.userData.armoury as {palette: ArmoryPalette}).palette); world.add(bolt); return bolt; });
+    const clearShots = () => { for (const live of shots) live.mesh.visible = false; shots.length = 0; };
     let dropPrompted = false;
     // Latched false the moment an arm is taken and re-armed only by stepping off the ring. Without it the
     // knight is still standing on the rack he just emptied, so the dwell refills and he swaps straight
@@ -578,7 +592,7 @@ export default function DungeonGame() {
       // is what a logged entry carries, so the log is held here rather than read off the current floor.
       if (level === 1) { firstSeed = floor.seed; runStart = elapsed; setRunSeed(floor.seed); writeSeed(floor.seed); }
       floorGroup = new THREE.Group(); world.add(floorGroup);
-      swingHits.clear();slash.clear();posePlayer(0);
+      swingHits.clear();slash.clear();clearShots();posePlayer(0);
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
       reached = 0; loot = 0; activeRoom = 0; pathCell = ''; distances.clear();
       const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, bumpMap: texture, bumpScale: .035, color: 0xffffff, roughness: .83 });
@@ -688,7 +702,7 @@ export default function DungeonGame() {
     // new `run` is the point of createRun(): a field added to the sim can never be forgotten here.
     const restart = (seed?: number) => {
       run = createRun(); boonsTaken = [];
-      attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; dashBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0;
+      attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; dashBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0; clearShots();
       walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
       isPaused = false; keys.clear(); bufferedFacing = null; velocity.set(0, 0, 0);
       facing.set(1, 0, -0.6).normalize(); attackFacing.copy(facing); dashFacing.copy(facing);
@@ -949,11 +963,34 @@ export default function DungeonGame() {
         player.rotation.x = THREE.MathUtils.damp(player.rotation.x, dashTime > 0 ? -0.3 : 0, 24, dt);
         player.userData.cape.rotation.x = THREE.MathUtils.damp(player.userData.cape.rotation.x, dashTime > 0 ? -.8 : -locomotion.cape, 16, dt);
         dashTime = Math.max(0, dashTime - dt);
+        // Bolts come back on their own clock, never on a cooldown, and the readout only moves when the
+        // count does rather than every frame.
+        if (weapon.ranged && quiver < weapon.ranged.capacity) {
+          const back = reloadStep(quiver, weapon.ranged.capacity, reload, weapon.ranged.refill, dt);
+          if (back.spare !== quiver) { quiver = back.spare; setAmmo({ held: quiver, of: weapon.ranged.capacity }); }
+          reload = back.timer;
+        }
         if (attackTime > 0) {
+          const wasLive = playerAttackPose(weapon.duration - attackTime, weapon).active;
           attackTime = Math.max(0, attackTime - dt);
           const pose=posePlayer(weapon.duration-attackTime),active=pose.active;
           slash.update(dt,pose.trail,player.userData.sword,bladeInner,bladeTip);
-          if (active) enemyData.forEach((enemy) => {
+          // One bolt on the frame the blade would have gone live. A dry quiver still plays the motion,
+          // so running out is something the knight sees rather than something that silently does nothing.
+          if (weapon.ranged && active && !wasLive) {
+            if (quiver > 0) {
+              quiver -= 1; setAmmo({ held: quiver, of: weapon.ranged.capacity });
+              const mesh = boltPool.find(bolt => !bolt.visible);
+              if (mesh) {
+                mesh.visible = true;
+                mesh.position.set(player.position.x, .95, player.position.z);
+                mesh.rotation.y = Math.atan2(-attackFacing.x, -attackFacing.z);
+                shots.push({ mesh, shot: { x: player.position.x, z: player.position.z, dx: attackFacing.x, dz: attackFacing.z, speed: weapon.ranged.speed, life: weapon.ranged.flight, pierce: weapon.ranged.pierce, damage: weapon.damage + run.strike, spent: new Set<number>() } });
+                audio.play('dash');
+              }
+            } else audio.play('warn');
+          }
+          if (!weapon.ranged && active) enemyData.forEach((enemy) => {
             if (gameStatus !== 'playing' || enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
             const delta = enemy.group.position.clone().sub(player.position); delta.y = 0;
             // The same rule the node suite runs: inside the arc, and with no wall between the blade and the body.
@@ -1032,6 +1069,43 @@ export default function DungeonGame() {
         // dungeon-enemy, and only the write back into the scene graph belongs here.
         const spread = separateCrowd(floor.cells, enemyData.map(e => ({ x: e.group.position.x, z: e.group.position.z, windup: e.windup, dead: e.dead })), dt);
         enemyData.forEach((e, i) => { e.group.position.x = spread[i].x; e.group.position.z = spread[i].z; });
+        // Bolts fly last, against where the bodies actually ended the frame. The rule is in
+        // dungeon-projectile; what belongs here is the mesh, the sparks and the damage call.
+        if (shots.length) {
+          const marks: Mark[] = enemyData.map((e, index) => ({ x: e.group.position.x, z: e.group.position.z, index })).filter(mark => !enemyData[mark.index].dead && enemyData[mark.index].awake);
+          for (let i = shots.length - 1; i >= 0; i--) {
+            const live = shots[i], flight = flyShot(live.shot, floor.cells, marks, dt);
+            live.shot.x = flight.x; live.shot.z = flight.z; live.shot.life = flight.life; live.shot.pierce = flight.pierce;
+            live.mesh.position.set(flight.x, .95, flight.z);
+            for (const index of flight.hits) {
+              const enemy = enemyData[index];
+              if (enemy.dead || gameStatus !== 'playing') continue;
+              audio.play('hit');
+              enemy.hp -= live.shot.damage; enemy.hitFlash = 0.2;
+              const broke = interruptsWindup(enemy.kind, enemy.windup, weapon.stagger);
+              if (broke) { enemy.windup = 0; enemy.attackAge = Infinity; enemy.trails.forEach(trail => trail.effect.clear()); }
+              enemy.cooldown = Math.max(enemy.cooldown, hitCooldown(enemy.kind, broke, weapon.stagger));
+              const shove = enemy.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
+              moveOnFloor(floor.cells, enemy.group.position, live.shot.dx * shove, live.shot.dz * shove);
+              burst(enemy.group.position, 0xffb24a, 7); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffedbb, enemy.kind === 'warden');
+              shake = 0.05; hitStop = 0.025;
+              if (enemy.hp <= 0) {
+                enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind);
+                enemy.cue.visible = enemy.bar.visible = false; enemy.trails.forEach(trail => trail.effect.clear());
+                award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
+                if (!cleared.has(enemy.room) && enemyData.every(other => other.room !== enemy.room || other.dead)) {
+                  cleared.add(enemy.room);
+                  const room = floor.rooms[enemy.room];
+                  award(clearRoomReward(run, room.role === 'branch'));
+                  setNotice(`${room.name} · cleansed`); setNoticeDetail(room.role === 'branch' ? 'The detour pays' : ''); noticeTime = 2.5; audio.play('clear');
+                }
+              }
+            }
+            // Stone stops a bolt as surely as it stops steel, and says so.
+            if (flight.struck) burst(new THREE.Vector3(flight.x, .95, flight.z), 0xbfa781, 5);
+            if (flight.done) { live.mesh.visible = false; shots.splice(i, 1); }
+          }
+        }
       }
       if (noticeTime > 0) { noticeTime = Math.max(0,noticeTime-frameDt); if (noticeTime === 0) setNotice(''); }
       if (rewardTime > 0) { rewardTime = Math.max(0, rewardTime - frameDt); if (rewardTime === 0) setXpReward(0); }
@@ -1061,11 +1135,14 @@ export default function DungeonGame() {
     const hooks = window as Window & {
       advanceTime?: (ms: number, draw?: boolean) => void;
       render_game_to_text?: () => string;
-      dungeonTest?: { teleport: (x: number, z: number) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void };
+      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void };
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     hooks.dungeonTest = {
       teleport: (x, z) => {player.position.set(x, 0.03, z);slash.clear();},
+      // Fixture setup, like teleport: put a named arm in hand without walking a rack down. An unknown id
+      // arms the Tideblade rather than leaving the knight empty-handed, as weaponById does everywhere.
+      equip: (id) => { equip(weaponById(id).id); setHeldWeapon(weaponById(id).name); },
       descend: () => buildFloor(Math.min(FLOORS, level + 1)),
       buildFloor: (nextLevel) => buildFloor(nextLevel),
       grantXp: (amount) => award(grantXp(run, amount)),
@@ -1131,7 +1208,7 @@ export default function DungeonGame() {
     };
     hooks.render_game_to_text = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
-      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: weapon.id, name: weapon.name, damage: weapon.damage, reach: weapon.reach, duration: weapon.duration, strikeDamage: weapon.damage + run.strike }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
+      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: weapon.id, name: weapon.name, damage: weapon.damage, reach: weapon.reach, duration: weapon.duration, strikeDamage: weapon.damage + run.strike, ranged: !!weapon.ranged, quiver: weapon.ranged ? quiver : null, capacity: weapon.ranged ? weapon.ranged.capacity : null, inFlight: shots.length }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, stairDwell, deadEndsPlundered: loot },
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, dwell: pickupDwell, takes: PICKUP_DWELL } : null,
@@ -1191,7 +1268,7 @@ export default function DungeonGame() {
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      <section className="hud" aria-label="Player status"><div className="health-row"><span>♥</span><b>{health}<small>/{maxHealth}</small></b></div><div className="health-track" role="progressbar" aria-label="Vitality" aria-valuemin={0} aria-valuemax={maxHealth} aria-valuenow={health}><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div><div className="dash-status"><progress ref={dashMeter} max="1" value="1" aria-label="Dash readiness" /></div><progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} /></section>
+      <section className="hud" aria-label="Player status"><div className="health-row"><span>♥</span><b>{health}<small>/{maxHealth}</small></b></div><div className="health-track" role="progressbar" aria-label="Vitality" aria-valuemin={0} aria-valuemax={maxHealth} aria-valuenow={health}><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div><div className="dash-status"><progress ref={dashMeter} max="1" value="1" aria-label="Dash readiness" /></div>{ammo && <div className="quiver" role="progressbar" aria-label="Bolts in hand" aria-valuemin={0} aria-valuemax={ammo.of} aria-valuenow={ammo.held}>{Array.from({ length: ammo.of }, (_, i) => <i key={i} className={i < ammo.held ? 'held' : ''} />)}</div>}<progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} /></section>
       {floorMap && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action(mapOpen ? 'pause' : 'map')} aria-label={mapOpen ? 'Close floor map' : 'Open floor map'}><svg key={floorBuild} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g transform={`rotate(${mapAngle*180/Math.PI})`}>
         <path d={floorMap.tiles.map(t => `M${t.x - 0.5},${t.z - 0.5}h1v1h-1z`).join('')} fill="#334e56" />
         {floorMap.rooms.map(r => <path key={r.id} id={`map-room-${r.id}`} d={floorMap.tiles.filter(t=>t.room===r.id).map(t=>`M${t.x-.5},${t.z-.5}h1v1h-1z`).join('')} fill={r.id===0?'#5aa89d':r.role==='goal'?'#b8863f':'#4a747c'} />)}
