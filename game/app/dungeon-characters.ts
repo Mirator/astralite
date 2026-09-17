@@ -40,7 +40,7 @@ function dressing(preset: string) {
   return { add, finish };
 }
 
-export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; sword: THREE.Group; arm: THREE.Group; legs: THREE.Group[]; cape: THREE.Mesh }, m: Palette) {
+export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; arm: THREE.Group; legs: THREE.Group[]; cape: THREE.Mesh }, m: Palette) {
   const { add, finish } = dressing('knight');
   // Warm metal edges, a deep visor, and a red split surcoat keep the hero distinct from bone.
   for (const side of [-1, 1]) {
@@ -58,8 +58,6 @@ export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; swor
   add(rig.torso, joint, m.brass, [0, .28, -.355], [.066, .08, .025]);
   add(rig.head, box, m.brass, [0, .19, .015], [.045, .21, .36], [.16, 0, 0]);
   for(let i=0;i<3;i++)add(rig.head,spike,m.red,[0,.36-i*.025,.09+i*.09],[.065,.3-i*.045,.08],[.8+i*.18,0,0]);
-  add(rig.sword, box, m.steel, [0, .039, -.59], [.025, .012, .86]);
-  for (let i = 0; i < 4; i++) add(rig.sword, box, m.brass, [0, .045, -.27 - i * .1], [.065, .012, .023], [0, Math.PI / 4, 0]);
   for (const leg of rig.legs) {
     const knee = leg.userData.knee as THREE.Group;
     add(knee, box, m.steel, [0, -.11, -.16], [.2, .075, .18]);

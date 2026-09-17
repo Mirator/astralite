@@ -1,0 +1,157 @@
+// The geometry half of the weapon table. dungeon-weapon.ts says what an arm does; this says what it
+// looks like, and the two are kept apart for the reason dungeon-floor and dungeon-game are kept apart:
+// the numbers have to run in node, and three.js does not.
+//
+// Every arm is built from the primitives the knight is already built from, with the same palette, so a
+// swapped weapon reads as part of the same figure rather than as a pasted-on asset. Each also declares
+// where its blade starts and ends, because the slash ribbon samples the weapon's world-space path
+// between those two points and a spear sampled at a sword's tip would trail from the middle of the haft.
+import * as THREE from 'three';
+import { type WeaponId } from './dungeon-weapon.ts';
+
+/** The knight's own materials, passed in rather than rebuilt so a weapon shares his palette exactly. */
+export type ArmoryPalette = {
+  steel: THREE.Material; iron: THREE.Material; brass: THREE.Material;
+  leather: THREE.Material; dark: THREE.Material; shadow: THREE.Material;
+};
+
+/** The extruded-outline helper the knight is built with. */
+export type Plate = (outline: number[][], depth: number, material: THREE.Material) => THREE.Mesh;
+
+export type ArmedWeapon = {
+  /** The weapon's own meshes. Hung off the sword pivot, which also carries the hand and the sleeve. */
+  group: THREE.Group;
+  /** Where the trail ribbon starts and ends, in the pivot's local space. */
+  inner: THREE.Vector3;
+  tip: THREE.Vector3;
+};
+
+/** Build one arm. `plate` comes from the knight so both use the same bevel. */
+export function makeWeapon(id: WeaponId, m: ArmoryPalette, plate: Plate): ArmedWeapon {
+  const group = new THREE.Group();
+  const add = (mesh: THREE.Mesh, position: [number, number, number], rotation: [number, number, number] = [0, 0, 0]) => {
+    mesh.position.set(...position); mesh.rotation.set(...rotation); group.add(mesh); return mesh;
+  };
+
+  if (id === 'fangs') {
+    // Two short blades, one to each side of the fist. Nothing here reaches: the whole arm is built to
+    // be used from inside a guard's own swing, and it looks like it.
+    for (const side of [-1, 1]) {
+      const fang = plate([[-.05, 0], [.05, 0], [.055, .42], [0, .6], [-.055, .42]], .034, m.steel);
+      add(fang, [side * .085, .036, 0], [-Math.PI / 2, 0, side * .07]);
+      const guard = new THREE.Mesh(new THREE.BoxGeometry(.13, .035, .05), m.brass);
+      add(guard, [side * .085, .036, .06]);
+    }
+    const wrap = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, .17, 6), m.leather);
+    add(wrap, [0, .03, .13], [Math.PI / 2, 0, 0]);
+    return { group, inner: new THREE.Vector3(0, 0, -.16), tip: new THREE.Vector3(0, 0, -.66) };
+  }
+
+  if (id === 'spear') {
+    const haft = new THREE.Mesh(new THREE.CylinderGeometry(.036, .04, 2.1, 6), m.leather);
+    add(haft, [0, .036, -.72], [Math.PI / 2, 0, 0]);
+    const head = plate([[-.07, 0], [.07, 0], [.085, .3], [0, .62], [-.085, .3]], .03, m.steel);
+    add(head, [0, .036, -1.35], [-Math.PI / 2, 0, 0]);
+    const socket = new THREE.Mesh(new THREE.CylinderGeometry(.055, .045, .2, 6), m.brass);
+    add(socket, [0, .036, -1.29], [Math.PI / 2, 0, 0]);
+    // Three bindings up the haft, so the length reads at a glance from an isometric camera.
+    for (let i = 0; i < 3; i++) {
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, .05, 6), m.iron);
+      add(band, [0, .036, -.5 - i * .32], [Math.PI / 2, 0, 0]);
+    }
+    const butt = new THREE.Mesh(new THREE.DodecahedronGeometry(.055, 0), m.brass);
+    add(butt, [0, .036, .3]);
+    return { group, inner: new THREE.Vector3(0, 0, -1.05), tip: new THREE.Vector3(0, 0, -1.98) };
+  }
+
+  if (id === 'cleaver') {
+    // A slab. The silhouette is the point: it should read as too much weapon from across a hall.
+    const slab = plate([[-.07, 0], [.07, 0], [.34, .42], [.36, 1.02], [.18, 1.24], [-.2, 1.1], [-.24, .4]], .06, m.steel);
+    add(slab, [0, .04, 0], [-Math.PI / 2, 0, 0]);
+    const spine = new THREE.Mesh(new THREE.BoxGeometry(.05, .02, 1.12), m.iron);
+    add(spine, [-.13, .062, -.62]);
+    const collar = new THREE.Mesh(new THREE.BoxGeometry(.3, .07, .11), m.brass);
+    add(collar, [.02, .04, .04]);
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(.055, .055, .28, 6), m.leather);
+    add(grip, [0, .04, .18], [Math.PI / 2, 0, 0]);
+    const pommel = new THREE.Mesh(new THREE.DodecahedronGeometry(.08, 0), m.iron);
+    add(pommel, [0, .04, .34]);
+    return { group, inner: new THREE.Vector3(0, 0, -.36), tip: new THREE.Vector3(.1, 0, -1.32) };
+  }
+
+  if (id === 'maul') {
+    const haft = new THREE.Mesh(new THREE.CylinderGeometry(.05, .055, 1.36, 6), m.leather);
+    add(haft, [0, .04, -.5], [Math.PI / 2, 0, 0]);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(.34, .3, .46), m.iron);
+    add(head, [0, .04, -1.16]);
+    // Banded like a bell, which is where the name comes from and what separates it from the cleaver.
+    for (const z of [-1.3, -1.16, -1.02]) {
+      const band = new THREE.Mesh(new THREE.BoxGeometry(.38, .07, .05), m.brass);
+      add(band, [0, .04, z]);
+    }
+    for (const side of [-1, 1]) {
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(.075, .19, 4), m.steel);
+      add(spike, [side * .21, .04, -1.16], [0, 0, side * Math.PI / 2]);
+    }
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(.07, .06, .12, 6), m.brass);
+    add(cap, [0, .04, .2], [Math.PI / 2, 0, 0]);
+    return { group, inner: new THREE.Vector3(0, 0, -.95), tip: new THREE.Vector3(0, 0, -1.42) };
+  }
+
+  // The Tideblade, exactly as the knight has always carried it.
+  const blade = plate([[-.065, 0], [.065, 0], [.075, .87], [0, 1.158], [-.075, .87]], .045, m.steel);
+  add(blade, [0, 0, 0], [-Math.PI / 2, 0, 0]);
+  const fuller = new THREE.Mesh(new THREE.BoxGeometry(.022, .006, .66), m.iron);
+  add(fuller, [0, .038, -.45]);
+  const hilt = plate([[-.23, -.035], [-.24, .045], [-.08, .075], [.08, .075], [.24, .045], [.23, -.035], [.07, .015], [-.07, .015]], .08, m.brass);
+  add(hilt, [0, 0, 0], [-Math.PI / 2, 0, 0]);
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, .2, 6), m.leather);
+  add(grip, [0, 0, .12], [Math.PI / 2, 0, 0]);
+  const pommel = new THREE.Mesh(new THREE.DodecahedronGeometry(.072, 0), m.brass);
+  add(pommel, [0, 0, .24]);
+  // The four brass rivets knightDetails used to add straight onto the pivot.
+  for (let i = 0; i < 4; i++) {
+    const rivet = new THREE.Mesh(new THREE.BoxGeometry(.065, .012, .023), m.brass);
+    add(rivet, [0, .045, -.27 - i * .1], [0, Math.PI / 4, 0]);
+  }
+  const edge = new THREE.Mesh(new THREE.BoxGeometry(.025, .012, .86), m.steel);
+  add(edge, [0, .039, -.59]);
+  return { group, inner: new THREE.Vector3(0, 0, -.32), tip: new THREE.Vector3(0, 0, -1.17) };
+}
+
+/** Release a weapon's geometry. Materials belong to the knight and outlive every swap. */
+export function disposeWeapon(weapon: ArmedWeapon) {
+  weapon.group.traverse(object => { if (object instanceof THREE.Mesh) object.geometry.dispose(); });
+  weapon.group.removeFromParent();
+}
+
+/**
+ * What lies on the ground before it is picked up: the arm planted point-down in a stone block, leaning,
+ * over a ring that marks it from across a room. Laid flat it read as a thin line from an isometric
+ * camera — a spear in particular vanished into the floor — so the silhouette is stood upright, which is
+ * the only orientation that says "weapon" from this angle without a label.
+ */
+export function makeWeaponDrop(id: WeaponId, m: ArmoryPalette, plate: Plate) {
+  const group = new THREE.Group();
+  const arm = makeWeapon(id, m, plate);
+  // Local -Z is the blade; -90 degrees about X turns that into -Y, so the point goes into the stone.
+  // Each arm is a different length, so how far it is lifted comes off its own tip rather than a constant.
+  const blade = Math.abs(arm.tip.z);
+  // Half again as large as the arm in hand. The camera sits far enough back that a life-sized weapon on
+  // the floor is a few dark pixels; this is a marker the player has to be able to name from a doorway.
+  arm.group.scale.setScalar(1.45);
+  arm.group.rotation.set(-Math.PI / 2 + .3, 0, .18);
+  arm.group.position.set(0, .52 + blade * 1.16, 0);
+  group.add(arm.group);
+  const plinth = new THREE.Mesh(new THREE.CylinderGeometry(.36, .46, .52, 6), m.iron);
+  plinth.position.y = .26; group.add(plinth);
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(.26, .06, 4, 8), m.brass);
+  collar.rotation.x = Math.PI / 2; collar.position.y = .53; group.add(collar);
+  // A warm glow off the plinth so the marker carries in the keep's dark halls without a HUD element.
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(.2, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffd79a, transparent: true, opacity: .55 }));
+  glow.position.y = .6; group.add(glow);
+  const ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> = new THREE.Mesh(new THREE.RingGeometry(1.02, 1.3, 40), new THREE.MeshBasicMaterial({ color: 0xe3b774, transparent: true, opacity: .5, side: THREE.DoubleSide, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = .05; group.add(ring);
+  group.traverse(object => { if (object instanceof THREE.Mesh) { object.castShadow = object !== ring; object.receiveShadow = object !== ring; } });
+  return { group, ring, blade: arm };
+}

@@ -316,3 +316,40 @@ Verification: typecheck, lint, 116/116 node tests. Ten new regressions cover the
 that a found weapon is never the one already in hand, that exactly one arm staggers and it is the
 slowest, that every arm differs from the sword in at least two of the four properties that decide a
 fight, that nothing out-reaches the sword for free, and both halves of the stagger rule.
+
+2026-09-17 — The arms reach the knight's hand: a rack on the floor of every descent.
+
+`dungeon-armory.ts` is the geometry half of the weapon table, kept apart from `dungeon-weapon.ts` for
+the reason `dungeon-floor` is kept apart from `dungeon-game`: the numbers have to run in node and
+three.js does not. Each arm is built from the primitives the knight is already built from, with his own
+palette passed in rather than rebuilt, and each declares where its blade starts and ends, because the
+slash ribbon samples the weapon's world path between those two points — a spear sampled at a sword's
+tip trails from the middle of its own haft. The knight's sword now comes from the same function, and
+the blade dressing moved out of `knightDetails`, whose batch is cached per character type and would
+otherwise have baked a swappable weapon into a cache keyed on "knight".
+
+The floor generator lays one arm out per descent, drawn from the seed like everything else. Floor one
+leaves it in the Tide Gate, which has no bodies in it, so the first real decision of a run is made in
+safety; deeper floors hide it down a branch, which is what makes the detour worth walking. It is placed
+clear of the room's heart, where the knight arrives, and clear of anything spawned in the same chamber.
+
+Taking it is a dwell, not a button: `dwellStep` is now shared with the stair, so both ask for the same
+deliberate pause and a dash across either counts for nothing. What the knight sets down stays on the
+rack, so a pickup he regrets is a walk back rather than a dead run.
+
+Two things were wrong and both were found by looking rather than by reasoning. The rack first laid the
+weapon flat, which from an isometric camera read as a thin line — a spear vanished into the floor
+entirely — so the arm is planted point-down in a plinth, half again life size, over a lit collar. And
+the swap did not stop: the knight is still standing on the rack he just emptied, so the dwell refilled
+and he swapped straight back, measured at a swap every half second for as long as he stood there. The
+first browser test written for this passed through an even number of swaps and read "tideblade", which
+looked like the pickup never firing at all; a stepped probe showed it firing five times. A latch now
+clears on the swap and re-arms only by stepping off the ring, and the regression stands still for four
+seconds and asserts nothing changes.
+
+Verification: typecheck, lint, production build, 121/121 node tests and the full browser suite at
+46/46. New regressions cover the dwell rule and its shared shape with the stair, that every floor lays
+out exactly one arm and never the sword already in hand, that the same seed hands back the same arm and
+different seeds do not all offer one, that floor one uses the empty Tide Gate, that standing takes an
+arm and leaves the old one, that the swing's numbers actually change with it, that standing still
+cannot oscillate, and that a new descent starts on the Tideblade whatever the last run ended holding.
