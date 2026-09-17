@@ -15,7 +15,8 @@ import { canStand, generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-f
 import { canAbortSwing, DASH_BUFFER, swordContacts } from './dungeon-combat';
 import { decideEnemy, enemyStats, interruptsWindup, separateCrowd } from './dungeon-enemy';
 import { enemyPose } from './dungeon-enemy-pose';
-import { playerAttackPose, PLAYER_ATTACK_DURATION } from './dungeon-attack-pose';
+import { playerAttackPose } from './dungeon-attack-pose';
+import { TIDEBLADE, type Weapon } from './dungeon-weapon';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
@@ -351,6 +352,9 @@ export default function DungeonGame() {
     // input, and anything holding a THREE object.
     let run = createRun();
     let stopped = false, attackTime = 0, dashTime = 0, dashCooldown = 0, hurtFlash = 0, shake = 0;
+    // What the knight is holding. Every number the swing used to hardcode now comes off this record,
+    // so a second arm is a different record rather than a second code path.
+    const weapon: Weapon = TIDEBLADE;
     let attackBuffer = 0, dashBuffer = 0, walkPhase = 0, gaitSpeed = 0, elapsed = 0, manualTime = false, hitStop = 0;
     let locomotion=playerRunPose(0,0);
     let rewardTime = 0, noticeTime = 0;
@@ -477,7 +481,7 @@ export default function DungeonGame() {
     const impacts=impactEffects();world.add(impacts.group);
     const bladeInner=new THREE.Vector3(0,0,-.32),bladeTip=new THREE.Vector3(0,0,-1.17);
     const posePlayer=(age:number)=>{
-      const pose=playerAttackPose(age),sword=player.userData.sword as THREE.Group;
+      const pose=playerAttackPose(age,weapon),sword=player.userData.sword as THREE.Group;
       sword.rotation.set(pose.swordPitch,pose.swordYaw,pose.swordRoll);
       sword.position.set(.44,.3,-.02-pose.armReach);
       sword.scale.z=1+run.reach*.5;
@@ -681,7 +685,7 @@ export default function DungeonGame() {
     const startAttack = () => {
       if (!hasStarted || isPaused || gameStatus !== 'playing' || dashTime > 0) return;
       audio.play('slash');
-      attackTime = PLAYER_ATTACK_DURATION; attackBuffer = 0; swingHits.clear();slash.clear();
+      attackTime = weapon.duration; attackBuffer = 0; swingHits.clear();slash.clear();
       const input = moveInput();
       if (input.lengthSq()) facing.copy(input);
       else if (bufferedFacing) facing.copy(bufferedFacing);
@@ -698,7 +702,7 @@ export default function DungeonGame() {
       if (!hasStarted || isPaused || gameStatus !== 'playing' || dashCooldown > 0) return;
       // While the blade is live the swing is a commitment: the dash waits for contact to end instead of
       // cutting it short, which is what makes swinging into a tell a mistake rather than a free action.
-      if (!canAbortSwing(attackTime)) { dashBuffer = DASH_BUFFER; return; }
+      if (!canAbortSwing(attackTime, weapon)) { dashBuffer = DASH_BUFFER; return; }
       dashBuffer = 0;
       const input = moveInput(); dashFacing.copy(input.lengthSq() ? input : facing);
       audio.play('dash');
@@ -799,7 +803,7 @@ export default function DungeonGame() {
         dashCooldown = Math.max(0, dashCooldown - dt);
         // A dash that waited out the live blade goes first, the moment the recovery begins and ahead of the
         // next held swing, or holding strike would swallow every dodge pressed mid-swing.
-        if (dashTime <= 0 && dashBuffer > 0 && canAbortSwing(attackTime)) requestDash();
+        if (dashTime <= 0 && dashBuffer > 0 && canAbortSwing(attackTime, weapon)) requestDash();
         if (attackTime <= 0 && dashTime <= 0 && (attackBuffer > 0 || held('attack'))) startAttack();
         const input = moveInput(), moving = input.lengthSq() > 0;
         if (moving && attackTime <= 0 && dashTime <= 0) facing.copy(input);
@@ -808,7 +812,7 @@ export default function DungeonGame() {
         const angleDelta = Math.atan2(Math.sin(targetAngle - player.rotation.y), Math.cos(targetAngle - player.rotation.y));
         player.rotation.y += angleDelta * (1 - Math.exp(-28 * dt));
         const threatened = enemyData.some(e => !e.dead && e.awake && e.group.position.distanceToSquared(player.position) < 100);
-        const speed = dashTime > 0 ? 12 : attackTime > 0 ? 3.2 : threatened ? 5.8 : 8.5;
+        const speed = dashTime > 0 ? 12 : attackTime > 0 ? weapon.moveSpeed : threatened ? 5.8 : 8.5;
         velocity.copy(dashTime > 0 ? dashFacing : input).multiplyScalar(speed);
         const oldX=player.position.x,oldZ=player.position.z;
         moveOnFloor(floor.cells, player.position, velocity.x * dt, velocity.z * dt);
@@ -882,18 +886,19 @@ export default function DungeonGame() {
         dashTime = Math.max(0, dashTime - dt);
         if (attackTime > 0) {
           attackTime = Math.max(0, attackTime - dt);
-          const pose=posePlayer(PLAYER_ATTACK_DURATION-attackTime),active=pose.active;
+          const pose=posePlayer(weapon.duration-attackTime),active=pose.active;
           slash.update(dt,pose.trail,player.userData.sword,bladeInner,bladeTip);
           if (active) enemyData.forEach((enemy) => {
             if (gameStatus !== 'playing' || enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
             const delta = enemy.group.position.clone().sub(player.position); delta.y = 0;
             // The same rule the node suite runs: inside the arc, and with no wall between the blade and the body.
-            if (swordContacts(floor.cells, player.position, attackFacing, enemy.group.position, run.reach)) {
+            if (swordContacts(floor.cells, player.position, attackFacing, enemy.group.position, run.reach, weapon)) {
               delta.normalize();
               audio.play('hit');
-              swingHits.add(enemy); enemy.hp -= run.strike; enemy.hitFlash = 0.2; if (interruptsWindup(enemy.kind, enemy.windup)) {enemy.windup = 0;enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
+              swingHits.add(enemy); enemy.hp -= run.strike + weapon.damage - 1; enemy.hitFlash = 0.2; if (interruptsWindup(enemy.kind, enemy.windup)) {enemy.windup = 0;enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
               enemy.cooldown = Math.max(enemy.cooldown, 0.4);
-              moveOnFloor(floor.cells, enemy.group.position, delta.x * (enemy.kind === 'warden' ? 0.1 : 0.38), delta.z * (enemy.kind === 'warden' ? 0.1 : 0.38)); burst(enemy.group.position, 0xffb24a, 7); impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,enemy.kind==='warden'); shake = 0.07; hitStop = 0.035;
+              const shove = enemy.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
+              moveOnFloor(floor.cells, enemy.group.position, delta.x * shove, delta.z * shove); burst(enemy.group.position, 0xffb24a, 7); impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,enemy.kind==='warden'); shake = 0.07; hitStop = 0.035;
               if (enemy.hp <= 0) { enemy.dead = true; enemy.death=startDeath(enemy.group,enemy.kind);enemy.cue.visible=enemy.bar.visible=false;enemy.trails.forEach(trail=>trail.effect.clear()); award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills); if (!cleared.has(enemy.room) && enemyData.every(e => e.room !== enemy.room || e.dead)) {
                 cleared.add(enemy.room);
                 const room = floor.rooms[enemy.room], detour = room.role === 'branch';
@@ -1059,7 +1064,7 @@ export default function DungeonGame() {
     };
     hooks.render_game_to_text = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
-      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
+      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: weapon.id, name: weapon.name, damage: weapon.damage, reach: weapon.reach, duration: weapon.duration }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, stairDwell, deadEndsPlundered: loot },
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
