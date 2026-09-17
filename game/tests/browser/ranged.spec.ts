@@ -75,3 +75,57 @@ test('the quiver is refilled by picking an arm up and emptied by putting one dow
   expect(rearmed.weapon.quiver).toBe(rearmed.weapon.capacity);
   expect(await page.locator('.quiver').count()).toBe(1);
 });
+
+test('a thrown flask leaves fire on the ground, and the fire goes out', async ({ game, page }) => {
+  // The one arm that goes on working after the knight has stopped paying attention to it.
+  await game.enter();
+  await game.equip('flask');
+  const loaded = await game.state();
+  expect(loaded.weapon.ranged).toBe(true);
+  expect(loaded.weapon.fires).toBe(0);
+
+  await page.keyboard.press('Space');
+  await game.step(1400);
+  const burning = await game.state();
+  expect(burning.weapon.fires).toBeGreaterThan(0);
+  expect(burning.weapon.quiver).toBe(loaded.weapon.capacity! - 1);
+  // The flask itself is gone; what is left is what it left.
+  expect(burning.weapon.inFlight).toBe(0);
+
+  await game.step(3500);
+  expect((await game.state()).weapon.fires).toBe(0);
+});
+
+test('fire already on the floor outlives the arm that threw it', async ({ game, page }) => {
+  // Deliberately not cleaned up on a swap. Burning silt does not care what the knight is holding, and
+  // a bolt already in the air is treated the same way — both belong to the floor once they have left
+  // his hand. What a swap does change is the quiver, which goes with the arm.
+  await game.enter();
+  await game.equip('flask');
+  await page.keyboard.press('Space');
+  await game.step(1400);
+  expect((await game.state()).weapon.fires).toBeGreaterThan(0);
+
+  await game.equip('tideblade');
+  const swapped = await game.state();
+  expect(swapped.weapon.fires).toBeGreaterThan(0);
+  expect(swapped.weapon.quiver).toBeNull();
+
+  // And it still goes out on its own clock rather than burning forever.
+  await game.step(3500);
+  expect((await game.state()).weapon.fires).toBe(0);
+});
+
+test('a new floor starts with nothing of the last one still burning', async ({ game, page }) => {
+  await game.enter();
+  await game.equip('flask');
+  await page.keyboard.press('Space');
+  await game.step(1400);
+  expect((await game.state()).weapon.fires).toBeGreaterThan(0);
+
+  await game.buildFloor(2);
+  await game.step(200);
+  const fresh = await game.state();
+  expect(fresh.weapon.fires).toBe(0);
+  expect(fresh.weapon.inFlight).toBe(0);
+});

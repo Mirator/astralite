@@ -98,6 +98,26 @@ export function makeWeapon(id: WeaponId, m: ArmoryPalette, plate: Plate): ArmedW
     return { group, inner: new THREE.Vector3(0, 0, -.95), tip: new THREE.Vector3(0, 0, -1.42) };
   }
 
+  if (id === 'flask') {
+    // Carried, not wielded: a satchel on the hip and one flask in the hand, so the silhouette says
+    // "throwing" rather than "swinging" from across a hall.
+    const body = new THREE.Mesh(new THREE.SphereGeometry(.17, 8, 6), m.brass);
+    add(body, [0, .05, -.28]);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(.055, .08, .16, 6), m.iron);
+    add(neck, [0, .05, -.42], [Math.PI / 2, 0, 0]);
+    const stopper = new THREE.Mesh(new THREE.DodecahedronGeometry(.055, 0), m.leather);
+    add(stopper, [0, .05, -.5]);
+    for (const side of [-1, 1]) {
+      const band = new THREE.Mesh(new THREE.TorusGeometry(.17, .022, 4, 8), m.iron);
+      add(band, [0, .05, -.28 + side * .06], [Math.PI / 2, 0, 0]);
+    }
+    const ember = new THREE.Mesh(new THREE.SphereGeometry(.1, 6, 5), new THREE.MeshBasicMaterial({ color: 0xff9a45, transparent: true, opacity: .8 }));
+    add(ember, [0, .05, -.28]);
+    const satchel = new THREE.Mesh(new THREE.BoxGeometry(.24, .22, .16), m.leather);
+    add(satchel, [0, -.06, .16]);
+    return { group, inner: new THREE.Vector3(0, .05, -.28), tip: new THREE.Vector3(0, .05, -.52) };
+  }
+
   if (id === 'crossbow') {
     // Read as a machine rather than a blade: a stock along the forearm, a bow across it, and a bolt in
     // the groove that is there whether or not the quiver is dry, because the silhouette should not
@@ -197,4 +217,28 @@ export function makeBolt(m: ArmoryPalette) {
   }
   group.position.y = .95; group.visible = false;
   return group;
+}
+
+/** A flask in the air, pooled beside the bolts. */
+export function makeFlask(m: ArmoryPalette) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(.16, 8, 6), m.brass);
+  group.add(body);
+  const ember = new THREE.Mesh(new THREE.SphereGeometry(.1, 6, 5), new THREE.MeshBasicMaterial({ color: 0xffb056, transparent: true, opacity: .85 }));
+  group.add(ember);
+  group.position.y = .95; group.visible = false;
+  return group;
+}
+
+/**
+ * Burning silt on the floor. Reuses the ember hazard's own colours, because it is the same thing the
+ * keep does to the knight and should read as such when he does it back.
+ */
+export function makePoolMesh() {
+  const mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> = new THREE.Mesh(
+    new THREE.RingGeometry(.2, 1, 36),
+    new THREE.MeshBasicMaterial({ color: 0xff7a2e, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  mesh.rotation.x = -Math.PI / 2; mesh.position.y = .07; mesh.visible = false;
+  return mesh;
 }

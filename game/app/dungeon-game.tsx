@@ -17,8 +17,8 @@ import { decideEnemy, enemyStats, hitCooldown, interruptsWindup, separateCrowd }
 import { enemyPose } from './dungeon-enemy-pose';
 import { playerAttackPose } from './dungeon-attack-pose';
 import { STARTING_WEAPON, TIDEBLADE, weaponById, type Weapon, type WeaponId } from './dungeon-weapon';
-import { disposeWeapon, makeBolt, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
-import { flyShot, reloadStep, type Mark, type Shot } from './dungeon-projectile';
+import { disposeWeapon, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
+import { flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
@@ -513,7 +513,16 @@ export default function DungeonGame() {
     const shots: { shot: Shot; mesh: THREE.Group }[] = [];
     // Fired shots come out of a pool. The suite asserts a floor allocates no new GPU memory once built.
     const boltPool = Array.from({ length: 8 }, () => { const bolt = makeBolt((player.userData.armoury as {palette: ArmoryPalette}).palette); world.add(bolt); return bolt; });
-    const clearShots = () => { for (const live of shots) live.mesh.visible = false; shots.length = 0; };
+    const flaskPool = Array.from({ length: 6 }, () => { const flask = makeFlask((player.userData.armoury as {palette: ArmoryPalette}).palette); world.add(flask); return flask; });
+    // Burning silt the knight left behind, and the rings that show it. Pooled like everything else.
+    const pools: { pool: Pool; mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> }[] = [];
+    const poolMeshes = Array.from({ length: 6 }, () => { const mesh = makePoolMesh(); world.add(mesh); return mesh; });
+    const clearShots = () => {
+      for (const live of shots) live.mesh.visible = false;
+      shots.length = 0;
+      for (const live of pools) live.mesh.visible = false;
+      pools.length = 0;
+    };
     let dropPrompted = false;
     // Latched false the moment an arm is taken and re-armed only by stepping off the ring. Without it the
     // knight is still standing on the rack he just emptied, so the dwell refills and he swaps straight
@@ -980,7 +989,7 @@ export default function DungeonGame() {
           if (weapon.ranged && active && !wasLive) {
             if (quiver > 0) {
               quiver -= 1; setAmmo({ held: quiver, of: weapon.ranged.capacity });
-              const mesh = boltPool.find(bolt => !bolt.visible);
+              const mesh = (weapon.burst ? flaskPool : boltPool).find(thrown => !thrown.visible);
               if (mesh) {
                 mesh.visible = true;
                 mesh.position.set(player.position.x, .95, player.position.z);
@@ -1069,6 +1078,31 @@ export default function DungeonGame() {
         // dungeon-enemy, and only the write back into the scene graph belongs here.
         const spread = separateCrowd(floor.cells, enemyData.map(e => ({ x: e.group.position.x, z: e.group.position.z, windup: e.windup, dead: e.dead })), dt);
         enemyData.forEach((e, i) => { e.group.position.x = spread[i].x; e.group.position.z = spread[i].z; });
+        // Fire on the ground bites what stands in it: the only thing the knight owns that goes on working
+        // after he has stopped paying attention to it. The rule is in dungeon-projectile.
+        for (let i = pools.length - 1; i >= 0; i--) {
+          const live = pools[i], burn = poolStep(live.pool, dt);
+          live.pool.life = burn.life; live.pool.timer = burn.timer;
+          live.mesh.material.opacity = Math.min(.7, live.pool.life * .5) * (.75 + Math.sin(t * 11) * .25);
+          if (burn.bites) for (const enemy of enemyData) {
+            if (enemy.dead || !enemy.awake || gameStatus !== 'playing') continue;
+            if (!poolCatches(live.pool, enemy.group.position.x, enemy.group.position.z)) continue;
+            enemy.hp -= live.pool.damage; enemy.hitFlash = 0.2;
+            burst(enemy.group.position, 0xff8c38, 5);
+            if (enemy.hp <= 0) {
+              enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind);
+              enemy.cue.visible = enemy.bar.visible = false; enemy.trails.forEach(trail => trail.effect.clear());
+              award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
+              if (!cleared.has(enemy.room) && enemyData.every(other => other.room !== enemy.room || other.dead)) {
+                cleared.add(enemy.room);
+                const room = floor.rooms[enemy.room];
+                award(clearRoomReward(run, room.role === 'branch'));
+                setNotice(`${room.name} · cleansed`); setNoticeDetail(room.role === 'branch' ? 'The detour pays' : ''); noticeTime = 2.5; audio.play('clear');
+              }
+            }
+          }
+          if (live.pool.life <= 0) { live.mesh.visible = false; pools.splice(i, 1); }
+        }
         // Bolts fly last, against where the bodies actually ended the frame. The rule is in
         // dungeon-projectile; what belongs here is the mesh, the sparks and the damage call.
         if (shots.length) {
@@ -1103,7 +1137,18 @@ export default function DungeonGame() {
             }
             // Stone stops a bolt as surely as it stops steel, and says so.
             if (flight.struck) burst(new THREE.Vector3(flight.x, .95, flight.z), 0xbfa781, 5);
-            if (flight.done) { live.mesh.visible = false; shots.splice(i, 1); }
+            if (flight.done) {
+              live.mesh.visible = false; shots.splice(i, 1);
+              if (weapon.burst) {
+                const mesh = poolMeshes.find(ring => !ring.visible);
+                if (mesh) {
+                  mesh.visible = true; mesh.position.set(flight.x, .07, flight.z);
+                  mesh.scale.setScalar(weapon.burst.radius);
+                  pools.push({ mesh, pool: { x: flight.x, z: flight.z, radius: weapon.burst.radius, life: weapon.burst.life, damage: weapon.burst.damage, interval: weapon.burst.interval, timer: 0 } });
+                  burst(new THREE.Vector3(flight.x, .4, flight.z), 0xff8c38, 18); audio.play('warn'); shake = 0.06;
+                }
+              }
+            }
           }
         }
       }
@@ -1208,7 +1253,7 @@ export default function DungeonGame() {
     };
     hooks.render_game_to_text = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
-      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: weapon.id, name: weapon.name, damage: weapon.damage, reach: weapon.reach, duration: weapon.duration, strikeDamage: weapon.damage + run.strike, ranged: !!weapon.ranged, quiver: weapon.ranged ? quiver : null, capacity: weapon.ranged ? weapon.ranged.capacity : null, inFlight: shots.length }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
+      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: weapon.id, name: weapon.name, damage: weapon.damage, reach: weapon.reach, duration: weapon.duration, strikeDamage: weapon.damage + run.strike, ranged: !!weapon.ranged, quiver: weapon.ranged ? quiver : null, capacity: weapon.ranged ? weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, stairDwell, deadEndsPlundered: loot },
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, dwell: pickupDwell, takes: PICKUP_DWELL } : null,

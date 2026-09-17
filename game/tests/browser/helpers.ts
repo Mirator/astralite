@@ -39,6 +39,7 @@ export type Snapshot = {
     quiver: number | null;
     capacity: number | null;
     inFlight: number;
+    fires: number;
   };
   boons: {
     strike: number;
