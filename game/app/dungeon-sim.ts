@@ -148,9 +148,8 @@ export const clearRoomReward = (run: Run, detour: boolean): Reward => {
 export const STAIR_RADIUS = 1.25;
 export const STAIR_DWELL = 0.4;
 /**
- * Standing still fills, moving off drains twice as fast, and a dash never counts. Shared by the stair
- * and by the weapon on the floor so both ask for the same deliberate pause: a thing this hard to undo
- * should never happen because the knight ran across it.
+ * Standing still fills, moving off drains twice as fast, and a dash never counts: a floor should never
+ * end because the knight ran across the stair.
  */
 export const dwellStep = (dwell: number, cap: number, standing: boolean, dashing: boolean, dt: number) => {
   const step = amount(dt);
@@ -160,6 +159,6 @@ export const stairDwellStep = (dwell: number, onStair: boolean, dashing: boolean
   dwellStep(dwell, STAIR_DWELL, onStair, dashing, dt);
 
 // A shade wider than the stair, because an arm on a rack is a thing the knight walks up to rather than
-// stands on, and a shade longer, because taking the wrong one costs the rest of the floor.
+// stands on. There is no dwell to go with it: the rack only offers, and the swap waits on the `swap` key,
+// so taking the wrong arm is a decision rather than a place the knight stood too long.
 export const PICKUP_RADIUS = 1.4;
-export const PICKUP_DWELL = 0.5;

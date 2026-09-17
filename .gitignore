@@ -35,6 +35,9 @@ yarn-error.log*
 
 # local environment
 .env*
+# per-machine Claude Code settings, permissions and session state: local to whoever
+# is working here, not to the project
+.claude/
 
 # deployment and generated files
 .vercel

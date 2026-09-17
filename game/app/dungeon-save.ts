@@ -15,12 +15,12 @@ export type RunEnd = { at: number; floor: number; won: boolean; cause: RunCause 
 // reproduces the game exactly as it shipped, so a blank, blocked or corrupt cell is not a different game:
 // `volume: 1` is the 0.45 master gain the audio module always used, `reducedMotion: null` means "whatever
 // the OS asks for and nothing of our own", and the thumbstick is the touch layout that already exists.
-export type Action = 'up' | 'down' | 'left' | 'right' | 'attack' | 'dash' | 'pause' | 'mute' | 'fullscreen';
+export type Action = 'up' | 'down' | 'left' | 'right' | 'attack' | 'dash' | 'swap' | 'pause' | 'mute' | 'fullscreen';
 export type Binds = Record<Action, string[]>;
 export type Settings = { volume: number; muted: boolean; reducedMotion: boolean | null; touchLayout: 'stick' | 'pad'; binds: Binds };
 
-export const ACTIONS: Action[] = ['up', 'down', 'left', 'right', 'attack', 'dash', 'pause', 'mute', 'fullscreen'];
-export const DEFAULT_BINDS: Binds = { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], attack: ['Space'], dash: ['ShiftLeft', 'ShiftRight'], pause: ['Escape'], mute: ['KeyM'], fullscreen: ['KeyF'] };
+export const ACTIONS: Action[] = ['up', 'down', 'left', 'right', 'attack', 'dash', 'swap', 'pause', 'mute', 'fullscreen'];
+export const DEFAULT_BINDS: Binds = { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], attack: ['Space'], dash: ['ShiftLeft', 'ShiftRight'], swap: ['KeyE'], pause: ['Escape'], mute: ['KeyM'], fullscreen: ['KeyF'] };
 // Escape belongs to pause and to nothing else, ever. It is the one key guaranteed to open the menu, and a
 // player who can hand it to `attack` can bind themselves out of the very screen that would undo it — the ☰
 // button is the other way back in, but a keyboard-only player may have no way to reach it.

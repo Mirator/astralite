@@ -67,8 +67,10 @@ export type Snapshot = {
     z: number;
     kind: string;
     radius: number;
-    dwell: number;
-    takes: number;
+    /** Whether the knight is inside the ring, which is all that standing there does. */
+    over: boolean;
+    /** The arm the swap prompt is currently naming, or null when it is not on screen. */
+    offered: string | null;
   } | null;
   stair: { x: number; z: number; radius: number; dwell: number };
   experience: {
