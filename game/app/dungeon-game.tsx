@@ -13,7 +13,7 @@ import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
 import { canStand, generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { canAbortSwing, DASH_BUFFER, swordContacts } from './dungeon-combat';
-import { decideEnemy, enemyStats, interruptsWindup, separateCrowd } from './dungeon-enemy';
+import { decideEnemy, enemyStats, hitCooldown, interruptsWindup, separateCrowd } from './dungeon-enemy';
 import { enemyPose } from './dungeon-enemy-pose';
 import { playerAttackPose } from './dungeon-attack-pose';
 import { TIDEBLADE, type Weapon } from './dungeon-weapon';
@@ -895,8 +895,10 @@ export default function DungeonGame() {
             if (swordContacts(floor.cells, player.position, attackFacing, enemy.group.position, run.reach, weapon)) {
               delta.normalize();
               audio.play('hit');
-              swingHits.add(enemy); enemy.hp -= weapon.damage + run.strike; enemy.hitFlash = 0.2; if (interruptsWindup(enemy.kind, enemy.windup)) {enemy.windup = 0;enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
-              enemy.cooldown = Math.max(enemy.cooldown, 0.4);
+              swingHits.add(enemy); enemy.hp -= weapon.damage + run.strike; enemy.hitFlash = 0.2;
+              const broke = interruptsWindup(enemy.kind, enemy.windup, weapon.stagger);
+              if (broke) {enemy.windup = 0;enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
+              enemy.cooldown = Math.max(enemy.cooldown, hitCooldown(enemy.kind, broke, weapon.stagger));
               const shove = enemy.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
               moveOnFloor(floor.cells, enemy.group.position, delta.x * shove, delta.z * shove); burst(enemy.group.position, 0xffb24a, 7); impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,enemy.kind==='warden'); shake = 0.07; hitStop = 0.035;
               if (enemy.hp <= 0) { enemy.dead = true; enemy.death=startDeath(enemy.group,enemy.kind);enemy.cue.visible=enemy.bar.visible=false;enemy.trails.forEach(trail=>trail.effect.clear()); award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills); if (!cleared.has(enemy.room) && enemyData.every(e => e.room !== enemy.room || e.dead)) {

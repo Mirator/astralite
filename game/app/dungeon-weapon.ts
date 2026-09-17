@@ -9,7 +9,7 @@
 // Kept free of React, the DOM and three.js so node can execute it directly: dungeon-combat and
 // dungeon-attack-pose both read from it, and both are on the pure side of the line.
 
-export type WeaponId = 'tideblade';
+export type WeaponId = 'tideblade' | 'fangs' | 'spear' | 'cleaver' | 'maul';
 
 export type Weapon = {
   id: WeaponId;
@@ -41,6 +41,12 @@ export type Weapon = {
   /** How far a landed blow shoves an ordinary body, and a warden, which plants itself. */
   knockback: number;
   wardenKnockback: number;
+  /**
+   * Whether a blow can knock a warden out of its own committed swing. Ordinary steel never can — see
+   * interruptsWindup in dungeon-enemy — so this is the one thing on the table that is a rule rather
+   * than a number, and it is the only answer the knight has to the body that deals most of his damage.
+   */
+  stagger: boolean;
 };
 
 /**
@@ -61,9 +67,108 @@ export const TIDEBLADE: Weapon = {
   moveSpeed: 3.2,
   knockback: 0.38,
   wardenKnockback: 0.1,
+  stagger: false,
 };
 
-export const WEAPONS: Record<WeaponId, Weapon> = { tideblade: TIDEBLADE };
+/**
+ * Inside a guard's reach, and nowhere else. The shortest blade in the keep and the only one the knight
+ * can nearly walk at full speed while swinging: it lives past the 1.5 a guard commits from, so every
+ * exchange is taken on the guard's terms and won on rate.
+ */
+export const TWIN_FANGS: Weapon = {
+  id: 'fangs',
+  name: 'Twin Fangs',
+  detail: 'Quick and short. You have to be inside their guard.',
+  duration: 0.22,
+  anticipation: 0.04,
+  contactEnd: 0.1,
+  reach: 1.4,
+  arc: 0.45,
+  damage: 3,
+  moveSpeed: 5.2,
+  knockback: 0.18,
+  wardenKnockback: 0.05,
+  stagger: false,
+};
+
+/**
+ * Reaches 2.6, which is past the 2.55 a warden's hammer covers: the one arm that can work the keep's
+ * heaviest body without standing in its swing. The arc is a thrust, so a second guard arriving from the
+ * side is a problem the spear cannot answer.
+ */
+export const SALT_SPEAR: Weapon = {
+  id: 'spear',
+  name: 'Salt Spear',
+  detail: 'Long and narrow. Reaches past a hammer; answers only what it faces.',
+  duration: 0.28,
+  anticipation: 0.05,
+  contactEnd: 0.12,
+  reach: 2.6,
+  arc: 0.78,
+  damage: 3,
+  moveSpeed: 4.4,
+  knockback: 0.15,
+  wardenKnockback: 0.05,
+  stagger: false,
+};
+
+/**
+ * A half-circle of edge. A swing already reaches every body inside its arc, so what a wide weapon buys
+ * is the whole front rank at once — and it is paid for in a swing that nearly roots the knight and a
+ * live blade he cannot dash out of for 0.16s. It does not stagger: carrying the arc, the shove and a
+ * warden interrupt at once measured at 10% of the knight's damage coming from wardens against 78% for
+ * the starting sword, which is not a trade-off, it is simply the best arm.
+ */
+export const WARDENS_CLEAVER: Weapon = {
+  id: 'cleaver',
+  name: "Warden's Cleaver",
+  detail: 'Slow and enormous. Takes the whole front rank and shoves it off you.',
+  duration: 0.62,
+  anticipation: 0.14,
+  contactEnd: 0.3,
+  reach: 2.2,
+  arc: 0,
+  damage: 7,
+  moveSpeed: 1.6,
+  knockback: 0.9,
+  wardenKnockback: 0.15,
+  stagger: false,
+};
+
+/**
+ * The slowest arm and the only other one that staggers. Where the cleaver buys a rank, the maul buys a
+ * single enormous blow: a floor-one warden falls in two, and the swing it was winding up falls with it.
+ */
+export const BELL_MAUL: Weapon = {
+  id: 'maul',
+  name: 'Bell Maul',
+  detail: 'Ruinous and slow. A warden does not finish the swing you interrupt.',
+  // 0.66 rather than the 0.74 this started at. A warden's tell is 0.72s and a swing only breaks it
+  // while more than COMMITTED_WINDUP (0.3s) of that tell remains, so the blow has to land inside the
+  // first 0.42s: at 0.74s of swing the maul could not reliably arrive in time and measured identically
+  // to a plain sword against wardens, which is the one body it exists to answer.
+  duration: 0.66,
+  anticipation: 0.15,
+  contactEnd: 0.32,
+  reach: 2,
+  arc: 0.05,
+  damage: 9,
+  moveSpeed: 1.1,
+  knockback: 0.7,
+  wardenKnockback: 0.35,
+  stagger: true,
+};
+
+export const WEAPONS: Record<WeaponId, Weapon> = {
+  tideblade: TIDEBLADE,
+  fangs: TWIN_FANGS,
+  spear: SALT_SPEAR,
+  cleaver: WARDENS_CLEAVER,
+  maul: BELL_MAUL,
+};
+
+/** Every arm but the one the knight starts with, which is what a drop on the floor is drawn from. */
+export const FOUND_WEAPONS: WeaponId[] = ['fangs', 'spear', 'cleaver', 'maul'];
 
 /** What the knight starts a descent holding. */
 export const STARTING_WEAPON: WeaponId = 'tideblade';

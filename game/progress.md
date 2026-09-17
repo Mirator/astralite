@@ -273,3 +273,46 @@ test that pinned a warden at four vitality now derives the number from the snaps
 `weapon.strikeDamage`, so a future weapon change moves the fixtures with it instead of breaking them.
 One slash fixture that pinned a body at a literal 2 would now simply die and take the impact accent
 with it; it asks for two blades' worth instead.
+
+2026-09-17 — Four more melee arms, measured before a single mesh was built.
+
+`dungeon-weapon.ts` now carries five: the Tideblade unchanged, Twin Fangs (0.22s, reach 1.4, inside a
+guard's own 1.5 commit range), the Salt Spear (reach 2.6, a thrust, past the 2.55 a warden's hammer
+covers), the Warden's Cleaver (0.62s, a 180-degree arc, heavy shove) and the Bell Maul (0.66s, 9 damage,
+the only arm that staggers). Nothing is wired to the pickup yet and no geometry exists; the knight still
+walks in with the Tideblade. This is deliberate — the numbers are cheap to change and the meshes are
+not, so the table was proved first.
+
+`stagger` is the one weapon property that is a rule rather than a number: it lets a blow break a
+warden's committed swing, which ordinary steel never does. Two findings came out of measuring it, and
+both changed the design.
+
+The cleaver originally staggered as well, and carrying the arc, the shove and a warden interrupt at
+once measured at 10.3% of the knight's damage coming from wardens against 78.5% for the starting sword.
+That is not a trade-off, it is simply the best arm, so the cleaver lost the stagger and half its warden
+knockback and now sits at 20.0% — bought with the slowest median run of the five, 6.0 minutes against
+5.4. The maul's stagger, meanwhile, did nothing at all: 76.7% against the sword's 78.5%. A broken swing
+only refreshed the 0.4s every hit refreshes, so a warden whose 0.72s tell was interrupted simply wound
+the same swing up again. `hitCooldown` in dungeon-enemy.ts now charges a full RECOVERY for a swing a
+stagger weapon actually broke, and the maul reads 26.7%. Its duration also came down from 0.74s to
+0.66s, because a swing only breaks a tell while more than COMMITTED_WINDUP remains and at 0.74s it
+could not reliably arrive inside that window. Ordinary steel breaking a guard's tell still buys the
+0.4s it always did.
+
+The harness grew a `--compare` mode that walks every arm over the same seeds, a `--weapon` flag, and a
+column for damage taken while three or more woken bodies stand within four units — the only measurement
+that can see what a narrow arc gives up, since a duel against one body at a time cannot. It promptly
+contradicted the expectation behind it: the cleaver takes the most damage while surrounded, 5.7%
+against the spear's 2.4%, because being rooted at 1.6 move speed costs more than a half-circle of edge
+buys. The spear keeps bodies off by killing them before they gather.
+
+The Tideblade baseline is unmoved. The 200-run report differs only in guard damage reading 0.3% where
+it read 0.2%, which is the harness's own approach distance moving from a flat 1.55 to reach times 0.85
+— 1.53 for the sword. Escape rate, deaths, median run, rank, kills, clear times and vitality at each
+stair are identical. Every arm still escapes 100% of the time, which is the standing difficulty problem
+this change does not address and does not worsen.
+
+Verification: typecheck, lint, 116/116 node tests. Ten new regressions cover the table's coherence,
+that a found weapon is never the one already in hand, that exactly one arm staggers and it is the
+slowest, that every arm differs from the sword in at least two of the four properties that decide a
+fight, that nothing out-reaches the sword for free, and both halves of the stagger rule.
