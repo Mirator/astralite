@@ -395,3 +395,39 @@ Verification: typecheck, lint, production build, 131/131 node tests. Eleven new 
 sub-step flight, stone, pierce ordering, one bill per body, near misses, expiry, junk frame deltas, and
 the refill clock including a tab hidden for a minute. Three browser regressions cover spending a bolt
 and getting it back, the drain under sustained fire, and the quiver arriving and leaving with the arm.
+
+2026-09-17 — The seventh arm: the Tideflask, which does not point at anything.
+
+A bolt resolves against a body; a flask resolves against ground, and then keeps resolving. `Pool` and
+`poolStep` join the projectile rules: burning silt that bites once every half second for two and a
+half, at most once a frame however long the frame was, so a tab hidden for a minute cannot cash in a
+minute of fire on the frame it returns. The flask itself deals nothing on contact — all of it is in
+what it leaves — and it throws six units against the crossbow's twelve, because it is meant for a
+doorway rather than a hall.
+
+Tuned against the harness like the rest. Two charges on a six-second refill measured at 11.5 minutes a
+descent against 5.5 for the starting sword, which is a slog rather than a weapon; three charges, three
+seconds and eight damage a bite reads 6.3, between the melee arms at 5.4-6.0 and the crossbow at 6.6,
+which is where a second ranged arm belongs. The whole table now stands at 100% escape for the five
+melee arms, 97.5% for the crossbow — still the only arm in the keep that loses runs — and 100% for the
+flask, with time spent within reach of a woken body running 20-28% for the melee arms against 4.8% and
+4.3% for the two that do not have to be there.
+
+One honest limitation: the harness cannot see what area denial is for. The bot throws at whatever is
+nearest and walks on, where a player would put fire in the doorway a pack has to come through. The
+flask's measured numbers are therefore a floor on its value rather than an estimate of it, in the same
+way the surrounded-damage column cannot see what a narrow arc gives up.
+
+Fire is deliberately not cleaned up when the knight swaps weapons. Burning silt does not care what he
+is holding, and a bolt already in the air is treated the same way — both belong to the floor once they
+have left his hand. What a swap does change is the quiver, which goes with the arm. A new floor clears
+both, and the regression covers all three of those rules; the first version of it asserted the opposite
+and was wrong.
+
+Verification: typecheck, lint, production build, 136/136 node tests. Five new pure regressions cover
+the bite clock, the hidden-tab case, what the fire catches, junk frame deltas, and the flask being an
+arm that denies a place rather than killing a body. Three new browser regressions cover fire appearing
+and going out, fire outliving the arm that threw it, and a fresh floor carrying none of the last one.
+The weapon-table regression that required every arm to bite on contact now asks that an arm hurt
+something somehow — on contact or through what it leaves — since the flask is the one that does all of
+it afterwards.

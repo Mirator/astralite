@@ -15,7 +15,7 @@ import { decideEnemy, enemyStats, hitCooldown, interruptsWindup, separateCrowd, 
 import { playerAttackPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
-import { flyShot, reloadStep, type Mark, type Shot } from '../../app/dungeon-projectile.ts';
+import { flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { clearRoomReward, createRun, draftBoons, heal, hurt, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
@@ -193,6 +193,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const swingHits = new Set<Body>();
   const shots: Shot[] = [];
   let quiver = weapon.ranged ? weapon.ranged.capacity : 0, reload = 0;
+  const pools: Pool[] = [];
   const cleared = new Set<number>([0]);
 
   const goal = floor.rooms[floor.goal];
@@ -383,8 +384,32 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
             }
           }
         }
-        if (flight.done) shots.splice(i, 1);
+        if (flight.done) {
+          if (weapon.burst) pools.push({ x: flight.x, z: flight.z, radius: weapon.burst.radius, life: weapon.burst.life, damage: weapon.burst.damage, interval: weapon.burst.interval, timer: 0 });
+          shots.splice(i, 1);
+        }
       }
+    }
+    // Fire on the ground bites what stands in it. It is the only thing the knight owns that goes on
+    // working after he has stopped paying attention to it.
+    for (let i = pools.length - 1; i >= 0; i--) {
+      const pool = pools[i];
+      const burn = poolStep(pool, DT);
+      pool.life = burn.life; pool.timer = burn.timer;
+      if (burn.bites) for (const body of bodies) {
+        if (body.dead || !body.awake || !poolCatches(pool, body.x, body.z)) continue;
+        body.hp -= pool.damage;
+        body.hitFlash = 0.2;
+        if (body.hp <= 0) {
+          body.dead = true;
+          resolveKill(run);
+          if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
+            cleared.add(body.room);
+            clearRoomReward(run, floor.rooms[body.room].role === 'branch');
+          }
+        }
+      }
+      if (pool.life <= 0) pools.splice(i, 1);
     }
     // How long the knight actually stands where something can reach him. An arm that never closes reads
     // as near zero here, which is the only column that catches a weapon winning by walking backwards.

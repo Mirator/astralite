@@ -9,7 +9,7 @@
 // Kept free of React, the DOM and three.js so node can execute it directly: dungeon-combat and
 // dungeon-attack-pose both read from it, and both are on the pure side of the line.
 
-export type WeaponId = 'tideblade' | 'fangs' | 'spear' | 'cleaver' | 'maul' | 'crossbow';
+export type WeaponId = 'tideblade' | 'fangs' | 'spear' | 'cleaver' | 'maul' | 'crossbow' | 'flask';
 
 export type Weapon = {
   id: WeaponId;
@@ -65,6 +65,13 @@ export type Weapon = {
     capacity: number;
     refill: number;
   };
+  /**
+   * What the shot leaves on the ground where it stops, for an arm that denies a place rather than
+   * killing a body. The fire bills once every `interval` and burns for `life`, so what it is worth is
+   * decided by whether anything has to walk through it — which is a question about the room, not about
+   * the knight's aim.
+   */
+  burst?: { radius: number; life: number; damage: number; interval: number };
 };
 
 /**
@@ -202,9 +209,38 @@ export const KEEP_CROSSBOW: Weapon = {
   ranged: { speed: 19, flight: 0.62, pierce: 1, capacity: 4, refill: 1.8 },
 };
 
+/**
+ * The only arm that does not point at anything. A flask arcs six units and breaks into burning silt
+ * that bites once every half second for two and a half, which kills nothing outright above a guard and
+ * is not meant to: what it buys is a doorway nothing wants to come through, and time to meet whatever
+ * does one body at a time. Two charges, and they come back slowly enough that it cannot simply be laid
+ * down in front of every fight. At two charges and a six-second refill it measured at 11.5 minutes a
+ * descent against 5.5 for the starting sword, which is a slog rather than a weapon; three and three is
+ * 6.2, between the melee arms and the crossbow, which is where a second ranged arm belongs.
+ */
+export const TIDEFLASK: Weapon = {
+  id: 'flask',
+  name: 'Tideflask',
+  detail: 'Thrown. Breaks into burning silt that nothing wants to cross.',
+  duration: 0.7,
+  anticipation: 0.18,
+  contactEnd: 0.3,
+  reach: 0.2,
+  arc: 0.9,
+  // The flask itself does nothing on contact. Everything it is worth is in what it leaves behind.
+  damage: 0,
+  moveSpeed: 1.8,
+  knockback: 0,
+  wardenKnockback: 0,
+  stagger: false,
+  ranged: { speed: 11, flight: 0.55, pierce: 0, capacity: 3, refill: 3 },
+  burst: { radius: 2.2, life: 2.5, damage: 8, interval: 0.5 },
+};
+
 export const WEAPONS: Record<WeaponId, Weapon> = {
   tideblade: TIDEBLADE,
   crossbow: KEEP_CROSSBOW,
+  flask: TIDEFLASK,
   fangs: TWIN_FANGS,
   spear: SALT_SPEAR,
   cleaver: WARDENS_CLEAVER,
@@ -212,7 +248,7 @@ export const WEAPONS: Record<WeaponId, Weapon> = {
 };
 
 /** Every arm but the one the knight starts with, which is what a drop on the floor is drawn from. */
-export const FOUND_WEAPONS: WeaponId[] = ['fangs', 'spear', 'cleaver', 'maul', 'crossbow'];
+export const FOUND_WEAPONS: WeaponId[] = ['fangs', 'spear', 'cleaver', 'maul', 'crossbow', 'flask'];
 
 /** What the knight starts a descent holding. */
 export const STARTING_WEAPON: WeaponId = 'tideblade';

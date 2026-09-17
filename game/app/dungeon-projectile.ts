@@ -110,3 +110,35 @@ export const reloadStep = (spare: number, capacity: number, timer: number, refil
   const gained = Math.floor(next / refill);
   return { spare: Math.min(capacity, spare + gained), timer: next % refill };
 };
+
+/**
+ * What a thrown flask leaves behind. A bolt resolves against a body; a flask resolves against ground,
+ * and then keeps resolving for a while — which is the only way the keep has of denying a doorway rather
+ * than killing what is already through it.
+ */
+export type Pool = {
+  x: number; z: number;
+  radius: number;
+  /** Seconds of burning left. */
+  life: number;
+  damage: number;
+  /** Seconds between bites. Counted down rather than accumulated, so a long frame cannot bill twice. */
+  interval: number;
+  timer: number;
+};
+
+/** Whether a point is standing in the fire. */
+export const poolCatches = (pool: Pool, x: number, z: number) => Math.hypot(pool.x - x, pool.z - z) < pool.radius;
+
+/**
+ * Burn for one frame. `bites` is how many times it billed this frame — at most one, whatever the frame
+ * delta, because a tab hidden for a minute must not cash in two minutes of fire on the frame it returns.
+ */
+export const poolStep = (pool: Pool, frameDt: number) => {
+  const dt = finite(frameDt);
+  const life = Math.max(0, pool.life - dt);
+  if (!dt) return { life: pool.life, timer: pool.timer, bites: 0 };
+  const timer = pool.timer - dt;
+  if (timer > 0) return { life, timer, bites: 0 };
+  return { life, timer: pool.interval, bites: 1 };
+};

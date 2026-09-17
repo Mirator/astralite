@@ -80,7 +80,10 @@ test('every arm in the table is a coherent swing', () => {
     assert.equal(weapon.id, id, `${id} is filed under its own id`);
     assert.ok(weapon.anticipation > 0 && weapon.anticipation < weapon.contactEnd, `${id} winds back before it is live`);
     assert.ok(weapon.contactEnd < weapon.duration, `${id} recovers after contact ends`);
-    assert.ok(weapon.reach > 0 && weapon.damage > 0, `${id} reaches and bites`);
+    assert.ok(weapon.reach > 0, `${id} has some reach`);
+    // An arm has to hurt something somehow: on contact, or through whatever it leaves on the ground.
+    // The Tideflask is the one that does nothing at all on contact, and all of it afterwards.
+    assert.ok(weapon.damage > 0 || (weapon.burst && weapon.burst.damage > 0), `${id} cannot hurt anything`);
     assert.ok(weapon.arc >= 0 && weapon.arc < 1, `${id} has an arc, not a point`);
     // Swinging must never be faster than walking, or the swing stops being a commitment at all.
     assert.ok(weapon.moveSpeed > 0 && weapon.moveSpeed < 8.5, `${id} is slower mid-swing than unthreatened`);

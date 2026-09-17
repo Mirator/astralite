@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
-import { BOLT_RADIUS, blocked, flyShot, reloadStep, type Mark, type Shot } from '../app/dungeon-projectile.ts';
-import { KEEP_CROSSBOW } from '../app/dungeon-weapon.ts';
+import { BOLT_RADIUS, blocked, flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../app/dungeon-projectile.ts';
+import { KEEP_CROSSBOW, TIDEFLASK } from '../app/dungeon-weapon.ts';
 
 const openFloor = (half = 10) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
 const cells = openFloor();
@@ -105,4 +105,54 @@ test('the crossbow is limited by its quiver rather than by a wait', () => {
   // be in reach at all.
   assert.ok(KEEP_CROSSBOW.moveSpeed < 2, 'firing has to root the knight');
   assert.ok(KEEP_CROSSBOW.reach < 1, 'a dry crossbow is not a melee weapon');
+});
+
+test('fire on the ground bites on its own clock, once a frame at most', () => {
+  const pool: Pool = { x: 0, z: 0, radius: 2.2, life: 2.5, damage: 8, interval: .5, timer: 0 };
+  // The first frame bills, because the timer starts spent: a flask that lands on a body should bite it.
+  const first = poolStep(pool, 1 / 60);
+  assert.equal(first.bites, 1);
+  assert.equal(first.timer, pool.interval);
+
+  // And then nothing until the interval has run.
+  pool.timer = first.timer; pool.life = first.life;
+  let bites = 0, frames = 0;
+  while (pool.life > 0 && frames < 400) {
+    const burn = poolStep(pool, 1 / 60);
+    pool.life = burn.life; pool.timer = burn.timer; bites += burn.bites; frames++;
+  }
+  // 2.5s of fire at one bite every 0.5s, after the one already taken.
+  assert.equal(bites, 4);
+});
+
+test('a tab hidden for a minute does not cash in a minute of fire', () => {
+  const pool: Pool = { x: 0, z: 0, radius: 2.2, life: 2.5, damage: 8, interval: .5, timer: .4 };
+  const burn = poolStep(pool, 60);
+  assert.equal(burn.bites, 1, 'at most one bite a frame however long the frame was');
+  assert.equal(burn.life, 0, 'and the fire is out');
+});
+
+test('fire catches what stands in it and nothing outside it', () => {
+  const pool: Pool = { x: 3, z: -2, radius: 2.2, life: 2.5, damage: 8, interval: .5, timer: 0 };
+  assert.equal(poolCatches(pool, 3, -2), true);
+  assert.equal(poolCatches(pool, 3 + 2.1, -2), true);
+  assert.equal(poolCatches(pool, 3 + 2.3, -2), false);
+});
+
+test('a junk frame delta neither burns the fire down nor bites', () => {
+  const pool: Pool = { x: 0, z: 0, radius: 2.2, life: 2.5, damage: 8, interval: .5, timer: .2 };
+  for (const bad of [0, -1, Number.NaN]) {
+    const burn = poolStep(pool, bad);
+    assert.deepEqual([burn.life, burn.timer, burn.bites], [2.5, .2, 0]);
+  }
+});
+
+test('the flask denies a place rather than killing a body', () => {
+  const flask = TIDEFLASK;
+  assert.ok(flask.burst, 'the flask is the one arm that leaves something behind');
+  assert.equal(flask.damage, 0, 'the flask itself does nothing on contact');
+  // Shorter than the crossbow: it is thrown into a doorway, not across a hall.
+  assert.ok(flask.ranged!.speed * flask.ranged!.flight < KEEP_CROSSBOW.ranged!.speed * KEEP_CROSSBOW.ranged!.flight);
+  // What it is worth is what walks through it, so the fire has to outlast the throw by a good margin.
+  assert.ok(flask.burst.life > flask.duration * 3);
 });
