@@ -15,6 +15,7 @@ import { decideEnemy, enemyStats, hitCooldown, interruptsWindup, separateCrowd, 
 import { playerAttackPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
+import { flyShot, reloadStep, type Mark, type Shot } from '../../app/dungeon-projectile.ts';
 import { clearRoomReward, createRun, draftBoons, heal, hurt, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
@@ -42,11 +43,19 @@ export type Policy = {
   explore: boolean;
   /** What the knight carries for the whole descent. */
   weapon: Weapon;
+  /**
+   * Back away from whatever is nearest instead of closing on it. The knight walks at 8.5 and the
+   * fastest body in the keep manages 3.2, so this is not a style, it is the strongest play available to
+   * anyone holding a ranged arm — and the reason the crossbow is limited by a quiver rather than by a
+   * cooldown. Off by default so a comparison measures arms rather than exploits; on, it measures how
+   * much the exploit is worth.
+   */
+  kite: boolean;
   /** Which card to take from a draft. Defaults to the first offered. */
   pickBoon?: (offer: Boon[], run: Run) => string;
 };
 
-export const DEFAULT_POLICY: Policy = { reaction: 0.22, dodge: 0.8, explore: true, weapon: TIDEBLADE };
+export const DEFAULT_POLICY: Policy = { reaction: 0.22, dodge: 0.8, explore: true, weapon: TIDEBLADE, kite: false };
 
 export type FloorReport = {
   level: number;
@@ -63,6 +72,11 @@ export type FloorReport = {
    * that can see what a thrusting weapon gives up, and what a half-circle of edge is bought with.
    */
   surrounded: number;
+  /** Seconds spent within reach of a woken body. A weapon that never closes shows up here as near zero. */
+  contact: number;
+  /** Shots fired and shots that found a body, for an arm that throws something. */
+  shots: number;
+  landed: number;
   hpAfter: number;
   maxHpAfter: number;
   rankAfter: number;
@@ -153,7 +167,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const floor = generateFloor(seed, level);
   const weapon = policy.weapon;
   const damage: Record<Cause, number> = { guard: 0, stalker: 0, warden: 0, hazard: 0 };
-  let surrounded = 0;
+  let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0;
   const startKills = run.kills;
 
   const bodies: Body[] = floor.spawns.map((spawn, index) => {
@@ -177,6 +191,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   let attackFacing = { x: 0, z: 1 };
   let attackTime = 0, dashTime = 0, dashCooldown = 0, stairDwell = 0, t = 0;
   const swingHits = new Set<Body>();
+  const shots: Shot[] = [];
+  let quiver = weapon.ranged ? weapon.ranged.capacity : 0, reload = 0;
   const cleared = new Set<number>([0]);
 
   const goal = floor.rooms[floor.goal];
@@ -246,10 +262,25 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     let move: { x: number; z: number } | null = null;
     if (target && dashTime <= 0) {
       const toward = unit(target.body.x - player.x, target.body.z - player.z);
-      // Close to just inside the arm's own reach rather than to a fixed 1.55, or a spear would walk
-      // into a hammer it could have worked from outside, and a cleaver would stop short of its own edge.
-      if (target.distance > weapon.reach * 0.85 + run.reach) move = toward;
-      else if (attackTime <= 0) { attackTime = weapon.duration; attackFacing = toward; facing.x = toward.x; facing.z = toward.z; swingHits.clear(); }
+      const away = { x: -toward.x, z: -toward.z };
+      const bow = weapon.ranged;
+      if (bow) {
+        // Firing is the whole arm: it is loosed from wherever the knight stands, so what governs is
+        // whether there is a bolt in hand, not whether he is close enough to swing.
+        const range = bow.speed * bow.flight;
+        if (quiver > 0 && attackTime <= 0 && target.distance < range * 0.8) {
+          attackTime = weapon.duration; attackFacing = toward; facing.x = toward.x; facing.z = toward.z;
+        }
+        // Dry, or being crowded, and the knight simply outruns everything in the keep.
+        if (policy.kite || quiver === 0) { if (target.distance < range * 0.55) move = away; }
+        else if (target.distance > range * 0.6) move = toward;
+      } else if (target.distance > weapon.reach * 0.85 + run.reach) {
+        // Close to just inside the arm's own reach rather than to a fixed 1.55, or a spear would walk
+        // into a hammer it could have worked from outside, and a cleaver would stop short of its own edge.
+        move = policy.kite && target.distance < 1.2 ? away : toward;
+      } else if (attackTime <= 0) {
+        attackTime = weapon.duration; attackFacing = toward; facing.x = toward.x; facing.z = toward.z; swingHits.clear();
+      }
     } else if (dashTime <= 0) {
       // Nothing awake in reach: walk the flood. A branch worth plundering first, then the stair.
       const detour = policy.explore
@@ -272,10 +303,22 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     else if (move) moveOnFloor(floor.cells, player, move.x * speed * DT, move.z * speed * DT);
 
     // --- the blade -----------------------------------------------------------------------------
+    // Bolts come back on their own clock, not on a cooldown: a cooldown still lets the knight back away
+    // and fire forever, because he outruns every body in the keep.
+    if (weapon.ranged && quiver < weapon.ranged.capacity) {
+      const back = reloadStep(quiver, weapon.ranged.capacity, reload, weapon.ranged.refill, DT);
+      quiver = back.spare; reload = back.timer;
+    }
     if (attackTime > 0) {
+      const wasLive = playerAttackPose(weapon.duration - attackTime, weapon).active;
       attackTime = Math.max(0, attackTime - DT);
       const pose = playerAttackPose(weapon.duration - attackTime, weapon);
-      if (pose.active) for (const body of bodies) {
+      // One bolt on the frame the blade would have gone live, rather than damage for every live frame.
+      if (weapon.ranged && pose.active && !wasLive && quiver > 0) {
+        quiver -= 1; shotCount += 1;
+        shots.push({ x: player.x, z: player.z, dx: attackFacing.x, dz: attackFacing.z, speed: weapon.ranged.speed, life: weapon.ranged.flight, pierce: weapon.ranged.pierce, damage: weapon.damage + run.strike, spent: new Set<number>() });
+      }
+      if (!weapon.ranged && pose.active) for (const body of bodies) {
         if (body.dead || !body.awake || swingHits.has(body)) continue;
         if (!swordContacts(floor.cells, player, attackFacing, body, run.reach, weapon)) continue;
         swingHits.add(body);
@@ -313,6 +356,40 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       }
     }
 
+    // Bolts fly after the bodies have moved, against where they actually are this frame.
+    if (shots.length) {
+      const marks: Mark[] = bodies.map((b, index) => ({ x: b.x, z: b.z, index })).filter(mark => !bodies[mark.index].dead && bodies[mark.index].awake);
+      for (let i = shots.length - 1; i >= 0; i--) {
+        const shot = shots[i];
+        const flight = flyShot(shot, floor.cells, marks, DT);
+        shot.x = flight.x; shot.z = flight.z; shot.life = flight.life; shot.pierce = flight.pierce;
+        for (const index of flight.hits) {
+          const body = bodies[index];
+          if (body.dead) continue;
+          landedCount += 1;
+          body.hp -= shot.damage;
+          body.hitFlash = 0.2;
+          const broke = interruptsWindup(body.kind, body.windup, weapon.stagger);
+          if (broke) body.windup = 0;
+          body.cooldown = Math.max(body.cooldown, hitCooldown(body.kind, broke, weapon.stagger));
+          const push = unit(body.x - player.x, body.z - player.z), shove = body.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
+          moveOnFloor(floor.cells, body, push.x * shove, push.z * shove);
+          if (body.hp <= 0) {
+            body.dead = true;
+            resolveKill(run);
+            if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
+              cleared.add(body.room);
+              clearRoomReward(run, floor.rooms[body.room].role === 'branch');
+            }
+          }
+        }
+        if (flight.done) shots.splice(i, 1);
+      }
+    }
+    // How long the knight actually stands where something can reach him. An arm that never closes reads
+    // as near zero here, which is the only column that catches a weapon winning by walking backwards.
+    if (live.some(b => Math.hypot(b.x - player.x, b.z - player.z) < 2.5)) contact += DT;
+
     const crowd: CrowdBody[] = bodies.map(b => ({ x: b.x, z: b.z, windup: b.windup, dead: b.dead || !b.awake }));
     separateCrowd(floor.cells, crowd, DT).forEach((spot, i) => { if (!crowd[i].dead) { bodies[i].x = spot.x; bodies[i].z = spot.z; } });
 
@@ -342,6 +419,6 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   return endFloor('stuck');
 
   function endFloor(outcome: FloorReport['outcome']): FloorReport {
-    return { level, outcome, seconds: +t.toFixed(1), kills: run.kills - startKills, spawns: floor.spawns.length, damage, surrounded, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel };
+    return { level, outcome, seconds: +t.toFixed(1), kills: run.kills - startKills, spawns: floor.spawns.length, damage, surrounded, contact: +contact.toFixed(1), shots: shotCount, landed: landedCount, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel };
   }
 }

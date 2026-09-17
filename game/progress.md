@@ -353,3 +353,45 @@ out exactly one arm and never the sword already in hand, that the same seed hand
 different seeds do not all offer one, that floor one uses the empty Tide Gate, that standing takes an
 arm and leaves the old one, that the swing's numbers actually change with it, that standing still
 cannot oscillate, and that a new descent starts on the Tideblade whatever the last run ended holding.
+
+2026-09-17 — Something that travels: the Keep Crossbow.
+
+Every melee rule in this keep resolves in the frame it is asked about — the arc is tested, the body is
+in it or not — and none of that helps a bolt, which exists across frames. `dungeon-projectile.ts` is
+pure like the rest: a shot walks its flight in sub-steps rather than jumping it, because at 19 u/s a
+frame covers most of a tile and testing only where it landed is the bug the stalker's pounce had before
+sweptContact existed. It is stopped by the same stone a body is, it spends its pierce on the nearest
+body first rather than on whichever the caller listed first, and it never bills the same body twice.
+
+The arm is limited by a quiver rather than by a cooldown, and that is the whole design. The knight
+walks at 8.5 against a guard's 2.2 and a stalker's 3.2, so nothing in the keep can reach him if he
+simply backs away while shooting: a shot that recovered on a timer would win the game by walking
+backwards. Four bolts, one back every 1.8s, firing roots him at 1.4, and the 0.36s the bolt is leaving
+cannot be dashed out of. A dry crossbow has a 0.2 reach and nothing to swing.
+
+Measured rather than argued. The harness grew a `--kite` policy that backs away from whatever is
+nearest — not a style but the strongest play available to anyone holding a ranged arm — plus columns
+for seconds spent within reach of a woken body and for hit rate. Kiting does not break the keep, it
+stalls it: 40 of 40 runs timed out at median rank 2 and 8 kills, because backing away forever is also
+never clearing a room. Fought normally the crossbow escapes 97.5% against 100% for every melee arm, is
+the slowest descent at 6.6 minutes against 5.4, spends 4.8% of a run within reach against 20-28% for
+the melee arms, and is the only arm in the keep that loses runs at all. The quiver was 3/3.0s at first,
+which read at 9.5 minutes and 10% deaths — a slog rather than a weapon — and 5/2.0s removed the risk
+entirely at 0% deaths; 4/1.8s keeps both.
+
+Bolts come out of a pool of eight and the mesh is hidden rather than freed, because the suite asserts a
+built floor allocates no new GPU memory. They are cleared on floor rebuild and on restart. The quiver
+readout is four pips that appear only while a ranged arm is held, so the permanent HUD stays vitality,
+dash and rank for every other weapon in the keep.
+
+Two browser assertions had to be weakened to be true. Sustained fire does not hold the quiver at
+exactly empty — it oscillates between none and one, because a bolt that comes back is spent by the next
+pull almost at once — so the test pins the drain rather than the sampling moment. And a pull on an
+empty quiver is not testable in a live loop at all: any wait long enough for the air to clear is also
+long enough to hand a bolt back, and the press then fires a real one, which is the rule working rather
+than failing. Both are written down where the assertion is.
+
+Verification: typecheck, lint, production build, 131/131 node tests. Eleven new pure regressions cover
+sub-step flight, stone, pierce ordering, one bill per body, near misses, expiry, junk frame deltas, and
+the refill clock including a tab hidden for a minute. Three browser regressions cover spending a bolt
+and getting it back, the drain under sustained fire, and the quiver arriving and leaving with the arm.

@@ -35,6 +35,10 @@ export type Snapshot = {
     duration: number;
     /** What one clean blow actually takes off, weapon plus boons. */
     strikeDamage: number;
+    ranged: boolean;
+    quiver: number | null;
+    capacity: number | null;
+    inFlight: number;
   };
   boons: {
     strike: number;
@@ -149,6 +153,7 @@ type GameWindow = Window & {
   render_game_to_text?: () => string;
   dungeonTest?: {
     teleport: (x: number, z: number) => void;
+    equip: (id: string) => void;
     descend: () => void;
     buildFloor: (level: number) => void;
     grantXp: (amount: number) => void;
@@ -340,6 +345,16 @@ export class Game {
       },
       { x, z },
     );
+  }
+
+  /** Put a named arm in hand without walking a rack down. Fixture setup, like teleport. */
+  async equip(id: string) {
+    await this.page.evaluate((weapon: string) => {
+      const hook = (window as GameWindow).dungeonTest;
+      if (!hook) throw new Error('dungeonTest is gone');
+      hook.equip(weapon);
+    }, id);
+    await this.step(32);
   }
 
   async grantXp(amount: number) {
