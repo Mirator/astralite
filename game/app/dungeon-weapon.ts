@@ -31,7 +31,10 @@ export type Weapon = {
    * so this — not target count — is what separates a sweeping weapon from a thrusting one.
    */
   arc: number;
-  /** Vitality a clean hit takes, before Whetted Edge adds to it. */
+  /**
+   * Vitality a clean hit takes, before Whetted Edge adds to it. Quoted in the same quarter-hit grain
+   * as enemy vitality (dungeon-enemy's HIT), so 4 is one blow of the starting blade.
+   */
   damage: number;
   /** How fast the knight may walk while the swing runs, against 8.5 unthreatened. */
   moveSpeed: number;
@@ -54,7 +57,7 @@ export const TIDEBLADE: Weapon = {
   contactEnd: 0.175,
   reach: 1.8,
   arc: 0.35,
-  damage: 1,
+  damage: 4,
   moveSpeed: 3.2,
   knockback: 0.38,
   wardenKnockback: 0.1,

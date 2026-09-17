@@ -266,7 +266,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         if (body.dead || !body.awake || swingHits.has(body)) continue;
         if (!swordContacts(floor.cells, player, attackFacing, body, run.reach, TIDEBLADE)) continue;
         swingHits.add(body);
-        body.hp -= run.strike + TIDEBLADE.damage - 1;
+        body.hp -= TIDEBLADE.damage + run.strike;
         body.hitFlash = 0.2;
         if (interruptsWindup(body.kind, body.windup)) body.windup = 0;
         body.cooldown = Math.max(body.cooldown, 0.4);

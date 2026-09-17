@@ -9,7 +9,7 @@ import { incomingDamage } from './dungeon-combat.ts';
 export type Boon = { id: string; name: string; detail: string };
 
 export const BOONS: Boon[] = [
-  { id: 'edge', name: 'Whetted Edge', detail: '+1 damage on every strike' },
+  { id: 'edge', name: 'Whetted Edge', detail: 'One more blade’s worth of bite on every strike' },
   { id: 'vigor', name: 'Tidal Vigor', detail: '+25 max vitality, filled now' },
   { id: 'step', name: 'Quick Step', detail: 'Evasion recovers 30% faster' },
   { id: 'reach', name: 'Long Guard', detail: 'Longer, wider strike arc' },
@@ -17,6 +17,8 @@ export const BOONS: Boon[] = [
   { id: 'ward', name: 'Salt Ward', detail: 'Take 20% less damage from enemy blows' },
 ];
 
+// One more starting-blade's worth of damage, in the quarter-hit grain dungeon-enemy quotes vitality in.
+export const STRIKE_BONUS = 4;
 export const XP_PER_ENEMY = 25;
 export const XP_DEAD_END = 60;
 // Each rank costs more than the last, so a full three-floor descent pays out five or six boons.
@@ -32,6 +34,8 @@ export type Run = {
   hp: number; maxHp: number; kills: number; totalXp: number;
   rankLevel: number; rankProgress: number; pendingRanks: number; choosing: boolean;
   // Boon-derived modifiers. `guardAgainst` and `dashSpan` are multipliers, the rest are additive.
+  // `strike` is a bonus on top of whatever the knight is holding, not the damage itself: the weapon
+  // supplies the base and the boons add to it.
   strike: number; dashSpan: number; reach: number; draught: number; guardAgainst: number;
   // Boon ids already taken this run, in order. The draft reads it so a card is never offered again while
   // an untaken one exists.
@@ -44,7 +48,7 @@ export type Run = {
 export const createRun = (): Run => ({
   hp: 100, maxHp: 100, kills: 0, totalXp: 0,
   rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
-  strike: 1, dashSpan: 1.35, reach: 0, draught: 0, guardAgainst: 1,
+  strike: 0, dashSpan: 1.35, reach: 0, draught: 0, guardAgainst: 1,
   invuln: 0, taken: [],
 });
 
@@ -113,7 +117,7 @@ export const tickRun = (run: Run, dt: number) => { run.invuln = Math.max(0, run.
 export const takeBoon = (run: Run, id: string): Boon | null => {
   const boon = BOONS.find(b => b.id === id);
   if (!run.choosing || !boon) return null;
-  if (id === 'edge') run.strike += 1;
+  if (id === 'edge') run.strike += STRIKE_BONUS;
   if (id === 'vigor') { run.maxHp += 25; run.hp = run.maxHp; }
   if (id === 'step') run.dashSpan *= 0.7;
   if (id === 'reach') run.reach += 0.35;

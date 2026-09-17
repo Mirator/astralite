@@ -13,13 +13,16 @@ test('impact accents come from real hits, freeze with pause, and expire without 
   const floor=await game.floor(),spot={x:0,z:0},stance=strikeStance(floor,spot);
   await game.teleport(stance.x,stance.z);
   await page.keyboard.down(stance.key);await game.step(1);await page.keyboard.up(stance.key);
-  await game.configureCombat({enemies:[{index:0,x:spot.x,z:spot.z,hp:2,cooldown:10,windup:0}]});
+  // Two blades' worth, so the body survives the blow being measured: vitality is quoted in
+  // quarter-hits, and a fixture pinned to a literal 2 would simply die and take the accent with it.
+  const blade=(await game.state()).weapon.strikeDamage;
+  await game.configureCombat({enemies:[{index:0,x:spot.x,z:spot.z,hp:blade*2,cooldown:10,windup:0}]});
   await page.keyboard.press('Space');await game.step(100);
-  expect((await game.state()).enemies[0].hp).toBe(1);expect(await active()).toBe(1);
+  expect((await game.state()).enemies[0].hp).toBe(blade);expect(await active()).toBe(1);
   await game.capture('knight-impact');
   await page.keyboard.press('Escape');await game.step(500);expect(await active()).toBe(1);
   await page.keyboard.press('Escape');await game.step(350);expect(await active()).toBe(0);
-  expect((await game.state()).enemies[0].hp).toBe(1);
+  expect((await game.state()).enemies[0].hp).toBe(blade);
 });
 
 for(const key of ['ArrowRight','ArrowLeft','ArrowUp','ArrowDown']){
