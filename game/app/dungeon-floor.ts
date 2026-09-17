@@ -1,8 +1,11 @@
+import { FOUND_WEAPONS, type WeaponId } from './dungeon-weapon.ts';
+
 export const TILE = 1.48;
 export type Encounter = 'watch' | 'ambush' | 'gauntlet' | 'sanctuary' | 'warden';
 export type Room = { encounter: Encounter; id: number; x: number; z: number; halfX: number; halfZ: number; shape: 'hall' | 'round' | 'cross' | 'court' | 'gallery' | 'crypt'; theme: 'keep' | 'ruins' | 'flooded'; name: string; role: 'start' | 'path' | 'branch' | 'goal'; depth: number; heading: number };
 export type Spawn = { x: number; z: number; kind: 'guard' | 'stalker' | 'warden'; room: number; ambush: boolean };
 export type FloorProp = { x: number; z: number; kind: 'brazier' | 'pillar' | 'rubble' | 'barrel'; room: number };
+export type WeaponDrop = { x: number; z: number; kind: WeaponId; room: number };
 export const cellKey = (x: number, z: number) => `${x},${z}`;
 
 // `level` is how deep in the keep this floor sits: it lengthens the trunk and drags the whole
@@ -166,7 +169,21 @@ export function generateFloor(seed: number, level = 1) {
       spawns.push({x:t.x,z:t.z,kind,room:room.id,ambush});break;
     }
   }
-  return {seed,level,rooms,edges,cells,tiles,roomByCell:new Map(tiles.filter(t=>t.room>=0).map(t=>[cellKey(t.x,t.z),t.room])),bounds,props,spawns,start:0,goal:goal.id,spine:spine.map(r=>r.id),guardCount:spawns.length};
+  // One arm lies on the floor of every descent. Floor one leaves it in the Tide Gate, which has no
+  // bodies in it, so the first real decision of a run is made in safety and before anything is at
+  // stake; deeper floors hide it down a branch, which is what makes a detour worth the walk. The kind
+  // is drawn from the seed like everything else, so the same keep hands back the same arm.
+  const dropRoom = level === 1 ? rooms[0] : (rooms.filter(r => r.role === 'branch')[int(0, Math.max(0, rooms.filter(r => r.role === 'branch').length - 1))] ?? rooms[0]);
+  const dropKind = FOUND_WEAPONS[int(0, FOUND_WEAPONS.length - 1)];
+  const centre = {x: dropRoom.x * TILE, z: dropRoom.z * TILE};
+  // Clear of the room's heart, which is where the knight stands on arrival and where a stair sits, and
+  // clear of anything already spawned there.
+  const dropSpot = (tilesByRoom.get(dropRoom.id) ?? [])
+    .map(t => ({x: t.x * TILE, z: t.z * TILE}))
+    .filter(spot => Math.hypot(spot.x - centre.x, spot.z - centre.z) > 1.9 && spawns.every(other => other.room !== dropRoom.id || Math.hypot(other.x * TILE - spot.x, other.z * TILE - spot.z) > 1.6))
+    .sort((a, b) => Math.hypot(a.x - centre.x, a.z - centre.z) - Math.hypot(b.x - centre.x, b.z - centre.z))[0] ?? centre;
+  const weaponDrop: WeaponDrop = {x: dropSpot.x, z: dropSpot.z, kind: dropKind, room: dropRoom.id};
+  return {seed,level,rooms,edges,cells,tiles,roomByCell:new Map(tiles.filter(t=>t.room>=0).map(t=>[cellKey(t.x,t.z),t.room])),bounds,props,spawns,weaponDrop,start:0,goal:goal.id,spine:spine.map(r=>r.id),guardCount:spawns.length};
 }
 
 export function canStand(cells: Set<string>, x: number, z: number, radius = 0.32) {

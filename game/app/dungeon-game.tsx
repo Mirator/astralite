@@ -16,11 +16,12 @@ import { canAbortSwing, DASH_BUFFER, swordContacts } from './dungeon-combat';
 import { decideEnemy, enemyStats, hitCooldown, interruptsWindup, separateCrowd } from './dungeon-enemy';
 import { enemyPose } from './dungeon-enemy-pose';
 import { playerAttackPose } from './dungeon-attack-pose';
-import { TIDEBLADE, type Weapon } from './dungeon-weapon';
+import { STARTING_WEAPON, TIDEBLADE, weaponById, type Weapon, type WeaponId } from './dungeon-weapon';
+import { disposeWeapon, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
-import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, rankCost, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { clearRoomReward, createRun, draftBoons, dwellStep, grantXp, heal, hurt, PICKUP_DWELL, PICKUP_RADIUS, rankCost, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
 type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; death: DeathAnimation | null; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[] };
 // Development-only test fixture payload: which existing actors to move, and to what. Deliberately narrow —
@@ -96,12 +97,9 @@ function makeKnight() {
   belt.position.y = .66; belt.rotation.x = Math.PI / 2;
   const swordPivot = new THREE.Group();
   swordPivot.position.set(0.44, 1.0, -0.02);
-  const blade=plate([[-.065,0],[.065,0],[.075,.87],[0,1.158],[-.075,.87]],.045,steel);blade.rotation.x=-Math.PI/2;
-  const fuller=new THREE.Mesh(new THREE.BoxGeometry(.022,.006,.66),iron);fuller.position.set(0,.038,-.45);
-  const hilt=plate([[-.23,-.035],[-.24,.045],[-.08,.075],[.08,.075],[.24,.045],[.23,-.035],[.07,.015],[-.07,.015]],.08,brass);hilt.rotation.x=-Math.PI/2;
-  const grip=new THREE.Mesh(new THREE.CylinderGeometry(.045,.045,.2,6),leather);grip.rotation.x=Math.PI/2;grip.position.z=.12;
-  const pommel=new THREE.Mesh(new THREE.DodecahedronGeometry(.072,0),brass);pommel.position.z=.24;
-  swordPivot.add(blade,fuller,hilt,grip,pommel);
+  const armoryPalette: ArmoryPalette = {steel,iron,brass,leather,dark,shadow};
+  const armed = makeWeapon(STARTING_WEAPON, armoryPalette, plate);
+  swordPivot.add(armed.group);
   const breastplate=plate([[-.27,.22],[.27,.22],[.3,.08],[.22,-.22],[0,-.27],[-.22,-.22],[-.3,.08]],.13,iron);breastplate.position.set(0,.92,-.25);
   const chestRidge=plate([[-.025,.18],[.025,.18],[.035,-.19],[0,-.23],[-.035,-.19]],.02,steel);chestRidge.position.z=-.085;breastplate.add(chestRidge);
   const pauldrons = [-1,1].map(side => { const shoulder = new THREE.Mesh(new THREE.DodecahedronGeometry(.23,0),iron);shoulder.position.set(side*.37,1.1,0);shoulder.scale.set(1,.66,1.12);const rim=new THREE.Mesh(new THREE.DodecahedronGeometry(.23,0),steel);rim.scale.set(1.08,.3,1.04);rim.position.y=-.06;shoulder.add(rim);return shoulder; });
@@ -133,7 +131,9 @@ function makeKnight() {
   arm.add(sleeve,forearm,fist);torso.add(arm);g.userData.arm=arm;
   g.userData.legs = legs; g.userData.cape = cape; g.userData.body = body;
   g.userData.sword = swordPivot;g.userData.torso=torso;
-  knightDetails({torso,head,sword:swordPivot,arm,legs,cape},{steel,iron,brass,red,leather,shadow});
+  knightDetails({torso,head,arm,legs,cape},{steel,iron,brass,red,leather,shadow});
+  // The palette and the bevel travel with the knight: a weapon picked up later is built from his own.
+  g.userData.armoury = {palette: armoryPalette, plate: plate as Plate};g.userData.armed = armed;
   pauldrons.forEach(shoulder=>{shoulder.visible=false;});
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
   return g;
@@ -224,6 +224,7 @@ export default function DungeonGame() {
   const [maxHealth, setMaxHealth] = useState(100);
   const [rank, setRank] = useState(1), [rankXp, setRankXp] = useState(0), [rankNeed, setRankNeed] = useState(rankCost(1));
   const [boonChoice, setBoonChoice] = useState<Boon[]>([]), [taken, setTaken] = useState<string[]>([]);
+  const [heldWeapon, setHeldWeapon] = useState(TIDEBLADE.name);
   const [floorMap, setFloorMap] = useState<ReturnType<typeof generateFloor> | null>(null);
   const [visitedCount, setVisitedCount] = useState(1);
   const mapPlayer = useRef<SVGCircleElement>(null);
@@ -354,7 +355,7 @@ export default function DungeonGame() {
     let stopped = false, attackTime = 0, dashTime = 0, dashCooldown = 0, hurtFlash = 0, shake = 0;
     // What the knight is holding. Every number the swing used to hardcode now comes off this record,
     // so a second arm is a different record rather than a second code path.
-    const weapon: Weapon = TIDEBLADE;
+    let weapon: Weapon = TIDEBLADE;
     let attackBuffer = 0, dashBuffer = 0, walkPhase = 0, gaitSpeed = 0, elapsed = 0, manualTime = false, hitStop = 0;
     let locomotion=playerRunPose(0,0);
     let rewardTime = 0, noticeTime = 0;
@@ -479,7 +480,42 @@ export default function DungeonGame() {
     const burst = (at: THREE.Vector3, color = 0xffb24a, amount = 12) => { for (let i = 0; i < amount; i++) { const mesh = new THREE.Mesh(sparkGeo, color === 0xffb24a ? sparkMat : new THREE.MeshBasicMaterial({ color, toneMapped: false })); mesh.position.copy(at).add(new THREE.Vector3(0, 0.8, 0)); const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 3.5; particles.push({ mesh, velocity: new THREE.Vector3(Math.cos(a) * s, 1.5 + Math.random() * 3, Math.sin(a) * s), life: 0.35 + Math.random() * 0.3 }); world.add(mesh); } };
     const slash=weaponTrail(0xffedc5,.105);world.add(slash.mesh);
     const impacts=impactEffects();world.add(impacts.group);
-    const bladeInner=new THREE.Vector3(0,0,-.32),bladeTip=new THREE.Vector3(0,0,-1.17);
+    // The trail samples the blade's world path between these two, so they move with the weapon: a spear
+    // sampled at a sword's tip would trail from the middle of its own haft.
+    let armed = player.userData.armed as ArmedWeapon;
+    let bladeInner=armed.inner.clone(),bladeTip=armed.tip.clone();
+    // What lies on the floor of this floor, and how long the knight has stood over it.
+    let drop: {group:THREE.Group; ring:THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; blade:ArmedWeapon; kind:WeaponId; x:number; z:number} | null = null;
+    let pickupDwell = 0;
+    // Put a different arm in the knight's hand. The old geometry is released; the materials are his own
+    // and outlive every swap, so nothing but the meshes is rebuilt.
+    const equip = (id: WeaponId) => {
+      const {palette, plate} = player.userData.armoury as {palette: ArmoryPalette; plate: Plate};
+      disposeWeapon(armed);
+      weapon = weaponById(id);
+      armed = makeWeapon(id, palette, plate);
+      (player.userData.sword as THREE.Group).add(armed.group);
+      player.userData.armed = armed;
+      bladeInner=armed.inner.clone();bladeTip=armed.tip.clone();
+      // A swap mid-swing would otherwise leave the old blade's ribbon hanging in the air.
+      attackTime = 0; swingHits.clear(); slash.clear(); posePlayer(0);
+    };
+    let dropPrompted = false;
+    // Latched false the moment an arm is taken and re-armed only by stepping off the ring. Without it the
+    // knight is still standing on the rack he just emptied, so the dwell refills and he swaps straight
+    // back — measured at a swap every half-second, forever, for as long as he stands there.
+    let dropReady = true;
+    // Lay an arm on a rack. Called once when the floor is built and again on every swap, because what
+    // the knight sets down stays where he found it: a pickup he regrets is a walk back, not a dead run.
+    const placeDrop = (kind: WeaponId, x: number, z: number) => {
+      const {palette, plate} = player.userData.armoury as {palette: ArmoryPalette; plate: Plate};
+      if (drop) { drop.group.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose(); }); floorGroup.remove(drop.group); }
+      const built = makeWeaponDrop(kind, palette, plate);
+      built.group.position.set(x, 0, z);
+      floorGroup.add(built.group);
+      drop = {...built, kind, x, z};
+      pickupDwell = 0; dropPrompted = false;
+    };
     const posePlayer=(age:number)=>{
       const pose=playerAttackPose(age,weapon),sword=player.userData.sword as THREE.Group;
       sword.rotation.set(pose.swordPitch,pose.swordYaw,pose.swordRoll);
@@ -534,7 +570,7 @@ export default function DungeonGame() {
       buildMs = {};
       if (atmosphere) clearFloor();
       phase('dispose');
-      level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; features = []; stairOpen = false; stairDwell = 0;
+      level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; features = []; stairOpen = false; stairDwell = 0; drop = null; pickupDwell = 0; dropPrompted = false;
       gameStatus = 'playing'; setStatus('playing');
       floor = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], level);
       phase('generate');
@@ -607,6 +643,7 @@ export default function DungeonGame() {
         // from across the hall on every floor's lighting, not only the darkest.
         stairGlow = new THREE.Mesh(new THREE.CircleGeometry(1.12, 32), new THREE.MeshBasicMaterial({ color: 0xffc573, transparent: true, opacity: .35, depthWrite: false })); stairGlow.rotation.x = -Math.PI / 2; stairGlow.position.set(stairSpot.x, .08, stairSpot.z); stairGlow.visible = false; stairGlow.renderOrder = 4; floorGroup.add(stairGlow);
         stairRing = new THREE.Mesh(new THREE.RingGeometry(1.5, 1.85, 48), new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: .85, side: THREE.DoubleSide, depthWrite: false })); stairRing.rotation.x = -Math.PI / 2; stairRing.position.set(stairSpot.x, .09, stairSpot.z); stairRing.visible = false; stairRing.renderOrder = 5; floorGroup.add(stairRing); }
+      placeDrop(floor.weaponDrop.kind, floor.weaponDrop.x, floor.weaponDrop.z);
       phase('atmosphere');
       enemyData = floor.spawns.map((spawn, index) => {
         const kind = spawn.kind;
@@ -657,6 +694,8 @@ export default function DungeonGame() {
       facing.set(1, 0, -0.6).normalize(); attackFacing.copy(facing); dashFacing.copy(facing);
       setHealth(run.hp); setMaxHealth(run.maxHp); setDefeated(0); setExperience(0); setXpReward(0);
       setRank(1); setRankXp(0); setRankNeed(rankCost(1)); setTaken([]); setBoonChoice([]);
+      if (weapon.id !== STARTING_WEAPON) equip(STARTING_WEAPON);
+      setHeldWeapon(TIDEBLADE.name);
       setNotice(''); setNoticeDetail(''); setFloorResult({ kills: 0, xp: 0, seconds: 0 });
       setPaused(false); setMapOpen(false);
       buildFloor(1, seed);
@@ -835,6 +874,32 @@ export default function DungeonGame() {
         }
         // The stair opens when the last warden falls and takes the knight down only once he has stood on it a
         // moment: the floor ends on a step he chose, never in the middle of a swing. A dash across it does not count.
+        // An arm on the floor is taken by standing over it, the same deliberate pause the stair asks
+        // for: a dash across a rack must never swap the weapon out from under a fight.
+        if (drop) {
+          const over = Math.hypot(player.position.x - drop.x, player.position.z - drop.z) < PICKUP_RADIUS;
+          if (!over) { dropReady = true; dropPrompted = false; }
+          pickupDwell = dwellStep(pickupDwell, PICKUP_DWELL, over && dropReady, dashTime > 0, dt);
+
+          const fill = pickupDwell / PICKUP_DWELL;
+          drop.ring.material.opacity = .35 + fill * .6;
+          drop.ring.scale.setScalar(1 + fill * .12);
+          drop.group.rotation.y += dt * (over ? 1.5 : .45);
+          if (over && dropReady && !dropPrompted) {
+            dropPrompted = true;
+            const offered = weaponById(drop.kind);
+            setNotice(`${offered.name} · stand to take it`); setNoticeDetail(offered.detail); noticeTime = 3;
+          }
+          if (pickupDwell >= PICKUP_DWELL) {
+            const taken = weaponById(drop.kind), set = weapon.id, at = {x: drop.x, z: drop.z};
+            equip(drop.kind);
+            placeDrop(set, at.x, at.z);
+            dropReady = false;
+            audio.play('clear'); burst(player.position, 0xe3b774, 14);
+            setNotice(`${taken.name} in hand`); setNoticeDetail(taken.detail); noticeTime = 3.5;
+            setHeldWeapon(taken.name);
+          }
+        }
         if (!stairOpen && stairClear()) openStair();
         if (stairOpen) {
           const onStair = Math.hypot(player.position.x - stairSpot.x, player.position.z - stairSpot.z) < STAIR_RADIUS;
@@ -1069,6 +1134,7 @@ export default function DungeonGame() {
       health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: weapon.id, name: weapon.name, damage: weapon.damage, reach: weapon.reach, duration: weapon.duration, strikeDamage: weapon.damage + run.strike }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, stairDwell, deadEndsPlundered: loot },
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
+      drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, dwell: pickupDwell, takes: PICKUP_DWELL } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
       effects: { impacts: impacts.active },
@@ -1143,7 +1209,7 @@ export default function DungeonGame() {
         <button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'LOADING…' : paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
         {/* Read off the bindings rather than written out, or this card would go on promising WASD to a player
             who rebound it ten seconds ago — which is the exact moment they would come here to check. */}
-        <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><p>Reach {goalName}. Defeat the stair wardens, then step onto the stair they guarded to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality.</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</details>
+        <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><p>Reach {goalName}. Defeat the stair wardens, then step onto the stair they guarded to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</details>
         {/* Folded away beside the journey, not added to the HUD: this card is where detail belongs, and the
             world stays bare. Everything here persists, and everything here has a default that is the game
             exactly as it shipped, so a player who never opens this changes nothing by not opening it. */}

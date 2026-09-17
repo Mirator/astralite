@@ -57,6 +57,14 @@ export type Snapshot = {
     stairDwell: number;
     deadEndsPlundered: number;
   };
+  drop: {
+    x: number;
+    z: number;
+    kind: string;
+    radius: number;
+    dwell: number;
+    takes: number;
+  } | null;
   stair: { x: number; z: number; radius: number; dwell: number };
   experience: {
     total: number;

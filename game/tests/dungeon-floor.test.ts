@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { canStand, generateFloor, cellKey, hasClearPath, moveOnFloor, TILE } from '../app/dungeon-floor.ts';
+import { FOUND_WEAPONS } from '../app/dungeon-weapon.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
 
@@ -258,4 +259,41 @@ test('the first two halls past the gate are always a straight fight, never an am
     // Nothing waits hidden in them either: an ambush pack is what killed a fresh run in under a minute.
     for (const spawn of floor.spawns) if (opening.some(room => room.id === spawn.room)) assert.equal(spawn.ambush, false);
   }
+});
+
+test('every floor lays out one arm, and never the one already in hand', () => {
+  for (const level of [1, 2, 3]) for (const seed of [0x1, 0x7, 0xc, 0x51ed, 0xbeef]) {
+    const floor = generateFloor(seed, level);
+    const drop = floor.weaponDrop;
+    assert.ok(drop, `floor ${level} seed ${seed} laid no weapon out`);
+    assert.notEqual(drop.kind, 'tideblade', 'the drop is never the sword the knight walks in with');
+    assert.ok(FOUND_WEAPONS.includes(drop.kind));
+    // It has to be somewhere the knight can actually stand.
+    assert.ok(floor.cells.has(cellKey(Math.round(drop.x / TILE), Math.round(drop.z / TILE))), 'the rack is off the floor');
+    const room = floor.rooms[drop.room];
+    // Clear of the room's heart, which is where the knight arrives and where a stair would sit.
+    assert.ok(Math.hypot(drop.x - room.x * TILE, drop.z - room.z * TILE) > 1.5, 'the rack is underfoot on arrival');
+    // Clear of anything standing in the same chamber, so it is never taken mid-fight by accident.
+    for (const spawn of floor.spawns.filter(s => s.room === drop.room)) {
+      assert.ok(Math.hypot(spawn.x * TILE - drop.x, spawn.z * TILE - drop.z) > 1.2, 'a body is standing on the rack');
+    }
+  }
+});
+
+test('the first floor lays its arm out in the safety of the Tide Gate', () => {
+  // The first real decision of a run is made before anything is at stake.
+  for (const seed of [0x1, 0x7, 0xc, 0x51ed]) {
+    const floor = generateFloor(seed, 1);
+    assert.equal(floor.weaponDrop.room, 0);
+    assert.equal(floor.spawns.filter(s => s.room === 0).length, 0, 'the Tide Gate is meant to be empty');
+  }
+});
+
+test('the same keep hands back the same arm', () => {
+  for (const seed of [0x1, 0x7, 0xc]) {
+    assert.deepEqual(generateFloor(seed, 1).weaponDrop, generateFloor(seed, 1).weaponDrop);
+  }
+  // And different keeps do not all offer the same one.
+  const kinds = new Set([0x1, 0x7, 0xc, 0x51ed, 0xbeef, 0xfeed, 0x2222].map(s => generateFloor(s, 1).weaponDrop.kind));
+  assert.ok(kinds.size > 1, 'every seed offered the same weapon');
 });
