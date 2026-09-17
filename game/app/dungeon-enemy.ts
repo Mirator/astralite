@@ -37,7 +37,24 @@ export const DIRECT_STEP = TILE * 1.5;
 // cooldown every hit refreshes against a 0.38s swing, which is deliberate - a guard is pressure in a group
 // and while the knight moves, not a duel.
 export const COMMITTED_WINDUP = 0.3;
-export const interruptsWindup = (kind: EnemyKind, windup: number) => kind !== 'warden' && windup > COMMITTED_WINDUP;
+// `stagger` is the one weapon property that is a rule rather than a number: ordinary steel never breaks
+// a warden's committed swing, and the two heaviest arms in the keep are the only answer to the body
+// that deals most of the knight's damage. Everything else is unchanged, so a guard and a stalker still
+// flinch out of a tell early and never late, whatever is held.
+export const interruptsWindup = (kind: EnemyKind, windup: number, stagger = false) =>
+  (stagger || kind !== 'warden') && windup > COMMITTED_WINDUP;
+
+/** Every landed blow refreshes at least this much of the body's cooldown. */
+export const HIT_COOLDOWN = 0.4;
+/**
+ * How long a body is off its feet after a blow. A swing a stagger weapon actually broke has to be
+ * recovered from rather than merely restarted: at HIT_COOLDOWN a warden whose 0.72s tell was
+ * interrupted simply wound the same swing up again 0.4s later, and the Bell Maul measured identically
+ * to a plain sword against the one body it exists to answer. Ordinary steel breaking a guard's tell
+ * still buys only the 0.4s it always did, so nothing but a stagger weapon changed.
+ */
+export const hitCooldown = (kind: EnemyKind, broke: boolean, stagger: boolean) =>
+  broke && stagger ? RECOVERY[kind] : HIT_COOLDOWN;
 
 // The numbers a body is made of, by kind and by floor. Only counts used to grow with depth; a floor-three
 // guard was byte-for-byte a floor-one guard while the knight's boons only ever went up, so the run got

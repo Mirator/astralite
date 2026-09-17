@@ -4,10 +4,13 @@
 //   npm run balance -- --runs 500         a tighter sample
 //   npm run balance -- --dodge 0.5        a clumsier knight
 //   npm run balance -- --no-explore       trunk only, no detours
+//   npm run balance -- --weapon cleaver   one arm
+//   npm run balance -- --compare          every arm, side by side
 //   npm run balance -- --json             machine-readable, for diffing two branches
 //
 // The numbers are a yardstick for comparing one build against another, not a claim about how a human
 // plays. Compare a batch against a batch from the same policy; a single run tells you nothing.
+import { WEAPONS, weaponById, type WeaponId } from '../../app/dungeon-weapon.ts';
 import { DEFAULT_POLICY, simulateRun, type Cause, type Policy, type RunReport } from './sim.ts';
 
 const args = process.argv.slice(2);
@@ -25,10 +28,14 @@ const policy: Policy = {
   reaction: value('reaction', DEFAULT_POLICY.reaction),
   dodge: value('dodge', DEFAULT_POLICY.dodge),
   explore: !flag('no-explore'),
+  weapon: args.includes('--weapon') ? weaponById(args[args.indexOf('--weapon') + 1]) : DEFAULT_POLICY.weapon,
 };
 
-const reports: RunReport[] = [];
-for (let i = 0; i < runs; i++) reports.push(simulateRun(firstSeed + i * 7919, policy));
+// Every arm walks the same seeds against the same policy, so a difference in the table is the arm.
+const batch = (weapon: Policy['weapon']) =>
+  Array.from({ length: runs }, (_, i) => simulateRun(firstSeed + i * 7919, { ...policy, weapon }));
+
+const reports: RunReport[] = batch(policy.weapon);
 
 const median = (values: number[]) => {
   if (!values.length) return 0;
@@ -41,7 +48,23 @@ const escaped = reports.filter(r => r.outcome === 'escaped');
 const died = reports.filter(r => r.outcome === 'died');
 const stuck = reports.filter(r => r.outcome === 'stuck');
 
-if (flag('json')) {
+if (flag('compare')) {
+  console.log(`
+  ${runs} runs an arm · reaction ${policy.reaction}s · dodge ${policy.dodge} · ${policy.explore ? 'exploring' : 'trunk only'}
+`);
+  console.log('  weapon             escaped   died   median run   median HP at stair   warden dmg   dmg surrounded');
+  for (const id of Object.keys(WEAPONS) as WeaponId[]) {
+    const all = batch(WEAPONS[id]);
+    const out = all.filter(r => r.outcome === 'escaped'), lost = all.filter(r => r.outcome === 'died');
+    const hp = all.flatMap(r => r.floors.filter(f => f.outcome === 'cleared')).map(f => f.hpAfter / f.maxHpAfter * 100);
+    const dealt = all.flatMap(r => r.floors);
+    const fromWarden = dealt.reduce((sum, f) => sum + f.damage.warden, 0);
+    const inCrowd = dealt.reduce((sum, f) => sum + f.surrounded, 0);
+    const total = dealt.reduce((sum, f) => sum + f.damage.guard + f.damage.stalker + f.damage.warden + f.damage.hazard, 0);
+    console.log(`  ${WEAPONS[id].name.padEnd(17)}  ${share(out.length, runs).padStart(7)}   ${share(lost.length, runs).padStart(4)}   ${`${(median(all.map(r => r.seconds)) / 60).toFixed(1)}m`.padStart(10)}   ${`${median(hp).toFixed(0)}%`.padStart(18)}   ${share(fromWarden, total).padStart(10)}   ${share(inCrowd, total).padStart(14)}`);
+  }
+  console.log('');
+} else if (flag('json')) {
   console.log(JSON.stringify({ runs, policy, reports }, null, 2));
 } else {
   console.log(`\n  ${runs} runs · reaction ${policy.reaction}s · dodge ${policy.dodge} · ${policy.explore ? 'exploring' : 'trunk only'}\n`);

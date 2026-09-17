@@ -11,10 +11,10 @@
 // dodges a tell it has had time to read. It is a consistent yardstick for comparing builds against each
 // other, not a claim about how well a human plays.
 import { canAbortSwing, swordContacts } from '../../app/dungeon-combat.ts';
-import { decideEnemy, enemyStats, interruptsWindup, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type World } from '../../app/dungeon-enemy.ts';
+import { decideEnemy, enemyStats, hitCooldown, interruptsWindup, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type World } from '../../app/dungeon-enemy.ts';
 import { playerAttackPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
-import { TIDEBLADE } from '../../app/dungeon-weapon.ts';
+import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { clearRoomReward, createRun, draftBoons, heal, hurt, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
@@ -40,11 +40,13 @@ export type Policy = {
   dodge: number;
   /** Detour into branch rooms for the XP and the heal, or walk the trunk. */
   explore: boolean;
+  /** What the knight carries for the whole descent. */
+  weapon: Weapon;
   /** Which card to take from a draft. Defaults to the first offered. */
   pickBoon?: (offer: Boon[], run: Run) => string;
 };
 
-export const DEFAULT_POLICY: Policy = { reaction: 0.22, dodge: 0.8, explore: true };
+export const DEFAULT_POLICY: Policy = { reaction: 0.22, dodge: 0.8, explore: true, weapon: TIDEBLADE };
 
 export type FloorReport = {
   level: number;
@@ -55,6 +57,12 @@ export type FloorReport = {
   spawns: number;
   /** Vitality lost on this floor, split by what dealt it. */
   damage: Record<Cause, number>;
+  /**
+   * Of that, how much landed while three or more woken bodies stood within four units. A narrow arc
+   * costs nothing against one body at a time, which is all a duel measures — this is the only column
+   * that can see what a thrusting weapon gives up, and what a half-circle of edge is bought with.
+   */
+  surrounded: number;
   hpAfter: number;
   maxHpAfter: number;
   rankAfter: number;
@@ -62,6 +70,7 @@ export type FloorReport = {
 
 export type RunReport = {
   seed: number;
+  weapon: string;
   outcome: 'escaped' | 'died' | 'stuck';
   /** The floor the run ended on, 1-based. */
   floor: number;
@@ -132,17 +141,19 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
       // Whatever took the last of the vitality is what the run log would record.
       const damage = report.damage;
       cause = (Object.keys(damage) as Cause[]).filter(k => damage[k] > 0).sort((a, b) => damage[b] - damage[a])[0] ?? null;
-      return { seed, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], floors };
+      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], floors };
     }
     // Descending restores a quarter of the bar, as the results card promises.
     if (level < FLOORS) heal(run, Math.round(run.maxHp * 0.25));
   }
-  return { seed, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], floors };
+  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], floors };
 }
 
 function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number): FloorReport {
   const floor = generateFloor(seed, level);
+  const weapon = policy.weapon;
   const damage: Record<Cause, number> = { guard: 0, stalker: 0, warden: 0, hazard: 0 };
+  let surrounded = 0;
   const startKills = run.kills;
 
   const bodies: Body[] = floor.spawns.map((spawn, index) => {
@@ -216,7 +227,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     // A tell it has had time to read, from something close enough to land, is worth a dodge.
     const threat = live.find(b => b.windup > 0 && b.tell - b.windup >= policy.reaction
       && Math.hypot(b.x - player.x, b.z - player.z) < STRIKE_RANGE[b.kind] + (b.kind === 'stalker' ? 2.6 : 0.4));
-    if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, TIDEBLADE) && nerve() < policy.dodge) {
+    if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, weapon) && nerve() < policy.dodge) {
       // A pounce is out-run sideways; a swing is out-run backwards.
       const away = unit(player.x - threat.x, player.z - threat.z);
       const step = threat.kind === 'stalker' ? { x: -away.z, z: away.x } : away;
@@ -235,8 +246,10 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     let move: { x: number; z: number } | null = null;
     if (target && dashTime <= 0) {
       const toward = unit(target.body.x - player.x, target.body.z - player.z);
-      if (target.distance > 1.55 + run.reach) move = toward;
-      else if (attackTime <= 0) { attackTime = TIDEBLADE.duration; attackFacing = toward; facing.x = toward.x; facing.z = toward.z; swingHits.clear(); }
+      // Close to just inside the arm's own reach rather than to a fixed 1.55, or a spear would walk
+      // into a hammer it could have worked from outside, and a cleaver would stop short of its own edge.
+      if (target.distance > weapon.reach * 0.85 + run.reach) move = toward;
+      else if (attackTime <= 0) { attackTime = weapon.duration; attackFacing = toward; facing.x = toward.x; facing.z = toward.z; swingHits.clear(); }
     } else if (dashTime <= 0) {
       // Nothing awake in reach: walk the flood. A branch worth plundering first, then the stair.
       const detour = policy.explore
@@ -254,23 +267,24 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
 
     if (move) { facing.x = move.x; facing.z = move.z; }
     const threatened = live.some(b => (b.x - player.x) ** 2 + (b.z - player.z) ** 2 < 100);
-    const speed = dashTime > 0 ? 12 : attackTime > 0 ? TIDEBLADE.moveSpeed : threatened ? 5.8 : 8.5;
+    const speed = dashTime > 0 ? 12 : attackTime > 0 ? weapon.moveSpeed : threatened ? 5.8 : 8.5;
     if (dashTime > 0) moveOnFloor(floor.cells, player, facing.x * speed * DT, facing.z * speed * DT);
     else if (move) moveOnFloor(floor.cells, player, move.x * speed * DT, move.z * speed * DT);
 
     // --- the blade -----------------------------------------------------------------------------
     if (attackTime > 0) {
       attackTime = Math.max(0, attackTime - DT);
-      const pose = playerAttackPose(TIDEBLADE.duration - attackTime, TIDEBLADE);
+      const pose = playerAttackPose(weapon.duration - attackTime, weapon);
       if (pose.active) for (const body of bodies) {
         if (body.dead || !body.awake || swingHits.has(body)) continue;
-        if (!swordContacts(floor.cells, player, attackFacing, body, run.reach, TIDEBLADE)) continue;
+        if (!swordContacts(floor.cells, player, attackFacing, body, run.reach, weapon)) continue;
         swingHits.add(body);
-        body.hp -= TIDEBLADE.damage + run.strike;
+        body.hp -= weapon.damage + run.strike;
         body.hitFlash = 0.2;
-        if (interruptsWindup(body.kind, body.windup)) body.windup = 0;
-        body.cooldown = Math.max(body.cooldown, 0.4);
-        const push = unit(body.x - player.x, body.z - player.z), shove = body.kind === 'warden' ? TIDEBLADE.wardenKnockback : TIDEBLADE.knockback;
+        const broke = interruptsWindup(body.kind, body.windup, weapon.stagger);
+        if (broke) body.windup = 0;
+        body.cooldown = Math.max(body.cooldown, hitCooldown(body.kind, broke, weapon.stagger));
+        const push = unit(body.x - player.x, body.z - player.z), shove = body.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
         moveOnFloor(floor.cells, body, push.x * shove, push.z * shove);
         if (body.hp <= 0) {
           body.dead = true;
@@ -294,6 +308,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (intent.hit) {
         const dealt = hurt(run, body.damage, { dashing: dashTime > 0, warded: true });
         damage[body.kind] += dealt;
+        if (dealt && live.filter(b => Math.hypot(b.x - player.x, b.z - player.z) < 4).length >= 3) surrounded += dealt;
         if (run.hp <= 0) return endFloor('died');
       }
     }
@@ -327,6 +342,6 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   return endFloor('stuck');
 
   function endFloor(outcome: FloorReport['outcome']): FloorReport {
-    return { level, outcome, seconds: +t.toFixed(1), kills: run.kills - startKills, spawns: floor.spawns.length, damage, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel };
+    return { level, outcome, seconds: +t.toFixed(1), kills: run.kills - startKills, spawns: floor.spawns.length, damage, surrounded, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel };
   }
 }

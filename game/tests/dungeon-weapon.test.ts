@@ -3,7 +3,7 @@ import test from 'node:test';
 import { canAbortSwing, swordContacts } from '../app/dungeon-combat.ts';
 import { PLAYER_ATTACK_ANTICIPATION, PLAYER_ATTACK_CONTACT_END, PLAYER_ATTACK_DURATION, playerAttackPose } from '../app/dungeon-attack-pose.ts';
 import { cellKey } from '../app/dungeon-floor.ts';
-import { STARTING_WEAPON, TIDEBLADE, WEAPONS, weaponById, type Weapon } from '../app/dungeon-weapon.ts';
+import { FOUND_WEAPONS, STARTING_WEAPON, TIDEBLADE, WEAPONS, weaponById, type Weapon } from '../app/dungeon-weapon.ts';
 
 const openFloor = (half = 8) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
 const cells = openFloor();
@@ -73,4 +73,46 @@ test('the pose still rests outside the swing and goes live inside contact', () =
   assert.equal(playerAttackPose(cleaverish.anticipation - 0.01, cleaverish).active, false, 'anticipation is not live');
   assert.equal(playerAttackPose((cleaverish.anticipation + cleaverish.contactEnd) / 2, cleaverish).active, true);
   assert.equal(playerAttackPose(cleaverish.contactEnd + 0.01, cleaverish).active, false, 'recovery is not live');
+});
+
+test('every arm in the table is a coherent swing', () => {
+  for (const [id, weapon] of Object.entries(WEAPONS)) {
+    assert.equal(weapon.id, id, `${id} is filed under its own id`);
+    assert.ok(weapon.anticipation > 0 && weapon.anticipation < weapon.contactEnd, `${id} winds back before it is live`);
+    assert.ok(weapon.contactEnd < weapon.duration, `${id} recovers after contact ends`);
+    assert.ok(weapon.reach > 0 && weapon.damage > 0, `${id} reaches and bites`);
+    assert.ok(weapon.arc >= 0 && weapon.arc < 1, `${id} has an arc, not a point`);
+    // Swinging must never be faster than walking, or the swing stops being a commitment at all.
+    assert.ok(weapon.moveSpeed > 0 && weapon.moveSpeed < 8.5, `${id} is slower mid-swing than unthreatened`);
+    assert.ok(weapon.knockback >= weapon.wardenKnockback, `${id} moves a warden no further than an ordinary body`);
+  }
+});
+
+test('what lies on the floor is every arm but the one the knight walks in with', () => {
+  assert.ok(!FOUND_WEAPONS.includes(STARTING_WEAPON), 'the drop is never the sword already in hand');
+  assert.deepEqual([...FOUND_WEAPONS].sort(), Object.keys(WEAPONS).filter(id => id !== STARTING_WEAPON).sort());
+});
+
+test('staggering is rare on purpose', () => {
+  // The answer to the body that deals most of the knight's damage should cost something to hold, so
+  // exactly one arm carries it and it is the slowest in the keep.
+  const staggering = Object.values(WEAPONS).filter(w => w.stagger);
+  assert.deepEqual(staggering.map(w => w.id), ['maul']);
+  assert.equal(Math.max(...Object.values(WEAPONS).map(w => w.duration)), staggering[0].duration);
+});
+
+test('the arms are told apart by reach, arc and rate rather than by one being better', () => {
+  const ids = Object.keys(WEAPONS) as (keyof typeof WEAPONS)[];
+  // Every arm differs from the Tideblade in at least two of the four properties that decide a fight,
+  // so none of them is the starting sword with a bigger number on it.
+  for (const id of ids.filter(i => i !== 'tideblade')) {
+    const w = WEAPONS[id];
+    const moved = [w.duration !== TIDEBLADE.duration, w.reach !== TIDEBLADE.reach, w.arc !== TIDEBLADE.arc, w.damage !== TIDEBLADE.damage].filter(Boolean).length;
+    assert.ok(moved >= 2, `${id} differs from the Tideblade in only ${moved} way(s)`);
+  }
+  // A longer blade is a slower one: nothing both out-reaches and out-paces the sword.
+  for (const id of ids) {
+    const w = WEAPONS[id];
+    if (w.reach > TIDEBLADE.reach) assert.ok(w.duration > TIDEBLADE.duration || w.damage < TIDEBLADE.damage, `${id} out-reaches the sword for free`);
+  }
 });

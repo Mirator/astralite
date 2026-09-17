@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
-import { ACTIVATION, ATTACK_RANGE, BASE_STATS, HIT, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, HOLD_RANGE, interruptsWindup, isActive, LUNGE_SPEED, LUNGE_TIME, pursuitStep, RECOVERY, separateCrowd, STRIKE_RANGE, sweptContact, type CrowdBody, type EnemyView, type World } from '../app/dungeon-enemy.ts';
+import { ACTIVATION, ATTACK_RANGE, BASE_STATS, HIT, HIT_COOLDOWN, hitCooldown, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, HOLD_RANGE, interruptsWindup, isActive, LUNGE_SPEED, LUNGE_TIME, pursuitStep, RECOVERY, separateCrowd, STRIKE_RANGE, sweptContact, type CrowdBody, type EnemyView, type World } from '../app/dungeon-enemy.ts';
 
 // A square of open floor wide enough that nothing in these tests walks off it.
 const openFloor = (half = 8) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
@@ -265,4 +265,33 @@ test('bodies grow with the floor: vitality by one blade a floor, damage by fifte
   // Garbage levels fall back to floor one rather than to NaN vitality.
   assert.deepEqual(enemyStats('guard', Number.NaN), BASE_STATS.guard);
   assert.deepEqual(enemyStats('guard', 0), BASE_STATS.guard);
+});
+
+test('a warden flinches only for an arm that staggers, and only early in the tell', () => {
+  // Ordinary steel never breaks a warden's committed swing; that is the whole reason the heaviest arm
+  // in the keep is worth carrying.
+  assert.equal(interruptsWindup('warden', 0.6), false);
+  assert.equal(interruptsWindup('warden', 0.6, false), false);
+  assert.equal(interruptsWindup('warden', 0.6, true), true);
+  // Late in the tell it is committed whatever is held: a stagger weapon buys timing, not immunity.
+  assert.equal(interruptsWindup('warden', COMMITTED_WINDUP, true), false);
+  assert.equal(interruptsWindup('warden', COMMITTED_WINDUP - 0.01, true), false);
+  // Guards and stalkers are unchanged by the new argument in either direction.
+  for (const kind of ['guard', 'stalker'] as const) {
+    assert.equal(interruptsWindup(kind, 0.4), true);
+    assert.equal(interruptsWindup(kind, 0.4, true), true);
+    assert.equal(interruptsWindup(kind, 0.1, true), false);
+  }
+});
+
+test('a broken swing costs a recovery, an ordinary blow costs the usual cooldown', () => {
+  // Without this a warden whose tell was interrupted wound the same swing up again 0.4s later, and the
+  // one arm that can stagger measured identically to a plain sword against the body it exists to answer.
+  assert.equal(hitCooldown('warden', true, true), RECOVERY.warden);
+  assert.equal(hitCooldown('guard', true, true), RECOVERY.guard);
+  // Nothing else moved: a hit that broke nothing, or an arm that does not stagger, pays the old price.
+  assert.equal(hitCooldown('warden', false, true), HIT_COOLDOWN);
+  assert.equal(hitCooldown('guard', true, false), HIT_COOLDOWN);
+  assert.equal(hitCooldown('guard', false, false), HIT_COOLDOWN);
+  assert.ok(RECOVERY.warden > HIT_COOLDOWN, 'a stagger has to be worth more than a plain blow');
 });
