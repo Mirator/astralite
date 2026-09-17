@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BOONS, clearRoomReward, createRun, draftBoons, dwellStep, PICKUP_DWELL, PICKUP_RADIUS, grantXp, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, heal, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
+import { BOONS, clearRoomReward, createRun, draftBoons, dwellStep, PICKUP_RADIUS, grantXp, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, heal, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
 
 // A run with the draft already open, since every boon needs that gate held down.
 const drafting = (patch: Partial<Run> = {}): Run => Object.assign(createRun(), { choosing: true, pendingRanks: 1 }, patch);
@@ -307,8 +307,7 @@ test('the open stair takes the knight only after a moment standing on it, and a 
 });
 
 test('a dwell fills by standing, drains twice as fast, and a dash never counts', () => {
-  // The stair and the weapon rack share this rule, so both ask for the same deliberate pause: a thing
-  // this hard to undo must never happen because the knight ran across it.
+  // The stair runs on this: a floor must never end because the knight ran across the way down.
   assert.equal(dwellStep(0, 1, true, false, 0.25), 0.25);
   assert.equal(dwellStep(0.9, 1, true, false, 0.5), 1, 'never past the cap');
   assert.ok(Math.abs(dwellStep(0.6, 1, false, false, 0.1) - 0.4) < 1e-9, 'stepping off drains double');
@@ -319,8 +318,8 @@ test('a dwell fills by standing, drains twice as fast, and a dash never counts',
   assert.equal(dwellStep(0.4, 1, true, false, -1), 0.4);
 });
 
-test('an arm on the floor asks for a longer pause than the stair, from further out', () => {
-  // Taking the wrong weapon costs the rest of a floor, and a rack is walked up to rather than stood on.
+test('a rack is noticed from further out than the stair, and asks for no pause at all', () => {
+  // A rack is walked up to rather than stood on, so its ring is the wider of the two. It has no dwell to
+  // go with it on purpose: standing in the ring only offers the arm, and the swap waits on the swap key.
   assert.ok(PICKUP_RADIUS > STAIR_RADIUS);
-  assert.ok(PICKUP_DWELL > STAIR_DWELL);
 });

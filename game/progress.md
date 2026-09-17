@@ -431,3 +431,37 @@ and going out, fire outliving the arm that threw it, and a fresh floor carrying 
 The weapon-table regression that required every arm to bite on contact now asks that an arm hurt
 something somehow — on contact or through what it leaves — since the flask is the one that does all of
 it afterwards.
+
+## The rack offers; the swap key takes
+
+Standing over an arm no longer takes it. The rack lights and names what is lying on it at the foot of
+the screen — "PRESS E TO SWITCH TO KEEP CROSSBOW", with the arm's own line beneath — and nothing leaves
+the knight's hand until he answers. The swap is a new bound action rather than a hard-wired key, so it
+sits in the bindings card with the other nine and the prompt reads its legend off the bindings at
+render: rebinding it changes what the floor says the next frame.
+
+This retires the pickup dwell. It existed to stop a rack swapping the weapon out from under a fight,
+and it bought that with half a second of standing still, a latch to stop the knight trading back and
+forth on the rack he had just emptied, and the reverse problem — a swap he never asked for because he
+stopped in the wrong place. A key answers all three at once: crossing a ring, dashing through one, or
+standing in one forever now do exactly nothing, and `PICKUP_DWELL` and the latch are gone with the
+`dropReady`/`dropPrompted` pair that supported them. `PICKUP_RADIUS` stays and is still the wider of
+the two rings, because a rack is walked up to rather than stood on. The ring's own fill was the dwell,
+so it now eases toward lit while the knight is inside it; it reports a state rather than a countdown.
+
+The prompt is a button as well as a line of text, and it sends the same `swap` action the key does.
+That is the whole of the touch story: a phone has no key to press, and without it a player on glass
+could never change weapons again. It refuses pointer focus outright — `preventDefault` on pointerdown —
+because a focused button would activate on Space, which is the strike key and the one most likely to be
+held when a rack is touched. On a coarse pointer the key hint is hidden and the line reads "SWITCH TO
+KEEP CROSSBOW"; the button is the affordance there.
+
+It is the only prompt allowed to sit in the world, and it is not an overlay in the sense the HUD rules
+forbid: it exists while the knight is inside a ring and at no other time.
+
+Verification: typecheck, lint, 136/136 node tests, and the weapon browser spec green (5/5, twice). The
+spec was rewritten around the new rule: standing in the ring offers and takes nothing however long he
+waits, the key outside the ring is inert, the key inside it swaps and turns the prompt around to name
+what was just set down, the prompt leaves with him, and a dash across a rack changes nothing. The text
+hook's `drop` traded `dwell`/`takes` for `over` and `offered`, which is what a driver can now assert on.
+The full browser suite was not run to completion this session.

@@ -22,7 +22,7 @@ import { flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type 
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
-import { clearRoomReward, createRun, draftBoons, dwellStep, grantXp, heal, hurt, PICKUP_DWELL, PICKUP_RADIUS, rankCost, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
 type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; death: DeathAnimation | null; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[] };
 // Development-only test fixture payload: which existing actors to move, and to what. Deliberately narrow —
@@ -47,7 +47,7 @@ const FLOORS = 3;
 // defaults: an arrow freed by a rebind goes back to scrolling the page, and a newly bound PageDown stops.
 // Tab is deliberately absent. Trapping it would cost a keyboard-only player the way out of the canvas.
 const SCROLL_KEYS = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', 'Backspace', 'Slash', 'Quote']);
-const ACTION_LABELS: Record<Action, string> = { up: 'Up', down: 'Down', left: 'Left', right: 'Right', attack: 'Strike', dash: 'Dodge', pause: 'Pause', mute: 'Sound', fullscreen: 'Fullscreen' };
+const ACTION_LABELS: Record<Action, string> = { up: 'Up', down: 'Down', left: 'Left', right: 'Right', attack: 'Strike', dash: 'Dodge', swap: 'Take arm', pause: 'Pause', mute: 'Sound', fullscreen: 'Fullscreen' };
 // One funnel for every settings change: React state for the card, storage for the next visit, and the ref
 // the render loop reads, all in the same breath, so a second change in the same tick builds on the first
 // rather than on a render that has not happened yet. Built from a ref and a setState — both stable for the
@@ -226,6 +226,9 @@ export default function DungeonGame() {
   const [rank, setRank] = useState(1), [rankXp, setRankXp] = useState(0), [rankNeed, setRankNeed] = useState(rankCost(1));
   const [boonChoice, setBoonChoice] = useState<Boon[]>([]), [taken, setTaken] = useState<string[]>([]);
   const [heldWeapon, setHeldWeapon] = useState(TIDEBLADE.name);
+  // The arm the knight is standing over, or null when he is standing over nothing. It is the whole of the
+  // swap prompt's state: the key it names is read off the bindings at render, so a rebind is live at once.
+  const [swapOffer, setSwapOffer] = useState<{ name: string; detail: string } | null>(null);
   // Only on screen while a ranged arm is held, so the minimal HUD stays minimal for every other weapon.
   const [ammo, setAmmo] = useState<{ held: number; of: number } | null>(null);
   const [floorMap, setFloorMap] = useState<ReturnType<typeof generateFloor> | null>(null);
@@ -487,9 +490,12 @@ export default function DungeonGame() {
     // sampled at a sword's tip would trail from the middle of its own haft.
     let armed = player.userData.armed as ArmedWeapon;
     let bladeInner=armed.inner.clone(),bladeTip=armed.tip.clone();
-    // What lies on the floor of this floor, and how long the knight has stood over it.
+    // The one arm laid out on this floor, and the ring that marks it.
     let drop: {group:THREE.Group; ring:THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; blade:ArmedWeapon; kind:WeaponId; x:number; z:number} | null = null;
-    let pickupDwell = 0;
+    // Whether the knight is inside the rack's ring this frame, and what the prompt was last told. The
+    // second exists only so the offer is pushed into React on the step he arrives and the step he leaves,
+    // rather than sixty times a second for as long as he stands there.
+    let overDrop = false, offered: WeaponId | null = null, ringLit = 0;
     // Put a different arm in the knight's hand. The old geometry is released; the materials are his own
     // and outlive every swap, so nothing but the meshes is rebuilt.
     const equip = (id: WeaponId) => {
@@ -523,11 +529,15 @@ export default function DungeonGame() {
       for (const live of pools) live.mesh.visible = false;
       pools.length = 0;
     };
-    let dropPrompted = false;
-    // Latched false the moment an arm is taken and re-armed only by stepping off the ring. Without it the
-    // knight is still standing on the rack he just emptied, so the dwell refills and he swaps straight
-    // back — measured at a swap every half-second, forever, for as long as he stands there.
-    let dropReady = true;
+    // Push the prompt at the bottom of the screen, or take it away. Null-to-null and same-arm-to-same-arm
+    // are dropped here rather than in React: the loop asks every frame and setState on every one of them
+    // would re-render the whole shell sixty times a second for a line of text that never changed.
+    const showOffer = (kind: WeaponId | null) => {
+      if (offered === kind) return;
+      offered = kind;
+      const arm = kind === null ? null : weaponById(kind);
+      setSwapOffer(arm ? { name: arm.name, detail: arm.detail } : null);
+    };
     // Lay an arm on a rack. Called once when the floor is built and again on every swap, because what
     // the knight sets down stays where he found it: a pickup he regrets is a walk back, not a dead run.
     const placeDrop = (kind: WeaponId, x: number, z: number) => {
@@ -537,7 +547,7 @@ export default function DungeonGame() {
       built.group.position.set(x, 0, z);
       floorGroup.add(built.group);
       drop = {...built, kind, x, z};
-      pickupDwell = 0; dropPrompted = false;
+      overDrop = false; ringLit = 0; showOffer(null);
     };
     const posePlayer=(age:number)=>{
       const pose=playerAttackPose(age,weapon),sword=player.userData.sword as THREE.Group;
@@ -593,7 +603,7 @@ export default function DungeonGame() {
       buildMs = {};
       if (atmosphere) clearFloor();
       phase('dispose');
-      level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; features = []; stairOpen = false; stairDwell = 0; drop = null; pickupDwell = 0; dropPrompted = false;
+      level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; features = []; stairOpen = false; stairDwell = 0; drop = null; overDrop = false; showOffer(null);
       gameStatus = 'playing'; setStatus('playing');
       floor = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], level);
       phase('generate');
@@ -772,6 +782,21 @@ export default function DungeonGame() {
       attackTime = 0; attackBuffer = 0; dashBuffer = 0; bufferedFacing = null; hitStop = 0;slash.clear();posePlayer(0);
 
     };
+    // Answer the rack. Nothing happens unless the knight is standing in the ring with an arm laid out in
+    // it, so the key is inert everywhere else in the keep rather than a second thing to be careful with.
+    // What he was holding goes down where the new arm lay: a swap he regrets is a walk back, not a dead run.
+    const requestSwap = () => {
+      if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing') return;
+      if (!drop || !overDrop) return;
+      const taken = weaponById(drop.kind), set = weapon.id, at = { x: drop.x, z: drop.z };
+      equip(drop.kind);
+      placeDrop(set, at.x, at.z);
+      // Standing still after the swap, so the prompt comes straight back naming the arm just set down.
+      overDrop = true; showOffer(set);
+      audio.play('clear'); burst(player.position, 0xe3b774, 14);
+      setNotice(`${taken.name} in hand`); setNoticeDetail(taken.detail); noticeTime = 3.5;
+      setHeldWeapon(taken.name);
+    };
     const togglePause = () => {
       // Pausing on top of an open boon draft would stack two overlays; the draft already holds the world still.
       if (!hasStarted || gameStatus !== 'playing' || run.choosing) return;
@@ -797,6 +822,7 @@ export default function DungeonGame() {
       keys.add(e.code); if (e.repeat) return;
       if (does('attack')) requestAttack();
       if (does('dash')) requestDash();
+      if (does('swap')) requestSwap();
     };
     const keyUp = (e: KeyboardEvent) => keys.delete(e.code);
     // The stick clears with the keys: a page backgrounded mid-drag does not always fire pointercancel,
@@ -826,6 +852,9 @@ export default function DungeonGame() {
       if (detail === 'hold-attack') { keys.add('Touchattack'); requestAttack(); }
       if (detail === 'release-attack') keys.delete('Touchattack');
       if (detail === 'dash') requestDash();
+      // The prompt at the foot of the screen sends this too, so a tap answers the rack on a phone, where
+      // there is no key to press and the prompt is the only thing naming the arm.
+      if (detail === 'swap') requestSwap();
       if (detail.startsWith('move:')) keys.add(`Touch${detail.slice(5)}`);
       if (detail.startsWith('stop:')) keys.delete(`Touch${detail.slice(5)}`);
     };
@@ -897,31 +926,18 @@ export default function DungeonGame() {
         }
         // The stair opens when the last warden falls and takes the knight down only once he has stood on it a
         // moment: the floor ends on a step he chose, never in the middle of a swing. A dash across it does not count.
-        // An arm on the floor is taken by standing over it, the same deliberate pause the stair asks
-        // for: a dash across a rack must never swap the weapon out from under a fight.
+        // An arm on the floor is only ever offered. Standing in the ring lights it and names it at the foot
+        // of the screen; nothing leaves the knight's hand until he answers with the swap key, so walking
+        // over a rack mid-fight — or dashing through one — cannot change the weapon he is swinging.
         if (drop) {
-          const over = Math.hypot(player.position.x - drop.x, player.position.z - drop.z) < PICKUP_RADIUS;
-          if (!over) { dropReady = true; dropPrompted = false; }
-          pickupDwell = dwellStep(pickupDwell, PICKUP_DWELL, over && dropReady, dashTime > 0, dt);
-
-          const fill = pickupDwell / PICKUP_DWELL;
-          drop.ring.material.opacity = .35 + fill * .6;
-          drop.ring.scale.setScalar(1 + fill * .12);
-          drop.group.rotation.y += dt * (over ? 1.5 : .45);
-          if (over && dropReady && !dropPrompted) {
-            dropPrompted = true;
-            const offered = weaponById(drop.kind);
-            setNotice(`${offered.name} · stand to take it`); setNoticeDetail(offered.detail); noticeTime = 3;
-          }
-          if (pickupDwell >= PICKUP_DWELL) {
-            const taken = weaponById(drop.kind), set = weapon.id, at = {x: drop.x, z: drop.z};
-            equip(drop.kind);
-            placeDrop(set, at.x, at.z);
-            dropReady = false;
-            audio.play('clear'); burst(player.position, 0xe3b774, 14);
-            setNotice(`${taken.name} in hand`); setNoticeDetail(taken.detail); noticeTime = 3.5;
-            setHeldWeapon(taken.name);
-          }
+          overDrop = Math.hypot(player.position.x - drop.x, player.position.z - drop.z) < PICKUP_RADIUS;
+          showOffer(overDrop ? drop.kind : null);
+          // The ring answers the step rather than a dwell, so it eases rather than fills: what it says now
+          // is "this one is yours for the asking", and the asking is the key.
+          ringLit += ((overDrop ? 1 : 0) - ringLit) * (1 - Math.exp(-11 * dt));
+          drop.ring.material.opacity = .35 + ringLit * .6;
+          drop.ring.scale.setScalar(1 + ringLit * .12);
+          drop.group.rotation.y += dt * (overDrop ? 1.5 : .45);
         }
         if (!stairOpen && stairClear()) openStair();
         if (stairOpen) {
@@ -1256,7 +1272,7 @@ export default function DungeonGame() {
       health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: weapon.id, name: weapon.name, damage: weapon.damage, reach: weapon.reach, duration: weapon.duration, strikeDamage: weapon.damage + run.strike, ranged: !!weapon.ranged, quiver: weapon.ranged ? quiver : null, capacity: weapon.ranged ? weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, stairDwell, deadEndsPlundered: loot },
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
-      drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, dwell: pickupDwell, takes: PICKUP_DWELL } : null,
+      drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
       effects: { impacts: impacts.active },
@@ -1321,6 +1337,14 @@ export default function DungeonGame() {
         <circle ref={mapPlayer} className="map-mark" cx={floorMap.rooms[0].x} cy={floorMap.rooms[0].z} r="1.8" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
       </g></svg></button>}
       {notice && started && !paused && status === 'playing' && boonChoice.length === 0 && <output className="chamber-notice"><b>{notice.split(' · ').pop()}</b></output>}
+      {/* The one prompt allowed to sit in the world, and it is not persistent: it exists only while the knight
+          is standing in a rack's ring, and it is the only thing that will take an arm out of his hand. It is a
+          button as well as a line of text so a phone, which has no key to press, can answer it by tap — pointer
+          focus is refused outright, or Space would activate this instead of swinging the moment it is touched. */}
+      {swapOffer && started && !paused && status === 'playing' && boonChoice.length === 0 &&
+        <button className="swap-prompt" onPointerDown={(e) => { e.preventDefault(); action('swap'); }} aria-label={`Press ${bindLabel(settings.binds.swap, ' or ')} to switch to the ${swapOffer.name}`}>
+          <b><span className="swap-key">Press <kbd>{bindLabel(settings.binds.swap)}</kbd> to </span>switch to {swapOffer.name}</b><small>{swapOffer.detail}</small>
+        </button>}
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
@@ -1331,7 +1355,7 @@ export default function DungeonGame() {
         <button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'LOADING…' : paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
         {/* Read off the bindings rather than written out, or this card would go on promising WASD to a player
             who rebound it ten seconds ago — which is the exact moment they would come here to check. */}
-        <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><p>Reach {goalName}. Defeat the stair wardens, then step onto the stair they guarded to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</details>
+        <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.swap)}</kbd> Take the arm you stand over</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><p>Reach {goalName}. Defeat the stair wardens, then step onto the stair they guarded to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality. An arm laid out on the floor is offered, never taken: stand in its ring and answer the prompt to trade for it.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</details>
         {/* Folded away beside the journey, not added to the HUD: this card is where detail belongs, and the
             world stays bare. Everything here persists, and everything here has a default that is the game
             exactly as it shipped, so a player who never opens this changes nothing by not opening it. */}
@@ -1339,7 +1363,7 @@ export default function DungeonGame() {
           <div className="setting-row"><label htmlFor="set-volume">Volume</label><input id="set-volume" type="range" min="0" max="100" step="5" value={Math.round(settings.volume * 100)} onChange={(e) => change({ volume: Number(e.target.value) / 100 })} /><small>{settings.muted ? 'muted' : `${Math.round(settings.volume * 100)}%`}</small></div>
           <div className="setting-row"><label htmlFor="set-motion">Motion</label><select id="set-motion" value={settings.reducedMotion === null ? 'system' : settings.reducedMotion ? 'reduce' : 'full'} onChange={(e) => change({ reducedMotion: e.target.value === 'system' ? null : e.target.value === 'reduce' })}><option value="system">System · {osReduce ? 'reduced' : 'full'}</option><option value="reduce">Reduced</option><option value="full">Full</option></select><small>{reduceMotion ? 'no camera shake; the hurt tint holds still' : 'camera shake and a hurt flash'}</small></div>
           <div className="setting-row"><label htmlFor="set-touch">Touch</label><select id="set-touch" value={settings.touchLayout} onChange={(e) => change({ touchLayout: e.target.value === 'pad' ? 'pad' : 'stick' })}><option value="stick">Thumbstick</option><option value="pad">Direction buttons</option></select><small>buttons are labelled; the stick is not</small></div>
-          {/* Nine buttons is the bulk of this card, so they fold away behind their own summary — volume,
+          {/* Ten buttons is the bulk of this card, so they fold away behind their own summary — volume,
               motion and touch stay the short default view, and rebinding is one more tap away rather than
               a scroll past it. */}
           <details className="menu-details"><summary>Key bindings</summary>
