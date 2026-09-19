@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { BOONS } from '../app/dungeon-sim.ts';
 import { DEFAULT_POLICY, FLOORS, simulateRun, type Policy } from '../scripts/balance/sim.ts';
 
 // The harness is a measuring instrument, so what it owes the suite is not a balance assertion — those
@@ -57,7 +58,16 @@ test('the run carries the real rules: kills pay XP and rank the knight up', () =
   assert.ok(report.kills > 0, 'a descent that kills nothing is not exercising combat');
   assert.ok(report.totalXp >= report.kills * 25, 'every felled body is worth at least XP_PER_ENEMY');
   assert.ok(report.rank > 1, 'a full floor should buy at least one rank');
-  assert.equal(report.boons.length, new Set(report.boons).size, 'the draft offers untaken cards first');
+  // A card only repeats once every boon has been taken at least once - draftBoons deals fresh ids first
+  // and only reaches into the held pile when nothing untaken is left (dungeon-sim.ts:69-71). Faster
+  // clears since the room shrink mean a run can now rank up past all six boons inside three floors, so
+  // asserting the whole run's boons are unique (as this used to) is asserting a rank ceiling this seed no
+  // longer respects; what the draft rule actually promises is checked directly instead.
+  const seen = new Set<string>();
+  for (const id of report.boons) {
+    if (seen.has(id)) assert.equal(seen.size, BOONS.length, `boon ${id} repeated before every boon was taken once`);
+    seen.add(id);
+  }
 });
 
 test('damage is attributed to what dealt it', () => {

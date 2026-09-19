@@ -57,13 +57,21 @@ export function generateFloor(seed: number, level = 1) {
     for(const key of plan.path){cells.add(key);if(plan.wooden&&!ownership.has(key))wood.add(key);}
     for(const [x,z] of plan.centre)for(let dx=-plan.width;dx<=plan.width;dx++)for(let dz=-plan.width;dz<=plan.width;dz++)if(!ownership.has(cellKey(x+dx,z+dz)))corridorCells.add(numKey(x+dx,z+dz));
   };
+  // Halved from the original 5-9/4-8 (default), 9-13/3-4 (gallery) and 8-11/7-10 (court): a court used to
+  // be twenty-two tiles across, which made clearing it and then walking back over it dead time
+  // proportional to its width. The shapes keep their relative sizing - gallery still long and narrow,
+  // court still the biggest footprint - just at a scale where crossing one is no longer a commute.
   const sizeFor=(shape:Room['shape'])=>{
-    let halfX=int(5,9),halfZ=int(4,8);
-    if(shape==='gallery'){halfX=int(9,13);halfZ=int(3,4);if(random()<.5)[halfX,halfZ]=[halfZ,halfX];}
-    if(shape==='court'){halfX=int(8,11);halfZ=int(7,10);}
+    let halfX=int(4,6),halfZ=int(3,5);
+    if(shape==='gallery'){halfX=int(6,9);halfZ=int(2,3);if(random()<.5)[halfX,halfZ]=[halfZ,halfX];}
+    if(shape==='court'){halfX=int(6,8);halfZ=int(5,7);}
     return {halfX,halfZ};
   };
-  const fits=(x:number,z:number,halfX:number,halfZ:number)=>rooms.every(o=>Math.abs(x-o.x)>halfX+o.halfX+3||Math.abs(z-o.z)>halfZ+o.halfZ+3);
+  // The buffer here used to be a small fraction of the gap `distance` (below) put between two rooms; now
+  // that rooms are smaller, `distance` shrinks with them and the old +3 started eating most of that gap,
+  // which starved `addRoom`'s 120 attempts and cost floors both trunk depth and dead ends. Trimmed to +2 -
+  // still enough to keep a corridor between any two rooms, never a shared wall.
+  const fits=(x:number,z:number,halfX:number,halfZ:number)=>rooms.every(o=>Math.abs(x-o.x)>halfX+o.halfX+2||Math.abs(z-o.z)>halfZ+o.halfZ+2);
   const spineTarget=int(8,10)+level-1;
   // Every room hangs off exactly one predecessor and nothing ever links back, so the floor is a tree:
   // one long trunk from the gate to the stair, plus a few short stubs that visibly die out.
@@ -71,7 +79,9 @@ export function generateFloor(seed: number, level = 1) {
     const parent=rooms[parentId],shape=shapes[int(0,shapes.length-1)],{halfX,halfZ}=sizeFor(shape);
     for(let attempt=0;attempt<120;attempt++){
       const angle=heading+(random()*2-1)*spread*(1+attempt/40);
-      const distance=Math.max(parent.halfX,parent.halfZ)+Math.max(halfX,halfZ)+int(2,4);
+      // The old int(2,4) padded a doorway-to-doorway trudge onto every link on top of the rooms' own
+      // half-sizes; trimmed to int(1,3) so the gap between two rooms reads as a threshold, not a passage.
+      const distance=Math.max(parent.halfX,parent.halfZ)+Math.max(halfX,halfZ)+int(1,3);
       const x=Math.round(parent.x+Math.cos(angle)*distance),z=Math.round(parent.z+Math.sin(angle)*distance);
       if(!fits(x,z,halfX,halfZ))continue;
       const plan=planPath(parent,{x,z});

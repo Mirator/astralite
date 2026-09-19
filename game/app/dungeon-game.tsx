@@ -13,7 +13,7 @@ import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, stoneMood, tideMood, tidalMaterial, weatherStone } from './dungeon-motion';
 import { canStand, generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { canAbortSwing, DASH_BUFFER, swordContacts } from './dungeon-combat';
-import { decideEnemy, enemyStats, hitCooldown, interruptsWindup, separateCrowd } from './dungeon-enemy';
+import { ALERT_STAGGER, decideEnemy, enemyStats, hitCooldown, interruptsWindup, nearbyDozers, separateCrowd, type Wakeable } from './dungeon-enemy';
 import { enemyPose } from './dungeon-enemy-pose';
 import { playerAttackPose } from './dungeon-attack-pose';
 import { STARTING_WEAPON, TIDEBLADE, weaponById, type Weapon, type WeaponId } from './dungeon-weapon';
@@ -25,7 +25,11 @@ import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
 import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
-type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; death: DeathAnimation | null; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[] };
+type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; death: DeathAnimation | null; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[];
+  // Where it spawned, for a dozing body's pace; how far into noticing it is; a countdown to a contagion
+  // kick a neighbour scheduled for it, or Infinity while none is pending. scripts/balance/sim.ts carries
+  // the identical bookkeeping so a room wakes the same way in both sims.
+  anchor: { x: number; z: number }; notice: number; alertIn: number };
 // Development-only test fixture payload: which existing actors to move, and to what. Deliberately narrow —
 // no code, no arbitrary paths, no new combat rules.
 type CombatFixture = {
@@ -917,7 +921,7 @@ export default function DungeonGame() {
         const bar = new THREE.Mesh(BONES.bar,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xffb65f:0xe89a79,depthTest:false}));bar.renderOrder=10;floorGroup.add(bar);
         const anchors:THREE.Object3D[]=kind==='stalker'?group.userData.limbs.slice(0,2):[group.userData.weapon];
         const trails=anchors.map(anchor=>{const effect=weaponTrail(kind==='warden'?0xffa15c:kind==='stalker'?0xffcc90:0xffd39b,kind==='warden'?.13:.095);floorGroup.add(effect.mesh);return {effect,anchor,inner:kind==='stalker'?new THREE.Vector3(0,-.72,-.12):new THREE.Vector3(0,0,-.24),tip:kind==='stalker'?new THREE.Vector3(0,-.87,-.5):new THREE.Vector3(0,0,kind==='warden'?-1.2:-.86)};});
-        return { group, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush };
+        return { group, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush, anchor:{x:spawn.x*TILE,z:spawn.z*TILE}, notice:0, alertIn:Infinity };
       });
       phase('enemies');
       player.position.set(floor.rooms[0].x * TILE, 0.03, floor.rooms[0].z * TILE);
@@ -1314,8 +1318,11 @@ export default function DungeonGame() {
         // eligible hit and its exactly-once reward is resolved above; from here the world is frozen, so the
         // skeletons must not get one more move out of this tick.
         if (run.choosing || gameStatus !== 'playing') return;
-        enemyData.forEach((enemy) => {
+        enemyData.forEach((enemy, index) => {
           if (!enemy.awake) { enemy.cue.visible = false; enemy.bar.visible = false;enemy.trails.forEach(trail=>trail.effect.clear()); return; }
+          // A neighbour's noticing beat can pull a still-dormant body in early; scripts/balance/sim.ts
+          // carries the identical countdown so a room wakes the same way in both sims.
+          if (enemy.alertIn < Infinity) { enemy.alertIn -= dt; if (enemy.alertIn <= 0) { if (enemy.notice <= 0) enemy.notice = dt; enemy.alertIn = Infinity; } }
           enemy.cue.visible = !enemy.dead && (enemy.windup > 0 || enemy.lunge > 0); enemy.bar.visible = !enemy.dead && enemy.hp < enemy.maxHp;
           enemy.bar.position.copy(enemy.group.position).add(new THREE.Vector3(0,enemy.kind === 'warden'?2.65:2.05,0)); enemy.bar.quaternion.copy(camera.quaternion); enemy.bar.scale.x = enemy.hp / enemy.maxHp;
           enemy.cue.scale.setScalar(enemy.kind === 'warden' ? 1.7 : 1);
@@ -1332,10 +1339,19 @@ export default function DungeonGame() {
           // Everything about where this body goes and whether its blow lands is decided in dungeon-enemy;
           // what is left here is the part a node test could never see — poses, sound, flashes, particles.
           const previousWindup=enemy.windup;
-          const intent = decideEnemy({ kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z, room: enemy.room, cooldown: enemy.cooldown, hitFlash: enemy.hitFlash, windup: enemy.windup, lunge: enemy.lunge, tell: enemy.tell, speed: enemy.speed, aim: enemy.aim }, player.position, enemyWorld, dt);
-          enemy.cooldown = intent.cooldown; enemy.hitFlash = intent.hitFlash;
+          const intent = decideEnemy({ kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z, room: enemy.room, cooldown: enemy.cooldown, hitFlash: enemy.hitFlash, windup: enemy.windup, lunge: enemy.lunge, tell: enemy.tell, speed: enemy.speed, aim: enemy.aim, anchor: enemy.anchor, notice: enemy.notice }, player.position, enemyWorld, dt);
+          const startedNoticing = enemy.notice <= 0 && intent.notice > 0;
+          enemy.cooldown = intent.cooldown; enemy.hitFlash = intent.hitFlash; enemy.notice = intent.notice;
           if (Number.isFinite(enemy.attackAge)) enemy.attackAge+=dt;
-          if (intent.act === 'inert') {enemy.trails.forEach(trail=>trail.effect.clear());return;}
+          // A fresh noticing beat pulls the nearest still-dozing bodies in too, staggered so a room does
+          // not snap awake on one frame; scripts/balance/sim.ts carries the identical logic.
+          if (startedNoticing) {
+            const wakeables: Wakeable[] = enemyData.map(e => ({ x: e.group.position.x, z: e.group.position.z, room: e.room, notice: e.notice, dead: e.dead || !e.awake }));
+            nearbyDozers(wakeables, index).forEach((idx, rank) => {
+              const delay = (rank + 1) * ALERT_STAGGER;
+              if (delay < enemyData[idx].alertIn) enemyData[idx].alertIn = delay;
+            });
+          }
           enemy.windup = intent.windup; enemy.lunge = intent.lunge; enemy.aim.set(intent.aim.x,0,intent.aim.z);
           if(previousWindup>0&&enemy.windup===0)enemy.attackAge=0;
           else if(previousWindup<=0&&enemy.windup>0)enemy.attackAge=Infinity;
@@ -1344,7 +1360,7 @@ export default function DungeonGame() {
           if (intent.hit) hurtPlayer();
           const pose=enemyPose(enemy.kind,enemy.windup,enemy.tell,enemy.cooldown,enemy.lunge,enemy.attackAge);
           if(!pose.trail)enemy.group.rotation.y=intent.face??enemy.group.rotation.y;
-          const walking=intent.act==='ready'&&intent.distance>1.15&&enemy.hitFlash<=0&&pose.recovery===0;
+          const walking=intent.act==='dozing'||(intent.act==='ready'&&intent.distance>1.15&&enemy.hitFlash<=0&&pose.recovery===0);
           const gait=walking?Math.sin(t*enemy.speed*5+enemy.phase)*(enemy.kind==='warden'?.28:.48):0;
           enemy.group.position.y=.03;
           enemy.group.userData.rig.position.y=pose.height+(walking?Math.abs(gait)*.07:0);

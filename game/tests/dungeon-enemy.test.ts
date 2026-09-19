@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
-import { ACTIVATION, ATTACK_RANGE, BASE_STATS, HIT, HIT_COOLDOWN, hitCooldown, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, HOLD_RANGE, interruptsWindup, isActive, LUNGE_SPEED, LUNGE_TIME, pursuitStep, RECOVERY, separateCrowd, STRIKE_RANGE, sweptContact, type CrowdBody, type EnemyView, type World } from '../app/dungeon-enemy.ts';
+import { ACTIVATION, ALERT_RADIUS, ALERT_STAGGER, ATTACK_RANGE, BASE_STATS, HIT, HIT_COOLDOWN, hitCooldown, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, HOLD_RANGE, interruptsWindup, isActive, LUNGE_SPEED, LUNGE_TIME, nearbyDozers, NOTICE_TIME, PATROL_SPAN, PATROL_SPEED, pursuitStep, RECOVERY, separateCrowd, STRIKE_RANGE, sweptContact, type CrowdBody, type EnemyView, type Wakeable, type World } from '../app/dungeon-enemy.ts';
 
 // A square of open floor wide enough that nothing in these tests walks off it.
 const openFloor = (half = 8) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
 // One character per tile, '#' solid; row 0 is z = 0, column 0 is x = 0.
 const floorFrom = (rows: string[]) => { const cells = new Set<string>(); rows.forEach((row, z) => row.split('').forEach((c, x) => { if (c !== '#') cells.add(cellKey(x, z)); })); return cells; };
 const world = (cells: Set<string>, patch: Partial<World> = {}): World => ({ cells, activeRoom: 1, pathDistance: () => 0, ...patch });
-const foe = (patch: Partial<EnemyView> = {}): EnemyView => ({ kind: 'guard', x: 0, z: 0, room: 1, cooldown: 0, hitFlash: 0, windup: 0, lunge: 0, tell: 0.5, speed: 2.2, aim: { x: 1, z: 0 }, ...patch });
+// `notice` defaults to NOTICE_TIME, i.e. already fully alert: most of these tests are about what an
+// engaged body does, and the dozing/noticing machinery gets its own tests below with notice: 0.
+const foe = (patch: Partial<EnemyView> = {}): EnemyView => ({ kind: 'guard', x: 0, z: 0, room: 1, cooldown: 0, hitFlash: 0, windup: 0, lunge: 0, tell: 0.5, speed: 2.2, aim: { x: 1, z: 0 }, anchor: { x: 0, z: 0 }, notice: NOTICE_TIME, ...patch });
 const body = (patch: Partial<CrowdBody> = {}): CrowdBody => ({ x: 0, z: 0, windup: 0, dead: false, ...patch });
 const near = (a: number, b: number, slack = 1e-6) => Math.abs(a - b) <= slack;
 
@@ -28,6 +30,10 @@ test('the tuning table is the balance, so a rebalance has to be deliberate', () 
   // of all because it closes the gap itself.
   assert.ok(ATTACK_RANGE.warden > ATTACK_RANGE.guard && STRIKE_RANGE.warden > STRIKE_RANGE.guard);
   assert.ok(ATTACK_RANGE.stalker > ATTACK_RANGE.warden);
+  // The noticing beat, the patrol it interrupts, and the contagion radius/stagger that couples wakes.
+  assert.equal(NOTICE_TIME, 0.32);
+  assert.deepEqual([PATROL_SPAN, PATROL_SPEED], [1.6, 0.55]);
+  assert.deepEqual([ALERT_RADIUS, ALERT_STAGGER], [6, 0.15]);
 });
 
 test('the activation cutoff is generous in the knight\'s own room and tight everywhere else', () => {
@@ -38,18 +44,107 @@ test('the activation cutoff is generous in the knight\'s own room and tight ever
   assert.equal(isActive(Number.NaN, true), false);
 });
 
-test('a body too far to matter does nothing but finish recovering', () => {
+test('a body too far to matter paces near its post instead of freezing, but still finishes recovering', () => {
   const cells = openFloor();
   // 11 steps away, and the knight is in another room: past the tight cutoff.
   const away = decideEnemy(foe({ cooldown: 1, hitFlash: 0.2, windup: 0.3, room: 2 }), { x: 0.5, z: 0 }, world(cells, { activeRoom: 1, pathDistance: () => 11 }), 0.1);
-  assert.equal(away.act, 'inert');
+  assert.equal(away.act, 'dozing');
   // Recovery still runs, or walking back into a hall would hand the player a free swing it never earned.
   assert.equal(near(away.cooldown, 0.9), true);
   assert.equal(near(away.hitFlash, 0.1), true);
-  // Nothing else moved: same spot, same commitment.
-  assert.deepEqual([away.x, away.z, away.windup, away.hit, away.sound], [0, 0, 0.3, false, null]);
-  // The same body in the knight's own room is inside the generous cutoff and acts.
-  assert.notEqual(decideEnemy(foe({ room: 1, windup: 0.3 }), { x: 0.5, z: 0 }, world(cells, { activeRoom: 1, pathDistance: () => 11 }), 0.1).act, 'inert');
+  // A commitment already under way is untouched by dozing, same as it was by the old inert freeze.
+  assert.equal(away.windup, 0.3);
+  assert.equal(away.hit, false);
+  assert.equal(away.sound, null);
+  // Dozing resets the noticing clock, so a later approach reads as a fresh beat rather than an instant one.
+  assert.equal(away.notice, 0);
+  // It moved, but only a slow pace's worth - not a chase.
+  assert.ok(Math.hypot(away.x, away.z) > 0 && Math.hypot(away.x, away.z) <= PATROL_SPEED * 0.1 + 1e-9);
+  // The same body in the knight's own room is inside the generous cutoff and acts (it is handed
+  // notice: NOTICE_TIME by `foe`, so it is already alert rather than starting a fresh noticing beat).
+  assert.notEqual(decideEnemy(foe({ room: 1, windup: 0.3 }), { x: 0.5, z: 0 }, world(cells, { activeRoom: 1, pathDistance: () => 11 }), 0.1).act, 'dozing');
+});
+
+test('a dozing body paces a short line through its own spawn point and turns around at each end', () => {
+  const cells = openFloor();
+  const w = world(cells, { activeRoom: -1, pathDistance: () => Infinity });
+  const anchor = { x: 3, z: -4 };
+  // Far enough away, and in no room at all, that nothing but the pace happens.
+  let enemy = foe({ x: anchor.x, z: anchor.z, anchor, notice: 0 });
+  const along: number[] = [];
+  const aims: { x: number; z: number }[] = [];
+  for (let i = 0; i < 400; i++) {
+    const intent = decideEnemy(enemy, { x: 100, z: 100 }, w, 0.1);
+    assert.equal(intent.act, 'dozing');
+    assert.equal(intent.notice, 0);
+    along.push(Math.hypot(intent.x - anchor.x, intent.z - anchor.z));
+    aims.push(intent.aim);
+    enemy = { ...enemy, x: intent.x, z: intent.z, aim: intent.aim };
+  }
+  // Never wanders past PATROL_SPAN from where it spawned, plus at most one frame's overshoot before the
+  // next frame turns it around - this is a cheap transform, not a clamp against a precise boundary.
+  assert.ok(along.every(d => d <= PATROL_SPAN + PATROL_SPEED * 0.1 + 1e-6));
+  // It actually walks both legs rather than sitting at one end - the spread covers most of the span.
+  assert.ok(Math.max(...along) > PATROL_SPAN * 0.8);
+  // It turns around at least once: the walking direction is not the same for the whole 40 simulated
+  // seconds, which is the "turn" the frame is looking for.
+  assert.ok(aims.some(a => a.x * aims[0].x + a.z * aims[0].z < 0));
+});
+
+test('noticing is a held beat before a body commits, not an instant switch', () => {
+  const cells = openFloor();
+  const w = world(cells, { activeRoom: 1, pathDistance: () => 0 });
+  let enemy = foe({ notice: 0 });
+  // Mid-beat: turned to face the knight, standing exactly where it was, not yet acting.
+  const first = decideEnemy(enemy, { x: 0, z: 1 }, w, 0.1);
+  assert.equal(first.act, 'noticing');
+  assert.ok(near(first.notice, 0.1));
+  assert.deepEqual([first.x, first.z], [0, 0]);
+  // Facing the knight, who is due +z of it; the model's forward is -Z, so that is a half turn.
+  assert.equal(near(Math.abs(first.face!), Math.PI), true);
+  enemy = { ...enemy, notice: first.notice };
+  // Still short of NOTICE_TIME: still noticing.
+  const second = decideEnemy(enemy, { x: 0, z: 1 }, w, 0.1);
+  assert.equal(second.act, 'noticing');
+  assert.ok(second.notice < NOTICE_TIME);
+  // Enough beats (NOTICE_TIME is 0.32s; two 0.1s steps are not quite enough) and the clock caps at
+  // NOTICE_TIME and the body finally commits, exactly the way a fully alert body would from a standstill.
+  enemy = { ...enemy, notice: second.notice };
+  let last = second;
+  for (let i = 0; i < 5 && last.act === 'noticing'; i++) { last = decideEnemy(enemy, { x: 0, z: 1 }, w, 0.1); enemy = { ...enemy, notice: last.notice }; }
+  assert.equal(last.notice, NOTICE_TIME);
+  assert.notEqual(last.act, 'noticing');
+  assert.notEqual(last.act, 'dozing');
+});
+
+test('a beat already under way survives a frame where the knight himself is out of range', () => {
+  // Contagion (or a stray frame of flood noise) can hand a body a positive notice before its own
+  // distance to the knight would ever have started one; the beat still has to finish rather than being
+  // wiped the moment `nearby` reads false.
+  const cells = openFloor();
+  const w = world(cells, { activeRoom: -1, pathDistance: () => 999 });
+  const midBeat = decideEnemy(foe({ notice: 0.05 }), { x: 20, z: 20 }, w, 0.05);
+  assert.equal(midBeat.act, 'noticing');
+  assert.ok(midBeat.notice > 0.05);
+});
+
+test('nearbyDozers wakes the nearest still-dormant neighbours in the same room, never itself or the far side of the keep', () => {
+  const bodies: Wakeable[] = [
+    { x: 0, z: 0, room: 1, notice: NOTICE_TIME, dead: false }, // 0: the one that just noticed
+    { x: 1, z: 0, room: 1, notice: 0, dead: false },           // 1: closest dozer, same room
+    { x: 3, z: 0, room: 1, notice: 0, dead: false },           // 2: further dozer, same room
+    { x: 0.5, z: 0, room: 1, notice: NOTICE_TIME, dead: false }, // 3: already alert, nothing to catch
+    { x: 0.5, z: 0, room: 2, notice: 0, dead: false },         // 4: dormant but a different room
+    { x: 0.5, z: 0, room: 1, notice: 0, dead: true },          // 5: dormant but dead
+    { x: ALERT_RADIUS + 5, z: 0, room: 1, notice: 0, dead: false }, // 6: dormant, but past the radius
+  ];
+  assert.deepEqual(nearbyDozers(bodies, 0), [1, 2]);
+  // A radius of zero catches nothing but a body standing exactly on the source.
+  assert.deepEqual(nearbyDozers(bodies, 0, 0), []);
+  // An index with nothing there is simply empty, not a crash.
+  assert.deepEqual(nearbyDozers(bodies, 99), []);
+  // The stagger constant is what a caller multiplies rank by; pinned so a rebalance is deliberate.
+  assert.equal(ALERT_STAGGER, 0.15);
 });
 
 test('pursuit takes the orthogonal neighbour nearest the knight, and never a wall', () => {

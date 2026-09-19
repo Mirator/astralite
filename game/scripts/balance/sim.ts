@@ -11,7 +11,7 @@
 // dodges a tell it has had time to read. It is a consistent yardstick for comparing builds against each
 // other, not a claim about how well a human plays.
 import { canAbortSwing, swordContacts } from '../../app/dungeon-combat.ts';
-import { decideEnemy, enemyStats, hitCooldown, interruptsWindup, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type World } from '../../app/dungeon-enemy.ts';
+import { ALERT_STAGGER, decideEnemy, enemyStats, hitCooldown, interruptsWindup, nearbyDozers, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { playerAttackPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
@@ -74,6 +74,54 @@ export type FloorReport = {
   surrounded: number;
   /** Seconds spent within reach of a woken body. A weapon that never closes shows up here as near zero. */
   contact: number;
+  /**
+   * Seconds with no woken body within IDLE_RADIUS of the knight - the silence a blind reviewer of our
+   * frames was counting. A keep where fights queue up one guard at a time reads high here even when
+   * `contact` and `surrounded` look fine, because the numbers those two track only start once something
+   * is already close.
+   */
+  idle: number;
+  /**
+   * `idle` split into exactly one of four buckets, so the four sum to it (see the assertion in
+   * `simulateFloor`): `idleCorridor` is idle time on a tile whose room is negative; `idleBarren` is idle
+   * time in a room that never held a spawn at all (the start chamber, any sanctuary); `idleSpent` is idle
+   * time in a room that did hold spawns and has none left alive; `idleLiveNoContact` is idle time in a
+   * room that still holds a living body, just none woken and within IDLE_RADIUS.
+   */
+  idleCorridor: number;
+  idleBarren: number;
+  idleSpent: number;
+  idleLiveNoContact: number;
+  /**
+   * Cross-cutting, not a fifth bucket: of `idle`, how much was spent retracing a dead-end branch's own
+   * footprint (its room(s), role === 'branch', plus the corridor only they are reachable through - see
+   * `branchFootprint`) back toward the trunk. A tile only ever counts once the knight has already stood
+   * on it earlier this floor; the flag then holds until he steps onto a tile outside that footprint, or
+   * one he has never stood on before. That makes a pause mid-retreat still count, while a first walk in,
+   * or a shuffle back onto trodden ground mid-fight, mostly does not - a live fight is rarely `idle` in
+   * the first place, since IDLE_RADIUS is wide enough to still see the body being fought.
+   */
+  idleBacktrack: number;
+  /** Seconds spent on a corridor tile, idle or not - what `idleCorridor` is a fraction of. */
+  corridorSeconds: number;
+  /** Distinct corridor tiles the knight's feet touched this floor. */
+  corridorTiles: number;
+  /** Rooms this floor that never held a spawn at all - fixed by the seed, not by play. */
+  barrenRooms: number;
+  /** Times the knight walked into a room a second or later time after it was already fully spent. */
+  spentRecrossings: number;
+  /**
+   * The longest single unbroken stretch of `idle` on the floor: not how much silence there is in total,
+   * but the size of the worst gap in it. A floor could hold its idle total in one dead corridor or spread
+   * it evenly between fights; this is what tells them apart.
+   */
+  alone: number;
+  /**
+   * Mean seconds from walking into a room to a woken body first coming within reach, averaged over every
+   * room entered this floor that ever got one. A room a guard reaches instantly reads near zero; a queue
+   * that makes the knight wait for the next arrival reads high.
+   */
+  firstContact: number;
   /** Shots fired and shots that found a body, for an arm that throws something. */
   shots: number;
   landed: number;
@@ -104,7 +152,18 @@ type Body = {
   cooldown: number; hitFlash: number; windup: number; lunge: number;
   aim: { x: number; z: number };
   room: number; awake: boolean; dead: boolean;
+  // Where it spawned, for a dozing body's pace, and how far into noticing it is - see dungeon-enemy.ts.
+  anchor: { x: number; z: number }; notice: number;
+  // Countdown to a contagion kick a neighbour scheduled for this body; Infinity means none is pending.
+  // dungeon-game.tsx:1335-ish carries the identical bookkeeping so the two sims agree on when a room
+  // wakes together rather than one body at a time.
+  alertIn: number;
 };
+
+/** Seconds spent with no woken body this close counts as idle - see FloorReport.idle. */
+const IDLE_RADIUS = 12;
+/** Matches the `contact` column's own definition of "within reach". */
+const REACH_RADIUS = 2.5;
 
 // The renderer keys its flood by a packed integer for the same reason: a Map keyed by a fresh string
 // re-hashes on every probe, and pursuit probes four cells per body per frame.
@@ -125,6 +184,32 @@ const flood = (cells: Set<string>, fromX: number, fromZ: number, radius = Infini
     }
   }
   return distances;
+};
+
+/**
+ * Packed cell keys belonging to a dead-end branch: its room(s) (role === 'branch' - a stub can itself
+ * grow a nested branch, both marked the same way) plus the corridor that reaches them, stopping the
+ * instant the flood would step onto a tile owned by a room that is not part of the branch. dungeon-floor
+ * builds every floor as a tree, so a branch hangs off exactly one junction and nothing else ever shares
+ * its corridor - anything in this set can only be reached, and left, by that one path.
+ */
+const branchFootprint = (floor: ReturnType<typeof generateFloor>) => {
+  const packed = new Set<number>();
+  const branchRooms = new Set(floor.rooms.filter(r => r.role === 'branch').map(r => r.id));
+  if (!branchRooms.size) return packed;
+  const queue: [number, number][] = [];
+  for (const t of floor.tiles) if (branchRooms.has(t.room)) { const pk = packKey(t.x, t.z); if (!packed.has(pk)) { packed.add(pk); queue.push([t.x, t.z]); } }
+  for (let i = 0; i < queue.length; i++) {
+    const [x, z] = queue[i];
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, nz = z + dz, cell = cellKey(nx, nz), pk = packKey(nx, nz);
+      if (packed.has(pk) || !floor.cells.has(cell)) continue;
+      const owner = floor.roomByCell.get(cell);
+      if (owner !== undefined && !branchRooms.has(owner)) continue;
+      packed.add(pk); queue.push([nx, nz]);
+    }
+  }
+  return packed;
 };
 
 /** Mulberry32, the generator dungeon-floor seeds its keep with, so a batch replays exactly. */
@@ -168,7 +253,27 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const weapon = policy.weapon;
   const damage: Record<Cause, number> = { guard: 0, stalker: 0, warden: 0, hazard: 0 };
   let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0;
+  let idle = 0, aloneRun = 0, aloneMax = 0, firstContactSum = 0, firstContactCount = 0;
+  // Rooms already given a first-contact measurement (whether it resolved or the knight walked on), so a
+  // second visit never double-counts, and rooms currently waiting on their first arrival.
+  const roomsTouched = new Set<number>();
+  const pendingContact = new Map<number, number>();
+  let lastRoom = -1;
   const startKills = run.kills;
+
+  // Rooms that never held a spawn at all - the start chamber, any sanctuary, and whatever else the
+  // generator's own placement odds left empty. Checked against the spawn list itself rather than
+  // `encounter`, since a tiny room can drop every one of a non-empty roster's placement tries.
+  const spawnedRooms = new Set(floor.spawns.map(s => s.room));
+  const barrenRoomIds = new Set(floor.rooms.filter(r => !spawnedRooms.has(r.id)).map(r => r.id));
+  const branchCells = branchFootprint(floor);
+  // Every cell the knight has ever stood on, keyed the same way `pursuit`/`goalField` are, so a second
+  // arrival on one is a single Set lookup.
+  const visitedCells = new Set<number>();
+  const corridorTileSet = new Set<number>();
+  let backtracking = false;
+  let idleCorridor = 0, idleBarren = 0, idleSpent = 0, idleLiveNoContact = 0, idleBacktrack = 0;
+  let corridorSeconds = 0, spentRecross = 0;
 
   const bodies: Body[] = floor.spawns.map((spawn, index) => {
     const stats = enemyStats(spawn.kind, level);
@@ -178,6 +283,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       // dungeon-game.tsx:617 staggers the opening cooldown so a pack does not swing as one.
       cooldown: 0.4 + (index % 3) * 0.2, hitFlash: 0, windup: 0, lunge: 0,
       aim: { x: 0, z: 0 }, room: spawn.room, awake: !spawn.ambush, dead: false,
+      anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity,
     };
   });
 
@@ -225,8 +331,27 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
 
     // The renderer re-floods only when the knight changes cell; matching that keeps the cost honest.
     const cellX = Math.round(player.x / TILE), cellZ = Math.round(player.z / TILE), key = cellKey(cellX, cellZ);
-    if (key !== playerCell) { playerCell = key; pursuit = flood(floor.cells, cellX, cellZ, 24); }
+    let cellChanged = false;
+    if (key !== playerCell) { playerCell = key; pursuit = flood(floor.cells, cellX, cellZ, 24); cellChanged = true; }
     const activeRoom = world.activeRoom;
+
+    // Cell-level bookkeeping for the idle attribution below: only touched the frame the knight actually
+    // steps onto a new cell, so standing still never re-triggers a "revisit".
+    if (cellChanged) {
+      const packed = packKey(cellX, cellZ);
+      if (activeRoom < 0) corridorTileSet.add(packed);
+      backtracking = branchCells.has(packed) && visitedCells.has(packed);
+      visitedCells.add(packed);
+    }
+
+    // A fresh room, not yet measured: start the clock on how long it takes something to reach him. A room
+    // entered again after it was already fully spent is a re-crossing - ground the navigator is walking
+    // back over rather than a new arrival.
+    if (activeRoom >= 0 && activeRoom !== lastRoom) {
+      if (!roomsTouched.has(activeRoom)) { roomsTouched.add(activeRoom); pendingContact.set(activeRoom, t); }
+      else if (cleared.has(activeRoom) && !barrenRoomIds.has(activeRoom)) spentRecross++;
+    }
+    lastRoom = activeRoom;
 
     // dungeon-game.tsx:826 springs a room's ambush the moment the knight is inside it.
     if (activeRoom >= 0) for (const body of bodies) {
@@ -342,13 +467,28 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     }
 
     // --- every body ----------------------------------------------------------------------------
-    for (const body of bodies) {
+    for (let i = 0; i < bodies.length; i++) {
+      const body = bodies[i];
       if (body.dead || !body.awake) continue;
-      const view: EnemyView = { kind: body.kind, x: body.x, z: body.z, room: body.room, cooldown: body.cooldown, hitFlash: body.hitFlash, windup: body.windup, lunge: body.lunge, tell: body.tell, speed: body.speed, aim: body.aim };
+      // A neighbour's noticing beat can pull a still-dormant body in early; dungeon-game.tsx:1335-ish
+      // carries the identical countdown so a room wakes the same way in both sims.
+      if (body.alertIn < Infinity) {
+        body.alertIn -= DT;
+        if (body.alertIn <= 0) { if (body.notice <= 0) body.notice = DT; body.alertIn = Infinity; }
+      }
+      const view: EnemyView = { kind: body.kind, x: body.x, z: body.z, room: body.room, cooldown: body.cooldown, hitFlash: body.hitFlash, windup: body.windup, lunge: body.lunge, tell: body.tell, speed: body.speed, aim: body.aim, anchor: body.anchor, notice: body.notice };
       const intent = decideEnemy(view, player, { ...world, activeRoom }, DT);
+      const startedNoticing = body.notice <= 0 && intent.notice > 0;
       body.cooldown = intent.cooldown; body.hitFlash = intent.hitFlash; body.windup = intent.windup;
-      body.lunge = intent.lunge; body.aim = intent.aim;
-      if (intent.act !== 'inert') { body.x = intent.x; body.z = intent.z; }
+      body.lunge = intent.lunge; body.aim = intent.aim; body.notice = intent.notice;
+      body.x = intent.x; body.z = intent.z;
+      if (startedNoticing) {
+        const snapshot: Wakeable[] = bodies.map(b => ({ x: b.x, z: b.z, room: b.room, notice: b.notice, dead: b.dead || !b.awake }));
+        nearbyDozers(snapshot, i).forEach((idx, rank) => {
+          const delay = (rank + 1) * ALERT_STAGGER;
+          if (delay < bodies[idx].alertIn) bodies[idx].alertIn = delay;
+        });
+      }
       if (intent.hit) {
         const dealt = hurt(run, body.damage, { dashing: dashTime > 0, warded: true });
         damage[body.kind] += dealt;
@@ -413,7 +553,28 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     }
     // How long the knight actually stands where something can reach him. An arm that never closes reads
     // as near zero here, which is the only column that catches a weapon winning by walking backwards.
-    if (live.some(b => Math.hypot(b.x - player.x, b.z - player.z) < 2.5)) contact += DT;
+    const reached = live.some(b => Math.hypot(b.x - player.x, b.z - player.z) < REACH_RADIUS);
+    if (reached) contact += DT;
+    // The room this frame's reach belongs to may already have moved on if the knight is mid-corridor by
+    // the time contact lands; pendingContact only ever holds the room he is measured against.
+    if (reached && activeRoom >= 0 && pendingContact.has(activeRoom)) {
+      firstContactSum += t - pendingContact.get(activeRoom)!; firstContactCount++; pendingContact.delete(activeRoom);
+    }
+    // Time on a corridor tile, idle or not - the denominator idleCorridor is measured against.
+    if (activeRoom < 0) corridorSeconds += DT;
+
+    // The silence between fights: nothing woken anywhere near him, and how long the worst single gap ran.
+    if (!live.some(b => Math.hypot(b.x - player.x, b.z - player.z) < IDLE_RADIUS)) {
+      idle += DT; aloneRun += DT; aloneMax = Math.max(aloneMax, aloneRun);
+      // Every idle tick lands in exactly one of these four - see the assertion in endFloor.
+      if (activeRoom < 0) idleCorridor += DT;
+      else if (barrenRoomIds.has(activeRoom)) idleBarren += DT;
+      else if (cleared.has(activeRoom)) idleSpent += DT;
+      else idleLiveNoContact += DT;
+      // Cross-cutting: counted above in whichever of the four it fell into, and again here.
+      if (backtracking) idleBacktrack += DT;
+    }
+    else aloneRun = 0;
 
     const crowd: CrowdBody[] = bodies.map(b => ({ x: b.x, z: b.z, windup: b.windup, dead: b.dead || !b.awake }));
     separateCrowd(floor.cells, crowd, DT).forEach((spot, i) => { if (!crowd[i].dead) { bodies[i].x = spot.x; bodies[i].z = spot.z; } });
@@ -444,6 +605,22 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   return endFloor('stuck');
 
   function endFloor(outcome: FloorReport['outcome']): FloorReport {
-    return { level, outcome, seconds: +t.toFixed(1), kills: run.kills - startKills, spawns: floor.spawns.length, damage, surrounded, contact: +contact.toFixed(1), shots: shotCount, landed: landedCount, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel };
+    // A silent misattribution here would send the whole corridor-vs-not question the wrong way, so the
+    // four buckets are checked against `idle` itself rather than trusted by construction.
+    const idleSum = idleCorridor + idleBarren + idleSpent + idleLiveNoContact;
+    if (Math.abs(idleSum - idle) > 1e-6) {
+      throw new Error(`idle attribution does not sum to idle on floor ${level} (seed ${seed}): buckets ${idleSum}, idle ${idle}`);
+    }
+    return {
+      level, outcome, seconds: +t.toFixed(1), kills: run.kills - startKills, spawns: floor.spawns.length, damage, surrounded,
+      contact: +contact.toFixed(1), idle: +idle.toFixed(1),
+      idleCorridor: +idleCorridor.toFixed(2), idleBarren: +idleBarren.toFixed(2), idleSpent: +idleSpent.toFixed(2),
+      idleLiveNoContact: +idleLiveNoContact.toFixed(2), idleBacktrack: +idleBacktrack.toFixed(2),
+      corridorSeconds: +corridorSeconds.toFixed(2), corridorTiles: corridorTileSet.size,
+      barrenRooms: barrenRoomIds.size, spentRecrossings: spentRecross,
+      alone: +aloneMax.toFixed(1),
+      firstContact: +(firstContactCount ? firstContactSum / firstContactCount : 0).toFixed(2),
+      shots: shotCount, landed: landedCount, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+    };
   }
 }
