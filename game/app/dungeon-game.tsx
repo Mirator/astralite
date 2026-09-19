@@ -592,9 +592,13 @@ export default function DungeonGame() {
       return pose;
     };
     const trailGeo=new THREE.PlaneGeometry(.11,1.15);
+    // Faded to zero opacity is not gone: a transparent mesh still passes the frustum and still costs a
+    // draw, so these twelve sat in the counters of every scene in the keep whether or not anyone had
+    // dashed. They are toggled outright now, and the twelve calls that buys pay for the first of the
+    // vertical structure this round adds.
     const dashTrails=Array.from({length:12},()=>{
       const m=new THREE.Mesh(trailGeo,new THREE.MeshBasicMaterial({color:0xa9e5db,transparent:true,opacity:0,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending}));
-      m.rotation.x=-Math.PI/2;m.userData.life=0;world.add(m);return m;
+      m.rotation.x=-Math.PI/2;m.userData.life=0;m.visible=false;world.add(m);return m;
     });
     let trailCursor=0,trailClock=0;
     let pathCell = '';
@@ -627,7 +631,7 @@ export default function DungeonGame() {
       world.remove(floorGroup);
       particles.forEach(p => { world.remove(p.mesh); if (p.mesh.material !== sparkMat) (p.mesh.material as THREE.Material).dispose(); });
       particles.length = 0;
-      dashTrails.forEach(m=>{m.userData.life=0;(m.material as THREE.MeshBasicMaterial).opacity=0;});
+      dashTrails.forEach(m=>{m.userData.life=0;m.visible=false;(m.material as THREE.MeshBasicMaterial).opacity=0;});
     };
     // An explicit seed replays a floor verbatim; without one the keep is new every descent.
     const buildFloor = (nextLevel: number, seed?: number) => {
@@ -675,11 +679,18 @@ export default function DungeonGame() {
       const borders: { x: number; z: number; horizontal: boolean }[] = [];
       floor.tiles.forEach(({ x, z }) => { for (const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]) if (!floor.cells.has(cellKey(x + dx,z + dz))) borders.push({ x: (x + dx * 0.5) * TILE, z: (z + dz * 0.5) * TILE, horizontal: dz !== 0 }); });
       // Low parapets keep the isometric view readable, including narrow bridges.
-      const parapetGeometry=new RoundedBoxGeometry(1,0.38,1,1,.08),parapetMaterial=new THREE.MeshStandardMaterial({color:0x607574,roughness:.8});weatherStone(parapetMaterial);
+      // A kerb this low read as a painted line around the slab rather than as the top of a wall, and the
+      // near edge of the platform is the one place in the frame where the reference always has built
+      // mass. Half again as tall and near twice as thick, on the same instance count, so it catches the
+      // moon on its cap, shades its own face, and lays a shadow of its own on the paving inside it.
+      const parapetGeometry=new RoundedBoxGeometry(1,0.58,1,1,.1),parapetMaterial=new THREE.MeshStandardMaterial({color:0x607574,roughness:.8});weatherStone(parapetMaterial);
       const parapets=new Map<string,typeof borders>();for(const b of borders){const key=`${Math.floor(b.x/18)},${Math.floor(b.z/18)}`;const batch=parapets.get(key);if(batch)batch.push(b);else parapets.set(key,[b]);}
       for(const local of parapets.values()){
         const walls=new THREE.InstancedMesh(parapetGeometry,parapetMaterial,local.length);
-        local.forEach((b,i)=>{matrix.compose(new THREE.Vector3(b.x,.15,b.z),new THREE.Quaternion(),new THREE.Vector3(b.horizontal?TILE:.16,1,b.horizontal?.16:TILE));walls.setMatrixAt(i,matrix);});
+        local.forEach((b,i)=>{matrix.compose(new THREE.Vector3(b.x,.2,b.z),new THREE.Quaternion(),new THREE.Vector3(b.horizontal?TILE:.3,1,b.horizontal?.3:TILE));walls.setMatrixAt(i,matrix);});
+        // Not a shadow caster. The parapet runs the full border of every tile on the floor, corridors
+        // included, and putting that instance count through the shadow pass as well cost more triangles
+        // than every piece of vertical structure this round adds, for a shadow half a block wide.
         walls.receiveShadow=true;floorGroup.add(walls);
       }
       phase('walls');
@@ -925,10 +936,10 @@ export default function DungeonGame() {
       animateCloth(player.userData.cape,t,dashTime>0?.32:velocity.lengthSq()>0?.16:.045);
       trailClock-=dt;
       if(dashTime>0 && trailClock<=0){
-        const trail=dashTrails[trailCursor++%dashTrails.length];trail.position.copy(player.position);trail.position.y=.09;
+        const trail=dashTrails[trailCursor++%dashTrails.length];trail.visible=true;trail.position.copy(player.position);trail.position.y=.09;
         trail.rotation.z=Math.atan2(-dashFacing.z,dashFacing.x)+Math.PI/2;trail.userData.life=.26;trailClock=.025;
       }
-      dashTrails.forEach(m=>{m.userData.life=Math.max(0,m.userData.life-dt);(m.material as THREE.MeshBasicMaterial).opacity=m.userData.life*1.8;m.scale.x=.6+m.userData.life*2;});
+      dashTrails.forEach(m=>{m.userData.life=Math.max(0,m.userData.life-dt);m.visible=m.userData.life>0;if(!m.visible)return;(m.material as THREE.MeshBasicMaterial).opacity=m.userData.life*1.8;m.scale.x=.6+m.userData.life*2;});
       if (hasStarted && gameStatus === 'playing') {
         attackBuffer = Math.max(0, attackBuffer - dt); dashBuffer = Math.max(0, dashBuffer - dt);
         if (attackBuffer === 0) bufferedFacing = null;

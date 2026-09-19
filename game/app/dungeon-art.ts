@@ -3,6 +3,31 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { TILE, type generateFloor } from './dungeon-floor';
 import { weatherStone } from './dungeon-motion';
 
+// The camera is fixed and orthographic — focus + (9.2, 12.5, 11.5), aimed at the focus — so its screen-up
+// axis is a constant, and these three numbers are the whole of it. Vertical structure has to be placed
+// against them or it is placed blind: the identical pier is a foreground occluder on the camera side of a
+// room and a thing standing on the knight's head on the other, and nothing in the geometry says which.
+/** Screen-up units a single world unit of height buys. */
+export const RISE = .7623;
+/** Where a floor offset from the frame's focus lands up the frame; negative is toward the camera. */
+export const screenUp = (a: number, b: number) => -.4042 * a - .5052 * b;
+/**
+ * The tallest a structure at this offset may be built while its top stays clear of the knight, who is at
+ * the middle of the frame with his head around +1.2. Infinity up-screen of him: that half is backdrop, and
+ * mass there is what he reads against rather than what hides him.
+ */
+export const headroom = (a: number, b: number) => {
+  const base = screenUp(a, b);
+  return base >= 0 ? Infinity : (-1.05 - base) / RISE;
+};
+/**
+ * Past this much headroom the offset is so far down-frame that the top of the tallest thing allowed there
+ * still falls below the bottom edge, so nothing built on it can ever be seen from the middle of the room.
+ * The widest halls run a long way past it, and building their near perimeter was the single largest line
+ * in the triangle count for geometry with no frame to appear in.
+ */
+export const OFF_FRAME = 9.6;
+
 // Broad reflected light makes metal read as metal without another live light or render pass.
 export function vaultEnvironment() {
   const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 256;
@@ -57,9 +82,33 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
       for (let i = 0; i < 24; i++) { const a = i * Math.PI / 12, r = radius - .34; put(x + Math.sin(a) * r, .034, z + Math.cos(a) * r, .045, .012, i % 3 ? .10 : .22, bronze); }
     }
     for (const tile of local) {
-      for (const [dx, dz] of [[-1, 0], [0, -1]]) {
+      // All four faces, where before only the two pointing away from the camera were carved. That choice
+      // is the whole of the review's finding: every tall thing in the keep stood on the far wall, so the
+      // near edge of every room was bare paving running off the bottom of the frame and nothing was ever
+      // between the lens and the fight. What goes on the near faces is bounded by `headroom` below.
+      for (const [dx, dz] of [[-1, 0], [0, -1], [1, 0], [0, 1]]) {
         if (cells.has(`${tile.x + dx},${tile.z + dz}`)) continue;
         const tx = (tile.x + dx * .54) * TILE, tz = (tile.z + dz * .54) * TILE;
+        const near = headroom(tx - room.x * TILE, tz - room.z * TILE);
+        // Ivy and the blind lancet below are a mesh apiece and the two new faces would double the count
+        // for detail that reads at the back of the frame, where it already is. The near faces get the
+        // instanced work only — silhouette, which is what they are here for, and no extra draw call.
+        if (near !== Infinity) {
+          // Close in to the knight there is no room to build upward, and the kerb is already the whole of
+          // this edge; a cornice there would be a course of blocks nobody can see over it.
+          if (near < 2.4 || near > OFF_FRAME || (tile.x + tile.z) % 4 !== 0) continue;
+          // Buttresses, not posts. At the stride and slenderness the far wall uses, the near edge came out
+          // as a row of identical pickets across the bottom of the frame — which is a fence, and reads as
+          // one. Wider than they are on the far wall, a course shorter, spaced four tiles instead of
+          // three, and each one takes its height off its own position so no two neighbours agree.
+          const step = (Math.abs(tile.x * 7 + tile.z * 13)) % 5;
+          const nh = Math.min(near, (room.theme === 'ruins' ? 1.9 : 2.3) + step * .42);
+          put(tx, .2, tz, dz ? 1.38 : 1.16, .34, dx ? 1.38 : 1.16, pale);
+          put(tx, nh / 2, tz, .92, nh, .92);
+          put(tx - dx * .16, nh / 2, tz - dz * .16, dz ? .3 : .96, nh - .55, dx ? .3 : .96, pale);
+          put(tx, nh - .1, tz, 1.14, .26, 1.14, pale);
+          continue;
+        }
         // One continuous cornice and footing visually bind the separate masonry courses.
         put(tx, .15, tz, dz ? 1.48 : .8, .25, dx ? 1.48 : .8, pale);
         // Salt-tolerant ivy breaks the rigid silhouette; attached to masonry outside the walking lane.
@@ -73,7 +122,10 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
           leaves.receiveShadow = true; world.add(leaves);
         }
         if ((tile.x + tile.z) % 3 !== 0) continue;
-        const h = room.theme === 'ruins' ? 2.45 : 3.55;
+        // Raised: this is the far wall, the one the moon rakes across on its way into the room, and at
+        // 3.55 it threw a shadow shorter than the pier was wide. The extra metre is the difference
+        // between a dark edge under the masonry and a bar of shadow laid over the paving.
+        const h = room.theme === 'ruins' ? 3.1 : 4.6;
         put(tx, h / 2, tz, .64, h, .64);
         put(tx - dx * .14, h / 2, tz - dz * .14, dz ? .22 : .68, h - .5, dx ? .22 : .68, pale);
         put(tx, h - .14, tz, .86, .23, .86, pale);

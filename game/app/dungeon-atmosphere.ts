@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { addCarvedArchitecture } from './dungeon-art';
+import { addCarvedArchitecture, headroom, OFF_FRAME } from './dungeon-art';
 import { TILE, type generateFloor } from './dungeon-floor';
 import { animateCloth, contactTexture, glowTexture, shorelineMaterial, weatherStone } from './dungeon-motion';
 
@@ -51,6 +51,8 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   // Its own material, so the fire can bounce up the inside of it. Each bowl is already an individual
   // mesh, so this is a second program, not a second draw call.
   const bowlStone=new THREE.MeshStandardMaterial({color:0x4d5860,roughness:.95});weatherStone(bowlStone,true);
+  // Its own material so a standing column reads against the wall behind it rather than merging into it.
+  const shaftStone=new THREE.MeshStandardMaterial({color:0x8e9a93,roughness:.86});weatherStone(shaftStone);
   const wood=new THREE.MeshStandardMaterial({color:0x51382b,roughness:1}),moss=new THREE.MeshStandardMaterial({color:0x42594b,roughness:1});
   const clothCanvas=document.createElement('canvas');clothCanvas.width=128;clothCanvas.height=256;const cc=clothCanvas.getContext('2d')!;
   cc.fillStyle='#792c38';cc.fillRect(0,0,128,256);cc.strokeStyle='#d7b375';cc.lineWidth=3;cc.strokeRect(9,8,110,240);
@@ -84,10 +86,26 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
       mesh(PROP.barrel,wood,x,.52,z);
       for(const y of [.2,.78])mesh(PROP.hoop,trim,x,y,z);
     } else if(p.kind==='pillar'){
-      mesh(PROP.plinth,trim,x,.2,z);
-      const h=1.4+random()*1.1;mesh(PROP.column,stone,x,h/2+.2,z).scale.y=h;mesh(PROP.capital,stone,x,h+.3,z);
+      // The one piece of interior structure the generator already guarantees is solid: a prop cell is cut
+      // out of `cells`, sits at least three tiles off the room's heart and at least three off its
+      // neighbours, and something like seven rooms in ten hold one on the camera's side of the frame. At
+      // knee height it was a bollard. At four-odd metres on a widened base it is the foreground occluder
+      // the frames had none of, and it costs nothing: same three meshes, same shared geometry, scaled.
+      // In the keep's own wall stone a column this size came out as a flat dark slab: it is a smooth
+      // cylinder with one lit side, and against the paving it read as cut paper rather than as stone. It
+      // takes the pale carved stone instead — which is also what keeps it off the knight, who has to stay
+      // the darkest mass in the frame and was losing that to his own scenery.
+      const h=3.9+random()*1.7,base=mesh(PROP.plinth,trim,x,.24,z);base.scale.set(1.5,1.4,1.5);
+      const shaft=mesh(PROP.column,shaftStone,x,h/2+.34,z);shaft.scale.set(1.45,h,1.45);
+      const cap=mesh(PROP.capital,trim,x,h+.44,z);cap.scale.set(1.62,1.4,1.62);
     } else {
-      for(let i=0;i<4;i++){const rock=mesh(PROP.rock,i===0?moss:stone,x+(random()-.5)*.65,.22+random()*.2,z+(random()-.5)*.65),r=.3+random()*.27;rock.scale.set(r,r*(.55+random()*.4),r);rock.rotation.set(random(),random(),random());}
+      // A ruin heap of four pebbles was the flattest thing in the keep. The first piece is now a snapped
+      // column shaft still standing in its own rubble, which is mid-height mass on the same four meshes.
+      for(let i=0;i<4;i++){const tall=i===1,rock=mesh(PROP.rock,i===0?moss:tall?shaftStone:stone,x+(random()-.5)*(tall?.2:.65),tall?.95+random()*.4:.22+random()*.2,z+(random()-.5)*(tall?.2:.65)),r=.3+random()*.27;
+        // Thick enough to have two faces to it. At blade proportions the stump was a black sliver against
+        // the paving with no lit side at all, which is the cardboard read this round is trying to kill.
+        if(tall)rock.scale.set(.66,1.35+random()*.5,.62);else rock.scale.set(r,r*(.55+random()*.4),r);
+        rock.rotation.set(tall?(random()-.5)*.16:random(),random(),tall?(random()-.5)*.16:random());}
     }
   }
   const packed=(x:number,z:number)=>(x+4096)*8192+(z+4096);
@@ -104,18 +122,39 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   for(const tile of floor.tiles){
     if(tile.room<0)continue;
     const room=floor.rooms[tile.room];
-    for(const [dx,dz] of [[-1,0],[0,-1]]){
+    // Two faces became four for the reason set out in dungeon-art: the camera-facing edge of every room
+    // carried nothing but a 0.38 kerb, so there was never anything between the lens and the fight. Every
+    // block here lands in that room's one InstancedMesh, so a wall on the near side is triangles and not
+    // a single extra draw call — which is the only reason the near side is affordable at all.
+    for(const [dx,dz] of [[-1,0],[0,-1],[1,0],[0,1]]){
       if(solid.has(packed(tile.x+dx,tile.z+dz)))continue;
       const x=(tile.x+dx*.52)*TILE,z=(tile.z+dz*.52)*TILE;
-      const layers=room.theme==='ruins'?1+Math.floor(random()*4):3+Math.floor(random()*3);
-      for(let layer=0;layer<layers;layer++)for(let half=0;half<2;half++){
+      const near=headroom(x-room.x*TILE,z-room.z*TILE);
+      // Up-screen of the knight this is backdrop and goes tall; on his side of the frame it may only rise
+      // as far as `headroom` says it can without climbing over him. Close in, that is under a course and
+      // the kerb already there is the whole of it.
+      const ceiling=near===Infinity?Infinity:Math.floor((near-.67)/.53)+1;
+      if(ceiling<1)continue;
+      // The near side runs at half the stride and two courses at most. A solid second wall all the way
+      // round doubled the block count for the whole keep, and a broken run of low masonry is the better
+      // read anyway: the reference's mid-ground retaining walls step and gap rather than running true.
+      if(near!==Infinity&&((tile.x+tile.z)%2||near>OFF_FRAME))continue;
+      const drawn=room.theme==='ruins'?1+Math.floor(random()*4):3+Math.floor(random()*3);
+      const layers=Math.min(drawn,ceiling,near===Infinity?99:2);
+      // Two blocks to a course on the far wall, one on the near. Nearer the camera a course reads at twice
+      // the size, so a single wider block is the truer stone and not merely the cheaper one — and the far
+      // wall is where the running bond earns its keep, small enough on screen that paired blocks are the
+      // only thing stopping it reading as a grid.
+      const halves=near===Infinity?2:1;
+      for(let layer=0;layer<layers;layer++)for(let half=0;half<halves;half++){
         if(layer===layers-1&&random()<.2)continue;
         // Running bond: alternate courses slide a fifth of a block along the run. Every course stayed in
         // step before, which is what made a wall read as a grid of identical cubes rather than as masonry.
-        const bond=(layer%2?.15:-.15)*.72,along=(half-.5)*.72+bond;
-        blocks.push({room:tile.room,x:x+(dz?along:0),y:.42+layer*.53,z:z+(dx?along:0),sx:dz?.7:.65,sy:.5,sz:dx?.7:.65,color:room.theme==='ruins'?0x697469:room.theme==='flooded'?0x526872:0x606970});
+        const bond=(layer%2?.15:-.15)*.72,along=halves>1?(half-.5)*.72+bond:bond*.9;
+        const run=halves>1?.7:1.34,across=halves>1?.65:.72;
+        blocks.push({room:tile.room,x:x+(dz?along:0),y:.42+layer*.53,z:z+(dx?along:0),sx:dz?run:across,sy:.5,sz:dx?run:across,color:room.theme==='ruins'?0x697469:room.theme==='flooded'?0x526872:0x606970});
       }
-      if(!bannerRooms.has(room.id)&&layers>=4&&Math.abs(tile.x-room.x)+Math.abs(tile.z-room.z)<Math.max(room.halfX,room.halfZ)+2){
+      if(near===Infinity&&!bannerRooms.has(room.id)&&layers>=4&&Math.abs(tile.x-room.x)+Math.abs(tile.z-room.z)<Math.max(room.halfX,room.halfZ)+2){
         const flag=mesh(new THREE.PlaneGeometry(.75,1.55,2,4),red,x-dx*.38,1.55,z-dz*.38);if(dx)flag.rotation.y=Math.PI/2;banners.push(flag);bannerRooms.add(room.id);
         const bar=mesh(new THREE.BoxGeometry(dx?.12:1.0,.12,dx?1.0:.12),trim,x-dx*.4,2.37,z-dz*.4);bar.castShadow=false;
       }
