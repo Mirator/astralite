@@ -411,7 +411,9 @@ test.describe('touch controls', () => {
       cookies: [],
       origins: [
         {
-          origin: 'http://127.0.0.1:3000',
+          // The same port the config resolves, or the blob is filed under an
+          // origin the page never visits and the pad layout never mounts.
+          origin: `http://127.0.0.1:${process.env.GAME_TEST_PORT ?? 3000}`,
           localStorage: [
             {
               name: 'drowned-keep:settings',

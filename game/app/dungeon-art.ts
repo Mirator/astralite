@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { TILE, type generateFloor } from './dungeon-floor';
+import { weatherStone } from './dungeon-motion';
 
 // Broad reflected light makes metal read as metal without another live light or render pass.
 export function vaultEnvironment() {
@@ -22,11 +23,18 @@ export function vaultEnvironment() {
 export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<typeof generateFloor>) {
   const stone = new THREE.MeshStandardMaterial({ color: 0x82908b, roughness: .82 });
   const pale = new THREE.MeshStandardMaterial({ color: 0x9ba797, roughness: .7 });
+  // Carved work was the last flat stone in the frame: columns, cornices and footings took one value per
+  // face while the paving beside them was already weathering. Same draw, same triangles, same material.
+  weatherStone(stone); weatherStone(pale);
   const bronze = new THREE.MeshStandardMaterial({ color: 0xa88951, metalness: .65, roughness: .48 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x142b30, roughness: .86 });
+  // The inlaid medallion is the largest single shape on a chamber floor; flat, it read as a hole cut in
+  // the paving rather than as worn slate set into it. The weathering is multiplicative and reads at any
+  // base value, so the base goes back down to where it was: the disc fills most of the frame right
+  // around the knight in four of the eight scenes, and lifting it was spending his contrast for nothing.
+  const dark = new THREE.MeshStandardMaterial({ color: 0x152c32, roughness: .86 }); weatherStone(dark);
   const foliage = new THREE.MeshStandardMaterial({ color: 0x52735b, roughness: .95, side: THREE.DoubleSide });
   const leafGeometry = new THREE.OctahedronGeometry(1);
-  const box = new RoundedBoxGeometry(1, 1, 1, 1, .055);
+  const box = new RoundedBoxGeometry(1, 1, 1, 1, .08);
   const blocks: { x: number; y: number; z: number; sx: number; sy: number; sz: number; material: THREE.Material }[] = [];
   const put = (x: number, y: number, z: number, sx: number, sy: number, sz: number, material = stone) => blocks.push({ x, y, z, sx, sy, sz, material });
   // Props occupy holes in floor.tiles; they are interior floor, never perimeter walls.

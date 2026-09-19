@@ -58,3 +58,14 @@ output/**/*.jpg
 output/**/*.jpeg
 output/**/*.webp
 output/**/*.gif
+
+# Reference frames pulled from other games for side-by-side review. They are
+# someone else's work, they are only here to be looked at, and they must not be
+# redistributed from this repository. The video is also 54MB.
+output/shots/reference/
+output/**/*.mp4
+# Which side of a blind comparison was ours. Committing it would let the next
+# reviewer look the answer up instead of judging the images.
+output/shots/*-key.json
+output/shots/seq-*.json
+output/shots/stability.txt
