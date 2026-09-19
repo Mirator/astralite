@@ -69,3 +69,5 @@ output/**/*.mp4
 output/shots/*-key.json
 output/shots/seq-*.json
 output/shots/stability.txt
+# per-port dependency prebundles, one per parallel checkout
+game/node_modules/.vite-*
