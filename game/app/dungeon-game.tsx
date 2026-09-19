@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { ROOM_MOOD, vaultEnvironment } from './dungeon-art';
+import { pavingGeometry, pavingKind, ROOM_MOOD, tileHash, vaultEnvironment } from './dungeon-art';
 import { contactShadow, enemyDetails, knightDetails } from './dungeon-characters';
 import { impactEffects } from './dungeon-impact';
 import { playerCloakGeometry } from './dungeon-cloak';
@@ -19,6 +19,7 @@ import { playerAttackPose } from './dungeon-attack-pose';
 import { STARTING_WEAPON, TIDEBLADE, weaponById, type Weapon, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
 import { flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
+import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
@@ -191,11 +192,32 @@ function makeSkeleton(kind: Enemy['kind']) {
   const stalker=kind==='stalker',warden=kind==='warden';
   // Bone used to sit at the knight's own value, which is why four figures in one hall read as four of the
   // same thing. It comes down and goes cold, and the three kinds part company: the guard a flat grey, the
-  // stalker greener and dimmer for something that waits, the warden pale bone over near-black navy so the
-  // heaviest of them is also the largest dark mass. No gold on any of them outshines the knight's.
-  const bone = new THREE.MeshStandardMaterial({ color: warden?0xb0a996:stalker?0x6f9084:0x9ca39a, roughness: 0.84 });
-  const iron = new THREE.MeshStandardMaterial({ color: warden?0x1e2833:0x3f4a53, roughness: 0.5, metalness: 0.5 });
-  const brass = new THREE.MeshStandardMaterial({ color: warden?0x8a7a4e:0x6f6244, roughness: .52, metalness: .55 });
+  // stalker greener and dimmer for something that waits. No gold on any of them outshines the knight's.
+  //
+  // The warden is the exception this round rebuilt. He was pale bone at L69 over near-black navy at L16,
+  // which is the knight's own value structure — his brightest quarter and his darkest quarter — worn by a
+  // figure a third larger. A blind review comparing the keep to the reference found every pair readable
+  // but this one: knight and both wardens in a single dark-navy/white cluster on a dark teal floor,
+  // reading as one blob with the cloak the only separator. So the bone comes down twenty-two points of L,
+  // to L47. That is the whole of the change: the white end of the cluster goes, and the warden is a mid
+  // mass inside a figure whose own range still runs L4 to L88.
+  //
+  // What it does NOT do is flatten him, and that was measured rather than assumed. A first pass took the
+  // warden to a near-neutral cool grey on the theory that low chroma separates against all three room
+  // families at once. It lost three and a half points of separation: at the torso the knight reads as his
+  // own plate, cool violet at b=-8.5, and the warden's warm bone at b=+9 was carrying most of the distance
+  // between them. Neutralising the warden spent the hue axis to buy value, and the two do not trade at
+  // par. The warm-tan bone stays and only its value moves, which is the axis the reviewer named.
+  const bone = new THREE.MeshStandardMaterial({ color: warden?0x776e5d:stalker?0x6f9084:0x9ca39a, roughness: 0.84 });
+  // The other half of the cluster. The warden's plate was a dark navy three units of Lab from the knight's
+  // own iron, and in the stair chamber that plate is most of the warden's torso and the breastplate is most
+  // of the knight's — two figures carrying the same dark mass in the same hue. It leaves navy for the
+  // drowned green the rest of the keep's dead already wear, and comes up three points of L on the way out
+  // so the warden is not simply a hole.
+  const iron = new THREE.MeshStandardMaterial({ color: warden?0x27302d:0x3f4a53, roughness: 0.5, metalness: 0.5 });
+  // The warden's gold was the warmest thing on any skeleton and the nearest any of them came to the
+  // knight's own accent. Six points of value off it: still a crown, no longer a second brass figure.
+  const brass = new THREE.MeshStandardMaterial({ color: warden?0x7a6c43:0x6f6244, roughness: .52, metalness: .55 });
   // Eye colour is the cheapest rank badge there is: one unlit speck already being drawn, and it names the
   // kind from across the room before the silhouette has resolved.
   const eye = new THREE.MeshBasicMaterial({ color: warden?0xffd23a:stalker?0xff421f:0xff8a2a });
@@ -423,12 +445,12 @@ export default function DungeonGame() {
     // is what makes the logged duration, boon list and replay seed describe the whole run and not its
     // last floor. `runStart` is the moment the keep was entered, not the moment the page mounted.
     let runStart = 0, firstSeed = 0, boonsTaken: string[] = [];
-    let features: { mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; room: number; shrine: boolean; used: boolean; phase: number; burned: boolean }[] = [];
+    let features: { mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; glow: Radiance; room: number; shrine: boolean; used: boolean; phase: number; burned: boolean }[] = [];
     // The way down sits at the heart of the warden hall: sealed until the last warden falls, then open, and
     // taken only once the knight has stood on it for STAIR_DWELL seconds.
     let stairOpen = false, stairDwell = 0;
     const stairSpot = new THREE.Vector3();
-    let stairSeal: THREE.Mesh | null = null, stairRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> | null = null, stairGlow: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial> | null = null;
+    let stairSeal: THREE.Mesh | null = null, stairRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> | null = null, stairGlow: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial> | null = null, stairLight: Radiance | null = null;
     let floorGroup = new THREE.Group();
     let water: THREE.Mesh | null = null;
     let tide: ReturnType<typeof tidalMaterial> | null = null;
@@ -528,6 +550,18 @@ export default function DungeonGame() {
     // decal. No cutoff and a physical inverse square instead: the same brightness where it matters and a
     // tail that simply runs out. The intensity here is dead code, overwritten by the flicker each frame.
     for (let i = 0; i < 4; i++) { const light = new THREE.PointLight(0xff9440,22,0,2); torchLights.push(light); scene.add(light); }
+    // No fifth torch. The review's complaint was that an effect throws no light,
+    // and the honest fix is a real one — but the renderer's light budget is spent
+    // (a moon, a hemisphere, four torches and the knight's lantern) and a sixth
+    // point light is paid for by every lit fragment in the keep, every frame,
+    // whether anything is happening or not. So the fourth torch is lent out
+    // instead. It is the fourth-nearest by construction, which makes it the least
+    // of the four in any frame, and it is only ever away from its sconce while
+    // something louder than a torch is on screen.
+    const ember = borrowedLight(torchLights[3], 0xff9440);
+    // One scratch vector for every bid: a light hung at floor level throws a hot
+    // ring and reaches no wall, so each event lifts its offer off the paving.
+    const lampAt = new THREE.Vector3();
     const player = makeKnight(); world.add(player);
     // The knight's own lantern, and the one lever that protects rule two. Same treatment: no cutoff ring
     // around him, and enough intensity that this round's floor work cannot ride him down with it.
@@ -729,7 +763,10 @@ export default function DungeonGame() {
       swingHits.clear();slash.clear();clearShots();posePlayer(0);
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
       reached = 0; loot = 0; activeRoom = 0; pathCell = ''; distances.clear();
-      const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, bumpMap: texture, bumpScale: .07, color: 0xffffff, roughness: .83 });
+      // `vertexColors` is the slab's baked joint shading, and it multiplies with the per-instance tint
+      // rather than replacing it. Only the three paving geometries use this material, and all three carry
+      // the attribute.
+      const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, bumpMap: texture, bumpScale: .07, color: 0xffffff, roughness: .83, vertexColors: true });
       weatherStone(floorMaterial);
       const stoneTiles = floor.tiles.filter(t=>!t.wood), bridgeTiles = floor.tiles.filter(t=>t.wood);
       // A corridor tile belongs to no room and used to take the keep's own grey wherever it ran, so a
@@ -737,19 +774,56 @@ export default function DungeonGame() {
       // nearest chamber's theme instead, which is the same rule the lighting uses to decide what to
       // put in the air above it, so the two agree about where one area ends.
       const themeOf=(x:number,z:number,room:number)=>{if(room>=0)return floor.rooms[room].theme;let best=Infinity,theme=floor.rooms[0].theme;for(const r of floor.rooms){const d=(r.x-x)**2+(r.z-z)**2;if(d<best){best=d;theme=r.theme;}}return theme;};
-      // A wider chamfer at the same segment count: the slab reads as cut stone rather than a box, and the
-      // extra form costs nothing, which the geometry budget will not allow any other way.
-      const tileGeometry=new RoundedBoxGeometry(1.45,.18,1.45,1,.06),foundationGeometry=new THREE.BoxGeometry(1.49,2.65,1.49);
+      // The slab itself, and the two damaged variants. Flat-shaded and built by hand rather than a
+      // smooth-chamfered rounded box: the rim now holds four distinct values under the key instead of a
+      // two-pixel gradient, and it costs eighteen triangles where the box cost a hundred and eight. The
+      // reasoning, and the measured values of the five faces, are over `pavingGeometry`.
+      const tileGeometry=pavingGeometry('plain'),grooveGeometry=pavingGeometry('groove'),dishGeometry=pavingGeometry('dish'),foundationGeometry=new THREE.BoxGeometry(1.49,2.65,1.49);
       // White, and coloured per instance instead: the submerged plinth is the tallest continuous run of
       // stone in any frame and it was one fixed teal under every theme, which made it one of the loudest
       // things holding the three areas together. Per-instance colour is a buffer, not a draw call.
       const foundationMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.9});weatherStone(foundationMaterial);
+      // One cell's worth of paving colour, shared by the plain batches and by both variant meshes so a
+      // damaged slab weathers like the one beside it. The jitter this replaces was `abs(x*7+z*3)%7`, and
+      // seven divides seven — the x term cancelled and the field was a function of z alone, so two rounds
+      // of "per-tile" albedo have been painting rows. Same mean and same spread as before; per cell now.
+      const tint=new THREE.Color();
+      const slabTint=(x:number,z:number,room:number)=>{
+        const mood=ROOM_MOOD[themeOf(x,z,room)];
+        const border=room>=0&&(Math.abs(x-floor.rooms[room].x)===floor.rooms[room].halfX-1||Math.abs(z-floor.rooms[room].z)===floor.rooms[room].halfZ-1);
+        const wear=tileHash(x,z,1),drift=tileHash(x,z,2);
+        tint.setHex(border?mood.border:mood.tile).multiplyScalar(.83+wear*.15).offsetHSL(drift<.5?.008:-.009,drift*.016-.008,0);
+        return {mood,wear};
+      };
+      const slabEuler=new THREE.Euler(),slabTurn=new THREE.Quaternion(),slabAt=new THREE.Vector3(),slabScale=new THREE.Vector3(1,1,1);
+      // A settled slab is the plain slab dropped four centimetres into its bed and left crooked, and it is
+      // the one damage variant that is free: an instance matrix is not a draw call. It only ever sinks —
+      // the tilt is small enough that no corner comes back up proud of its neighbours.
+      const seat=(x:number,z:number,settled:boolean)=>{
+        const spin=(Math.abs(x*13+z*7)%4)*Math.PI/2;
+        if(settled){slabEuler.set((tileHash(x,z,4)-.5)*.09,spin,(tileHash(x,z,5)-.5)*.09);matrix.compose(slabAt.set(x*TILE,-.126,z*TILE),slabTurn.setFromEuler(slabEuler),slabScale);}
+        else{matrix.makeRotationY(spin);matrix.setPosition(x*TILE,-.07,z*TILE);}
+        return matrix;
+      };
+      const variants:Record<'groove'|'dish',typeof stoneTiles>={groove:[],dish:[]};
       // Spatial batches let both the view and shadow camera reject distant carved paving.
       const paving=new Map<string,typeof stoneTiles>();for(const tile of stoneTiles){const key=`${Math.floor(tile.x/12)},${Math.floor(tile.z/12)}`;const batch=paving.get(key);if(batch)batch.push(tile);else paving.set(key,[tile]);}
       for(const local of paving.values()){
-        const tiles=new THREE.InstancedMesh(tileGeometry,floorMaterial,local.length),foundations=new THREE.InstancedMesh(foundationGeometry,foundationMaterial,local.length);
-        local.forEach(({x,z,room},i)=>{matrix.makeRotationY((Math.abs(x*13+z*7)%4)*Math.PI/2);matrix.setPosition(x*TILE,-.07,z*TILE);tiles.setMatrixAt(i,matrix);const mood=ROOM_MOOD[themeOf(x,z,room)];const border=room>=0&&(Math.abs(x-floor.rooms[room].x)===floor.rooms[room].halfX-1||Math.abs(z-floor.rooms[room].z)===floor.rooms[room].halfZ-1);const color=new THREE.Color(border?mood.border:mood.tile);const wear=Math.abs(x*7+z*3)%7,drift=Math.abs(x*5-z*11)%5;color.multiplyScalar(.83+wear*.025).offsetHSL(drift%2?.008:-.009,drift*.004-.008,0);tiles.setColorAt(i,color);matrix.makeTranslation(x*TILE,-1.485,z*TILE);foundations.setMatrixAt(i,matrix);foundations.setColorAt(i,color.setHex(mood.foundation).multiplyScalar(.86+wear*.04));});
+        const plain=local.filter(t=>{const kind=pavingKind(t.x,t.z);if(kind==='groove'||kind==='dish'){variants[kind].push(t);return false;}return true;});
+        const tiles=new THREE.InstancedMesh(tileGeometry,floorMaterial,plain.length),foundations=new THREE.InstancedMesh(foundationGeometry,foundationMaterial,local.length);
+        // Every cell keeps its plinth, including the ones whose slab is drawn by a variant mesh below.
+        local.forEach(({x,z,room},i)=>{const{mood,wear}=slabTint(x,z,room);matrix.makeTranslation(x*TILE,-1.485,z*TILE);foundations.setMatrixAt(i,matrix);foundations.setColorAt(i,tint.setHex(mood.foundation).multiplyScalar(.86+wear*.24));});
+        plain.forEach(({x,z,room},i)=>{slabTint(x,z,room);tiles.setColorAt(i,tint);tiles.setMatrixAt(i,seat(x,z,pavingKind(x,z)==='settled'));});
         foundations.receiveShadow=tiles.receiveShadow=true;floorGroup.add(foundations,tiles);
+      }
+      // One instanced draw each for the whole floor. Damage is scattered by a hash, so a variant batched
+      // by region would be a batch per region and the junction has eighteen calls of headroom, not sixty.
+      for(const [kind,geometry] of [['groove',grooveGeometry],['dish',dishGeometry]] as const){
+        const cells=variants[kind];
+        if(!cells.length){geometry.dispose();continue;}
+        const damaged=new THREE.InstancedMesh(geometry,floorMaterial,cells.length);
+        cells.forEach(({x,z,room},i)=>{slabTint(x,z,room);damaged.setColorAt(i,tint);damaged.setMatrixAt(i,seat(x,z,false));});
+        damaged.receiveShadow=true;floorGroup.add(damaged);
       }
       phase('tiles');
       const planks = new THREE.InstancedMesh(new THREE.BoxGeometry(1.43,.2,.34),new THREE.MeshStandardMaterial({color:0x665040,roughness:.95}),bridgeTiles.length*4);
@@ -788,9 +862,21 @@ export default function DungeonGame() {
         if (room.id === 0 || !['sanctuary', 'gauntlet'].includes(room.encounter)) continue;
         const shrine = room.encounter === 'sanctuary';
         for (const offset of shrine ? [0] : [-2.5, 0, 2.5]) {
-          const mesh = new THREE.Mesh(new THREE.RingGeometry(shrine ? .9 : 1.58, shrine ? 1.35 : 1.8, 48), new THREE.MeshBasicMaterial({ color: shrine ? 0x83ffd7 : 0xff6c28, transparent: true, opacity: .55, side: THREE.DoubleSide, depthWrite: false }));
-          mesh.rotation.x = -Math.PI / 2; mesh.position.set(room.x * TILE + offset, .08, room.z * TILE);
-          floorGroup.add(mesh); features.push({mesh, room: room.id, shrine, used: false, phase: 0, burned: false});
+          // The disc is whole now rather than an annulus, and the ring is drawn
+          // inside it by the fragment shader along with the light it throws on
+          // the paving: same draw call, same ninety-six triangles, and a grate
+          // that is part of the floor it is burning instead of a decal over it.
+          // It is additive for the same reason — a telegraph that can only ever
+          // darken the stone under it is the "flat black ellipse" the review saw.
+          const spread = shrine ? 1.9 : 3.25;
+          const skin = new THREE.MeshBasicMaterial({ color: shrine ? 0x83ffd7 : 0xff6c28, transparent: true, opacity: 1, side: THREE.DoubleSide, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
+          const glow = litDisc(skin, shrine ? 'shrine-disc-v1' : 'ember-disc-v1', shrine ? 4.2 : 2.0);
+          glow.edge.value = (shrine ? 1.125 : 1.69) / spread; glow.width.value = (shrine ? .26 : .13) / spread;
+          const mesh = new THREE.Mesh(new THREE.RingGeometry(0, spread, 48), skin);
+          // Clear of the grate bars, which top out at .10: the pool now reaches
+          // across them where the old ring sat outside their radius entirely.
+          mesh.rotation.x = -Math.PI / 2; mesh.position.set(room.x * TILE + offset, shrine ? .085 : .125, room.z * TILE); mesh.renderOrder = 2;
+          floorGroup.add(mesh); features.push({mesh, glow, room: room.id, shrine, used: false, phase: 0, burned: false});
           if (!shrine) {
             const grate = new THREE.Mesh(new THREE.CylinderGeometry(1.56,1.56,.035,32), new THREE.MeshStandardMaterial({color:0x241b17,metalness:.8,roughness:.65}));
             grate.position.copy(mesh.position); grate.position.y=.045; floorGroup.add(grate);
@@ -813,7 +899,11 @@ export default function DungeonGame() {
         stairSeal = new THREE.Mesh(new THREE.CylinderGeometry(1.16, 1.16, .05, 32), new THREE.MeshStandardMaterial({ color: 0x241b17, metalness: .8, roughness: .65 })); stairSeal.position.set(stairSpot.x, .1, stairSpot.z); floorGroup.add(stairSeal);
         // Open: light from below fills the shaft and a wide amber ring sits clear of the stone rim, so the change reads
         // from across the hall on every floor's lighting, not only the darkest.
-        stairGlow = new THREE.Mesh(new THREE.CircleGeometry(1.12, 32), new THREE.MeshBasicMaterial({ color: 0xffc573, transparent: true, opacity: .35, depthWrite: false })); stairGlow.rotation.x = -Math.PI / 2; stairGlow.position.set(stairSpot.x, .08, stairSpot.z); stairGlow.visible = false; stairGlow.renderOrder = 4; floorGroup.add(stairGlow);
+        // Wider than the shaft and soft to its rim: what comes up a stair is
+        // light, and a hard-edged disc exactly the size of the hole was a lid.
+        const shaftSkin = new THREE.MeshBasicMaterial({ color: 0xffc573, transparent: true, opacity: 1, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
+        stairLight = litDisc(shaftSkin, 'stair-shaft-v1', 2.2); stairLight.band.value = 0;
+        stairGlow = new THREE.Mesh(new THREE.CircleGeometry(2.05, 32), shaftSkin); stairGlow.rotation.x = -Math.PI / 2; stairGlow.position.set(stairSpot.x, .08, stairSpot.z); stairGlow.visible = false; stairGlow.renderOrder = 4; floorGroup.add(stairGlow);
         stairRing = new THREE.Mesh(new THREE.RingGeometry(1.5, 1.85, 48), new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: .85, side: THREE.DoubleSide, depthWrite: false })); stairRing.rotation.x = -Math.PI / 2; stairRing.position.set(stairSpot.x, .09, stairSpot.z); stairRing.visible = false; stairRing.renderOrder = 5; floorGroup.add(stairRing); }
       placeDrop(floor.weaponDrop.kind, floor.weaponDrop.x, floor.weaponDrop.z);
       phase('atmosphere');
@@ -1023,7 +1113,8 @@ export default function DungeonGame() {
       const dt = hitStop > 0 ? 0 : frameDt; hitStop = Math.max(0, hitStop - frameDt);
       // This, not the constructor, is the torch's real intensity — it is rewritten every frame. Raised to
       // hold the near field after the decay went from 1.9 to a physical 2 and the cutoff came off.
-      torchLights.forEach((l, i) => { l.intensity = 22 + Math.sin(t * 9 + i * 2.2) * 1.9 + Math.sin(t * 17) * 0.7; });
+      const torchFlicker = (i: number) => 22 + Math.sin(t * 9 + i * 2.2) * 1.9 + Math.sin(t * 17) * 0.7;
+      for (let i = 0; i < torchLights.length - 1; i++) torchLights[i].intensity = torchFlicker(i);
       if (water) water.position.y = -2.8 + Math.sin(t * 0.9) * 0.05;
       if (tide) tide.time.value=t;
       animateCloth(player.userData.cape,t,dashTime>0?.32:velocity.lengthSq()>0?.16:.045);
@@ -1092,7 +1183,8 @@ export default function DungeonGame() {
           if (stairRing) { stairRing.material.opacity = .75 + fill * .25 + pulse; stairRing.scale.setScalar(1 + fill * .15); }
           // The shaft stays dark until the knight stands on it, then fills with light as the dwell runs: the same
           // cue tells him the stair is his to take and how close he is to taking it.
-          if (stairGlow) stairGlow.material.opacity = .08 + fill * .7 + pulse * .3;
+          if (stairLight) stairLight.pool.value = .12 + fill * .74 + pulse * .3;
+          ember.bid(lampAt.set(stairSpot.x, .55, stairSpot.z), Math.hypot(player.position.x - stairSpot.x, player.position.z - stairSpot.z), 9 + fill * 19, 0xffb867);
           if (stairDwell >= STAIR_DWELL) descend();
         }
         if (gameStatus !== 'playing') return;
@@ -1101,15 +1193,36 @@ export default function DungeonGame() {
           if (feature.shrine) {
             const crystal = feature.mesh.userData.crystal as THREE.Mesh<THREE.OctahedronGeometry,THREE.MeshStandardMaterial>;
             crystal.rotation.y = t*.65; crystal.position.y = 1.25+Math.sin(t*2)*.12; crystal.material.emissiveIntensity = feature.used ? .15 : 2;
-            feature.mesh.material.opacity = feature.used ? .12 : .5 + Math.sin(t*3)*.2;
+            feature.glow.band.value = feature.used ? .12 : .5 + Math.sin(t*3)*.2;
+            // Emissive is a colour, not a lamp: the crystal was the brightest
+            // object in the sanctuary and the floor under it was as dark as the
+            // corridor outside. The pool is what the sanctuary frame was missing
+            // when the review found "no light source in frame at all".
+            feature.glow.pool.value = feature.used ? .05 : .19 + Math.sin(t*2)*.05;
+            // A standing light, so it bids low: any flare or blow outbids it, and
+            // in a sanctuary — where nothing else is happening — nothing does.
+            // Kept deliberately small. At 11.5 it lit the paving the knight was
+            // standing on as much as it lit him, and measured on the sanctuary
+            // frame his separation from the stone around him fell from 6.9 to
+            // 3.5 — a shrine that makes the knight harder to find is a worse
+            // frame however much better the shrine looks. At this strength the
+            // inverse square has the light spent by the time it reaches him.
+            if (!feature.used) ember.bid(crystal.position, near, 4.4 + Math.sin(t*2)*.7, 0x8ff2cf);
             if (!feature.used && near < 1.5 && run.hp < run.maxHp) { feature.used = true; heal(run, 35); setHealth(run.hp); audio.play('clear'); burst(player.position,0x83ffd7,20); setNotice('+35 vitality'); setNoticeDetail(''); noticeTime = 2; }
           } else {
             const wasFiring = feature.phase > 2.6;
             feature.phase = (t + feature.room*.7) % 3.6;
             if (!wasFiring && feature.phase > 2.6 && near < 20) { burst(feature.mesh.position, 0xff8c38, 16); audio.play('warn'); }
             const firing = feature.phase > 2.6;
-            feature.mesh.material.opacity = firing ? .85 : .12 + feature.phase*.14;
+            const charge = Math.min(1, feature.phase / 2.6);
+            feature.glow.band.value = firing ? .9 : .12 + charge*.37;
+            // The tiles warm as the grate charges and are flooded when it fires.
+            // This is the frame the review called out by name: three telegraphs
+            // that threw no light, so the one dramatic thing in the shot did not
+            // belong to the room it was burning.
+            feature.glow.pool.value = firing ? .44 + Math.sin(t*27)*.06 : charge**3 * .2;
             feature.mesh.material.color.setHex(firing ? 0xffe49c : 0xff6c28);
+            if (firing) ember.bid(lampAt.set(feature.mesh.position.x, .85, feature.mesh.position.z), near, 30 + Math.sin(t*31)*5, 0xff9330);
             // The flare itself throttles the burn — one tick per flare, cleared when the ring goes cold.
             // It used to be the 0.65s hurt timer doing this job, which is why a hazard tick also bought
             // more immunity than a sword: the two roles are now separate.
@@ -1269,6 +1382,8 @@ export default function DungeonGame() {
           const live = pools[i], burn = poolStep(live.pool, dt);
           live.pool.life = burn.life; live.pool.timer = burn.timer;
           live.mesh.material.opacity = Math.min(.7, live.pool.life * .5) * (.75 + Math.sin(t * 11) * .25);
+          // Burning silt is a fire on the floor and was lighting none of it.
+          ember.bid(lampAt.set(live.pool.x, .6, live.pool.z), Math.hypot(player.position.x - live.pool.x, player.position.z - live.pool.z), 13 * Math.min(1, live.pool.life), 0xff6a22);
           if (burn.bites) for (const enemy of enemyData) {
             if (enemy.dead || !enemy.awake || gameStatus !== 'playing') continue;
             if (!poolCatches(live.pool, enemy.group.position.x, enemy.group.position.z)) continue;
@@ -1344,7 +1459,9 @@ export default function DungeonGame() {
       hurtFlash = Math.max(0, hurtFlash - dt); shake = Math.max(0, shake - dt); tickRun(run, dt);
       atmosphere?.update(t,player.position,cleared);
       const nearest = [...(atmosphere?.torchPositions ?? [])].sort((a,b)=>a.distanceToSquared(player.position)-b.distanceToSquared(player.position));
-      torchLights.forEach((light,i)=>light.position.copy(nearest[i]));
+      // Three of the four go to their sconces. The fourth is settled below, once
+      // the accents have had their chance to ask for it.
+      for (let i = 0; i < torchLights.length - 1; i++) if (nearest[i]) torchLights[i].position.copy(nearest[i]);
       fill.position.copy(player.position).add(new THREE.Vector3(0,4,1));
       moveMood(1 - Math.exp(-6 * frameDt));
       playerRing.position.set(player.position.x,0.04,player.position.z); (playerRing.material as THREE.MeshBasicMaterial).opacity = dashTime > 0 ? 0.85 : 0.32;
@@ -1360,6 +1477,14 @@ export default function DungeonGame() {
       // frameDt, not dt: hit-stop must freeze the world, not the accents that mark
       // the blow which caused it. See impactEffects.update.
       impacts.update(frameDt,camera.quaternion);
+      // A blow lit nothing: the bloom and the shockwave were additive quads over
+      // an unchanged floor, so the loudest thing in the frame was also the only
+      // thing in it casting nothing. It bids last because it is the shortest —
+      // eleven frames — and because it is the one event that happens on top of
+      // the knight, where a light is worth most.
+      const lamp = impacts.lamp;
+      if (lamp) ember.bid(lampAt.set(lamp.at.x, .95, lamp.at.z), Math.hypot(lamp.at.x - player.position.x, lamp.at.z - player.position.z), (lamp.heavy ? 31 : 23) * lamp.glow, lamp.colour);
+      ember.settle(nearest[torchLights.length - 1], torchFlicker(torchLights.length - 1));
       // The hurt filter is reduced, not removed. Its discomfort is the brightness ramping across the whole
       // screen as the flash decays; its job is telling the player they were hit, which is gameplay. So the
       // tint stays for exactly as long, holds still, and drops the brightness change entirely.

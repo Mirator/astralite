@@ -209,9 +209,15 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const blocksByRegion=new Map<string,typeof blocks>();
   for(const b of blocks){const key=`${Math.floor(b.x/15)},${Math.floor(b.z/15)}`;const list=blocksByRegion.get(key);if(list)list.push(b);else blocksByRegion.set(key,[b]);}
   // Reused scratch objects: this loop runs tens of thousands of times on a deep floor.
-  const at=new THREE.Vector3(),spin=new THREE.Quaternion(),size=new THREE.Vector3(),tint=new THREE.Color();
+  const at=new THREE.Vector3(),spin=new THREE.Quaternion(),size=new THREE.Vector3(),tint=new THREE.Color(),settle=new THREE.Euler();
   for(const local of blocksByRegion.values()){const masonry=new THREE.InstancedMesh(geometry,wallMaterial,local.length);
-    local.forEach((b,i)=>{matrix.compose(at.set(b.x,b.y,b.z),spin,size.set(b.sx,b.sy,b.sz));masonry.setMatrixAt(i,matrix);masonry.setColorAt(i,tint.setHex(b.color).multiplyScalar(.78+random()*.44).offsetHSL(random()*.03-.015,random()*.05-.02,0));});masonry.castShadow=masonry.receiveShadow=true;world.add(masonry);
+    // Every block in the keep sat dead square, which is what made a wall read as one extrusion scored
+    // with lines rather than as blocks that have been sitting in water for a century: the running bond
+    // broke the grid along the course but every edge in the wall was still parallel to every other. A
+    // few hundredths of a radian of yaw and a hint of roll per block puts a broken line on the top of
+    // each course and a chipped corner on the skyline. It is composed into a quaternion this loop was
+    // already building from the identity, so it costs nothing at all — not a triangle, not a call.
+    local.forEach((b,i)=>{spin.setFromEuler(settle.set((random()-.5)*.055,(random()-.5)*.16,(random()-.5)*.055));matrix.compose(at.set(b.x,b.y,b.z),spin,size.set(b.sx,b.sy,b.sz));masonry.setMatrixAt(i,matrix);masonry.setColorAt(i,tint.setHex(b.color).multiplyScalar(.78+random()*.44).offsetHSL(random()*.03-.015,random()*.05-.02,0));});masonry.castShadow=masonry.receiveShadow=true;world.add(masonry);
   }
   // A span was the flattest thing in the keep: four boards over open water with a kerb and nothing else,
   // and both masonry passes skipped it because it belongs to no room. dd-ss-07 builds its jetty out of what

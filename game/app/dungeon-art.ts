@@ -103,6 +103,41 @@ export function vaultEnvironment() {
   return texture;
 }
 
+/**
+ * The ring of a gate, moulded. An arch is the most worked stone in any keep and ours was a half torus
+ * with a round section — a pale tube, carrying no information at any distance, which is exactly what the
+ * review said of it. This sweeps a cut profile round the same half circle instead: a flat soffit under
+ * the opening, a chamfer up to the face of the inner order, a reveal stepping back, the outer order
+ * proud of it, and a chamfered extrados. Every one of those is an edge the key light breaks on, and the
+ * whole of it is still one geometry on one instanced mesh — the cost is triangles, which this round has,
+ * and not a draw call, which it has not.
+ *
+ * Non-indexed on purpose: `computeVertexNormals` then gives each facet its own normal, so the steps stay
+ * steps instead of being smoothed into the tube we started with.
+ */
+function archivolt(span: number, segments = 20) {
+  // (radial offset from the centreline, offset through the wall). Counter-clockwise, closed.
+  const profile: [number, number][] = [
+    [-.19, -.17], [-.19, .17], [-.12, .26], [.00, .26], [.03, .18], [.09, .18],
+    [.16, .09], [.16, -.09], [.09, -.18], [.03, -.18], [.00, -.26], [-.12, -.26],
+  ];
+  const at = (i: number, k: number) => {
+    const angle = i / segments * Math.PI, [u, v] = profile[k % profile.length];
+    return [Math.cos(angle) * (span + u), Math.sin(angle) * (span + u), v];
+  };
+  const position: number[] = [];
+  for (let i = 0; i < segments; i++) {
+    for (let k = 0; k < profile.length; k++) {
+      const a = at(i, k), b = at(i, k + 1), c = at(i + 1, k + 1), d = at(i + 1, k);
+      position.push(...a, ...b, ...c, ...a, ...c, ...d);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(position), 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 // These are surface details and silhouettes on existing walls, never new obstacles.
 export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<typeof generateFloor>) {
   // Both of these carried a green of their own on top of the moss tint, in every room of the keep.
@@ -121,8 +156,24 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
   const foliage = new THREE.MeshStandardMaterial({ color: 0x52735b, roughness: .95, side: THREE.DoubleSide });
   const leafGeometry = new THREE.OctahedronGeometry(1);
   const box = new RoundedBoxGeometry(1, 1, 1, 1, .08);
-  const blocks: { x: number; y: number; z: number; sx: number; sy: number; sz: number; material: THREE.Material }[] = [];
-  const put = (x: number, y: number, z: number, sx: number, sy: number, sz: number, material = stone) => blocks.push({ x, y, z, sx, sy, sz, material });
+  const blocks: { x: number; y: number; z: number; sx: number; sy: number; sz: number; material: THREE.Material; turn: number }[] = [];
+  // `turn` is the whole of the turned work in the keep and it costs nothing at all. A batch already
+  // composes a quaternion per instance and was feeding it the identity; a drum rotated an eighth of a
+  // circle between two square courses reads as an octagon on a lathe at this distance, which is what the
+  // reference's balusters and newels actually are. The same field, at a fortieth of a radian, is what
+  // stops a course of ashlar reading as one extrusion: no two blocks share an edge line any more.
+  const put = (x: number, y: number, z: number, sx: number, sy: number, sz: number, material = stone, turn = 0) => blocks.push({ x, y, z, sx, sy, sz, material, turn });
+  /**
+   * A base and a cap instead of a box. Three courses — a spreading plinth, a chamfered drum turned an
+   * eighth of a circle, and a fillet the shaft stands on — read as a moulded pedestal from the only
+   * angle this camera has, and cost two instances of the geometry every block here already uses. `sign`
+   * points the spread away from the shaft: down for a base, up for a capital.
+   */
+  const moulding = (x: number, y: number, z: number, wide: number, course: number, sign: number, material = pale) => {
+    put(x, y, z, wide * .72, course, wide * .72, material);
+    put(x, y + sign * course * .95, z, wide * .62, course * .9, wide * .62, material, Math.PI / 4);
+    put(x, y + sign * course * 1.85, z, wide, course * .8, wide, material);
+  };
   // Props occupy holes in floor.tiles; they are interior floor, never perimeter walls.
   const cells = new Set([...floor.tiles, ...floor.props].map(t => `${t.x},${t.z}`));
   const owner = new Map<string, number>(); for (const t of floor.tiles) owner.set(`${t.x},${t.z}`, t.room);
@@ -174,11 +225,21 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
           // now start in the water at -2.45, run up the outside of the foundation and finish one course
           // proud of the kerb, which is the same four instances and therefore the same triangles: only the
           // part above the deck has changed at all, and that part has not moved.
-          const span = nh + 2.45;
-          put(tx, (nh - 2.45) / 2, tz, dz ? 1.24 : 1.0, span, dx ? 1.24 : 1.0);
-          put(tx + dx * .2, (nh - 2.45) / 2, tz + dz * .2, dz ? .86 : .44, span - .6, dx ? .86 : .44, pale);
+          // Every third counterfort carries a newel, and it is paid for by shortening the shaft rather
+          // than by building higher: `crown` is set so the top of the finial lands exactly where the
+          // flat cap used to, still inside `nh` and therefore still inside `headroom`. Nothing in the
+          // near field has risen a millimetre; it has only been cut.
+          const newel = (tile.x * 3 + tile.z * 7) % 3 === 0;
+          const crown = newel ? nh - .58 : nh;
+          const span = crown + 2.45;
+          put(tx, (crown - 2.45) / 2, tz, dz ? 1.24 : 1.0, span, dx ? 1.24 : 1.0);
+          put(tx + dx * .2, (crown - 2.45) / 2, tz + dz * .2, dz ? .86 : .44, span - .6, dx ? .86 : .44, pale);
           put(tx, -.14, tz, dz ? 1.5 : 1.22, .3, dx ? 1.5 : 1.22, pale);
-          put(tx, nh - .1, tz, 1.16, .26, 1.16, pale);
+          // A coping, not a lid: a chamfer course drawn in under an overhanging cap, so the top of the
+          // near wall throws a shadow line along itself instead of ending on one flat plane.
+          put(tx, crown - .18, tz, 1.06, .18, 1.06, pale);
+          put(tx, crown, tz, 1.26, .17, 1.26, pale);
+          if (newel) { put(tx, crown + .19, tz, .50, .24, .50, pale, Math.PI / 4); put(tx, crown + .38, tz, .58, .14, .58, pale); }
           continue;
         }
         // One continuous cornice and footing visually bind the separate masonry courses.
@@ -200,8 +261,14 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
         const h = room.theme === 'ruins' ? 3.1 : 4.6;
         put(tx, h / 2, tz, .64, h, .64);
         put(tx - dx * .14, h / 2, tz - dz * .14, dz ? .22 : .68, h - .5, dx ? .22 : .68, pale);
-        put(tx, h - .14, tz, .86, .23, .86, pale);
-        put(tx, .38, tz, .86, .22, .86, pale);
+        // Was a flat slab on top and a flat slab at the bottom — the two things the review meant by
+        // "flat-capped". A capital is a necking, a spreading echinus turned off square, and an abacus,
+        // and it is three instances of the block this batch already draws.
+        moulding(tx, h - .46, tz, .88, .15, 1);
+        // The base gets two courses rather than three: it is half-buried behind the kerb in most frames
+        // and the third was paying a full block for stone nobody can see.
+        put(tx, .48, tz, .70, .16, .70, pale, Math.PI / 4);
+        put(tx, .3, tz, .92, .2, .92, pale);
         if (room.theme === 'ruins') continue;
         // A narrow blind lancet, entirely inside the existing wall thickness.
         const recess = new THREE.Shape(); recess.moveTo(-.38, 0); recess.lineTo(.38, 0); recess.lineTo(.38, 1.05); recess.quadraticCurveTo(.3, 1.43, 0, 1.66); recess.quadraticCurveTo(-.3, 1.43, -.38, 1.05); recess.closePath();
@@ -227,7 +294,13 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
       if (cells.has(`${tile.x + dx},${tile.z + dz}`)) continue;
       const tx = (tile.x + dx * .62) * TILE, tz = (tile.z + dz * .62) * TILE;
       put(tx, -1.1, tz, dz ? 1.12 : .94, 2.7, dx ? 1.12 : .94);
-      put(tx, .14, tz, dz ? 1.32 : 1.1, .34, dx ? 1.32 : 1.1, pale);
+      // One .34 slab became a chamfer and an overhanging cap of the same total height, finishing at the
+      // same .31 the old one did — so the promise that nothing out here can ever be in front of anybody
+      // is untouched, and the longest continuous edge in the keep has a moulding on it instead of being
+      // the top of an extrusion. One extra instance per counterfort, no extra draw.
+      if ((tile.x * 5 + tile.z * 7) % 2) { put(tx, .14, tz, dz ? 1.32 : 1.1, .34, dx ? 1.32 : 1.1, pale); continue; }
+      put(tx, .06, tz, dz ? 1.22 : 1.02, .2, dx ? 1.22 : 1.02, pale);
+      put(tx, .22, tz, dz ? 1.4 : 1.16, .18, dx ? 1.4 : 1.16, pale);
     }
   }
   // The way through. The review's clearest single note was that nothing here spans overhead; dd-ss-01 and
@@ -239,7 +312,7 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
   // is held to `headroom` at 2.15 rather than the 1.05 the masonry takes: twice the clearance under his
   // feet, because an arch that crossed him would lose the round whatever else improved.
   const SPRING = 2.15, SPAN = .95;
-  const ringGeometry = new THREE.TorusGeometry(SPAN, .2, 5, 18, Math.PI), barGeometry = new THREE.BoxGeometry(1, 1, 1);
+  const ringGeometry = archivolt(SPAN), barGeometry = new THREE.BoxGeometry(1, 1, 1);
   const rings: { x: number; y: number; z: number; turn: boolean }[] = [];
   const bars: { x: number; y: number; z: number; sy: number }[] = [];
   for (const room of floor.rooms) {
@@ -285,10 +358,21 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
       for (const side of [-1, 1]) {
         const lx = gate.x + run[0] * SPAN * side, lz = gate.z + run[1] * SPAN * side;
         put(lx, (SPRING - 2.3) / 2, lz, .38, SPRING + 2.3, .38, pale);
-        put(lx, SPRING - .12, lz, run[0] ? .52 : .46, .26, run[1] ? .52 : .46, pale);
+        // The impost: the band the arch springs from, and the one course in a gate that a mason always
+        // moulds, because it is where the eye stops on the way up. A chamfered under-course, a drum
+        // turned off square, and a projecting fillet the ring lands on — three instances of the block
+        // geometry already in this batch, so it is triangles and not a call.
+        moulding(lx, SPRING - .33, lz, .60, .13, 1);
+        // Matching pedestal at the waterline, so the pier is not a shaft ending in air.
+        moulding(lx, -1.98, lz, .70, .15, -1);
       }
       rings.push({ x: gate.x, y: SPRING, z: gate.z, turn: gate.dx !== 0 });
-      put(gate.x, SPRING + SPAN + .14, gate.z, run[0] ? .8 : .46, .34, run[1] ? .8 : .46, pale);
+      // The keystone, chamfered. One flat slab across the crown was the single most box-like thing in the
+      // frame; this is a neck sunk into the extrados, a wedge above it and a weathered cap wider than
+      // both, which is the profile that reads as cut stone from directly above the arch.
+      put(gate.x, SPRING + SPAN + .06, gate.z, run[0] ? .40 : .34, .30, run[1] ? .40 : .34, pale);
+      put(gate.x, SPRING + SPAN + .26, gate.z, run[0] ? .58 : .44, .22, run[1] ? .58 : .44, pale);
+      put(gate.x, SPRING + SPAN + .40, gate.z, run[0] ? .74 : .52, .12, run[1] ? .74 : .52, pale);
       // Three bars in the lunette and none below them: what makes it read as a gate rather than a hoop,
       // clear of the lane he walks through, and twelve triangles apiece instead of a hundred and eight.
       for (const at of [-.46, 0, .46]) bars.push({ x: gate.x + run[0] * at * SPAN, y: SPRING, z: gate.z + run[1] * at * SPAN, sy: Math.sqrt(1 - at * at) * SPAN - .1 });
@@ -296,6 +380,7 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
   }
   // Spatial batches keep invisible wings out of both the view and shadow pass.
   const matrix = new THREE.Matrix4(), rotation = new THREE.Quaternion(), at = new THREE.Vector3(), scale = new THREE.Vector3();
+  const spin = new THREE.Euler();
   for (const material of [stone, pale, bronze]) {
     const regions = new Map<string, typeof blocks>();
     // Tightened from 18. An instanced batch is culled whole, so a region wide enough to hold a chamber and
@@ -306,7 +391,13 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
     for (const b of blocks) { if (b.material !== material) continue; const key = `${Math.floor(b.x / 17)},${Math.floor(b.z / 17)}`; const region = regions.get(key); if (region) region.push(b); else regions.set(key, [b]); }
     for (const local of regions.values()) {
       const batch = new THREE.InstancedMesh(box, material, local.length);
-      local.forEach((b, i) => { matrix.compose(at.set(b.x, b.y, b.z), rotation, scale.set(b.sx, b.sy, b.sz)); batch.setMatrixAt(i, matrix); });
+      // Settle as well as turn: an eighth of a circle where a moulding asked for one, and otherwise a
+      // deterministic hair off square taken from the block's own position, so a run of coursework has no
+      // two edges in line. Free — the quaternion is composed either way.
+      local.forEach((b, i) => {
+        rotation.setFromEuler(spin.set(0, b.turn || Math.abs((b.x * 12.9898 + b.z * 78.233) % 1) * .05 - .025, 0));
+        matrix.compose(at.set(b.x, b.y, b.z), rotation, scale.set(b.sx, b.sy, b.sz)); batch.setMatrixAt(i, matrix);
+      });
       batch.castShadow = batch.receiveShadow = true; world.add(batch);
     }
   }
@@ -320,3 +411,147 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
     world.add(grille);
   } else { ringGeometry.dispose(); barGeometry.dispose(); }
 }
+
+/* -------------------------------------------------------------------- paving
+ *
+ * Two rounds of this floor were spent on albedo — a per-instance tint, then a
+ * rotated hashed noise field — and a blind review looked at both and said the
+ * plane was still flat. Two things were wrong with that, and only one of them
+ * was the shader.
+ *
+ * The first is arithmetic. The per-tile "jitter" was `abs(x * 7 + z * 3) % 7`,
+ * and seven divides seven: the x term vanishes and every tile in a row gets the
+ * same value. The companion field, `abs(x * 5 - z * 11) % 5`, loses its x term
+ * the same way. So the floor has never had per-tile variation at all — it has
+ * had horizontal bands, which on an isometric grid read as nothing. `tileHash`
+ * below is a real integer hash, and it is the whole of that fix.
+ *
+ * The second is that albedo was the wrong tool. A slab at this camera is lit by
+ * one key at a fixed angle, so the only thing that can give a tile its own
+ * light is a face pointing somewhere new — and the slab had none. It was a
+ * `RoundedBoxGeometry`, whose chamfer is *smooth*-shaded: the normal sweeps
+ * from up to sideways across six centimetres of stone, which resolves to a
+ * two-pixel gradient and reads as a soft edge on a painted plane.
+ *
+ * `pavingGeometry` builds the slab by hand instead, every facet flat. Against
+ * the moon at (-7, 12, 9) the five faces of the plain tile land on
+ *
+ *   top .73 | -x lip .81 | +z lip .90 | +x fall .21 | -z fall .13
+ *
+ * — a seven-fold spread inside one tile, repeated identically on every tile
+ * because the instance spin is a multiple of a quarter turn. That is the bright
+ * lip and the dark shadow line, and it is the same every frame because it is
+ * geometry rather than noise.
+ *
+ * It is also cheaper: eighteen triangles against the rounded box's hundred and
+ * eight, which is what pays for the damaged variants and then some.
+ */
+
+/** A stable value in [0,1) for a grid cell. Seeded from position, so it never moves. */
+export const tileHash = (x: number, z: number, salt = 0) => {
+  let h = Math.imul(x | 0, 0x27d4eb2d) ^ Math.imul(z | 0, 0x165667b1) ^ Math.imul(salt + 1, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+};
+
+/**
+ * Slab footprint. Five centimetres narrower than the 1.48 grid pitch, against
+ * three before: the joint is the only part of the floor the key never reaches,
+ * and widening it is the cheapest dark line available.
+ */
+const SLAB = 1.43;
+/** Top face, underside, and the width of the lit lip around the rim. */
+const TOP = .09, BASE = -.09, LIP = .075;
+
+type Corner = [number, number, number];
+
+/** Vertex buffers under construction. */
+type Slab = { position: number[]; normal: number[]; uv: number[]; color: number[] };
+
+/**
+ * One flat-shaded facet, wound so `a b c` faces out. Three corners or four, one normal, and one
+ * baked shade: the joint between two slabs is the only place on the floor no light of any kind
+ * reaches, and darkening it is what turns a seam into a seam. It rides a vertex colour rather than
+ * a second material, so it multiplies into the per-instance tint and costs neither a draw call nor
+ * a triangle. There is no term in the lighting that would find it otherwise — the key is one
+ * direction and a two-centimetre slot has no way to occlude itself against it.
+ */
+const facet = (slab: Slab, shade: number, a: Corner, b: Corner, c: Corner, d?: Corner) => {
+  const nx = (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]);
+  const ny = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]);
+  const nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const len = Math.hypot(nx, ny, nz) || 1;
+  for (const p of d ? [a, b, c, a, c, d] : [a, b, c]) {
+    slab.position.push(p[0], p[1], p[2]);
+    slab.normal.push(nx / len, ny / len, nz / len);
+    slab.color.push(shade, shade, shade);
+    // Planar from above for every face. The rim and the sides are a few centimetres
+    // tall and take a stretched slice of the stone map, which is what they should:
+    // the grain runs over the edge of a cut block rather than wrapping around it.
+    slab.uv.push(p[0] / SLAB + .5, p[2] / SLAB + .5);
+  }
+};
+
+/** Turns a +z-side facet a quarter turn at a time, so all four rims are built from one description. */
+const ring = (slab: Slab, shade: number, quad: Corner[]) => {
+  for (let turn = 0; turn < 4; turn++) {
+    const cos = [1, 0, -1, 0][turn], sin = [0, 1, 0, -1][turn];
+    const spun = quad.map(([x, y, z]) => [x * cos + z * sin, y, z * cos - x * sin] as Corner);
+    facet(slab, shade, spun[0], spun[1], spun[2], spun[3]);
+  }
+};
+
+/** How much light the joint and the hollows keep. */
+const JOINT = .52, HOLLOW = .84;
+
+/**
+ * `plain` is the paving. `groove` is a slab split by a fissure and `dish` one
+ * worn hollow, both at twenty-six triangles, and both are a *shape* rather than
+ * a stain — the fissure puts its two walls at the brightest and the darkest
+ * angle the key offers, side by side, so a cracked tile carries a hard light
+ * line against a hard dark one that no amount of albedo can imitate.
+ */
+export const pavingGeometry = (kind: 'plain' | 'groove' | 'dish' = 'plain') => {
+  const slab: Slab = { position: [], normal: [], uv: [], color: [] };
+  const half = SLAB / 2, inner = half - LIP, shoulder = TOP - LIP;
+  // The rim, mitred at the corners so the four trapezoids close on each other.
+  ring(slab, 1, [[-inner, TOP, inner], [-half, shoulder, half], [half, shoulder, half], [inner, TOP, inner]]);
+  // The skirt down into the joint. What the lens actually sees of a neighbour across the gap.
+  ring(slab, JOINT, [[-half, shoulder, half], [-half, BASE, half], [half, BASE, half], [half, shoulder, half]]);
+  if (kind === 'groove') {
+    const gap = .072;
+    for (const side of [1, -1]) facet(slab, 1,
+      [-inner * side, TOP, inner * side], [inner * side, TOP, inner * side], [inner * side, TOP, gap * side], [-inner * side, TOP, gap * side]);
+    // The two walls of the fissure: one turned into the key, one away from it.
+    facet(slab, HOLLOW, [-inner, TOP, gap], [inner, TOP, gap], [inner, TOP - gap, 0], [-inner, TOP - gap, 0]);
+    facet(slab, HOLLOW, [-inner, TOP - gap, 0], [inner, TOP - gap, 0], [inner, TOP, -gap], [-inner, TOP, -gap]);
+    // Ends, where the fissure runs out into the rim.
+    for (const side of [1, -1]) facet(slab, HOLLOW,
+      [inner * side, TOP, gap * side], [inner * side, TOP - gap, 0], [inner * side, TOP, -gap * side]);
+  } else if (kind === 'dish') {
+    const sink = .085, bed = inner - sink;
+    ring(slab, HOLLOW, [[-bed, TOP - sink, bed], [-inner, TOP, inner], [inner, TOP, inner], [bed, TOP - sink, bed]]);
+    facet(slab, HOLLOW, [-bed, TOP - sink, bed], [bed, TOP - sink, bed], [bed, TOP - sink, -bed], [-bed, TOP - sink, -bed]);
+  } else {
+    facet(slab, 1, [-inner, TOP, inner], [inner, TOP, inner], [inner, TOP, -inner], [-inner, TOP, -inner]);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(slab.position, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(slab.normal, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(slab.uv, 2));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(slab.color, 3));
+  geometry.computeBoundingSphere();
+  return geometry;
+};
+
+/**
+ * Which slab a cell gets. Roughly one in six is damaged, and the two that need
+ * their own geometry cost one instanced draw each for the whole floor — the
+ * third is the same plain slab set into its bed a little crooked, which costs
+ * nothing at all because a matrix is not a draw call.
+ */
+export const pavingKind = (x: number, z: number) => {
+  const roll = tileHash(x, z, 3);
+  return roll < .055 ? 'groove' : roll < .105 ? 'dish' : roll < .165 ? 'settled' : 'plain';
+};

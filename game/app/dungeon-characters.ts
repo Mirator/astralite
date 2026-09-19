@@ -167,7 +167,11 @@ export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Gr
   const shadow = new THREE.MeshStandardMaterial({ color: 0x101b1c, roughness: 1 });
   // The guard's tabard was brown and the warden's a muted wine, which put both of them in the knight's own
   // hue family. Everything the enemies wear is cold now; the warm half of the wheel belongs to him alone.
-  const clothMaterial = new THREE.MeshStandardMaterial({ color: warden ? 0x2b3a4a : stalker ? 0x334b43 : 0x3d4a48, roughness: 1, side: THREE.DoubleSide });
+  //
+  // The warden's was then a dark navy, which is the knight's iron to within six units of Lab. It turns to
+  // the drowned green the guard and the stalker already wear, at the same value, so the tabard stops
+  // pulling the warden's torso back into the knight's hue while he keeps his weight.
+  const clothMaterial = new THREE.MeshStandardMaterial({ color: warden ? 0x2a3a33 : stalker ? 0x334b43 : 0x3d4a48, roughness: 1, side: THREE.DoubleSide });
   for (const s of [-1, 1]) {
     add(skull, joint, shadow, [s * .105, .045, -.223], [.1, .083, .026]);
     add(skull, box, bone, [s * .14, -.092, -.19], [.1, .11, .1], [0, 0, s * .24]);
