@@ -11,6 +11,77 @@ const clothShape = new THREE.Shape();
 clothShape.moveTo(-.5, .5); clothShape.lineTo(.5, .5); clothShape.lineTo(.43, -.42); clothShape.lineTo(.15, -.33); clothShape.lineTo(0, -.5); clothShape.lineTo(-.18, -.36); clothShape.lineTo(-.4, -.45); clothShape.closePath();
 const cloth = new THREE.ShapeGeometry(clothShape);
 const cache = new Map<string, THREE.BufferGeometry>();
+
+// Every character in the reference sits in a soft pool of its own; ours sat on top of the paving with
+// nothing between the boots and the stone, which is why the knight reads as a sprite pasted over the
+// floor in the dash strip. The moon already casts a real shadow, but it is long, offset by most of a
+// tile and regularly thrown behind the near-side structure the verticality pass put in — it says where
+// the light is, not where the feet are. This is the other half: a small dark pool directly under the
+// figure, one draw call each.
+//
+// It multiplies the frame rather than veiling it in black, so the paving keeps its hue and a torch pool
+// under a figure is dimmed instead of being punched out. Multiply takes its strength from the texel and
+// not from `opacity`, so each strength is its own 32px gradient; there are two of them.
+const shadowTextures = new Map<number, THREE.DataTexture>();
+function shadowFalloff(strength: number) {
+  const key = Math.round(strength * 100);
+  let texture = shadowTextures.get(key);
+  if (!texture) {
+    const size = 32, mid = (size - 1) / 2, data = new Uint8Array(size * size * 4);
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      // Squared falloff twice over: solid under the boots, and nothing at the rim that reads as an edge.
+      const t = Math.min(1, Math.hypot(x - mid, y - mid) / mid), k = (1 - t * t) ** 2;
+      const v = Math.round(255 * (1 - strength * k)), i = (y * size + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = v; data[i + 3] = 255;
+    }
+    texture = new THREE.DataTexture(data, size, size);
+    // Declared sRGB so the decode on the way in and the encode on the way out cancel: the texel is the
+    // multiplier, and 0.45 in the table is 0.45 on the floor.
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = texture.magFilter = THREE.LinearFilter;
+    texture.needsUpdate = true; shadowTextures.set(key, texture);
+  }
+  return texture;
+}
+const shadowDisc = new THREE.CircleGeometry(1, 24);
+shadowDisc.rotateX(-Math.PI / 2);
+shadowDisc.userData.shared = true;
+// The moon sits at a fixed offset from whoever it is lighting, so its direction never changes and the
+// pool can lean the same way in every room: down-light from (-7, 12, 9) puts the contact at +x, -z.
+const SHADOW_LEAN = [.15, -.19];
+
+/**
+ * A grounding pool for one character. It is parented to the actor so it is culled and disposed with it,
+ * but it refuses the actor's transform: the knight bobs, pitches into a dash and is thrown by hit-stop,
+ * and a shadow that bobs with him is worse than none. `onBeforeRender` runs before the renderer builds
+ * the model-view matrix, so writing the world matrix there pins the pool flat on the floor at the
+ * actor's x and z whatever the actor is doing above it. The actor's scale is refused with the rest of
+ * it — the warden is drawn at 1.3 and his pool is sized here instead — and the height is the floor's,
+ * not the actor's, which holds for every room the generator can build because it lays standable cells
+ * at one level only. A figure ever put on a ledge would need that y to come from under him.
+ */
+export function contactShadow(radius: number, strength: number) {
+  const mesh = new THREE.Mesh(shadowDisc, new THREE.MeshBasicMaterial({
+    // Opacity is always 1 here, so premultiplied is a formality — but three refuses MultiplyBlending
+    // without it, loudly, on every program it compiles.
+    map: shadowFalloff(strength), blending: THREE.MultiplyBlending, transparent: true,
+    premultipliedAlpha: true, depthWrite: false, toneMapped: false,
+  }));
+  mesh.matrixAutoUpdate = mesh.matrixWorldAutoUpdate = false;
+  mesh.frustumCulled = false; mesh.renderOrder = 3;
+  mesh.castShadow = mesh.receiveShadow = false;
+  mesh.onBeforeRender = () => {
+    const parent = mesh.parent?.matrixWorld.elements;
+    if (!parent) return;
+    mesh.matrixWorld.set(
+      radius, 0, 0, parent[12] + SHADOW_LEAN[0],
+      0, 1, 0, .028,
+      0, 0, radius, parent[14] + SHADOW_LEAN[1],
+      0, 0, 0, 1,
+    );
+  };
+  return mesh;
+}
 type Palette = { steel: THREE.Material; iron: THREE.Material; brass: THREE.Material; red: THREE.Material; leather: THREE.Material; shadow: THREE.Material };
 
 // Bake static trim per joint/material once per character type. The animated joints
@@ -51,6 +122,11 @@ export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; arm:
       add(rig.torso, box, i === 0 ? m.steel : m.iron, [side * (.4 + i * .02), .5 - i * .08, -.01], [.4 - i * .025, .1, .43], [0, 0, side * -.16]);
       add(rig.torso, joint, m.brass, [side * (.39 + i * .022), .505 - i * .08, -.24], [.028, .028, .016]);
     }
+    // A gold rim along the top edge of the top pauldron. The camera is isometric and spends most of its
+    // pixels on a figure's upward faces, and before this the only thing up there was grey plate and three
+    // rivets: the accent was all on the back of him, where a cape is. One extra piece per side, merged
+    // into the brass batch that was already being drawn, so it is free.
+    add(rig.torso, box, m.brass, [side * .405, .552, -.196], [.39, .036, .075], [0, 0, side * -.16]);
     add(rig.torso, box, m.brass, [side * .19, .3, -.329], [.17, .024, .018], [0, 0, side * -.42]);
     add(rig.torso, box, m.leather, [side * .22, .18, -.337], [.048, .31, .022], [0, 0, side * .22]);
   }
@@ -73,11 +149,16 @@ export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; arm:
   for (let i = 0; i < positions.count; i++) {
     const x = positions.getX(i), y = positions.getY(i);
     const free=-y/.98,border=Math.abs(x)>(.37+free*.15)*.9||free>.94;
-    const sigil=free>.2&&free<.58&&(Math.abs(x)<.04||Math.abs(free-.34)<.055&&Math.abs(x)<.16);
-    const color = new THREE.Color(border || sigil ? 0xf3c46d : 0xc9202e); colours.push(color.r, color.g, color.b);
+    // The old device was a cross bar and a stem, laid on a grid nine vertices wide. Interpolated across
+    // the triangles it never resolved into anything: in the strike strip it is a cream smear in the
+    // middle of the cape, and a smear is the one thing on the knight a player has to read past. A single
+    // gold seam running the length of the cloth reads as a seam at every size, and keeps the same bright
+    // area on the figure.
+    const seam=Math.abs(x)<(.37+free*.15)*.12&&free>.14&&free<.9;
+    const color = new THREE.Color(border || seam ? 0xf3c46d : 0xcb2130); colours.push(color.r, color.g, color.b);
   }
   rig.cape.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
-  rig.cape.material = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .95, emissive: 0x2a0a08, side: THREE.DoubleSide });
+  rig.cape.material = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .95, emissive: 0x330c09, side: THREE.DoubleSide });
   finish();
 }
 
@@ -86,7 +167,11 @@ export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Gr
   const shadow = new THREE.MeshStandardMaterial({ color: 0x101b1c, roughness: 1 });
   // The guard's tabard was brown and the warden's a muted wine, which put both of them in the knight's own
   // hue family. Everything the enemies wear is cold now; the warm half of the wheel belongs to him alone.
-  const clothMaterial = new THREE.MeshStandardMaterial({ color: warden ? 0x2b3a4a : stalker ? 0x334b43 : 0x3d4a48, roughness: 1, side: THREE.DoubleSide });
+  //
+  // The warden's was then a dark navy, which is the knight's iron to within six units of Lab. It turns to
+  // the drowned green the guard and the stalker already wear, at the same value, so the tabard stops
+  // pulling the warden's torso back into the knight's hue while he keeps his weight.
+  const clothMaterial = new THREE.MeshStandardMaterial({ color: warden ? 0x2a3a33 : stalker ? 0x334b43 : 0x3d4a48, roughness: 1, side: THREE.DoubleSide });
   for (const s of [-1, 1]) {
     add(skull, joint, shadow, [s * .105, .045, -.223], [.1, .083, .026]);
     add(skull, box, bone, [s * .14, -.092, -.19], [.1, .11, .1], [0, 0, s * .24]);

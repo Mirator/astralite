@@ -3,6 +3,15 @@ import * as THREE from 'three';
 // World-space currents stay the same size across differently sized generated floors. `shoal` carries the
 // keep's footprint — centre in xy, half-extent in zw — so depth can be read off the distance outside it.
 // That buys an open-water gradient without a second texture or a subdivided plane.
+/**
+ * How much of its own colour the water is allowed in the chamber the knight is standing in. The tide
+ * runs under the whole keep, so a single luminous green plane was a second hue family arriving in
+ * every frame regardless of the room's own. Full strength where the flood is the theme; pulled down
+ * and toward slate everywhere else, where its job is to be the dark the rest of the frame reads
+ * against. Shared with `stoneMood` in being one object every water material holds by reference.
+ */
+export const tideMood = { value: new THREE.Vector3(1, 1, 1) };
+
 export function tidalMaterial(shallows = new THREE.Vector4(0, 0, 12, 12)) {
   const time = { value: 0 };
   const shoal = { value: shallows };
@@ -10,9 +19,10 @@ export function tidalMaterial(shallows = new THREE.Vector4(0, 0, 12, 12)) {
   material.onBeforeCompile = shader => {
     shader.uniforms.tideTime = time;
     shader.uniforms.tideShoal = shoal;
+    shader.uniforms.tideMood = tideMood;
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 tideWorld;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\ntideWorld = (modelMatrix * vec4(position, 1.0)).xyz;');
-    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform float tideTime;\nuniform vec4 tideShoal;\nvarying vec3 tideWorld;')
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform float tideTime;\nuniform vec4 tideShoal;\nuniform vec3 tideMood;\nvarying vec3 tideWorld;')
       .replace('#include <color_fragment>', `#include <color_fragment>
         vec2 p = tideWorld.xz;
         float swell = sin(p.x * 1.7 + p.y * 1.1 + tideTime * 0.85);
@@ -30,6 +40,7 @@ export function tidalMaterial(shallows = new THREE.Vector4(0, 0, 12, 12)) {
         // Shallows over drowned paving stay light and green; open water falls away to near black, which
         // is what finally gives the frame somewhere dark to put the rest of its value range.
         diffuseColor.rgb = mix(diffuseColor.rgb * vec3(1.42, 1.34, 1.08), diffuseColor.rgb * vec3(.30, .43, .54), deep);
+        diffuseColor.rgb *= tideMood;
       `)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
         vec2 waveSlope = vec2(
@@ -38,7 +49,7 @@ export function tidalMaterial(shallows = new THREE.Vector4(0, 0, 12, 12)) {
         normal = normalize(normal + mat3(viewMatrix) * vec3(waveSlope.x, 0.0, waveSlope.y));
       `);
   };
-  material.customProgramCacheKey = () => 'tidal-currents-v4';
+  material.customProgramCacheKey = () => 'tidal-currents-v5';
   return { material, time, shoal };
 }
 
@@ -78,8 +89,30 @@ const STONE_NOISE = `
   }
 `;
 
+/**
+ * The keep's stone weathers the same way everywhere, but it does not have to weather the same *colour*
+ * everywhere, and it was the moss tint below — one fixed green, multiplied into every slab, block,
+ * kerb and column on the floor — that pulled three themes back into one. These are the four tints the
+ * shader used to hold as constants, hoisted into uniforms shared by every weathered material in the
+ * keep, so the lighting can hand the whole floor the mood of the chamber the knight is standing in and
+ * slide it to the next one as he crosses. Shared objects, not copies: one write moves every surface.
+ */
+export const stoneMood = {
+  moss: { value: new THREE.Vector3(.58, .82, .62) },
+  mossAmount: { value: .4 },
+  warm: { value: new THREE.Vector3(1.13, 1.04, .88) },
+  cool: { value: new THREE.Vector3(.82, .92, .99) },
+  // What the light leaves on the top of a tall thing; see the crown term in the shader below.
+  crown: { value: new THREE.Vector3(1.04, 1.12, 1.06) },
+};
+
 export function weatherStone(material: THREE.MeshStandardMaterial, firelit = false) {
   material.onBeforeCompile = shader => {
+    shader.uniforms.stoneMoss = stoneMood.moss;
+    shader.uniforms.stoneMossAmount = stoneMood.mossAmount;
+    shader.uniforms.stoneWarm = stoneMood.warm;
+    shader.uniforms.stoneCool = stoneMood.cool;
+    shader.uniforms.stoneCrown = stoneMood.crown;
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 stoneWorld;')
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         vec4 stonePosition = vec4(position, 1.0);
@@ -88,7 +121,7 @@ export function weatherStone(material: THREE.MeshStandardMaterial, firelit = fal
         #endif
         stoneWorld = (modelMatrix * stonePosition).xyz;
       `);
-    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 stoneWorld;\n' + STONE_NOISE)
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec3 stoneWorld;\nuniform vec3 stoneMoss;\nuniform float stoneMossAmount;\nuniform vec3 stoneWarm;\nuniform vec3 stoneCool;\nuniform vec3 stoneCrown;\n' + STONE_NOISE)
       .replace('#include <color_fragment>', `#include <color_fragment>
         vec2 p = stoneWorld.xz;
         // Two independent fields so value and staining are not the same shape. The weave runs about six
@@ -119,12 +152,23 @@ export function weatherStone(material: THREE.MeshStandardMaterial, firelit = fal
         diffuseColor.rgb *= (.80 + mottle * .30 + grit * .08) * (1.0 + wear * .16) * (1.0 - wetStone * .30);
         diffuseColor.rgb *= 1.0 - crack * .30;
         // Then temperature, split about zero: dry dust warms the high ground, damp cools the hollows.
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.13, 1.04, .88), max(0.0, mottle) * .42);
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(.82, .92, .99), max(0.0, -mottle) * .42);
-        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(.66, .82, .60), moss * .34);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * stoneWarm, max(0.0, mottle) * .42);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * stoneCool, max(0.0, -mottle) * .42);
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * stoneMoss, moss * stoneMossAmount);
         diffuseColor.rgb *= 1.0 - tideMark * .26;
         // Everything falls off toward the waterline, where no light reaches.
         diffuseColor.rgb *= .86 + .14 * smoothstep(-2.8, .5, stoneWorld.y);
+        // And keeps climbing above it. The verticality pass stood piers, buttresses and near-side
+        // masonry four to six metres tall and every one came out as a single dark slab, because the
+        // old gradient had already saturated by half a metre: the top of a six-metre pier was lit
+        // exactly like its footing. Stone that tall does not read that way — the higher it stands the
+        // less of the room is between it and the sky, and its top course is where the key breaks
+        // first. So the climb continues to roof height, gaining value and taking the chamber's own
+        // crown tint with it, which is what turns a slab into a lit face with a shadowed one beside
+        // it without costing a triangle or a second light.
+        float crown = smoothstep(.45, 5.4, stoneWorld.y);
+        diffuseColor.rgb *= 1.0 + crown * .2;
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * stoneCrown, crown);
         ${firelit ? `
         // A brazier bowl stands directly under a fire. It takes a warm bounce up its inside lip and
         // falls away to almost nothing at the foot, rather than being one value from base to rim.
@@ -143,7 +187,7 @@ export function weatherStone(material: THREE.MeshStandardMaterial, firelit = fal
       `);
   };
   // The two variants compile to different fragment shaders, so they must not share a cache entry.
-  material.customProgramCacheKey = () => (firelit ? 'weathered-stone-v5-firelit' : 'weathered-stone-v5');
+  material.customProgramCacheKey = () => (firelit ? 'weathered-stone-v6-firelit' : 'weathered-stone-v6');
 }
 
 // One instanced shoreline draw, with soft broken foam rather than a bright outline of the grid.

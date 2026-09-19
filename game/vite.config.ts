@@ -35,6 +35,21 @@ const localBindingConfig = {
 };
 
 export default defineConfig(async () => {
+  // Dependency pre-bundling is cached under `node_modules/.vite`. That is fine
+  // for one checkout and wrong for several: parallel worktrees here share one
+  // installed `node_modules` through a junction, so two dev servers re-optimise
+  // the same cache out from under each other and the loser starts answering
+  // 500s mid-run. Keying the cache on the port each server was given puts every
+  // checkout in its own directory; a lone developer, who sets nothing, keeps the
+  // default path.
+  // It has to stay INSIDE node_modules. Vite classifies an optimised dependency
+  // by where it sits, so a cache at the project root sends the already-ESM
+  // prebundle back through CommonJS interop, which appends a second
+  // `export default` and the server dies before it serves a byte.
+  const cacheDir = process.env.GAME_TEST_PORT
+    ? `node_modules/.vite-${process.env.GAME_TEST_PORT}`
+    : undefined;
+
   // Keep Wrangler and Miniflare state project-local. These are non-secret tool
   // settings; application environment belongs in ignored `.env*` files.
   process.env.WRANGLER_WRITE_LOGS ??= 'false';
@@ -45,6 +60,8 @@ export default defineConfig(async () => {
   const { cloudflare } = await import('@cloudflare/vite-plugin');
 
   return {
+
+    ...(cacheDir ? { cacheDir } : {}),
     css: { postcss: { plugins: [tailwindcss()] } },
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }

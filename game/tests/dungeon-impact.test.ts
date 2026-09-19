@@ -44,3 +44,27 @@ test('the crescent is one per swing, freezes on a redrawn frame, and expires', (
   assert.ok(crescents.every(mesh => !mesh.visible), 'clear left a crescent on screen');
   effects.dispose();
 });
+
+// The crescent is no longer a wedge held at one brightness while it fades: a
+// uniform carries the lit stretch of the ring round as the accent ages, which is
+// what keeps the bright part off the body it was drawn for. If that uniform ever
+// stops advancing, the arc goes back to being a wash and nothing else notices.
+test('the crescent carries its lit edge round the ring as it ages', () => {
+  const effects = impactEffects(1), camera = new THREE.Quaternion();
+  const crescent = effects.group.children.slice(2)[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+  const shader = { vertexShader: '#include <common>\n#include <begin_vertex>', fragmentShader: '#include <common>\n#include <color_fragment>', uniforms: {} as Record<string, { value: number }> };
+  crescent.material.onBeforeCompile?.(shader as never, null as never);
+  const sweep = shader.uniforms.hitSweep;
+  assert.ok(sweep, 'the crescent shader lost its sweep uniform');
+  assert.ok(shader.fragmentShader.includes('uniform float hitSweep;'), 'the sweep was never declared');
+  effects.arc({ x: 0, z: 0 }, 0, 1.8);
+  assert.equal(sweep.value, 0, 'a fresh crescent did not start at the head of its own sweep');
+  effects.update(0.09, camera);
+  const halfway = sweep.value;
+  assert.ok(halfway > 0.4 && halfway < 0.6, `the sweep was at ${halfway} halfway through the crescent's life`);
+  effects.update(0, camera);
+  assert.equal(sweep.value, halfway, 'a redrawn frame advanced the sweep');
+  effects.update(0.2, camera);
+  assert.equal(sweep.value, 1, 'the sweep did not finish with the crescent');
+  effects.dispose();
+});
