@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { vaultEnvironment } from './dungeon-art';
-import { enemyDetails, knightDetails } from './dungeon-characters';
+import { ROOM_MOOD, vaultEnvironment } from './dungeon-art';
+import { contactShadow, enemyDetails, knightDetails } from './dungeon-characters';
 import { impactEffects } from './dungeon-impact';
 import { playerCloakGeometry } from './dungeon-cloak';
 import { advanceDeath, startDeath, type DeathAnimation } from './dungeon-death';
 import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
 import { createDungeonAudio } from './dungeon-audio';
-import { animateCloth, tidalMaterial, weatherStone } from './dungeon-motion';
+import { animateCloth, stoneMood, tideMood, tidalMaterial, weatherStone } from './dungeon-motion';
 import { canStand, generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { canAbortSwing, DASH_BUFFER, swordContacts } from './dungeon-combat';
 import { decideEnemy, enemyStats, hitCooldown, interruptsWindup, separateCrowd } from './dungeon-enemy';
@@ -71,15 +71,28 @@ function makeKnight() {
   // the darkest thing everywhere vanishes on the mandala and one pitched to be the lightest vanishes on
   // the paving. What no room contains is warm chroma. So the plate goes dark and cool, the trim goes hot,
   // and the figure carries its own light-to-dark range with it wherever it happens to be standing.
-  const dark = new THREE.MeshStandardMaterial({ color: 0x141b22, roughness: 0.82 });
-  const steel = new THREE.MeshStandardMaterial({ color: 0x505f6c, roughness: 0.42, metalness: 0.5, flatShading: true });
-  const iron = new THREE.MeshStandardMaterial({ color: 0x333d45, roughness: .56, metalness: .5, flatShading: true });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x0a0e15, roughness: 0.82 });
+  // 0x505f6c was the keep's own colour. The paving is 0x607574, the foundations 0x3a5055, the parapets
+  // 0x607574 again, and the verticality pass stood all three of them up on the near side of every room
+  // with their camera-facing halves in shadow — so the plate and the architecture were the same value in
+  // the same hue and the figure dissolved into the block behind him. The plate leaves that hue for cold
+  // violet, which is a family the keep does not own anywhere.
+  //
+  // It also goes up in value rather than down, which is the opposite of the obvious move. Measured over
+  // the eight frames, the knight's brightest quarter sits above his surround in all eight and his
+  // darkest quarter below it in all eight: the figure is found by the range he carries, so both ends of
+  // that range are worth pushing outwards. A first pass took the plate down to 0x4b4d68 and lost five
+  // points of separation in the four unlit rooms, where his light end is the whole read.
+  const steel = new THREE.MeshStandardMaterial({ color: 0x64668c, roughness: 0.4, metalness: 0.5, flatShading: true });
+  const iron = new THREE.MeshStandardMaterial({ color: 0x212436, roughness: .5, metalness: .56, flatShading: true });
   // Emissive on the trim and the cloth is a floor, not a light. It costs no draw call, and it is what
   // keeps the accent alive in the corridor and out on the bridge, where nothing overhead catches metal.
-  const brass = new THREE.MeshStandardMaterial({ color: 0xf0b455, roughness: .42, metalness: .55, emissive: 0x2e1c05 });
+  const brass = new THREE.MeshStandardMaterial({ color: 0xffc86a, roughness: .38, metalness: .55, emissive: 0x4a2c07 });
   const shadow = new THREE.MeshStandardMaterial({ color: 0x05090c, roughness: 1 });
-  const red = new THREE.MeshStandardMaterial({ color: 0xc9202e, roughness: 0.85, emissive: 0x38040b, side: THREE.DoubleSide });
-  const leather = new THREE.MeshStandardMaterial({ color: 0x4a2e22, roughness: 1 });
+  const red = new THREE.MeshStandardMaterial({ color: 0xcb2130, roughness: 0.85, emissive: 0x430610, side: THREE.DoubleSide });
+  // The boots, the skirt and the pouch were a mid brown, which is the one warm mid value the bridge
+  // planks also occupy. Down to near-black so the bottom of the figure anchors instead of floating.
+  const leather = new THREE.MeshStandardMaterial({ color: 0x2c1a14, roughness: 1 });
   // The one pale thing left on him, and it is deliberate: a long bright blade is the knight's own marker,
   // since no skeleton carries one. The weapon keeps the old plate value while the body drops away under it.
   const blade = new THREE.MeshStandardMaterial({ color: 0xdcded9, roughness: 0.32, metalness: 0.5, flatShading: true });
@@ -147,6 +160,8 @@ function makeKnight() {
   g.userData.armoury = {palette: armoryPalette, plate: plate as Plate};g.userData.armed = armed;
   pauldrons.forEach(shoulder=>{shoulder.visible=false;});
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
+  // After the traverse, and deliberately: the pool must not be fed back into the shadow map it imitates.
+  g.add(contactShadow(.54,.58));
   return g;
 }
 
@@ -223,6 +238,9 @@ function makeSkeleton(kind: Enemy['kind']) {
   enemyDetails(kind,rig,skull,limbs,weapon,shield,bone,iron,brass);
   sockets.forEach(socket=>{socket.position.z=stalker?-.445:-.223;socket.scale.setScalar(1.2);});
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
+  // Weaker than the knight's, and sized to the actor: the reference grounds the enemies too, but the
+  // player's own pool has to stay the darkest thing at his feet.
+  g.add(contactShadow(warden?.68:stalker?.56:.52,.44));
   return g;
 }
 
@@ -480,9 +498,24 @@ export default function DungeonGame() {
     // Ambient is the enemy of a lit pool: it paid for every unlit corner, so a brazier could only ever
     // read as a decal on an already-bright floor. Half of it moves into the moon, which models form
     // instead of flattening it, and the rest is bought back by the torches below.
-    scene.add(new THREE.HemisphereLight(0x8fb4c6, 0x16282c, .52));
-    const moon = new THREE.DirectionalLight(0xccdfe6, 4.4);
-    moon.position.set(-7, 12, 9); moon.castShadow = true; moon.shadow.mapSize.set(1536, 1536);
+    const hemisphere = new THREE.HemisphereLight(0x8fb4c6, 0x16282c, .52); scene.add(hemisphere);
+    // Its intensity is set per chamber below; this is only the value the first frame is built with.
+    const moon = new THREE.DirectionalLight(0xccdfe6, 5);
+    // One offset, read here and again every frame when the light is re-hung over the knight. It was
+    // two separate literals before and they had already drifted apart, which is a silent way to end up
+    // with no key angle at all.
+    //
+    // It is still 46 degrees, and that is a measured decision rather than an unexamined one. Raking the
+    // key down to 34 to break it over the six metres of pier the verticality pass stood up is the
+    // obvious move and it works — a lit face gains half again as much light, a shadow runs half again
+    // as long. It also drags a much longer, shallower volume of the keep into the shadow frustum:
+    // 26,000 extra triangles in the flooded hall and 18,000 in the junction, measured, against about
+    // 9,000 of junction margin left. At 40 degrees it is still 21,000 and 5,500 for an eleven per cent
+    // gain. So the contrast on vertical faces is bought the free way instead — the hemisphere ambient
+    // that was filling in every shadowed face is down a fifth, and the stone shader's crown term below
+    // lights the top of a tall thing rather than lighting it all evenly.
+    const MOONRISE = new THREE.Vector3(-7, 12, 9);
+    moon.position.copy(MOONRISE); moon.castShadow = true; moon.shadow.mapSize.set(1536, 1536);
     moon.shadow.radius = 3.5; moon.shadow.normalBias = .035; moon.shadow.bias = -.00015;
     moon.shadow.camera.left = moon.shadow.camera.bottom = -12; moon.shadow.camera.right = moon.shadow.camera.top = 12; scene.add(moon);
     const world = new THREE.Group(); scene.add(world);
@@ -499,6 +532,51 @@ export default function DungeonGame() {
     // The knight's own lantern, and the one lever that protects rule two. Same treatment: no cutoff ring
     // around him, and enough intensity that this round's floor work cannot ride him down with it.
     const fill = new THREE.PointLight(0x9ed3d6, 20, 0, 2); scene.add(fill);
+    // Every room in the keep was lit by these same lamps under this same fog, so a theme could only
+    // ever differ from its neighbours by the base colour of its paving — and the moss tint in the
+    // stone shader pulled even that back toward one drowned green. Eight frames, one colour. The
+    // reference does the opposite: an area commits to a hue family and leaves a single saturated
+    // thing to carry against it.
+    //
+    // So the key, the sky and ground bounce, the fog, the backdrop, the environment weight and the
+    // four tints the stone weathers with all read `ROOM_MOOD` for the chamber the knight is standing
+    // in. Crossing a threshold slides them over about a third of a second, which is slow enough to
+    // read as walking into somewhere else and fast enough to have finished before he is through the
+    // door. The first frame of a floor snaps rather than sliding, so a descent never fades in.
+    const moodKey = new THREE.Color(), moodSky = new THREE.Color(), moodGround = new THREE.Color();
+    const moodFog = new THREE.Color(), moodBack = new THREE.Color(), moodTo = new THREE.Color();
+    const moodNumbers = { key: 0, hemisphere: 0, fog: 0, environment: 0 };
+    let moodFloor: typeof floor | null = null, moodCell = '', moodTheme: keyof typeof ROOM_MOOD = 'keep', moodSnap = true;
+    const mixTo = (v: THREE.Vector3, to: readonly [number, number, number], k: number) =>
+      v.set(v.x + (to[0] - v.x) * k, v.y + (to[1] - v.y) * k, v.z + (to[2] - v.z) * k);
+    const moveMood = (rate: number) => {
+      // A corridor belongs to whichever chamber it is nearest. Without that the hue would change on
+      // the doorway rather than on the approach, which is the one place the change would be visible
+      // as a change rather than as arrival.
+      const cx = Math.round(player.position.x / TILE), cz = Math.round(player.position.z / TILE), cell = cellKey(cx, cz);
+      if (moodFloor !== floor) { moodFloor = floor; moodCell = ''; moodSnap = true; }
+      if (cell !== moodCell) {
+        moodCell = cell;
+        const id = floor.roomByCell.get(cell) ?? -1;
+        if (id >= 0) moodTheme = floor.rooms[id].theme;
+        else { let best = Infinity; for (const r of floor.rooms) { const d = (r.x - cx) ** 2 + (r.z - cz) ** 2; if (d < best) { best = d; moodTheme = r.theme; } } }
+      }
+      const m = ROOM_MOOD[moodTheme], k = moodSnap ? 1 : rate; moodSnap = false;
+      moodKey.lerp(moodTo.setHex(m.key), k); moodSky.lerp(moodTo.setHex(m.sky), k); moodGround.lerp(moodTo.setHex(m.ground), k);
+      moodFog.lerp(moodTo.setHex(m.fog), k); moodBack.lerp(moodTo.setHex(m.background), k);
+      moodNumbers.key += (m.keyIntensity - moodNumbers.key) * k;
+      moodNumbers.hemisphere += (m.hemisphere - moodNumbers.hemisphere) * k;
+      moodNumbers.fog += (m.fogDensity - moodNumbers.fog) * k;
+      moodNumbers.environment += (m.environment - moodNumbers.environment) * k;
+      moon.color.copy(moodKey); moon.intensity = moodNumbers.key;
+      hemisphere.color.copy(moodSky); hemisphere.groundColor.copy(moodGround); hemisphere.intensity = moodNumbers.hemisphere;
+      (scene.fog as THREE.FogExp2).color.copy(moodFog); (scene.fog as THREE.FogExp2).density = moodNumbers.fog;
+      (scene.background as THREE.Color).copy(moodBack); scene.environmentIntensity = moodNumbers.environment;
+      mixTo(tideMood.value, m.water, k);
+      mixTo(stoneMood.moss.value, m.moss, k); mixTo(stoneMood.warm.value, m.warm, k);
+      mixTo(stoneMood.cool.value, m.cool, k); mixTo(stoneMood.crown.value, m.crown, k);
+      stoneMood.mossAmount.value += (m.mossAmount - stoneMood.mossAmount.value) * k;
+    };
     const playerRing = new THREE.Mesh(new THREE.RingGeometry(0.5,0.55,40),new THREE.MeshBasicMaterial({color:0xa1d8ce,transparent:true,opacity:0.45,depthWrite:false}));playerRing.rotation.x=-Math.PI/2;world.add(playerRing);
     const cameraFocus = new THREE.Vector3();
     const velocity = new THREE.Vector3(), facing = new THREE.Vector3(1, 0, -0.6).normalize();
@@ -654,15 +732,23 @@ export default function DungeonGame() {
       const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, bumpMap: texture, bumpScale: .07, color: 0xffffff, roughness: .83 });
       weatherStone(floorMaterial);
       const stoneTiles = floor.tiles.filter(t=>!t.wood), bridgeTiles = floor.tiles.filter(t=>t.wood);
+      // A corridor tile belongs to no room and used to take the keep's own grey wherever it ran, so a
+      // passage through the ruin came out as a grey ribbon laid across an ochre floor. It takes the
+      // nearest chamber's theme instead, which is the same rule the lighting uses to decide what to
+      // put in the air above it, so the two agree about where one area ends.
+      const themeOf=(x:number,z:number,room:number)=>{if(room>=0)return floor.rooms[room].theme;let best=Infinity,theme=floor.rooms[0].theme;for(const r of floor.rooms){const d=(r.x-x)**2+(r.z-z)**2;if(d<best){best=d;theme=r.theme;}}return theme;};
       // A wider chamfer at the same segment count: the slab reads as cut stone rather than a box, and the
       // extra form costs nothing, which the geometry budget will not allow any other way.
       const tileGeometry=new RoundedBoxGeometry(1.45,.18,1.45,1,.06),foundationGeometry=new THREE.BoxGeometry(1.49,2.65,1.49);
-      const foundationMaterial=new THREE.MeshStandardMaterial({color:0x3a5055,roughness:.9});weatherStone(foundationMaterial);
+      // White, and coloured per instance instead: the submerged plinth is the tallest continuous run of
+      // stone in any frame and it was one fixed teal under every theme, which made it one of the loudest
+      // things holding the three areas together. Per-instance colour is a buffer, not a draw call.
+      const foundationMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.9});weatherStone(foundationMaterial);
       // Spatial batches let both the view and shadow camera reject distant carved paving.
       const paving=new Map<string,typeof stoneTiles>();for(const tile of stoneTiles){const key=`${Math.floor(tile.x/12)},${Math.floor(tile.z/12)}`;const batch=paving.get(key);if(batch)batch.push(tile);else paving.set(key,[tile]);}
       for(const local of paving.values()){
         const tiles=new THREE.InstancedMesh(tileGeometry,floorMaterial,local.length),foundations=new THREE.InstancedMesh(foundationGeometry,foundationMaterial,local.length);
-        local.forEach(({x,z,room},i)=>{matrix.makeRotationY((Math.abs(x*13+z*7)%4)*Math.PI/2);matrix.setPosition(x*TILE,-.07,z*TILE);tiles.setMatrixAt(i,matrix);const theme=room>=0?floor.rooms[room].theme:'keep';const border=room>=0&&(Math.abs(x-floor.rooms[room].x)===floor.rooms[room].halfX-1||Math.abs(z-floor.rooms[room].z)===floor.rooms[room].halfZ-1);const color=new THREE.Color(border?0x546e6a:theme==='ruins'?0x9fa98e:theme==='flooded'?0x779e9c:0xb2ada0);const wear=Math.abs(x*7+z*3)%7,drift=Math.abs(x*5-z*11)%5;color.multiplyScalar(.83+wear*.025).offsetHSL(drift%2?.008:-.009,drift*.004-.008,0);tiles.setColorAt(i,color);matrix.makeTranslation(x*TILE,-1.485,z*TILE);foundations.setMatrixAt(i,matrix);});
+        local.forEach(({x,z,room},i)=>{matrix.makeRotationY((Math.abs(x*13+z*7)%4)*Math.PI/2);matrix.setPosition(x*TILE,-.07,z*TILE);tiles.setMatrixAt(i,matrix);const mood=ROOM_MOOD[themeOf(x,z,room)];const border=room>=0&&(Math.abs(x-floor.rooms[room].x)===floor.rooms[room].halfX-1||Math.abs(z-floor.rooms[room].z)===floor.rooms[room].halfZ-1);const color=new THREE.Color(border?mood.border:mood.tile);const wear=Math.abs(x*7+z*3)%7,drift=Math.abs(x*5-z*11)%5;color.multiplyScalar(.83+wear*.025).offsetHSL(drift%2?.008:-.009,drift*.004-.008,0);tiles.setColorAt(i,color);matrix.makeTranslation(x*TILE,-1.485,z*TILE);foundations.setMatrixAt(i,matrix);foundations.setColorAt(i,color.setHex(mood.foundation).multiplyScalar(.86+wear*.04));});
         foundations.receiveShadow=tiles.receiveShadow=true;floorGroup.add(foundations,tiles);
       }
       phase('tiles');
@@ -683,7 +769,10 @@ export default function DungeonGame() {
       // near edge of the platform is the one place in the frame where the reference always has built
       // mass. Half again as tall and near twice as thick, on the same instance count, so it catches the
       // moon on its cap, shades its own face, and lays a shadow of its own on the paving inside it.
-      const parapetGeometry=new RoundedBoxGeometry(1,0.58,1,1,.1),parapetMaterial=new THREE.MeshStandardMaterial({color:0x607574,roughness:.8});weatherStone(parapetMaterial);
+      // Neutral rather than teal: the kerb runs the full border of every tile on the floor including the
+      // corridors, so whatever hue it holds is a hue the whole keep holds. It takes the chamber's from
+      // the weathering uniforms instead.
+      const parapetGeometry=new RoundedBoxGeometry(1,0.58,1,1,.1),parapetMaterial=new THREE.MeshStandardMaterial({color:0x6b6f70,roughness:.8});weatherStone(parapetMaterial);
       const parapets=new Map<string,typeof borders>();for(const b of borders){const key=`${Math.floor(b.x/18)},${Math.floor(b.z/18)}`;const batch=parapets.get(key);if(batch)batch.push(b);else parapets.set(key,[b]);}
       for(const local of parapets.values()){
         const walls=new THREE.InstancedMesh(parapetGeometry,parapetMaterial,local.length);
@@ -743,6 +832,10 @@ export default function DungeonGame() {
       phase('enemies');
       player.position.set(floor.rooms[0].x * TILE, 0.03, floor.rooms[0].z * TILE);
       cameraFocus.copy(player.position);
+      // The knight is on his mark, so the chamber he is standing in is known and its lights can be hung
+      // before anything is drawn. Leaving it to the frame loop would leave one frame lit by whatever the
+      // last floor was, and a first frame that arrives while the game is paused would never be lit at all.
+      moveMood(1);
       updatePaths();
       // Room fills are painted imperatively as rooms are explored, so the map has to be a new element
       // every build — keying it on the seed alone would keep a retried floor's old fills on screen.
@@ -1253,8 +1346,9 @@ export default function DungeonGame() {
       const nearest = [...(atmosphere?.torchPositions ?? [])].sort((a,b)=>a.distanceToSquared(player.position)-b.distanceToSquared(player.position));
       torchLights.forEach((light,i)=>light.position.copy(nearest[i]));
       fill.position.copy(player.position).add(new THREE.Vector3(0,4,1));
+      moveMood(1 - Math.exp(-6 * frameDt));
       playerRing.position.set(player.position.x,0.04,player.position.z); (playerRing.material as THREE.MeshBasicMaterial).opacity = dashTime > 0 ? 0.85 : 0.32;
-      moon.position.set(player.position.x - 7,12,player.position.z + 9); moon.target.position.set(player.position.x,0,player.position.z); moon.target.updateMatrixWorld();
+      moon.position.copy(player.position).setY(0).add(MOONRISE); moon.target.position.set(player.position.x,0,player.position.z); moon.target.updateMatrixWorld();
       mapPlayer.current?.setAttribute('cx', String(player.position.x / TILE)); mapPlayer.current?.setAttribute('cy', String(player.position.z / TILE));
       if (dashMeter.current) dashMeter.current.value = Math.max(0,1-dashCooldown/run.dashSpan);
       const target = player.position.clone().addScaledVector(velocity,0.12); cameraFocus.lerp(target,1-Math.exp(-8*frameDt));

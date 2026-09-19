@@ -15,12 +15,12 @@ import * as THREE from 'three';
 // times as much.
 
 /** Installs the `hitUv` varying both accent shaders read, and their body. */
-const radial = (shader: { vertexShader: string; fragmentShader: string }, body: string) => {
+const radial = (shader: { vertexShader: string; fragmentShader: string }, body: string, head = '') => {
   shader.vertexShader = shader.vertexShader
     .replace('#include <common>', '#include <common>\nvarying vec2 hitUv;')
     .replace('#include <begin_vertex>', '#include <begin_vertex>\nhitUv = uv;');
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nvarying vec2 hitUv;')
+    .replace('#include <common>', `#include <common>\nvarying vec2 hitUv;\n${head}`)
     .replace('#include <color_fragment>', `#include <color_fragment>\n${body}`);
 };
 
@@ -38,24 +38,50 @@ const flashMaterial = (color: number) => {
 };
 
 /**
- * The cut, as a shape. A soft annulus opened on the side the knight swung
- * towards, lying flat on the ground so the isometric view reads it as the
- * ellipse a real swing traces rather than as a disc facing the camera.
+ * The cut, as a shape: an annulus lying flat on the ground so the isometric view
+ * reads it as the ellipse a real swing traces rather than as a disc facing the
+ * camera, with only a short stretch of that annulus lit at a time.
+ *
+ * What this replaced was a wedge — the whole forward half of the ring, opened at
+ * a constant brightness and held there while it faded. Measured, it was 73% of
+ * every blown pixel on the struck body: at the knight's stance the ring's far
+ * rim projects, in this camera, exactly onto the chest and skull of whatever he
+ * just hit, and a body deleted by its own hit marker is a worse frame however
+ * loud it is. Dimming it was the obvious answer and it costs the blow.
+ *
+ * So the rim is moved instead of dimmed. `hitSweep` runs 0 to 1 over the
+ * crescent's life and carries a bright head round the ring with a long tail
+ * behind it, which is both narrower — a sixth of the ring rather than two thirds
+ * — and, being *somewhere* rather than everywhere, reads as an edge passing
+ * through instead of a wash sitting on top. The band is a line now, not a
+ * plateau, for the same reason.
  */
 const arcMaterial = () => {
+  const sweep = { value: 0 };
   const material = new THREE.MeshBasicMaterial({ color: 0xffdca8, transparent: true, opacity: 0, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-  material.onBeforeCompile = (shader) => radial(shader, `
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.hitSweep = sweep;
+    radial(shader, `
     vec2 hitP = hitUv * 2.0 - 1.0;
     float hitR = length(hitP);
-    float band = smoothstep(.52, .81, hitR) * (1.0 - smoothstep(.81, 1.0, hitR));
-    // Open towards local +y, which the mesh's own spin points down the cut.
-    float wedge = smoothstep(-.7, .35, hitP.y);
-    float rim = smoothstep(.64, .82, hitR);
-    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.52, 1.52, 1.42), rim * .65);
-    diffuseColor.a *= band * wedge;
-  `);
-  material.customProgramCacheKey = () => 'hit-arc-v1';
-  return material;
+    // Measured off local +y, which the mesh's own spin points down the cut.
+    float hitA = atan(hitP.x, hitP.y);
+    // The head travels towards -x, which is the way the blade itself goes:
+    // local +yaw turns forward -Z toward -X, so the follow-through is the
+    // negative side. It starts a little past the line of the blow, so the frame
+    // that blow lands on has the edge already leaving rather than arriving.
+    float lead = mix(-.38, -1.90, hitSweep);
+    float off = lead - hitA;
+    // Hard in front of the head, long behind it: an edge, and what it dragged.
+    float along = (1.0 - smoothstep(0.0, .22, off)) * (1.0 - smoothstep(0.0, 1.35, -off));
+    float band = smoothstep(.49, .60, hitR) * (1.0 - smoothstep(.86, 1.0, hitR));
+    float rim = smoothstep(.62, .71, hitR) * (1.0 - smoothstep(.76, .88, hitR));
+    diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.52, 1.52, 1.42), rim * along * .75);
+    diffuseColor.a *= band * along;
+  `, 'uniform float hitSweep;');
+  };
+  material.customProgramCacheKey = () => 'hit-arc-v2';
+  return { material, sweep };
 };
 
 /**
@@ -66,19 +92,23 @@ const arcMaterial = () => {
  */
 const HIT_LIFE = .26, ARC_LIFE = .18, FLASH_LIFE = .11;
 /**
- * How bright the crescent is allowed to get. The knight is pale armour and the
- * arc is drawn around him additively, so a crescent at full opacity buries the
- * body it belongs to — which is a louder hit and a worse frame.
+ * How bright the crescent is allowed to get. It was held at .7 while the arc was
+ * a wedge covering two thirds of the ring, because anything brighter buried the
+ * body it belonged to. A sixth of the ring lit can carry half as much again and
+ * still leave the struck body legible: measured on the software rasteriser, the
+ * pixels above 245 on the struck skeleton went from 622 on the contact frame to
+ * 413 across this change, and the decay behind it got steeper rather than
+ * flatter — 248, 191, 145 against 500, 300, 165.
  */
-const ARC_PEAK = .7;
+const ARC_PEAK = 1.05;
 /**
- * And the same argument, harder, for the bloom, which is emitted on the body
- * rather than on the knight. At .8 over an already-lit skeleton it clipped: a
- * measurement of the struck body counted ~940 pixels above luminance 245 on
- * every frame of the hit, flat to within one per cent, with the skull reduced to
- * a featureless lozenge. The accent has to mark the body, not delete it.
+ * And the opposite argument for the bloom, which is emitted on the body rather
+ * than beside it. At .8 over an already-lit skeleton it clipped flat and took
+ * the skull with it, which is why it was cut to .24; with the crescent off the
+ * body there is room to put a third of that back, and the blow needs something
+ * at the bite point that the crescent no longer covers.
  */
-const FLASH_PEAK = .24;
+const FLASH_PEAK = .34;
 
 export function impactEffects(capacity = 12) {
   const group = new THREE.Group();
@@ -93,9 +123,10 @@ export function impactEffects(capacity = 12) {
   // Two crescents, not twelve: a swing that takes three bodies is still one cut,
   // so the arc is emitted once per swing rather than once per body it found.
   const arcs = Array.from({ length: 2 }, () => {
-    const mesh = new THREE.Mesh(arcGeometry, arcMaterial());
+    const { material, sweep } = arcMaterial();
+    const mesh = new THREE.Mesh(arcGeometry, material);
     mesh.rotation.x = -Math.PI / 2; mesh.visible = false; mesh.renderOrder = 3; group.add(mesh);
-    return { mesh, age: 1, span: 1 };
+    return { mesh, sweep, age: 1, span: 1 };
   });
   let cursor = 0, arcCursor = 0;
   const clear = () => {
@@ -119,6 +150,7 @@ export function impactEffects(capacity = 12) {
       slot.mesh.position.set(at.x, .62, at.z);
       slot.mesh.rotation.z = yaw;
       slot.mesh.scale.setScalar(slot.span * .86);
+      slot.sweep.value = 0;
       slot.mesh.material.opacity = ARC_PEAK; slot.mesh.visible = true;
     },
     emit(at: { x: number; y: number; z: number }, color = 0xffedbb, heavy = false) {
@@ -128,7 +160,7 @@ export function impactEffects(capacity = 12) {
       // the one part of a skeleton with any detail left to lose at this size.
       slot.flash.position.set(at.x, at.y + .55, at.z); slot.flash.scale.setScalar(heavy ? 1.9 : 1.35);
       slot.flash.material.color.setHex(color); slot.flash.material.opacity = FLASH_PEAK; slot.flash.visible = true;
-      slot.ring.position.set(at.x, .045, at.z); slot.ring.scale.setScalar(.2); slot.ring.material.color.setHex(color); slot.ring.material.opacity = .5; slot.ring.visible = true;
+      slot.ring.position.set(at.x, .045, at.z); slot.ring.scale.setScalar(.2); slot.ring.material.color.setHex(color); slot.ring.material.opacity = .78; slot.ring.visible = true;
     },
     /**
      * `dt` here is wall-clock and deliberately not the simulation's: hit-stop
@@ -152,7 +184,7 @@ export function impactEffects(capacity = 12) {
         slot.flash.visible = flash > 0; slot.ring.visible = t < 1;
         slot.flash.scale.setScalar((slot.heavy ? 1.9 : 1.35) * (.55 + flash * .45));
         slot.flash.material.opacity = FLASH_PEAK * flash ** 2.2;
-        slot.ring.scale.setScalar(.18 + t * (slot.heavy ? 1.6 : .95)); slot.ring.material.opacity = (1 - t) ** 2 * .42;
+        slot.ring.scale.setScalar(.18 + t * (slot.heavy ? 2.1 : 1.35)); slot.ring.material.opacity = (1 - t) ** 2 * .66;
       }
       for (const slot of arcs) {
         slot.age += step;
@@ -160,9 +192,11 @@ export function impactEffects(capacity = 12) {
         slot.mesh.visible = t < 1;
         // Barely grows. A crescent that expanded would read as a shockwave
         // leaving the knight; this one is the path the blade took through the
-        // body, and it stays where it cut.
+        // body, and it stays where it cut. What moves instead is the lit part of
+        // it, which is the whole point of the sweep.
         slot.mesh.scale.setScalar(slot.span * (.86 + t * .14));
-        slot.mesh.material.opacity = ARC_PEAK * (1 - t) ** 1.5;
+        slot.sweep.value = t;
+        slot.mesh.material.opacity = ARC_PEAK * (1 - t) ** 2.2;
       }
     },
     dispose() {

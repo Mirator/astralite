@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { TILE, type generateFloor } from './dungeon-floor';
+import { type Room, TILE, type generateFloor } from './dungeon-floor';
 import { weatherStone } from './dungeon-motion';
 
 // The camera is fixed and orthographic — focus + (9.2, 12.5, 11.5), aimed at the focus — so its screen-up
@@ -16,10 +16,17 @@ export const screenUp = (a: number, b: number) => -.4042 * a - .5052 * b;
  * the middle of the frame with his head around +1.2. Infinity up-screen of him: that half is backdrop, and
  * mass there is what he reads against rather than what hides him.
  */
-export const headroom = (a: number, b: number) => {
+export const headroom = (a: number, b: number, clear = 1.05) => {
   const base = screenUp(a, b);
-  return base >= 0 ? Infinity : (-1.05 - base) / RISE;
+  return base >= 0 ? Infinity : (-clear - base) / RISE;
 };
+/**
+ * Whether a tile's face on this side is one the lens can see the outside of. Down-screen is a constant of
+ * the fixed camera, not a property of any room, so this needs no reference point to answer — which is what
+ * makes it usable on a corridor, where there is no room heart to measure a `headroom` from. Only these two
+ * faces ever show their retaining wall; on the other two the platform edge points away and is never drawn.
+ */
+export const facesCamera = (dx: number, dz: number) => screenUp(dx, dz) < 0;
 /**
  * Past this much headroom the offset is so far down-frame that the top of the tallest thing allowed there
  * still falls below the bottom edge, so nothing built on it can ever be seen from the middle of the room.
@@ -28,16 +35,68 @@ export const headroom = (a: number, b: number) => {
  */
 export const OFF_FRAME = 9.6;
 
+/**
+ * One hue family per chamber, and a single saturated accent left to do the work.
+ *
+ * Every room in the keep used to be lit by the same lamps under the same fog, so a theme could only
+ * differ from its neighbours by the base colour of its paving — and the moss tint in `weatherStone`
+ * pulled even that back toward the same drowned green. The result was eight frames of one colour.
+ *
+ * What follows is the whole palette of the keep, and the lighting reads it per room rather than per
+ * floor: key, sky and ground light, fog, backdrop, the tints the stone shader weathers with, and the
+ * base colours of paving, foundation and masonry. The three families are far enough apart that the
+ * run reads as three areas rather than one: cold steel over the standing keep, dry ochre over the
+ * ruin, drowned green over the flood. Each leaves exactly one thing saturated against it — the
+ * braziers in the two cold families, the knight's own cold lantern in the warm one.
+ */
+export type Mood = {
+  key: number; keyIntensity: number; sky: number; ground: number; hemisphere: number;
+  fog: number; fogDensity: number; background: number; environment: number;
+  tile: number; border: number; block: number; foundation: number; seal: number;
+  water: [number, number, number];
+  moss: [number, number, number]; mossAmount: number;
+  warm: [number, number, number]; cool: [number, number, number]; crown: [number, number, number];
+};
+export const ROOM_MOOD: Record<Room['theme'], Mood> = {
+  keep: {
+    key: 0xd2e0f4, keyIntensity: 5, sky: 0x8fa5c6, ground: 0x171d29, hemisphere: .4,
+    fog: 0x0a1018, fogDensity: .024, background: 0x0d1424, environment: .26,
+    tile: 0x848ea4, border: 0x495468, block: 0x596276, foundation: 0x2b3345, seal: 0x83a7cd,
+    water: [.68, .78, 1],
+    moss: [.7, .78, .94], mossAmount: .24,
+    warm: [1.06, 1.06, 1.03], cool: [.8, .89, 1.07], crown: [1.02, 1.07, 1.18],
+  },
+  ruins: {
+    key: 0xf2d3a6, keyIntensity: 4.8, sky: 0xb08e66, ground: 0x231a11, hemisphere: .4,
+    fog: 0x150e08, fogDensity: .021, background: 0x1a1109, environment: .26,
+    tile: 0x8c7d5f, border: 0x544935, block: 0x695c45, foundation: 0x332a1d, seal: 0xcaa872,
+    water: [.52, .64, .7],
+    moss: [.86, .78, .58], mossAmount: .3,
+    warm: [1.16, 1.05, .86], cool: [.95, .89, .8], crown: [1.18, 1.07, .88],
+  },
+  flooded: {
+    key: 0xc6e2da, keyIntensity: 5, sky: 0x83b2aa, ground: 0x122622, hemisphere: .42,
+    fog: 0x071a1e, fogDensity: .027, background: 0x0a1b24, environment: .3,
+    tile: 0x739690, border: 0x446661, block: 0x506a6b, foundation: 0x2d4547, seal: 0x7faeae,
+    water: [1, 1, 1],
+    moss: [.58, .82, .62], mossAmount: .4,
+    warm: [1.13, 1.04, .88], cool: [.82, .92, .99], crown: [1.04, 1.12, 1.06],
+  },
+};
+
 // Broad reflected light makes metal read as metal without another live light or render pass.
 export function vaultEnvironment() {
   const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
   const sky = ctx.createLinearGradient(0, 0, 0, 256);
-  sky.addColorStop(0, '#b9d8e1'); sky.addColorStop(.38, '#557a8b');
-  sky.addColorStop(.52, '#152d39'); sky.addColorStop(1, '#111a20');
+  // Value structure kept, hue taken out: what this map contributed before was a blue cast on every
+  // metal and every stone in the keep, applied equally in every room, which is the opposite of what
+  // this round is for. The rooms colour themselves through their own lights now.
+  sky.addColorStop(0, '#ccd2d4'); sky.addColorStop(.38, '#7b8288');
+  sky.addColorStop(.52, '#242a2e'); sky.addColorStop(1, '#14171a');
   ctx.fillStyle = sky; ctx.fillRect(0, 0, 512, 256);
   const opening = ctx.createRadialGradient(145, 68, 2, 145, 68, 100);
-  opening.addColorStop(0, '#fff5da'); opening.addColorStop(.25, '#dbe8e8cc'); opening.addColorStop(1, '#dbe8e800');
+  opening.addColorStop(0, '#fff5da'); opening.addColorStop(.25, '#e3e5e2cc'); opening.addColorStop(1, '#e3e5e200');
   ctx.fillStyle = opening; ctx.fillRect(0, 0, 512, 256);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace; texture.mapping = THREE.EquirectangularReflectionMapping;
@@ -46,8 +105,10 @@ export function vaultEnvironment() {
 
 // These are surface details and silhouettes on existing walls, never new obstacles.
 export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<typeof generateFloor>) {
-  const stone = new THREE.MeshStandardMaterial({ color: 0x82908b, roughness: .82 });
-  const pale = new THREE.MeshStandardMaterial({ color: 0x9ba797, roughness: .7 });
+  // Both of these carried a green of their own on top of the moss tint, in every room of the keep.
+  // Neutral here, so the chamber's own mood is the only thing deciding which way the carving reads.
+  const stone = new THREE.MeshStandardMaterial({ color: 0x878c8a, roughness: .82 });
+  const pale = new THREE.MeshStandardMaterial({ color: 0x94968f, roughness: .7 });
   // Carved work was the last flat stone in the frame: columns, cornices and footings took one value per
   // face while the paving beside them was already weathering. Same draw, same triangles, same material.
   weatherStone(stone); weatherStone(pale);
@@ -64,6 +125,7 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
   const put = (x: number, y: number, z: number, sx: number, sy: number, sz: number, material = stone) => blocks.push({ x, y, z, sx, sy, sz, material });
   // Props occupy holes in floor.tiles; they are interior floor, never perimeter walls.
   const cells = new Set([...floor.tiles, ...floor.props].map(t => `${t.x},${t.z}`));
+  const owner = new Map<string, number>(); for (const t of floor.tiles) owner.set(`${t.x},${t.z}`, t.room);
   const mesh = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number) => {
     const item = new THREE.Mesh(geometry, material); item.position.set(x, y, z); item.receiveShadow = true; world.add(item); return item;
   };
@@ -88,7 +150,10 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
       // between the lens and the fight. What goes on the near faces is bounded by `headroom` below.
       for (const [dx, dz] of [[-1, 0], [0, -1], [1, 0], [0, 1]]) {
         if (cells.has(`${tile.x + dx},${tile.z + dz}`)) continue;
-        const tx = (tile.x + dx * .54) * TILE, tz = (tile.z + dz * .54) * TILE;
+        // Out to the face of the retaining wall on the camera's side, where the buttresses below now start
+        // from the waterline rather than from the deck; the far faces keep the old, tighter offset.
+        const out = facesCamera(dx, dz) ? .62 : .54;
+        const tx = (tile.x + dx * out) * TILE, tz = (tile.z + dz * out) * TILE;
         const near = headroom(tx - room.x * TILE, tz - room.z * TILE);
         // Ivy and the blind lancet below are a mesh apiece and the two new faces would double the count
         // for detail that reads at the back of the frame, where it already is. The near faces get the
@@ -103,10 +168,17 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
           // three, and each one takes its height off its own position so no two neighbours agree.
           const step = (Math.abs(tile.x * 7 + tile.z * 13)) % 5;
           const nh = Math.min(near, (room.theme === 'ruins' ? 1.9 : 2.3) + step * .42);
-          put(tx, .2, tz, dz ? 1.38 : 1.16, .34, dx ? 1.38 : 1.16, pale);
-          put(tx, nh / 2, tz, .92, nh, .92);
-          put(tx - dx * .16, nh / 2, tz - dz * .16, dz ? .3 : .96, nh - .55, dx ? .3 : .96, pale);
-          put(tx, nh - .1, tz, 1.14, .26, 1.14, pale);
+          // The reference's near mass is the platform's own retaining wall and the deck is the top of it —
+          // dd-ss-07 is a wall face with counterforts and a coping, not furniture standing on the floor.
+          // These began at y=.2, on the paving just inside the kerb, and read as posts on a terrace. They
+          // now start in the water at -2.45, run up the outside of the foundation and finish one course
+          // proud of the kerb, which is the same four instances and therefore the same triangles: only the
+          // part above the deck has changed at all, and that part has not moved.
+          const span = nh + 2.45;
+          put(tx, (nh - 2.45) / 2, tz, dz ? 1.24 : 1.0, span, dx ? 1.24 : 1.0);
+          put(tx + dx * .2, (nh - 2.45) / 2, tz + dz * .2, dz ? .86 : .44, span - .6, dx ? .86 : .44, pale);
+          put(tx, -.14, tz, dz ? 1.5 : 1.22, .3, dx ? 1.5 : 1.22, pale);
+          put(tx, nh - .1, tz, 1.16, .26, 1.16, pale);
           continue;
         }
         // One continuous cornice and footing visually bind the separate masonry courses.
@@ -140,15 +212,111 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
       }
     }
   }
+  // The edge of the platform. Every frame in the set sits on a slab whose near edge is a kerb and then
+  // nothing, with the bottom corners left as open water; the reference crowds those corners with the
+  // terrace's own structure, and its near mass is always the retaining wall below the deck rather than
+  // anything standing on it (dd-ss-07, dd-ss-11). These are counterforts on that wall: they start in the
+  // water and stop below the top of the kerb, so there is no height at which one can be in front of
+  // anybody. That is why this is the one piece of vertical work a corridor or a span can have — there is
+  // no room heart out there to measure a `headroom` against, and everything that rises is measured.
+  // Only the two down-screen faces get them: on the other two the retaining wall points away from the lens
+  // and is never drawn, so building it there was paying for geometry with no frame to appear in.
+  for (const tile of floor.tiles) {
+    if (tile.wood || (tile.x * 5 + tile.z * 3) % 3) continue;
+    for (const [dx, dz] of [[1, 0], [0, 1]]) {
+      if (cells.has(`${tile.x + dx},${tile.z + dz}`)) continue;
+      const tx = (tile.x + dx * .62) * TILE, tz = (tile.z + dz * .62) * TILE;
+      put(tx, -1.1, tz, dz ? 1.12 : .94, 2.7, dx ? 1.12 : .94);
+      put(tx, .14, tz, dz ? 1.32 : 1.1, .34, dx ? 1.32 : 1.1, pale);
+    }
+  }
+  // The way through. The review's clearest single note was that nothing here spans overhead; dd-ss-01 and
+  // dd-strike-30 both set a gate across the way in and read the play space through it, and we shipped a
+  // column and a wall section, neither of which crosses anything. A doorway is the one place a span can
+  // cross the floor the knight walks on without standing in it, so every arch is built on the mouth of a
+  // passage. Up-screen of a room's heart it is backdrop — behind him in depth as much as on screen, so it
+  // cannot hide him and its only effect is to give him a lit edge to read against. On the camera's side it
+  // is held to `headroom` at 2.15 rather than the 1.05 the masonry takes: twice the clearance under his
+  // feet, because an arch that crossed him would lose the round whatever else improved.
+  const SPRING = 2.15, SPAN = .95;
+  const ringGeometry = new THREE.TorusGeometry(SPAN, .2, 5, 18, Math.PI), barGeometry = new THREE.BoxGeometry(1, 1, 1);
+  const rings: { x: number; y: number; z: number; turn: boolean }[] = [];
+  const bars: { x: number; y: number; z: number; sy: number }[] = [];
+  for (const room of floor.rooms) {
+    const mouths: { x: number; z: number; dx: number; dz: number; near: number; door: boolean }[] = [];
+    for (const tile of floor.tiles) {
+      if (tile.room !== room.id) continue;
+      for (const [dx, dz] of [[-1, 0], [0, -1], [1, 0], [0, 1]]) {
+        // Only a face that looks toward the lens, and this is the whole safety argument. Beyond a mouth on
+        // that side the run carries on down-screen, so anyone standing out there has the gate behind them
+        // in depth and it cannot cover them at any height; anyone inside the chamber has it in front,
+        // where `headroom` holds its crown two and a bit screen units under his feet. A mouth opening the
+        // other way has neither guarantee — the first build of this put one at the knight's elbow in the
+        // corridor shot, because the clamp was measured from a room heart he was nowhere near.
+        if (!facesCamera(dx, dz)) continue;
+        const next = owner.get(`${tile.x + dx},${tile.z + dz}`);
+        if (next === room.id) continue;
+        // A doorway is the better gate because something walks through it. But a chamber whose ways out
+        // all run away from the camera would get none, which is most of them — so the near perimeter takes
+        // one too, standing on the retaining wall over open water with nothing under it at all. That is
+        // what dd-strike-30 actually shows: the arch is not in a doorway, it is on the wall at the near
+        // edge, and the fight is read through it.
+        const door = next !== undefined;
+        const ax = (tile.x + dx * (door ? .5 : .52)) * TILE, az = (tile.z + dz * (door ? .5 : .52)) * TILE;
+        const near = headroom(ax - room.x * TILE, az - room.z * TILE, 2.15);
+        if (near < SPRING + SPAN + .45 || near > 7.4) continue;
+        mouths.push({ x: ax, z: az, dx, dz, near, door });
+      }
+    }
+    // A passage before a parapet, then whichever sits nearest the sweet spot down the frame — far enough
+    // that the crown is well under him, near enough that the whole arch is still on screen. A two-wide
+    // mouth yields one gate rather than a pair standing shoulder to shoulder in it.
+    mouths.sort((a, b) => (a.door ? 0 : 1) - (b.door ? 0 : 1) || Math.abs(a.near - 5.2) - Math.abs(b.near - 5.2));
+    const gates: typeof mouths = [];
+    for (const mouth of mouths) {
+      if (gates.length >= 2) break;
+      if (gates.some(g => Math.hypot(g.x - mouth.x, g.z - mouth.z) < 4.2)) continue;
+      gates.push(mouth);
+    }
+    for (const gate of gates) {
+      const run: [number, number] = gate.dz ? [1, 0] : [0, 1];
+      // The piers stand outside the walking lane and carry down to the waterline, so the gate is part of
+      // the platform rather than a hoop set on top of it.
+      for (const side of [-1, 1]) {
+        const lx = gate.x + run[0] * SPAN * side, lz = gate.z + run[1] * SPAN * side;
+        put(lx, (SPRING - 2.3) / 2, lz, .38, SPRING + 2.3, .38, pale);
+        put(lx, SPRING - .12, lz, run[0] ? .52 : .46, .26, run[1] ? .52 : .46, pale);
+      }
+      rings.push({ x: gate.x, y: SPRING, z: gate.z, turn: gate.dx !== 0 });
+      put(gate.x, SPRING + SPAN + .14, gate.z, run[0] ? .8 : .46, .34, run[1] ? .8 : .46, pale);
+      // Three bars in the lunette and none below them: what makes it read as a gate rather than a hoop,
+      // clear of the lane he walks through, and twelve triangles apiece instead of a hundred and eight.
+      for (const at of [-.46, 0, .46]) bars.push({ x: gate.x + run[0] * at * SPAN, y: SPRING, z: gate.z + run[1] * at * SPAN, sy: Math.sqrt(1 - at * at) * SPAN - .1 });
+    }
+  }
   // Spatial batches keep invisible wings out of both the view and shadow pass.
   const matrix = new THREE.Matrix4(), rotation = new THREE.Quaternion(), at = new THREE.Vector3(), scale = new THREE.Vector3();
   for (const material of [stone, pale, bronze]) {
     const regions = new Map<string, typeof blocks>();
-    for (const b of blocks.filter(b => b.material === material)) { const key = `${Math.floor(b.x / 18)},${Math.floor(b.z / 18)}`; const region = regions.get(key); if (region) region.push(b); else regions.set(key, [b]); }
+    // Tightened from 18. An instanced batch is culled whole, so a region wide enough to hold a chamber and
+    // its neighbour was drawn entire — and in the shadow pass as well — the moment a corner of it clipped
+    // either frustum, which at a hundred and eight triangles a block is what funds this round. Seventeen is
+    // where the two counters balance: finer draws fewer triangles and costs more calls than the junction,
+    // which is the tightest frame for calls, has left.
+    for (const b of blocks) { if (b.material !== material) continue; const key = `${Math.floor(b.x / 17)},${Math.floor(b.z / 17)}`; const region = regions.get(key); if (region) region.push(b); else regions.set(key, [b]); }
     for (const local of regions.values()) {
       const batch = new THREE.InstancedMesh(box, material, local.length);
       local.forEach((b, i) => { matrix.compose(at.set(b.x, b.y, b.z), rotation, scale.set(b.sx, b.sy, b.sz)); batch.setMatrixAt(i, matrix); });
       batch.castShadow = batch.receiveShadow = true; world.add(batch);
     }
   }
+  if (rings.length) {
+    const arches = new THREE.InstancedMesh(ringGeometry, pale, rings.length);
+    rings.forEach((r, i) => { rotation.setFromEuler(new THREE.Euler(0, r.turn ? Math.PI / 2 : 0, 0)); matrix.compose(at.set(r.x, r.y, r.z), rotation, scale.set(1, 1, 1)); arches.setMatrixAt(i, matrix); });
+    arches.receiveShadow = true; world.add(arches);
+    const grille = new THREE.InstancedMesh(barGeometry, bronze, bars.length);
+    rotation.identity();
+    bars.forEach((b, i) => { matrix.compose(at.set(b.x, b.y + b.sy / 2, b.z), rotation, scale.set(.07, b.sy, .07)); grille.setMatrixAt(i, matrix); });
+    world.add(grille);
+  } else { ringGeometry.dispose(); barGeometry.dispose(); }
 }

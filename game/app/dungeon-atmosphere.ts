@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { addCarvedArchitecture, headroom, OFF_FRAME } from './dungeon-art';
+import { addCarvedArchitecture, facesCamera, headroom, OFF_FRAME, ROOM_MOOD } from './dungeon-art';
 import { TILE, type generateFloor } from './dungeon-floor';
 import { animateCloth, contactTexture, glowTexture, shorelineMaterial, weatherStone } from './dungeon-motion';
 
@@ -44,15 +44,19 @@ const PROP = {
 };
 
 export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generateFloor>) {
+  // A corridor has no room of its own. Since the near-face skip was lifted its walls
+  // are built like any other, so they borrow the nearest chamber's stone rather than
+  // arriving as a grey ribbon laid across a room that has committed to a colour.
+  const nearestRoom=(x:number,z:number)=>{let best=Infinity,found=floor.rooms[0];for(const r of floor.rooms){const d=(r.x-x)**2+(r.z-z)**2;if(d<best){best=d;found=r;}}return found;};
   addCarvedArchitecture(world,floor);
-  const stone=new THREE.MeshStandardMaterial({color:0x566169,roughness:.95}),trim=new THREE.MeshStandardMaterial({color:0x8c7352,roughness:.72,metalness:.25});
+  const stone=new THREE.MeshStandardMaterial({color:0x5c6064,roughness:.95}),trim=new THREE.MeshStandardMaterial({color:0x8c7352,roughness:.72,metalness:.25});
   weatherStone(stone);
   // The bowl is a six-sided cylinder under an open fire and was reading as one flat value top to bottom.
   // Its own material, so the fire can bounce up the inside of it. Each bowl is already an individual
   // mesh, so this is a second program, not a second draw call.
   const bowlStone=new THREE.MeshStandardMaterial({color:0x4d5860,roughness:.95});weatherStone(bowlStone,true);
   // Its own material so a standing column reads against the wall behind it rather than merging into it.
-  const shaftStone=new THREE.MeshStandardMaterial({color:0x8e9a93,roughness:.86});weatherStone(shaftStone);
+  const shaftStone=new THREE.MeshStandardMaterial({color:0x7a7f82,roughness:.86});weatherStone(shaftStone);
   const wood=new THREE.MeshStandardMaterial({color:0x51382b,roughness:1}),moss=new THREE.MeshStandardMaterial({color:0x42594b,roughness:1});
   const clothCanvas=document.createElement('canvas');clothCanvas.width=128;clothCanvas.height=256;const cc=clothCanvas.getContext('2d')!;
   cc.fillStyle='#792c38';cc.fillRect(0,0,128,256);cc.strokeStyle='#d7b375';cc.lineWidth=3;cc.strokeRect(9,8,110,240);
@@ -69,7 +73,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   `);};
   flowing.customProgramCacheKey=()=> 'soft-waterfall-v1';
   const warm=new THREE.MeshBasicMaterial({color:0xffba65,toneMapped:false}),foam=new THREE.MeshBasicMaterial({color:0xb4e6de,transparent:true,opacity:.7,depthWrite:false});
-  const flames:THREE.Mesh[]=[],torchPositions:THREE.Vector3[]=[],banners:THREE.Mesh[]=[],seals:THREE.Mesh[]=[],falls:THREE.Mesh[]=[],ripples:THREE.Mesh[]=[];
+  const flames:THREE.Mesh[]=[],torchPositions:THREE.Vector3[]=[],banners:THREE.Mesh[]=[],seals:THREE.Mesh[]=[],sealTints:number[]=[],falls:THREE.Mesh[]=[],ripples:THREE.Mesh[]=[];
   const glowMap=glowTexture(),halos:THREE.Sprite[]=[];
   const haloMaterial=new THREE.SpriteMaterial({map:glowMap,color:0xffbc70,transparent:true,opacity:.55,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false});
   const coreMaterial=new THREE.MeshBasicMaterial({color:0xffefb9,toneMapped:false});
@@ -95,7 +99,14 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
       // cylinder with one lit side, and against the paving it read as cut paper rather than as stone. It
       // takes the pale carved stone instead — which is also what keeps it off the knight, who has to stay
       // the darkest mass in the frame and was losing that to his own scenery.
-      const h=3.9+random()*1.7,base=mesh(PROP.plinth,trim,x,.24,z);base.scale.set(1.5,1.4,1.5);
+      // Held to the same clamp as everything else this stream builds, which it was not before. A prop cell
+      // can fall anywhere in a chamber including a stride from its heart, and a four-metre column there
+      // stands on the knight: in the dash strip he spends two frames as a sliver of cloak behind one. Up
+      // -screen of the heart it is backdrop and keeps its full height; on the camera's side it now stops
+      // where his feet are, which for a column close in means a broken stump in its own plinth — which is
+      // what a drowned keep has anyway, and still reads as mass.
+      const room=floor.rooms[p.room],air=headroom(x-room.x*TILE,z-room.z*TILE);
+      const h=Math.max(.5,Math.min(3.9+random()*1.7,air-.54)),base=mesh(PROP.plinth,trim,x,.24,z);base.scale.set(1.5,1.4,1.5);
       const shaft=mesh(PROP.column,shaftStone,x,h/2+.34,z);shaft.scale.set(1.45,h,1.45);
       const cap=mesh(PROP.capital,trim,x,h+.44,z);cap.scale.set(1.62,1.4,1.62);
     } else {
@@ -120,8 +131,15 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const blocks:{x:number;y:number;z:number;sx:number;sy:number;sz:number;color:number;room:number}[]=[];
   const bannerRooms=new Set<number>();
   for(const tile of floor.tiles){
-    if(tile.room<0)continue;
-    const room=floor.rooms[tile.room];
+    // Boards over open water carry a trestle instead of masonry; see below.
+    if(tile.wood)continue;
+    const room=tile.room<0?null:floor.rooms[tile.room];
+    // Corridors were skipped outright, which is why the two flattest frames in the set are the two with no
+    // room in them. A run has no heart to measure a `headroom` from, so it measures from the tile the
+    // knight would be standing on — and that is a stronger rule than the room one, not a weaker one:
+    // wherever he is on the run, the two faces pointing away from the lens are behind him and can go as
+    // tall as the wall wants, and the two pointing at it come out under a course and build nothing.
+    const ox=room?room.x*TILE:tile.x*TILE,oz=room?room.z*TILE:tile.z*TILE;
     // Two faces became four for the reason set out in dungeon-art: the camera-facing edge of every room
     // carried nothing but a 0.38 kerb, so there was never anything between the lens and the fight. Every
     // block here lands in that room's one InstancedMesh, so a wall on the near side is triangles and not
@@ -129,7 +147,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     for(const [dx,dz] of [[-1,0],[0,-1],[1,0],[0,1]]){
       if(solid.has(packed(tile.x+dx,tile.z+dz)))continue;
       const x=(tile.x+dx*.52)*TILE,z=(tile.z+dz*.52)*TILE;
-      const near=headroom(x-room.x*TILE,z-room.z*TILE);
+      const near=headroom(x-ox,z-oz);
       // Up-screen of the knight this is backdrop and goes tall; on his side of the frame it may only rise
       // as far as `headroom` says it can without climbing over him. Close in, that is under a course and
       // the kerb already there is the whole of it.
@@ -139,22 +157,29 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
       // round doubled the block count for the whole keep, and a broken run of low masonry is the better
       // read anyway: the reference's mid-ground retaining walls step and gap rather than running true.
       if(near!==Infinity&&((tile.x+tile.z)%2||near>OFF_FRAME))continue;
-      const drawn=room.theme==='ruins'?1+Math.floor(random()*4):3+Math.floor(random()*3);
+      // A corridor wall is seen edge-on down its whole length, so it runs lower and in single blocks: the
+      // point out there is a continuous mass breaking the water at the top of the frame, not coursework
+      // nobody is close enough to read, and at a hundred and eight triangles a block the difference
+      // between three courses and five over a long run is the whole of this stream's remaining budget.
+      const drawn=!room?2+((Math.abs(tile.x*7+tile.z*13))%3===0?2:0):room.theme==='ruins'?1+Math.floor(random()*4):3+Math.floor(random()*3);
       const layers=Math.min(drawn,ceiling,near===Infinity?99:2);
       // Two blocks to a course on the far wall, one on the near. Nearer the camera a course reads at twice
       // the size, so a single wider block is the truer stone and not merely the cheaper one — and the far
       // wall is where the running bond earns its keep, small enough on screen that paired blocks are the
       // only thing stopping it reading as a grid.
-      const halves=near===Infinity?2:1;
+      const halves=near===Infinity&&room?2:1;
       for(let layer=0;layer<layers;layer++)for(let half=0;half<halves;half++){
         if(layer===layers-1&&random()<.2)continue;
         // Running bond: alternate courses slide a fifth of a block along the run. Every course stayed in
         // step before, which is what made a wall read as a grid of identical cubes rather than as masonry.
         const bond=(layer%2?.15:-.15)*.72,along=halves>1?(half-.5)*.72+bond:bond*.9;
         const run=halves>1?.7:1.34,across=halves>1?.65:.72;
-        blocks.push({room:tile.room,x:x+(dz?along:0),y:.42+layer*.53,z:z+(dx?along:0),sx:dz?run:across,sy:.5,sz:dx?run:across,color:room.theme==='ruins'?0x697469:room.theme==='flooded'?0x526872:0x606970});
+        // A corridor has no room of its own, and since the near-face skip was lifted it
+        // reaches this line. It borrows the nearest chamber's stone so a passage does not
+        // arrive as a grey ribbon laid across a room that has committed to a colour.
+        blocks.push({room:tile.room,x:x+(dz?along:0),y:.42+layer*.53,z:z+(dx?along:0),sx:dz?run:across,sy:.5,sz:dx?run:across,color:ROOM_MOOD[(room??nearestRoom(tile.x,tile.z)).theme].block});
       }
-      if(near===Infinity&&!bannerRooms.has(room.id)&&layers>=4&&Math.abs(tile.x-room.x)+Math.abs(tile.z-room.z)<Math.max(room.halfX,room.halfZ)+2){
+      if(near===Infinity&&room&&!bannerRooms.has(room.id)&&layers>=4&&Math.abs(tile.x-room.x)+Math.abs(tile.z-room.z)<Math.max(room.halfX,room.halfZ)+2){
         const flag=mesh(new THREE.PlaneGeometry(.75,1.55,2,4),red,x-dx*.38,1.55,z-dz*.38);if(dx)flag.rotation.y=Math.PI/2;banners.push(flag);bannerRooms.add(room.id);
         const bar=mesh(new THREE.BoxGeometry(dx?.12:1.0,.12,dx?1.0:.12),trim,x-dx*.4,2.37,z-dz*.4);bar.castShadow=false;
       }
@@ -177,17 +202,54 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const debris=new THREE.InstancedMesh(new THREE.DodecahedronGeometry(.2),stone,chips.length),chipMatrix=new THREE.Matrix4();const up=new THREE.Vector3(0,1,0),chipSpin=new THREE.Quaternion(),chipSize=new THREE.Vector3();chips.forEach((p,i)=>{chipMatrix.compose(p,chipSpin.setFromAxisAngle(up,random()*6.28),chipSize.set(.5+random(),.22,.5+random()));debris.setMatrixAt(i,chipMatrix);});debris.receiveShadow=true;world.add(debris);
   const geometry=new RoundedBoxGeometry(1,1,1,1,.105),wallMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.83}),matrix=new THREE.Matrix4();
   weatherStone(wallMaterial);
-  // Separate chamber batches let the view and shadow frusta skip distant masonry.
-  const blocksByRoom=new Map<number,typeof blocks>();
-  for(const b of blocks){const list=blocksByRoom.get(b.room);if(list)list.push(b);else blocksByRoom.set(b.room,[b]);}
+  // Spatial batches, where these were one per chamber. An instanced mesh is culled whole, so a batch as
+  // wide as a hall was drawn entire — and in the shadow pass as well — the moment a corner of it clipped
+  // either frustum, which at a hundred and eight triangles a block was the largest single waste in the
+  // keep and is what pays for the corridors above. Eleven units is narrower than the view.
+  const blocksByRegion=new Map<string,typeof blocks>();
+  for(const b of blocks){const key=`${Math.floor(b.x/15)},${Math.floor(b.z/15)}`;const list=blocksByRegion.get(key);if(list)list.push(b);else blocksByRegion.set(key,[b]);}
   // Reused scratch objects: this loop runs tens of thousands of times on a deep floor.
   const at=new THREE.Vector3(),spin=new THREE.Quaternion(),size=new THREE.Vector3(),tint=new THREE.Color();
-  for(const room of floor.rooms){const local=blocksByRoom.get(room.id)??[],masonry=new THREE.InstancedMesh(geometry,wallMaterial,local.length);
+  for(const local of blocksByRegion.values()){const masonry=new THREE.InstancedMesh(geometry,wallMaterial,local.length);
     local.forEach((b,i)=>{matrix.compose(at.set(b.x,b.y,b.z),spin,size.set(b.sx,b.sy,b.sz));masonry.setMatrixAt(i,matrix);masonry.setColorAt(i,tint.setHex(b.color).multiplyScalar(.78+random()*.44).offsetHSL(random()*.03-.015,random()*.05-.02,0));});masonry.castShadow=masonry.receiveShadow=true;world.add(masonry);
   }
+  // A span was the flattest thing in the keep: four boards over open water with a kerb and nothing else,
+  // and both masonry passes skipped it because it belongs to no room. dd-ss-07 builds its jetty out of what
+  // a jetty is made of — piles carrying down into the water, posts standing off the deck, a rail between
+  // them — which is vertical mass above the boards and below them for twelve triangles a piece. The piles
+  // on the faces pointing away from the lens carry on up shoulder-high, and one in four of those goes up as
+  // a mooring mast to break the empty water at the top of the frame; the faces pointing at the lens stop at
+  // a bollard below the knee, because whoever is on the span is standing a single tile from them.
+  const timber=new THREE.MeshStandardMaterial({color:0x7e6547,roughness:.96});weatherStone(timber);
+  const pileGeometry=new THREE.CylinderGeometry(.5,.5,1,6,1,true),railGeometry=new THREE.BoxGeometry(1,1,1);
+  const piles:{x:number;y:number;z:number;w:number;h:number}[]=[],rails:{x:number;y:number;z:number;sx:number;sz:number}[]=[];
+  for(const tile of floor.tiles){
+    if(!tile.wood)continue;
+    for(const [dx,dz] of [[-1,0],[0,-1],[1,0],[0,1]]){
+      if(solid.has(packed(tile.x+dx,tile.z+dz)))continue;
+      const x=(tile.x+dx*.52)*TILE,z=(tile.z+dz*.52)*TILE,back=!facesCamera(dx,dz);
+      const mast=back&&Math.abs(tile.x*5+tile.z*11)%4===0;
+      piles.push({x,y:-3.05,z,w:mast?.29:.22,h:3.05+(back?(mast?2.8:1.3+Math.abs(tile.x*3+tile.z*7)%3*.2):.42)});
+      if(back)rails.push({x,y:1.02,z,sx:dz?TILE:.13,sz:dx?TILE:.13});
+    }
+  }
+  if(piles.length){
+    const trestle=new Map<string,typeof piles>();
+    for(const p of piles){const key=`${Math.floor(p.x/11)},${Math.floor(p.z/11)}`;const list=trestle.get(key);if(list)list.push(p);else trestle.set(key,[p]);}
+    for(const local of trestle.values()){const posts=new THREE.InstancedMesh(pileGeometry,timber,local.length);
+      local.forEach((p,i)=>{matrix.compose(at.set(p.x,p.y+p.h/2,p.z),spin,size.set(p.w,p.h,p.w));posts.setMatrixAt(i,matrix);});
+      posts.castShadow=posts.receiveShadow=true;world.add(posts);}
+    const rail=new THREE.InstancedMesh(railGeometry,timber,rails.length);
+    rails.forEach((r,i)=>{matrix.compose(at.set(r.x,r.y,r.z),spin,size.set(r.sx,.13,r.sz));rail.setMatrixAt(i,matrix);});
+    rail.receiveShadow=true;world.add(rail);
+  } else {pileGeometry.dispose();railGeometry.dispose();timber.dispose();}
   // Different landmarks distinguish shrines from plain halls and ruined courts.
   for(const room of floor.rooms){const x=room.x*TILE,z=room.z*TILE;
-    const material=new THREE.MeshBasicMaterial({color:0x7faeae,transparent:true,opacity:.24,depthWrite:false});
+    // A ring of low-chroma teal at the heart of every room, cleared or not, was a fourth thing quietly
+    // agreeing with the other three. It takes the chamber's own accent now, and only the cleared state
+    // is still allowed to say green, because that is the one thing it has to say.
+    const material=new THREE.MeshBasicMaterial({color:ROOM_MOOD[room.theme].seal,transparent:true,opacity:.24,depthWrite:false});
+    sealTints.push(ROOM_MOOD[room.theme].seal);
     const seal=mesh(new THREE.RingGeometry(room.shape==='round'?2.2:1.0,room.shape==='round'?2.27:1.04,room.shape==='round'?40:4),material,x,.026,z);seal.rotation.x=-Math.PI/2;seal.castShadow=false;seals.push(seal);
     if(room.shape==='gallery')for(let offset=-room.halfZ+1;offset<room.halfZ;offset+=2){const strip=mesh(new THREE.PlaneGeometry(1.1,2.8),red,x,.025,z+offset*TILE);strip.rotation.x=-Math.PI/2;strip.castShadow=false;}
   }
@@ -207,7 +269,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     emberGeo.attributes.position.needsUpdate=true;
     ripples.forEach((r,i)=>{const phase=(t*.65+(i%4)*.25)%1;r.scale.setScalar(.65+phase*1.7);r.position.y=-2.7+Math.sin(t*.9)*.05+(i%4)*.008;});
     falls.forEach((fall,i)=>{for(let j=0;j<16;j++){const phase=(t*.8+j/16+i*.31)%1,angle=j*2.4,k=(i*16+j)*3;const span=.12+phase*.65;sprayPositions[k]=fall.position.x+Math.cos(angle)*span;sprayPositions[k+1]=-2.7+Math.sin(phase*Math.PI)*(.2+(j%3)*.12);sprayPositions[k+2]=fall.position.z+Math.sin(angle)*span;}});sprayGeometry.attributes.position.needsUpdate=true;
-    seals.forEach((seal,i)=>{const m=seal.material as THREE.MeshBasicMaterial;m.color.setHex(cleared.has(i)?0x9dcf9e:0x7faeae);m.opacity=cleared.has(i)?.6:.16;});
+    seals.forEach((seal,i)=>{const m=seal.material as THREE.MeshBasicMaterial;m.color.setHex(cleared.has(i)?0x9dcf9e:sealTints[i]);m.opacity=cleared.has(i)?.6:.16;});
     flowTexture.offset.y=t*.5;falls.forEach((f,i)=>{f.scale.x=1+Math.sin(t*4+i)*.06;});
   },dispose(){clothTexture.dispose();sprayGeometry.dispose();sprayMaterial.dispose();contactMap.dispose();flowTexture.dispose();glowMap.dispose();haloMaterial.dispose();coreMaterial.dispose();emberGeo.dispose();emberMaterial.dispose();motesGeo.dispose();(motes.material as THREE.Material).dispose();}};
 }
