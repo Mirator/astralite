@@ -3,7 +3,10 @@ import { defineConfig, devices } from '@playwright/test';
 // Loopback only: the dev server must never be reachable from the network, and
 // CI must start its own rather than adopting whatever already holds the port.
 const HOST = '127.0.0.1';
-const PORT = 3000;
+// Overridable so several checkouts can verify at once on one machine: the suite
+// starts its own server and will not adopt a stranger's, so two runs on one port
+// fight over it. Loopback is not negotiable and is not read from the environment.
+const PORT = Number(process.env.GAME_TEST_PORT ?? 3000);
 const baseURL = `http://${HOST}:${PORT}`;
 
 export default defineConfig({
@@ -42,7 +45,19 @@ export default defineConfig({
         viewport: { width: 1000, height: 700 },
         // Headless runners have no GPU; ANGLE over SwiftShader keeps WebGL
         // real instead of falling back to a null renderer. Test browser only.
-        launchOptions: { args: ['--use-gl=angle', '--use-angle=swiftshader'] },
+        //
+        // A developer machine does have a GPU, and rasterising this scene in
+        // software is what makes the suite take twenty minutes. `GAME_TEST_GL`
+        // switches the backend for a local run: `d3d11` is roughly an order of
+        // magnitude faster. It is deliberately not the default, because the
+        // captured images are the backend's output and the reference set was
+        // taken on SwiftShader — CI must stay on it so two runs are comparable.
+        launchOptions: {
+          args:
+            process.env.GAME_TEST_GL === 'd3d11'
+              ? ['--use-gl=angle', '--use-angle=d3d11', '--enable-gpu']
+              : ['--use-gl=angle', '--use-angle=swiftshader'],
+        },
       },
     },
   ],

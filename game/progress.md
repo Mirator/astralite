@@ -465,3 +465,108 @@ waits, the key outside the ring is inert, the key inside it swaps and turns the 
 what was just set down, the prompt leaves with him, and a dash across a rack changes nothing. The text
 hook's `drop` traded `dwell`/`takes` for `over` and `offered`, which is what a driver can now assert on.
 The full browser suite was not run to completion this session.
+
+## Three streams against Death's Door: silhouette, surfaces, and the blow
+
+The keep was measured against Death's Door rather than against a description of it. Twelve of its store
+stills were normalised to our own 1000x700 and 48 consecutive frames were pulled from its gameplay
+trailer, so every judgement in this entry was made with the two sets side by side.
+
+### The instrument came first
+
+`tests/browser/shots.spec.ts` stages eight scenes on pinned seeds - a torchlit flooded hall with the watch
+closing, a sealed warden chamber, the middle of a plank bridge, an unspent shrine, an ember gauntlet
+mid-flare, the contact frame of a strike, a corridor with no brazier in view, and a junction branching
+three ways - plus two frame sequences stepped at 16ms, one displayed frame at 60Hz: thirty-two frames of a
+full strike and twenty-four of a full dash, each with the simulation clock written beside it.
+
+Whether those captures could be trusted took three attempts and two wrong turns. Pinning `Math.random` to
+stop sparks scattering made it worse, because three.js draws object ids from it and a fixed stream
+perturbs render ordering. The real cause was that a keypress races the stepped clock and lands a frame
+either side of it, moving the knight, the camera, and with them every pixel; the sequences now settle onto
+an exact mark and fire the verb through the action event instead. A third pair, run with nothing else
+touching the machine, came back with the flooded hall and the bridge bit-identical, zero pixels apart, and
+the dash strip differing by a couple of hundred pixels at one value step. The strike strip still differs
+run to run - but its simulation is identical across all thirty-two frames, so the swing is stable and only
+the sparks are not. `zz-pixel-diff.spec.ts` is the tool that answers this question and self-skips unless
+given two directories.
+
+`tests/browser/frame-budget.spec.ts` is a ceiling rather than a report. Wall-clock frame timing was tried
+first and abandoned: on a software rasteriser the same frame reports a 130ms median and a 1900ms 95th
+percentile, and no build can be failed honestly on a number with that spread. The renderer's own counters
+can, and they are exact. Three scenes are covered - the two heaviest, and the one where a blow lands,
+which was added after a reviewer pointed out that neither heavy frame contains a blow, so nothing bounded
+a change to how blows land.
+
+`GAME_TEST_PORT` lets several checkouts verify at once; loopback stays hard-wired. `GAME_TEST_GL=d3d11`
+runs the suite on the machine's actual GPU, which takes it from twenty-three minutes to two and a half. It
+is deliberately not the default: the captures are the renderer's output and the reference set was taken on
+SwiftShader, so CI stays there and only local iteration uses it.
+
+### What the three streams changed
+
+**Silhouette.** The knight's plate was 0xd8d4c8 and skeleton bone 0xd9d1bd - the same value, so a crowded
+hall was four pale shapes and nothing said which one was the player. The plate is now dark and cool, the
+trim hot, the cape wider and hotter, and every enemy has been pushed off the warm half of the wheel with
+bone split by kind; the blade alone keeps the old pale value, so the long bright edge stays the marker
+while the body drops away under it. The reasoning is worth keeping: the knight is read by the contrast he
+carries, not by his value against the room, because the rooms run from a mandala at a fifth of full value
+to lit paving at twice that.
+
+**Surfaces and light.** Two rounds. The first was half ineffective and said so: the torch brightening was
+dead code, overwritten every frame, so it shipped the same light with a tighter cutoff and made the pool's
+hard edge worse; and the cross-tile weathering was built from sin(x) times sin(z), which is separable and
+therefore lands in step with a square tile grid and deepens it. The second rebuilt weathering on hashed
+value noise with three octaves rotated about 28 degrees apart so no frequency aligns with the grid, gave
+the point lights physical inverse-square falloff in place of a window that collapsed inside the frame, and
+returned the medallion to its original base because the lift was spending the knight's contrast for
+nothing.
+
+**The blow.** Combat scores on a cone test, so a body in the arc is struck on the first live frame - and
+under the old curve that frame showed the sword parked at its deepest backswing, at yaw -1.076, behind the
+shoulder and indistinguishable from the frame before. It now launches at 80% of anticipation and lands at
++0.35, crossing the target's chest. The sixteen-point star became a two-triangle shader plane, cheaper and
+larger. Hit-stop went 35ms to 70ms, five frozen frames instead of three. Then the accents were found to be
+running on the hit-stop-scaled clock, so freezing the world froze the flash with it and doubling hit-stop
+doubled a plateau rather than lengthening a decay; they now run on unscaled wall time, and the enemy
+hit-flash is stamped against elapsed time on its rising edge for the same reason. Blown pixels on the
+struck skeleton across frames 06-11 went 946/946/941/937/935/935 to 705/535/381/205/162/146: one clipped
+frame instead of nine, and the skull keeps its eye socket.
+
+**Verticality.** A blind review of the merged result lost all eight pairs and named the reason as
+structural: nothing rose above knee height and nothing ever occluded the camera, so every shadow was a
+small ellipse and every light a smooth gradient on an unbroken plane. The cause was in code. The carved
+architecture pass walked only [-1,0] and [0,-1] of a room's perimeter, and both point away from a camera at
+focus+(9.2,12.5,11.5) - so every tall thing in the keep stood on the back wall and the camera-facing edge
+of every room was bare paving. All four faces are now walked, with near faces getting instanced work only
+so a whole near wall costs triangles and no draw calls; interior pillars went from bollard height to nearly
+six metres, the back pilaster was raised until the moon's rake was longer than the pier is wide, and the
+parapet doubled in height and thickness at the same instance count.
+
+### Cost
+
+Twelve dash-trail meshes were faded to zero opacity and never made invisible, so they drew in every frame
+of every scene; gating them on their own lifetime gave twelve draw calls back everywhere. A parapet shadow
+pass was tried and rejected - it runs the border of every tile and cost more triangles in corridors than
+all the vertical structure combined. Net against the original baseline, after everything: flooded hall 508
+to 511 calls, junction 399 to 407, and the contact frame 389 down to 365.
+
+The budget was raised 15% on both counts, deliberately and by the owner, to pay for vertical mass; the
+figures in the gate record the original numbers and the reason. Most of it went unspent.
+
+### What a blind reviewer still says
+
+Set against the reference with the labels stripped and the sides shuffled, the keep lost 1-8 and then 0-8.
+Two criteria are now called near-competitive by a reviewer who did not know which set was ours: finding the
+player, where the knight is top two in most pairs, and colour discipline, which holds across all eight with
+no hue drift. It loses on surface interest, sculpted form, occlusion and whether anything is happening in
+the frame. Named as still missing: an arch that physically crosses the play space, corridors and spans that
+the masonry passes skip entirely, and frame corners that the reference always crowds and ours leave open.
+
+One measurement caution, found by running our own findability metric on the reference: Death's Door's crow
+scores 10 and 0 for "brighter than its background" and 103 and 92 the other way. A metric that asks whether
+the hero is pale rewards exactly the defect this work removed. Judge separation in both directions.
+
+Verification: typecheck, lint, 137/137 node tests, 66/66 browser tests, the frame budget at all three
+scenes, and a production build - all green on the merged tree. The verticality work is not in this commit;
+it is still under review.

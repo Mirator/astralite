@@ -1,0 +1,146 @@
+import {
+  expect,
+  type Game,
+  openSpot,
+  roomCentre,
+  strikeStance,
+  test,
+  TILE,
+} from './helpers.ts';
+
+/**
+ * A ceiling on what the staged frames that matter are allowed to cost: the two
+ * heaviest, and the one where a blow lands.
+ *
+ * Wall-clock frame timing is not the measure here and deliberately so: the test
+ * browser has no GPU and rasterises in software, where the same frame drawn a
+ * hundred times reports a median of 130ms, a mean of 430ms and a 95th
+ * percentile of 1900ms. A number with that much spread cannot fail a build
+ * honestly. The renderer's own counters can: draw calls and triangles are exact,
+ * identical run to run, and they are what actually moves when someone pays for a
+ * better-looking frame with more geometry.
+ *
+ * The figures below were measured on the pinned seeds these scenes use. Raising
+ * one is a deliberate act: change the number here, in the same commit, and say
+ * in `progress.md` what bought it.
+ */
+// Raised deliberately on 2026-09-19, by the owner, by 15% on both counts
+// against the figures the first baseline measured. Those were: flooded-hall
+// 508 / 294,966, junction 399 / 305,337, strike-contact 389 / 205,388, and the
+// suite sat exactly on them. A blind review found the largest remaining gap to
+// be that nothing in any frame rises above knee height and nothing ever
+// occludes the camera, which is why every shadow is an ellipse on an unbroken
+// plane — and vertical mass is geometry that the old ceiling had no room for.
+// The headroom is for that, and the numbers below are the new ceiling, not a
+// target: a change that does not buy vertical structure should still come in at
+// the old figures.
+const BUDGET = {
+  'flooded-hall': { calls: 584, triangles: 339_211 },
+  junction: { calls: 459, triangles: 351_138 },
+  // Not one of the two heaviest frames, and here for a different reason: it is
+  // the only scene that draws the blade trail, the impact accents and a hit
+  // flash at once. Without it, work on how a blow lands is bounded by two
+  // frames that contain no blow, and a change can spend draw calls freely in
+  // the one place it actually touches.
+  'strike-contact': { calls: 447, triangles: 236_196 },
+} as const;
+
+/** Draws the staged frame, then holds its counters against the ceiling. */
+const spend = async (game: Game, scene: keyof typeof BUDGET) => {
+  await game.step(0, true);
+  const { calls, triangles, geometries, textures } = (await game.state()).render;
+  console.log(
+    `BUDGET ${scene} calls=${calls}/${BUDGET[scene].calls} triangles=${triangles}/${BUDGET[scene].triangles} geometries=${geometries} textures=${textures}`,
+  );
+  expect(
+    calls,
+    `${scene} draws more often than the budget allows; say what bought it and raise the number deliberately`,
+  ).toBeLessThanOrEqual(BUDGET[scene].calls);
+  expect(
+    triangles,
+    `${scene} pushes more triangles than the budget allows; say what bought it and raise the number deliberately`,
+  ).toBeLessThanOrEqual(BUDGET[scene].triangles);
+};
+
+test.describe('the busiest fight', () => {
+  test.use({ seeds: [0x3e] });
+  test('a flooded hall with the watch closing stays inside its budget', async ({
+    game,
+  }) => {
+    await game.enter();
+    const floor = await game.floor();
+    const hall = floor.rooms.find(
+      (room) =>
+        room.theme === 'flooded' &&
+        room.encounter !== 'ambush' &&
+        floor.spawns.filter((s) => s.room === room.id && s.kind === 'guard')
+          .length >= 3,
+    );
+    expect(hall, 'seed 0x3e no longer holds the hall this budget was set on')
+      .toBeDefined();
+    const pack = floor.spawns
+      .filter((spawn) => spawn.room === hall!.id)
+      .map((spawn) => ({ x: spawn.x * TILE, z: spawn.z * TILE }));
+    const stand = openSpot(floor, roomCentre(floor, hall!.id), {
+      radius: 10,
+      avoid: pack,
+      clearance: 5.5,
+    });
+    await game.teleport(stand.x, stand.z);
+    await game.step(900);
+    await spend(game, 'flooded-hall');
+  });
+});
+
+test.describe('the widest room', () => {
+  test.use({ seeds: [0x20] });
+  test('a junction branching three ways stays inside its budget', async ({
+    game,
+  }) => {
+    await game.enter();
+    const floor = await game.floor();
+    const junction = floor.rooms.find(
+      (room) =>
+        floor.spine.includes(room.id) &&
+        floor.edges.filter(([a, b]) => a === room.id || b === room.id).length >=
+          4,
+    );
+    expect(
+      junction,
+      'seed 0x20 no longer holds the junction this budget was set on',
+    ).toBeDefined();
+    const centre = roomCentre(floor, junction!.id);
+    await game.teleport(centre.x, centre.z);
+    await game.step(640);
+    await spend(game, 'junction');
+  });
+});
+
+test.describe('the moment of contact', () => {
+  test.use({ seeds: [0x1] });
+  test('a landed blow stays inside its budget', async ({ game }) => {
+    await game.enter();
+    await game.step(120);
+    const floor = await game.floor();
+    const target = { x: 0, z: 0 };
+    const stance = strikeStance(floor, target);
+    await game.teleport(stance.x, stance.z);
+    await game.page.keyboard.down(stance.key);
+    await game.step(16);
+    await game.page.keyboard.up(stance.key);
+    const blade = (await game.state()).weapon.strikeDamage;
+    await game.configureCombat({
+      enemies: [
+        { index: 0, x: target.x, z: target.z, hp: Math.min(8, blade * 2), cooldown: 10, windup: 0 },
+      ],
+    });
+    await game.act('attack');
+    await game.step(130);
+    const state = await game.state();
+    expect(
+      state.player.attackTime,
+      'the frame this budget covers is not inside a swing',
+    ).toBeGreaterThan(0);
+    await spend(game, 'strike-contact');
+  });
+});

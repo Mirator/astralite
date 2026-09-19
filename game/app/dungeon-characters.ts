@@ -46,7 +46,7 @@ export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; arm:
   for (const side of [-1, 1]) {
     add(rig.head, box, m.brass, [side * .22, -.025, -.263], [.023, .19, .027], [0, 0, side * -.16]);
     for (let i = 0; i < 3; i++) add(rig.head, joint, m.shadow, [side * (.085 + i * .046), -.095, -.257], [.017, .022, .012]);
-    add(rig.torso, cloth, m.red, [side * .13, -.19, -.235], [.24, .57, 1], [0, 0, side * -.06]);
+    add(rig.torso, cloth, m.red, [side * .145, -.2, -.235], [.31, .64, 1], [0, 0, side * -.06]);
     for (let i = 0; i < 3; i++) {
       add(rig.torso, box, i === 0 ? m.steel : m.iron, [side * (.4 + i * .02), .5 - i * .08, -.01], [.4 - i * .025, .1, .43], [0, 0, side * -.16]);
       add(rig.torso, joint, m.brass, [side * (.39 + i * .022), .505 - i * .08, -.24], [.028, .028, .016]);
@@ -57,7 +57,10 @@ export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; arm:
   // A small sun clasp repeats the keep's heraldry without turning the whole chest into a light.
   add(rig.torso, joint, m.brass, [0, .28, -.355], [.066, .08, .025]);
   add(rig.head, box, m.brass, [0, .19, .015], [.045, .21, .36], [.16, 0, 0]);
-  for(let i=0;i<3;i++)add(rig.head,spike,m.red,[0,.36-i*.025,.09+i*.09],[.065,.3-i*.045,.08],[.8+i*.18,0,0]);
+  // An isometric camera spends most of its pixels on the top of the head, so the crest is scaled up rather
+  // than multiplied: the same three cones, carrying twice the accent into the part of the silhouette the
+  // player is actually looking at, and costing nothing extra to draw.
+  for(let i=0;i<3;i++)add(rig.head,spike,m.red,[0,.375-i*.025,.09+i*.10],[.088,.40-i*.055,.105],[.8+i*.18,0,0]);
   for (const leg of rig.legs) {
     const knee = leg.userData.knee as THREE.Group;
     add(knee, box, m.steel, [0, -.11, -.16], [.2, .075, .18]);
@@ -69,19 +72,21 @@ export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; arm:
   const positions = rig.cape.geometry.getAttribute('position'), colours = [];
   for (let i = 0; i < positions.count; i++) {
     const x = positions.getX(i), y = positions.getY(i);
-    const free=-y/.98,border=Math.abs(x)>(.3+free*.12)*.88||free>.94;
+    const free=-y/.98,border=Math.abs(x)>(.37+free*.15)*.9||free>.94;
     const sigil=free>.2&&free<.58&&(Math.abs(x)<.04||Math.abs(free-.34)<.055&&Math.abs(x)<.16);
-    const color = new THREE.Color(border || sigil ? 0xe2b571 : 0xa52c34); colours.push(color.r, color.g, color.b);
+    const color = new THREE.Color(border || sigil ? 0xf3c46d : 0xc9202e); colours.push(color.r, color.g, color.b);
   }
   rig.cape.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
-  rig.cape.material = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .95, side: THREE.DoubleSide });
+  rig.cape.material = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .95, emissive: 0x2a0a08, side: THREE.DoubleSide });
   finish();
 }
 
 export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Group, skull: THREE.Mesh, limbs: THREE.Group[], weapon: THREE.Group, shield: THREE.Mesh, bone: THREE.Material, iron: THREE.Material, brass: THREE.Material) {
   const { add, finish } = dressing(kind), stalker = kind === 'stalker', warden = kind === 'warden';
   const shadow = new THREE.MeshStandardMaterial({ color: 0x101b1c, roughness: 1 });
-  const clothMaterial = new THREE.MeshStandardMaterial({ color: warden ? 0x562f42 : stalker ? 0x334b43 : 0x61402d, roughness: 1, side: THREE.DoubleSide });
+  // The guard's tabard was brown and the warden's a muted wine, which put both of them in the knight's own
+  // hue family. Everything the enemies wear is cold now; the warm half of the wheel belongs to him alone.
+  const clothMaterial = new THREE.MeshStandardMaterial({ color: warden ? 0x2b3a4a : stalker ? 0x334b43 : 0x3d4a48, roughness: 1, side: THREE.DoubleSide });
   for (const s of [-1, 1]) {
     add(skull, joint, shadow, [s * .105, .045, -.223], [.1, .083, .026]);
     add(skull, box, bone, [s * .14, -.092, -.19], [.1, .11, .1], [0, 0, s * .24]);

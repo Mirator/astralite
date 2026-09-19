@@ -9,26 +9,37 @@ export function stoneTexture() {
   const ctx = canvas.getContext('2d')!; let seed = 7123;
   const random = () => { seed = (Math.imul(seed,1664525) + 1013904223) >>> 0; return seed / 4294967296; };
   ctx.fillStyle = '#b9bbb0'; ctx.fillRect(0,0,256,256);
-  for (let i=0;i<6500;i++) { const shade = Math.floor(90 + random()*120); ctx.fillStyle = `rgba(${shade},${shade},${shade},.12)`; ctx.fillRect(random()*256,random()*256,1+random()*5,1+random()*3); }
-  // Broad mineral veins and a chipped edge, rather than miniature bricks on every floor tile.
-  for(let i=0;i<15;i++){const x=random()*256,y=random()*256,r=12+random()*60;const bloom=ctx.createRadialGradient(x,y,0,x,y,r);bloom.addColorStop(0,i%2?'#707f711a':'#e9ddbe22');bloom.addColorStop(1,'#ffffff00');ctx.fillStyle=bloom;ctx.fillRect(0,0,256,256);}
-  ctx.strokeStyle='#5d675d55';ctx.lineWidth=1.1;ctx.beginPath();ctx.moveTo(0,84);ctx.lineTo(22,97);ctx.lineTo(31,122);ctx.lineTo(54,136);ctx.lineTo(60,157);ctx.moveTo(31,122);ctx.lineTo(15,138);ctx.stroke();
-  ctx.strokeStyle='#f6eed43a';ctx.lineWidth=3;ctx.strokeRect(4,4,248,248);
+  // This map lands on every slab in the keep under one of only four rotations, so whatever is painted
+  // here repeats at exactly the tile pitch — the one spatial frequency the grid already supplies. Any
+  // shape the eye can recognise therefore deepens the grid rather than breaking it, which is what the
+  // broad stains, the diagonal ramp, the veins and the chipped corners that used to be here were doing.
+  // All of that moved into `weatherStone`, which is a function of world position and crosses joints.
+  // What is left is grain too fine to read as a pattern, and it is mostly here to drive the bump.
+  ctx.fillStyle='#2f3d38'; for(let i=0;i<900;i++){const a=.03+random()*.10;ctx.globalAlpha=a;ctx.fillRect(random()*256,random()*256,1+random()*2.2,1+random()*1.8);}
+  ctx.fillStyle='#ece7d6'; for(let i=0;i<700;i++){const a=.02+random()*.08;ctx.globalAlpha=a;ctx.fillRect(random()*256,random()*256,1+random()*2,1+random()*1.6);}
+  ctx.globalAlpha=1;
+  // A narrow, shallow joint: enough that a slab still reads as a cut block, not so much that the seam
+  // is again the loudest thing on the floor.
+  for(const [gx0,gy0,gx1,gy1] of [[0,0,13,0],[256,0,243,0],[0,0,0,13],[0,256,0,243]] as const){
+    const edge=ctx.createLinearGradient(gx0,gy0,gx1,gy1);
+    edge.addColorStop(0,'#1d262a5c');edge.addColorStop(.4,'#1d262a1e');edge.addColorStop(1,'#1d262a00');
+    ctx.fillStyle=edge;ctx.fillRect(0,0,256,256);
+  }
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace=THREE.SRGBColorSpace; texture.anisotropy=4; return texture;
 }
 
 // Prop shapes repeat on every floor, so they are built once and varied by scale rather than regenerated.
 const keep = <T extends THREE.BufferGeometry>(geometry: T) => { geometry.userData.shared = true; return geometry; };
 const PROP = {
-  base: keep(new RoundedBoxGeometry(TILE, .32, TILE, 1, .07)),
+  base: keep(new RoundedBoxGeometry(TILE, .32, TILE, 1, .13)),
   bowl: keep(new THREE.CylinderGeometry(.34, .5, .8, 6)),
   rim: keep(new THREE.CylinderGeometry(.5, .3, .24, 8)),
   flame: keep(new THREE.OctahedronGeometry(.24)),
   barrel: keep(new THREE.CylinderGeometry(.44, .4, 1.0, 9)),
   hoop: keep(new THREE.CylinderGeometry(.46, .46, .09, 9)),
-  plinth: keep(new RoundedBoxGeometry(.95, .25, .95, 1, .04)),
+  plinth: keep(new RoundedBoxGeometry(.95, .25, .95, 1, .1)),
   column: keep(new THREE.CylinderGeometry(.3, .4, 1, 10)),
-  capital: keep(new RoundedBoxGeometry(.84, .2, .84, 1, .04)),
+  capital: keep(new RoundedBoxGeometry(.84, .2, .84, 1, .085)),
   rock: keep(new THREE.DodecahedronGeometry(1)),
 };
 
@@ -36,6 +47,10 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   addCarvedArchitecture(world,floor);
   const stone=new THREE.MeshStandardMaterial({color:0x566169,roughness:.95}),trim=new THREE.MeshStandardMaterial({color:0x8c7352,roughness:.72,metalness:.25});
   weatherStone(stone);
+  // The bowl is a six-sided cylinder under an open fire and was reading as one flat value top to bottom.
+  // Its own material, so the fire can bounce up the inside of it. Each bowl is already an individual
+  // mesh, so this is a second program, not a second draw call.
+  const bowlStone=new THREE.MeshStandardMaterial({color:0x4d5860,roughness:.95});weatherStone(bowlStone,true);
   const wood=new THREE.MeshStandardMaterial({color:0x51382b,roughness:1}),moss=new THREE.MeshStandardMaterial({color:0x42594b,roughness:1});
   const clothCanvas=document.createElement('canvas');clothCanvas.width=128;clothCanvas.height=256;const cc=clothCanvas.getContext('2d')!;
   cc.fillStyle='#792c38';cc.fillRect(0,0,128,256);cc.strokeStyle='#d7b375';cc.lineWidth=3;cc.strokeRect(9,8,110,240);
@@ -61,7 +76,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   for(const p of floor.props){const x=p.x*TILE,z=p.z*TILE;
     mesh(PROP.base,stone,x,-.18,z);
     if(p.kind==='brazier'){
-      mesh(PROP.bowl,stone,x,.42,z);mesh(PROP.rim,trim,x,.95,z);
+      mesh(PROP.bowl,bowlStone,x,.42,z);mesh(PROP.rim,trim,x,.95,z);
       const flame=mesh(PROP.flame,warm,x,1.33,z);flame.castShadow=false;flames.push(flame);torchPositions.push(new THREE.Vector3(x,1.7,z));
       const core=new THREE.Mesh(PROP.flame,coreMaterial);core.scale.set(.55,.8,.55);core.position.y=-.04;flame.add(core);
       const halo=new THREE.Sprite(haloMaterial);halo.position.set(x,1.48,z);halo.scale.set(2.7,3.5,1);world.add(halo);halos.push(halo);
@@ -95,7 +110,10 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
       const layers=room.theme==='ruins'?1+Math.floor(random()*4):3+Math.floor(random()*3);
       for(let layer=0;layer<layers;layer++)for(let half=0;half<2;half++){
         if(layer===layers-1&&random()<.2)continue;
-        blocks.push({room:tile.room,x:x+(dz?(half-.5)*.72:0),y:.42+layer*.53,z:z+(dx?(half-.5)*.72:0),sx:dz?.7:.65,sy:.5,sz:dx?.7:.65,color:room.theme==='ruins'?0x697469:room.theme==='flooded'?0x526872:0x606970});
+        // Running bond: alternate courses slide a fifth of a block along the run. Every course stayed in
+        // step before, which is what made a wall read as a grid of identical cubes rather than as masonry.
+        const bond=(layer%2?.15:-.15)*.72,along=(half-.5)*.72+bond;
+        blocks.push({room:tile.room,x:x+(dz?along:0),y:.42+layer*.53,z:z+(dx?along:0),sx:dz?.7:.65,sy:.5,sz:dx?.7:.65,color:room.theme==='ruins'?0x697469:room.theme==='flooded'?0x526872:0x606970});
       }
       if(!bannerRooms.has(room.id)&&layers>=4&&Math.abs(tile.x-room.x)+Math.abs(tile.z-room.z)<Math.max(room.halfX,room.halfZ)+2){
         const flag=mesh(new THREE.PlaneGeometry(.75,1.55,2,4),red,x-dx*.38,1.55,z-dz*.38);if(dx)flag.rotation.y=Math.PI/2;banners.push(flag);bannerRooms.add(room.id);
@@ -118,7 +136,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const sprayMaterial=new THREE.PointsMaterial({color:0xc1e3da,size:.065,transparent:true,opacity:.48,depthWrite:false});
   const spray=new THREE.Points(sprayGeometry,sprayMaterial);spray.frustumCulled=false;world.add(spray);
   const debris=new THREE.InstancedMesh(new THREE.DodecahedronGeometry(.2),stone,chips.length),chipMatrix=new THREE.Matrix4();const up=new THREE.Vector3(0,1,0),chipSpin=new THREE.Quaternion(),chipSize=new THREE.Vector3();chips.forEach((p,i)=>{chipMatrix.compose(p,chipSpin.setFromAxisAngle(up,random()*6.28),chipSize.set(.5+random(),.22,.5+random()));debris.setMatrixAt(i,chipMatrix);});debris.receiveShadow=true;world.add(debris);
-  const geometry=new RoundedBoxGeometry(1,1,1,1,.045),wallMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.83}),matrix=new THREE.Matrix4();
+  const geometry=new RoundedBoxGeometry(1,1,1,1,.105),wallMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.83}),matrix=new THREE.Matrix4();
   weatherStone(wallMaterial);
   // Separate chamber batches let the view and shadow frusta skip distant masonry.
   const blocksByRoom=new Map<number,typeof blocks>();
@@ -126,7 +144,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   // Reused scratch objects: this loop runs tens of thousands of times on a deep floor.
   const at=new THREE.Vector3(),spin=new THREE.Quaternion(),size=new THREE.Vector3(),tint=new THREE.Color();
   for(const room of floor.rooms){const local=blocksByRoom.get(room.id)??[],masonry=new THREE.InstancedMesh(geometry,wallMaterial,local.length);
-    local.forEach((b,i)=>{matrix.compose(at.set(b.x,b.y,b.z),spin,size.set(b.sx,b.sy,b.sz));masonry.setMatrixAt(i,matrix);masonry.setColorAt(i,tint.setHex(b.color).multiplyScalar(.9+random()*.22));});masonry.castShadow=masonry.receiveShadow=true;world.add(masonry);
+    local.forEach((b,i)=>{matrix.compose(at.set(b.x,b.y,b.z),spin,size.set(b.sx,b.sy,b.sz));masonry.setMatrixAt(i,matrix);masonry.setColorAt(i,tint.setHex(b.color).multiplyScalar(.78+random()*.44).offsetHSL(random()*.03-.015,random()*.05-.02,0));});masonry.castShadow=masonry.receiveShadow=true;world.add(masonry);
   }
   // Different landmarks distinguish shrines from plain halls and ruined courts.
   for(const room of floor.rooms){const x=room.x*TILE,z=room.z*TILE;

@@ -66,13 +66,23 @@ const bindLabel = (codes: string[], join = ' / ') => [...new Set(codes.map(keyLa
 
 function makeKnight() {
   const g = new THREE.Group();
-  const dark = new THREE.MeshStandardMaterial({ color: 0x202b32, roughness: 0.8 });
-  const steel = new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.48, metalness: 0.35, flatShading: true });
-  const iron = new THREE.MeshStandardMaterial({ color: 0x66747b, roughness: .58, metalness: .45, flatShading: true });
-  const brass = new THREE.MeshStandardMaterial({ color: 0xc49a54, roughness: .5, metalness: .5 });
-  const shadow = new THREE.MeshStandardMaterial({ color: 0x080f14, roughness: 1 });
-  const red = new THREE.MeshStandardMaterial({ color: 0xa52c34, roughness: 0.9, side: THREE.DoubleSide });
-  const leather = new THREE.MeshStandardMaterial({ color: 0x5b3728, roughness: 1 });
+  // The knight is read by the contrast he carries, not by his value against the room. The rooms he stands
+  // in run from a mandala at a fifth of full value to lit paving at twice that, so a figure pitched to be
+  // the darkest thing everywhere vanishes on the mandala and one pitched to be the lightest vanishes on
+  // the paving. What no room contains is warm chroma. So the plate goes dark and cool, the trim goes hot,
+  // and the figure carries its own light-to-dark range with it wherever it happens to be standing.
+  const dark = new THREE.MeshStandardMaterial({ color: 0x141b22, roughness: 0.82 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0x505f6c, roughness: 0.42, metalness: 0.5, flatShading: true });
+  const iron = new THREE.MeshStandardMaterial({ color: 0x333d45, roughness: .56, metalness: .5, flatShading: true });
+  // Emissive on the trim and the cloth is a floor, not a light. It costs no draw call, and it is what
+  // keeps the accent alive in the corridor and out on the bridge, where nothing overhead catches metal.
+  const brass = new THREE.MeshStandardMaterial({ color: 0xf0b455, roughness: .42, metalness: .55, emissive: 0x2e1c05 });
+  const shadow = new THREE.MeshStandardMaterial({ color: 0x05090c, roughness: 1 });
+  const red = new THREE.MeshStandardMaterial({ color: 0xc9202e, roughness: 0.85, emissive: 0x38040b, side: THREE.DoubleSide });
+  const leather = new THREE.MeshStandardMaterial({ color: 0x4a2e22, roughness: 1 });
+  // The one pale thing left on him, and it is deliberate: a long bright blade is the knight's own marker,
+  // since no skeleton carries one. The weapon keeps the old plate value while the body drops away under it.
+  const blade = new THREE.MeshStandardMaterial({ color: 0xdcded9, roughness: 0.32, metalness: 0.5, flatShading: true });
   // Bevelled, cut plates keep the reference's broad painted facets readable
   // at gameplay scale. Every decorative part stays on its existing joint.
   const plate=(outline:number[][],depth:number,material:THREE.Material)=>{
@@ -98,7 +108,7 @@ function makeKnight() {
   belt.position.y = .66; belt.rotation.x = Math.PI / 2;
   const swordPivot = new THREE.Group();
   swordPivot.position.set(0.44, 1.0, -0.02);
-  const armoryPalette: ArmoryPalette = {steel,iron,brass,leather,dark,shadow};
+  const armoryPalette: ArmoryPalette = {steel: blade,iron,brass,leather,dark,shadow};
   const armed = makeWeapon(STARTING_WEAPON, armoryPalette, plate);
   swordPivot.add(armed.group);
   const breastplate=plate([[-.27,.22],[.27,.22],[.3,.08],[.22,-.22],[0,-.27],[-.22,-.22],[-.3,.08]],.13,iron);breastplate.position.set(0,.92,-.25);
@@ -164,10 +174,16 @@ const BONES = {
 function makeSkeleton(kind: Enemy['kind']) {
   const g = new THREE.Group(),rig = new THREE.Group();g.add(rig);
   const stalker=kind==='stalker',warden=kind==='warden';
-  const bone = new THREE.MeshStandardMaterial({ color: stalker?0xadc4b6:0xd9d1bd, roughness: 0.82 });
-  const iron = new THREE.MeshStandardMaterial({ color: warden?0x344550:0x56616a, roughness: 0.48, metalness: 0.5 });
-  const brass = new THREE.MeshStandardMaterial({ color: 0xb89960, roughness: .5, metalness: .55 });
-  const eye = new THREE.MeshBasicMaterial({ color: 0xff421f });
+  // Bone used to sit at the knight's own value, which is why four figures in one hall read as four of the
+  // same thing. It comes down and goes cold, and the three kinds part company: the guard a flat grey, the
+  // stalker greener and dimmer for something that waits, the warden pale bone over near-black navy so the
+  // heaviest of them is also the largest dark mass. No gold on any of them outshines the knight's.
+  const bone = new THREE.MeshStandardMaterial({ color: warden?0xb0a996:stalker?0x6f9084:0x9ca39a, roughness: 0.84 });
+  const iron = new THREE.MeshStandardMaterial({ color: warden?0x1e2833:0x3f4a53, roughness: 0.5, metalness: 0.5 });
+  const brass = new THREE.MeshStandardMaterial({ color: warden?0x8a7a4e:0x6f6244, roughness: .52, metalness: .55 });
+  // Eye colour is the cheapest rank badge there is: one unlit speck already being drawn, and it names the
+  // kind from across the room before the silhouette has resolved.
+  const eye = new THREE.MeshBasicMaterial({ color: warden?0xffd23a:stalker?0xff421f:0xff8a2a });
   const pelvis = new THREE.Mesh(BONES.pelvis, bone); pelvis.position.y = 0.55;
   const spine = new THREE.Mesh(BONES.spine, bone); spine.position.y = 0.91;
   const ribs = new THREE.Mesh(BONES.ribs, bone);
@@ -454,15 +470,18 @@ export default function DungeonGame() {
     const keys = new Set<string>();
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0a1b24);
-    scene.fog = new THREE.FogExp2(0x0a1b24, 0.022);
-    const environment = vaultEnvironment(); scene.environment = environment; scene.environmentIntensity = .48;
+    scene.fog = new THREE.FogExp2(0x081820, 0.027);
+    const environment = vaultEnvironment(); scene.environment = environment; scene.environmentIntensity = .34;
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
     mount.appendChild(renderer.domElement);
     const camera = new THREE.OrthographicCamera(-8, 8, 5, -5, 0.1, 70);
     camera.position.set(10, 13, 13); camera.lookAt(0, 0, 0);
-    scene.add(new THREE.HemisphereLight(0xa2c5d3, 0x243b3c, .95));
-    const moon = new THREE.DirectionalLight(0xc2d9e1, 3.5);
+    // Ambient is the enemy of a lit pool: it paid for every unlit corner, so a brazier could only ever
+    // read as a decal on an already-bright floor. Half of it moves into the moon, which models form
+    // instead of flattening it, and the rest is bought back by the torches below.
+    scene.add(new THREE.HemisphereLight(0x8fb4c6, 0x16282c, .52));
+    const moon = new THREE.DirectionalLight(0xccdfe6, 4.4);
     moon.position.set(-7, 12, 9); moon.castShadow = true; moon.shadow.mapSize.set(1536, 1536);
     moon.shadow.radius = 3.5; moon.shadow.normalBias = .035; moon.shadow.bias = -.00015;
     moon.shadow.camera.left = moon.shadow.camera.bottom = -12; moon.shadow.camera.right = moon.shadow.camera.top = 12; scene.add(moon);
@@ -470,9 +489,16 @@ export default function DungeonGame() {
     const matrix = new THREE.Matrix4();
     const texture = stoneTexture();
     const torchLights: THREE.PointLight[] = [];
-    for (let i = 0; i < 4; i++) { const light = new THREE.PointLight(0xff9b46,16,18,1.6); torchLights.push(light); scene.add(light); }
+    // Cutoff distance is what was drawing the hard-edged ellipse. Three windows a point light's falloff
+    // by `(1 - (d/distance)^4)^2`, which collapses to zero over the last few units, and at distance 15 in
+    // a room about that wide the collapse landed inside the frame — so the pool had a rim and read as a
+    // decal. No cutoff and a physical inverse square instead: the same brightness where it matters and a
+    // tail that simply runs out. The intensity here is dead code, overwritten by the flicker each frame.
+    for (let i = 0; i < 4; i++) { const light = new THREE.PointLight(0xff9440,22,0,2); torchLights.push(light); scene.add(light); }
     const player = makeKnight(); world.add(player);
-    const fill = new THREE.PointLight(0x9bcdd1, 9, 12, 1.8); scene.add(fill);
+    // The knight's own lantern, and the one lever that protects rule two. Same treatment: no cutoff ring
+    // around him, and enough intensity that this round's floor work cannot ride him down with it.
+    const fill = new THREE.PointLight(0x9ed3d6, 20, 0, 2); scene.add(fill);
     const playerRing = new THREE.Mesh(new THREE.RingGeometry(0.5,0.55,40),new THREE.MeshBasicMaterial({color:0xa1d8ce,transparent:true,opacity:0.45,depthWrite:false}));playerRing.rotation.x=-Math.PI/2;world.add(playerRing);
     const cameraFocus = new THREE.Vector3();
     const velocity = new THREE.Vector3(), facing = new THREE.Vector3(1, 0, -0.6).normalize();
@@ -484,7 +510,14 @@ export default function DungeonGame() {
     const particles: { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }[] = [];
     const sparkGeo = new THREE.TetrahedronGeometry(0.075, 0), sparkMat = new THREE.MeshBasicMaterial({ color: 0xffb24a, toneMapped: false });
     const burst = (at: THREE.Vector3, color = 0xffb24a, amount = 12) => { for (let i = 0; i < amount; i++) { const mesh = new THREE.Mesh(sparkGeo, color === 0xffb24a ? sparkMat : new THREE.MeshBasicMaterial({ color, toneMapped: false })); mesh.position.copy(at).add(new THREE.Vector3(0, 0.8, 0)); const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 3.5; particles.push({ mesh, velocity: new THREE.Vector3(Math.cos(a) * s, 1.5 + Math.random() * 3, Math.sin(a) * s), life: 0.35 + Math.random() * 0.3 }); world.add(mesh); } };
-    const slash=weaponTrail(0xffedc5,.105);world.add(slash.mesh);
+    // The knight's ribbon is drawn from inside his grip out past the tip, towards
+    // the distance the arc actually reaches: the blade mesh runs to 1.17 and the
+    // Tideblade cuts at 1.8, so a trail sampled at the steel undersold the swing
+    // by a third. 1.34 of the blade puts the outer edge at 1.57, most of the way
+    // out without drawing a ribbon past where the blow would land. Same buffers,
+    // same draw call, same 46-triangle ceiling; the longer life is what makes it
+    // read as one crescent rather than as a wire.
+    const slash=weaponTrail(0xffedc5,.14,{inner:.34,outer:1.34});world.add(slash.mesh);
     const impacts=impactEffects();world.add(impacts.group);
     // The trail samples the blade's world path between these two, so they move with the weapon: a spear
     // sampled at a sword's tip would trail from the middle of its own haft.
@@ -614,29 +647,35 @@ export default function DungeonGame() {
       swingHits.clear();slash.clear();clearShots();posePlayer(0);
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
       reached = 0; loot = 0; activeRoom = 0; pathCell = ''; distances.clear();
-      const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, bumpMap: texture, bumpScale: .035, color: 0xffffff, roughness: .83 });
+      const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, bumpMap: texture, bumpScale: .07, color: 0xffffff, roughness: .83 });
       weatherStone(floorMaterial);
       const stoneTiles = floor.tiles.filter(t=>!t.wood), bridgeTiles = floor.tiles.filter(t=>t.wood);
-      const tileGeometry=new RoundedBoxGeometry(1.45,.18,1.45,1,.045),foundationGeometry=new THREE.BoxGeometry(1.49,2.65,1.49);
+      // A wider chamfer at the same segment count: the slab reads as cut stone rather than a box, and the
+      // extra form costs nothing, which the geometry budget will not allow any other way.
+      const tileGeometry=new RoundedBoxGeometry(1.45,.18,1.45,1,.06),foundationGeometry=new THREE.BoxGeometry(1.49,2.65,1.49);
       const foundationMaterial=new THREE.MeshStandardMaterial({color:0x3a5055,roughness:.9});weatherStone(foundationMaterial);
       // Spatial batches let both the view and shadow camera reject distant carved paving.
       const paving=new Map<string,typeof stoneTiles>();for(const tile of stoneTiles){const key=`${Math.floor(tile.x/12)},${Math.floor(tile.z/12)}`;const batch=paving.get(key);if(batch)batch.push(tile);else paving.set(key,[tile]);}
       for(const local of paving.values()){
         const tiles=new THREE.InstancedMesh(tileGeometry,floorMaterial,local.length),foundations=new THREE.InstancedMesh(foundationGeometry,foundationMaterial,local.length);
-        local.forEach(({x,z,room},i)=>{matrix.makeRotationY((Math.abs(x*13+z*7)%4)*Math.PI/2);matrix.setPosition(x*TILE,-.07,z*TILE);tiles.setMatrixAt(i,matrix);const theme=room>=0?floor.rooms[room].theme:'keep';const border=room>=0&&(Math.abs(x-floor.rooms[room].x)===floor.rooms[room].halfX-1||Math.abs(z-floor.rooms[room].z)===floor.rooms[room].halfZ-1);const color=new THREE.Color(border?0x546e6a:theme==='ruins'?0x9fa98e:theme==='flooded'?0x779e9c:0xb2ada0);color.multiplyScalar(.83+Math.abs(x*7+z*3)%7*.045);tiles.setColorAt(i,color);matrix.makeTranslation(x*TILE,-1.485,z*TILE);foundations.setMatrixAt(i,matrix);});
+        local.forEach(({x,z,room},i)=>{matrix.makeRotationY((Math.abs(x*13+z*7)%4)*Math.PI/2);matrix.setPosition(x*TILE,-.07,z*TILE);tiles.setMatrixAt(i,matrix);const theme=room>=0?floor.rooms[room].theme:'keep';const border=room>=0&&(Math.abs(x-floor.rooms[room].x)===floor.rooms[room].halfX-1||Math.abs(z-floor.rooms[room].z)===floor.rooms[room].halfZ-1);const color=new THREE.Color(border?0x546e6a:theme==='ruins'?0x9fa98e:theme==='flooded'?0x779e9c:0xb2ada0);const wear=Math.abs(x*7+z*3)%7,drift=Math.abs(x*5-z*11)%5;color.multiplyScalar(.83+wear*.025).offsetHSL(drift%2?.008:-.009,drift*.004-.008,0);tiles.setColorAt(i,color);matrix.makeTranslation(x*TILE,-1.485,z*TILE);foundations.setMatrixAt(i,matrix);});
         foundations.receiveShadow=tiles.receiveShadow=true;floorGroup.add(foundations,tiles);
       }
       phase('tiles');
       const planks = new THREE.InstancedMesh(new THREE.BoxGeometry(1.43,.2,.34),new THREE.MeshStandardMaterial({color:0x665040,roughness:.95}),bridgeTiles.length*4);
-      bridgeTiles.forEach(({x,z},i)=>{for(let n=0;n<4;n++){matrix.makeTranslation(x*TILE,-.09,z*TILE+(n-1.5)*.365);planks.setMatrixAt(i*4+n,matrix);planks.setColorAt(i*4+n,new THREE.Color(n%2?0xbca17d:0xd0b68f));}});planks.receiveShadow=true;floorGroup.add(planks);
+      // Every board was one of two values, which is why a span read as a striped decal. Each one now takes
+      // its own weathering off its position, so no two neighbours match.
+      bridgeTiles.forEach(({x,z},i)=>{for(let n=0;n<4;n++){matrix.makeTranslation(x*TILE,-.09,z*TILE+(n-1.5)*.365);planks.setMatrixAt(i*4+n,matrix);
+        const grain=Math.abs(x*13+z*29+n*7)%9,damp=Math.abs(x*3-z*5+n*11)%4;
+        planks.setColorAt(i*4+n,new THREE.Color(n%2?0xbca17d:0xd0b68f).multiplyScalar(.74+grain*.062).offsetHSL(damp%2?.008:-.018,-.02+damp*.012,0));}});planks.receiveShadow=true;floorGroup.add(planks);
       const { minX, maxX, minZ, maxZ } = floor.bounds;
-      tide = tidalMaterial();
+      tide = tidalMaterial(new THREE.Vector4((minX + maxX) * TILE / 2, (minZ + maxZ) * TILE / 2, (maxX - minX) * TILE / 2 + 1.5, (maxZ - minZ) * TILE / 2 + 1.5));
       water = new THREE.Mesh(new THREE.PlaneGeometry((maxX - minX + 40) * TILE, (maxZ - minZ + 40) * TILE), tide.material);
       water.rotation.x = -Math.PI / 2; water.position.set((minX + maxX) * TILE / 2, -2.8, (minZ + maxZ) * TILE / 2); floorGroup.add(water);
       const borders: { x: number; z: number; horizontal: boolean }[] = [];
       floor.tiles.forEach(({ x, z }) => { for (const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]) if (!floor.cells.has(cellKey(x + dx,z + dz))) borders.push({ x: (x + dx * 0.5) * TILE, z: (z + dz * 0.5) * TILE, horizontal: dz !== 0 }); });
       // Low parapets keep the isometric view readable, including narrow bridges.
-      const parapetGeometry=new RoundedBoxGeometry(1,0.38,1,1,.045),parapetMaterial=new THREE.MeshStandardMaterial({color:0x607574,roughness:.8});
+      const parapetGeometry=new RoundedBoxGeometry(1,0.38,1,1,.08),parapetMaterial=new THREE.MeshStandardMaterial({color:0x607574,roughness:.8});weatherStone(parapetMaterial);
       const parapets=new Map<string,typeof borders>();for(const b of borders){const key=`${Math.floor(b.x/18)},${Math.floor(b.z/18)}`;const batch=parapets.get(key);if(batch)batch.push(b);else parapets.set(key,[b]);}
       for(const local of parapets.values()){
         const walls=new THREE.InstancedMesh(parapetGeometry,parapetMaterial,local.length);
@@ -874,11 +913,13 @@ export default function DungeonGame() {
     const update = (frameDt: number) => {
       if (isPaused || run.choosing || gameStatus === 'complete') return;
       elapsed += frameDt; const t = elapsed;
-      // Deliberately not touched by reduced motion. 35ms of hit-stop is the absence of movement, not
-      // movement, and it is also 35ms the enemies do not get: shortening it would hand every landed blow
-      // back to them a frame sooner, which is a balance change wearing an accessibility label.
+      // Deliberately not touched by reduced motion. Hit-stop is the absence of movement, not movement,
+      // and it is also time the enemies do not get: shortening it would hand every landed blow back to
+      // them a frame sooner, which is a balance change wearing an accessibility label.
       const dt = hitStop > 0 ? 0 : frameDt; hitStop = Math.max(0, hitStop - frameDt);
-      torchLights.forEach((l, i) => { l.intensity = 16 + Math.sin(t * 9 + i * 2.2) * 1.4 + Math.sin(t * 17) * 0.5; });
+      // This, not the constructor, is the torch's real intensity — it is rewritten every frame. Raised to
+      // hold the near field after the decay went from 1.9 to a physical 2 and the cutoff came off.
+      torchLights.forEach((l, i) => { l.intensity = 22 + Math.sin(t * 9 + i * 2.2) * 1.9 + Math.sin(t * 17) * 0.7; });
       if (water) water.position.y = -2.8 + Math.sin(t * 0.9) * 0.05;
       if (tide) tide.time.value=t;
       animateCloth(player.userData.cape,t,dashTime>0?.32:velocity.lengthSq()>0?.16:.045);
@@ -1027,7 +1068,18 @@ export default function DungeonGame() {
               if (broke) {enemy.windup = 0;enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
               enemy.cooldown = Math.max(enemy.cooldown, hitCooldown(enemy.kind, broke, weapon.stagger));
               const shove = enemy.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
-              moveOnFloor(floor.cells, enemy.group.position, delta.x * shove, delta.z * shove); burst(enemy.group.position, 0xffb24a, 7); impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,enemy.kind==='warden'); shake = 0.07; hitStop = 0.035;
+              moveOnFloor(floor.cells, enemy.group.position, delta.x * shove, delta.z * shove); burst(enemy.group.position, 0xffb24a, 3); impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,enemy.kind==='warden');
+              // Three sparks rather than seven. Each one is its own mesh and so its own draw call, and
+              // next to a crescent, a bloom and a shockwave they were paying four calls at the most
+              // expensive frame in the game for grit nobody could pick out.
+              // One crescent for the cut, on the first body it finds: a swing that takes three is still one swing.
+              if (swingHits.size === 1) impacts.arc(player.position, Math.atan2(-attackFacing.x, -attackFacing.z), weapon.reach + run.reach);
+              // 70ms rather than 35. The freeze rounds up to whole frames, so this is five of them after
+              // the blow and a held image six frames long at 60Hz, against three and four before: at this
+              // character size two frames of stillness were not enough to find, because the eye reads the
+              // pause rather than the pose. It also freezes the cut mid-arc now that the curve launches
+              // early, so what is held is a blade across the body rather than one behind the shoulder.
+              shake = 0.085; hitStop = 0.07;
               if (enemy.hp <= 0) { enemy.dead = true; enemy.death=startDeath(enemy.group,enemy.kind);enemy.cue.visible=enemy.bar.visible=false;enemy.trails.forEach(trail=>trail.effect.clear()); award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills); if (!cleared.has(enemy.room) && enemyData.every(e => e.room !== enemy.room || e.dead)) {
                 cleared.add(enemy.room);
                 const room = floor.rooms[enemy.room], detour = room.role === 'branch';
@@ -1088,7 +1140,20 @@ export default function DungeonGame() {
           enemy.cue.visible=enemy.windup>0||(enemy.lunge>0&&enemy.attackAge<.09);
           if(enemy.windup<=0)(enemy.cue.material as THREE.MeshBasicMaterial).opacity=.5*Math.max(0,1-enemy.attackAge/.09);
           enemy.trails.forEach(trail=>trail.effect.update(dt,pose.trail,trail.anchor,trail.inner,trail.tip));
-          enemy.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.emissive.setHex(enemy.hitFlash > 0 ? 0xffa34a : enemy.windup > 0 ? 0xb83915 : 0x000000); o.material.emissiveIntensity = enemy.hitFlash > 0 ? 0.8 : 0.5; } });
+          // A struck body flares for two frames and is back to its own colour inside six. The flat 0.8
+          // this replaced held an orange tint for the whole 0.2s of hitFlash, which is fifteen frames of
+          // tan: a state the body was in rather than a blow it took. The curve cannot be driven off
+          // hitFlash, though, because combat decrements that on the frozen clock and hit-stop would hold
+          // the flare at full for its whole length — so the rising edge is stamped against `elapsed`,
+          // which hit-stop does not touch, and the decay is read off that. Warm rather than white: the
+          // skeletons are already pale, and a white flare on a white body deletes the skull it is on.
+          // The peak is held near the 0.8 the old flat tint used, which never clipped: what makes the
+          // blow read is that it now spikes and falls inside six frames rather than sitting there.
+          const rig = enemy.group.userData as { struckAt?: number; wasFlashing?: number };
+          if (enemy.hitFlash > (rig.wasFlashing ?? 0)) rig.struckAt = elapsed;
+          rig.wasFlashing = enemy.hitFlash;
+          const struck = rig.struckAt === undefined ? 0 : Math.max(0, 1 - (elapsed - rig.struckAt) / 0.1) ** 2.2;
+          enemy.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.emissive.setHex(struck > 0 ? 0xffc98a : enemy.windup > 0 ? 0xb83915 : 0x000000); o.material.emissiveIntensity = struck > 0 ? 0.2 + struck * 0.5 : 0.5; } });
         });
         // Separate bodies without moving a guard during its committed windup; the rule itself lives in
         // dungeon-enemy, and only the write back into the scene graph belongs here.
@@ -1187,7 +1252,9 @@ export default function DungeonGame() {
       // particles, the sound and the health bar do not already say, so nothing is lost by not moving at all.
       if (shake > 0 && !easeMotion) camera.position.add(new THREE.Vector3(Math.sin(t*95)*shake,0,Math.cos(t*83)*shake));
       camera.lookAt(cameraFocus.x,0,cameraFocus.z);
-      impacts.update(dt,camera.quaternion);
+      // frameDt, not dt: hit-stop must freeze the world, not the accents that mark
+      // the blow which caused it. See impactEffects.update.
+      impacts.update(frameDt,camera.quaternion);
       // The hurt filter is reduced, not removed. Its discomfort is the brightness ramping across the whole
       // screen as the flash decays; its job is telling the player they were hit, which is gameplay. So the
       // tint stays for exactly as long, holds still, and drops the brightness change entirely.
