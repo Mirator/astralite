@@ -68,9 +68,16 @@ for(const kind of ['guard','stalker','warden'] as const){
   test(`${kind} release has a weapon trail and keeps the existing damage boundary`,async({game})=>{
     await game.enter();await game.step(120);
     const initial=await game.state(),floor=generateFloor(initial.floor.seed,initial.floor.level),distance=kind==='stalker'?3:kind==='warden'?1.8:1;
-    const candidates=initial.enemies.filter(e=>e.kind===kind&&e.awake).flatMap(enemy=>Array.from({length:16},(_,i)=>({enemy,spot:{x:enemy.x+Math.cos(i*Math.PI/8)*distance,z:enemy.z+Math.sin(i*Math.PI/8)*distance}}))).filter(({enemy,spot})=>canStand(floor.cells,spot.x,spot.z)&&hasClearPath(floor.cells,enemy,spot));
+    const withIndex=initial.enemies.map((enemy,index)=>({...enemy,index}));
+    const candidates=withIndex.filter(e=>e.kind===kind&&e.awake).flatMap(enemy=>Array.from({length:16},(_,i)=>({enemy,spot:{x:enemy.x+Math.cos(i*Math.PI/8)*distance,z:enemy.z+Math.sin(i*Math.PI/8)*distance}}))).filter(({enemy,spot})=>canStand(floor.cells,spot.x,spot.z)&&hasClearPath(floor.cells,enemy,spot));
     expect(candidates.length).toBeGreaterThan(0);const {enemy,spot}=candidates[0];
-    await game.teleport(spot.x,spot.z);let current=enemy;
+    await game.teleport(spot.x,spot.z);
+    // Rooms are half the size they used to be, so a bystander can now close the distance while this
+    // test waits on the chosen enemy's own windup. Park every other body's cooldown out of reach so
+    // only the one under test can ever land a blow, rather than trusting room size to keep the rest away.
+    const bystanders=withIndex.filter(e=>e.index!==enemy.index);
+    if(bystanders.length)await game.configureCombat({enemies:bystanders.map(e=>({index:e.index,cooldown:999}))});
+    let current:Snapshot['enemies'][number]=enemy;
     for(let i=0;i<100;i++){await game.step(16);current=trackEnemy(await game.state(),kind,current);if(current.windup>0)break;}
     expect(current.windup).toBeGreaterThan(.15);const health=(await game.state()).health;
     await game.step(current.windup*1000-40);current=trackEnemy(await game.state(),kind,current);

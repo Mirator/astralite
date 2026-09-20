@@ -13,7 +13,7 @@ import { createDungeonAudio } from './dungeon-audio';
 import { animateCloth, stoneMood, tideMood, tidalMaterial, weatherStone } from './dungeon-motion';
 import { canStand, generateFloor, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { canAbortSwing, DASH_BUFFER, swordContacts } from './dungeon-combat';
-import { ALERT_STAGGER, decideEnemy, enemyStats, hitCooldown, interruptsWindup, nearbyDozers, separateCrowd, type Wakeable } from './dungeon-enemy';
+import { ALERT_STAGGER, decideEnemy, enemyStats, hitCooldown, interruptsWindup, nearbyDozers, NOTICE_TIME, separateCrowd, type Wakeable } from './dungeon-enemy';
 import { enemyPose } from './dungeon-enemy-pose';
 import { playerAttackPose } from './dungeon-attack-pose';
 import { STARTING_WEAPON, TIDEBLADE, weaponById, type Weapon, type WeaponId } from './dungeon-weapon';
@@ -1560,6 +1560,11 @@ export default function DungeonGame() {
             const value = finite(change.windup, 'windup');
             if (value < 0 || value > enemy.tell) throw new Error(`enemy ${change.index} windup must be 0..${enemy.tell}`);
             enemy.windup = value;
+            // A windup only ever exists on a body that has already cleared its notice beat - decideEnemy
+            // holds windup untouched until `notice` reaches NOTICE_TIME. Staging one on a still-dozing
+            // spawn (notice 0) would otherwise stage an impossible state: a swing frozen behind a beat it
+            // can never finish inside a fixture's short window.
+            enemy.notice = NOTICE_TIME;
           }
           if (change.cooldown !== undefined) {
             const value = finite(change.cooldown, 'cooldown');

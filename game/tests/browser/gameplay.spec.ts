@@ -285,21 +285,29 @@ test.describe('committed enemy attacks', () => {
     await game.enter();
     const floor = await game.floor();
     const opening = await game.state();
-    const warden = opening.enemies.find((enemy) => enemy.kind === 'warden');
+    const withIndex = opening.enemies.map((enemy, index) => ({ ...enemy, index }));
+    const warden = withIndex.find((enemy) => enemy.kind === 'warden');
     expect(warden).toBeDefined();
     const anchor = { x: warden!.x, z: warden!.z };
+    const bystanders = withIndex.filter((enemy) => enemy.index !== warden!.index);
     // 2.1 is outside a guard's 1.15 attack distance and inside a warden's 2.2.
     const spot = laneSpot(floor, anchor, 2.1, {
       avoid: [
         ...opening.features.map((f) => ({ x: f.x, z: f.z })),
-        ...opening.enemies
-          .filter((enemy) => enemy !== warden)
-          .map((enemy) => ({ x: enemy.x, z: enemy.z })),
+        ...bystanders.map((enemy) => ({ x: enemy.x, z: enemy.z })),
       ],
       clearance: 3,
     });
 
     await game.teleport(spot.x, spot.z);
+    // The room this warden stands in is half as wide as it used to be, so a guard can now close the
+    // distance and land its own, smaller blow while this test waits on the warden's windup - crediting
+    // the wrong attacker. Park every other body so only the warden under test can ever hit the knight.
+    if (bystanders.length) {
+      await game.configureCombat({
+        enemies: bystanders.map((enemy) => ({ index: enemy.index, cooldown: 999 })),
+      });
+    }
     await game.step(16);
     const before = (await game.state()).health;
     const { enemy } = await waitForWindup(game, 'warden', anchor);
