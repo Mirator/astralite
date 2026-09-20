@@ -46,40 +46,75 @@ export const OFF_FRAME = 9.6;
  * floor: key, sky and ground light, fog, backdrop, the tints the stone shader weathers with, and the
  * base colours of paving, foundation and masonry. The three families are far enough apart that the
  * run reads as three areas rather than one: cold steel over the standing keep, dry ochre over the
- * ruin, drowned green over the flood. Each leaves exactly one thing saturated against it — the
- * braziers in the two cold families, the knight's own cold lantern in the warm one.
+ * ruin, drowned blue-green over the flood.
+ *
+ * The saturated thing each family leaves against itself is its fire. That was the piece missing for
+ * a long while: the four torches burned one hardcoded amber everywhere, so a theme could only be a
+ * filter over the stone rather than a place, and every tell in the game was fighting the same lamps
+ * for the same band of hue. The keep burns cold witchfire, the ruin burns real flame, the flood
+ * glows with whatever grows down there. Two of the three are off amber, which is what leaves hot red
+ * free for the one mark the player has to answer on a deadline.
+ *
+ * The paving sits low and saturated rather than mid and grey, so anything standing on it separates
+ * without being lit specially: the key lights lost chroma in the same pass the stone gained it,
+ * because an ambient that is already tinted stops a lit pool reading as a pool.
  */
 export type Mood = {
   key: number; keyIntensity: number; sky: number; ground: number; hemisphere: number;
   fog: number; fogDensity: number; background: number; environment: number;
   tile: number; border: number; block: number; foundation: number; seal: number;
+  /** What burns here: torch light, flame, halo and embers all take it. */
+  fire: number;
+  /** The one saturated accent hung on cloth, one per family. */
+  banner: number;
+  /**
+   * Carved work: columns, cornices, archivolts, parapets, footings and the bowls fire sits in.
+   *
+   * It used to be one neutral grey for the whole keep on the reasoning that the chamber's light
+   * would decide which way it read. Light tints; it does not darken. Neutral at that value came out
+   * of every key in the game as the brightest thing in the frame after the fire, brighter than the
+   * knight, so every column and arch was competing with the one figure the eye has to hold. It takes
+   * the family now, a few points above `block` so a standing column still parts from the wall behind
+   * it, and low enough to belong to the field rather than to the figures on it.
+   *
+   * It sits under the paving, not over it. Measured off the frames, carved work and coursework were
+   * running twenty points of lightness above the floor they stood on, which makes a chamber a bright
+   * cage around a dark pit and leaves nothing in it reading as lit by the braziers. The reference does
+   * the reverse: rock is the darkest mass and the lit floor is the brightest.
+   */
+  masonry: number;
   water: [number, number, number];
   moss: [number, number, number]; mossAmount: number;
   warm: [number, number, number]; cool: [number, number, number]; crown: [number, number, number];
 };
 export const ROOM_MOOD: Record<Room['theme'], Mood> = {
   keep: {
-    key: 0xd2e0f4, keyIntensity: 5, sky: 0x8fa5c6, ground: 0x171d29, hemisphere: .4,
-    fog: 0x0a1018, fogDensity: .024, background: 0x0d1424, environment: .26,
-    tile: 0x848ea4, border: 0x495468, block: 0x596276, foundation: 0x2b3345, seal: 0x83a7cd,
+    key: 0xd1dce5, keyIntensity: 6, sky: 0x7a97b8, ground: 0x121721, hemisphere: .42,
+    fog: 0x0a111a, fogDensity: .024, background: 0x0f1a29, environment: .34,
+    tile: 0x485670, border: 0x344055, block: 0x3d495c, foundation: 0x1f2737, seal: 0x72a5ca,
+    fire: 0xa870e6, banner: 0x3a5c88, masonry: 0x475366,
     water: [.68, .78, 1],
     moss: [.7, .78, .94], mossAmount: .24,
     warm: [1.06, 1.06, 1.03], cool: [.8, .89, 1.07], crown: [1.02, 1.07, 1.18],
   },
   ruins: {
-    key: 0xf2d3a6, keyIntensity: 4.8, sky: 0xb08e66, ground: 0x231a11, hemisphere: .4,
-    fog: 0x150e08, fogDensity: .021, background: 0x1a1109, environment: .26,
-    tile: 0x8c7d5f, border: 0x544935, block: 0x695c45, foundation: 0x332a1d, seal: 0xcaa872,
+    key: 0xe3d8c9, keyIntensity: 5.2, sky: 0xa98560, ground: 0x221811, hemisphere: .42,
+    fog: 0x1b1009, fogDensity: .021, background: 0x2a1a0f, environment: .34,
+    tile: 0x5e4f3a, border: 0x453a2a, block: 0x5a4d3a, foundation: 0x352a1d, seal: 0xc4a164,
+    fire: 0xff913d, banner: 0x345865, masonry: 0x665842,
     water: [.52, .64, .7],
     moss: [.86, .78, .58], mossAmount: .3,
     warm: [1.16, 1.05, .86], cool: [.95, .89, .8], crown: [1.18, 1.07, .88],
   },
   flooded: {
-    key: 0xc6e2da, keyIntensity: 5, sky: 0x83b2aa, ground: 0x122622, hemisphere: .42,
-    fog: 0x071a1e, fogDensity: .027, background: 0x0a1b24, environment: .3,
-    tile: 0x739690, border: 0x446661, block: 0x506a6b, foundation: 0x2d4547, seal: 0x7faeae,
+    key: 0xccdde1, keyIntensity: 6, sky: 0x69a2ab, ground: 0x0f1c1f, hemisphere: .44,
+    fog: 0x081417, fogDensity: .03, background: 0x0d2126, environment: .36,
+    tile: 0x3c5e62, border: 0x2b474a, block: 0x365054, foundation: 0x192b2e, seal: 0x5cb3bc,
+    fire: 0x18c9dc, banner: 0x428a7b, masonry: 0x405a5e,
     water: [1, 1, 1],
-    moss: [.58, .82, .62], mossAmount: .4,
+    // Off the green it used to sit on. The flood is the one family a shrine has to read out of, and
+    // a green cast on its stone was the thing that made the shrine agree with the room.
+    moss: [.58, .78, .84], mossAmount: .34,
     warm: [1.13, 1.04, .88], cool: [.82, .92, .99], crown: [1.04, 1.12, 1.06],
   },
 };
@@ -148,10 +183,35 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
   // face while the paving beside them was already weathering. Same draw, same triangles, same material.
   weatherStone(stone); weatherStone(pale);
   const bronze = new THREE.MeshStandardMaterial({ color: 0xa88951, metalness: .65, roughness: .48 });
+  // The medallion's own inlay, split off from `bronze` for two reasons that turned out to be the same
+  // reason. Measured off a frame, its star sat brighter than the knight standing on it, which made the
+  // busiest, most detailed thing within a body's width of him something he had to be read against
+  // rather than with. And it was a hard bright brass ring on the floor of every chamber — the exact
+  // form and family the stair is the only thing allowed to speak in. Worn inlay, in the chamber's own
+  // stone, a little above the slate it is set into and nowhere near either.
+  // Sunk into the slate rather than laid on it, and the hardest of these to get right. Off brass it
+  // still clipped to white under every key in the game, and the cause is not the colour: the star is
+  // an unmapped horizontal face, so where the paving beside it loses light to a texture, a bump and
+  // `weatherStone`, the inlay takes the moon flat and full. Nothing short of putting it under the
+  // paving fixes that, and a tenth of a lift off the bed was still a lift: measured, the star ran
+  // twenty-six to forty-six points of lightness over its own paving with the knight standing on it.
+  //
+  // So the star goes under its bed. Taking everything under the bed was the over-correction that
+  // followed: rings, ticks and star all inside three points of it, which is a stain rather than an
+  // engraving. A cut reads as a cut because it has both edges — a dark trough and a lit lip — so the
+  // star and the ticks take the trough and the three rings take the lip. The rings are a quarter of a
+  // unit wide, which is the whole reason the lip can be lifted at all: at that width it is a drawn
+  // line, where the same value across the star's face was a slab catching the moon.
+  const inlay = new THREE.MeshStandardMaterial({ color: 0x3a3d36, metalness: .05, roughness: .92 });
+  const lip = new THREE.MeshStandardMaterial({ color: 0x55594f, metalness: .05, roughness: .9 });
   // The inlaid medallion is the largest single shape on a chamber floor; flat, it read as a hole cut in
   // the paving rather than as worn slate set into it. The weathering is multiplicative and reads at any
   // base value, so the base goes back down to where it was: the disc fills most of the frame right
   // around the knight in four of the eight scenes, and lifting it was spending his contrast for nothing.
+  // Hardcoded, this was a cold navy disc punched into the ruin's warm tan floor and invisible against
+  // the flood's, which is the same fault the carved work had: a value chosen once for a keep that only
+  // had one palette. It takes the chamber's foundation stone now, a shade under the paving it is set
+  // into, so the medallion reads as worn slate in every family rather than as a hole in two of them.
   const dark = new THREE.MeshStandardMaterial({ color: 0x152c32, roughness: .86 }); weatherStone(dark);
   const foliage = new THREE.MeshStandardMaterial({ color: 0x52735b, roughness: .95, side: THREE.DoubleSide });
   const leafGeometry = new THREE.OctahedronGeometry(1);
@@ -187,12 +247,12 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
     if (room.encounter !== 'gauntlet') {
       const disk = mesh(new THREE.CircleGeometry(radius, 64), dark, x, .028, z); disk.rotation.x = -Math.PI / 2;
       for (const r of [radius, radius - .16, radius * .65]) {
-        const ring = mesh(new THREE.RingGeometry(r - .025, r, 64), bronze, x, .031, z); ring.rotation.x = -Math.PI / 2;
+        const ring = mesh(new THREE.RingGeometry(r - .025, r, 64), lip, x, .031, z); ring.rotation.x = -Math.PI / 2;
       }
       const star = new THREE.Shape();
       for (let i = 0; i < 16; i++) { const a = i * Math.PI / 8, r = i % 2 ? radius * .19 : radius * (i % 4 ? .43 : .59); if (i) star.lineTo(Math.sin(a) * r, Math.cos(a) * r); else star.moveTo(Math.sin(a) * r, Math.cos(a) * r); }
-      star.closePath(); const compass = mesh(new THREE.ShapeGeometry(star), bronze, x, .034, z); compass.rotation.x = -Math.PI / 2;
-      for (let i = 0; i < 24; i++) { const a = i * Math.PI / 12, r = radius - .34; put(x + Math.sin(a) * r, .034, z + Math.cos(a) * r, .045, .012, i % 3 ? .10 : .22, bronze); }
+      star.closePath(); const compass = mesh(new THREE.ShapeGeometry(star), inlay, x, .034, z); compass.rotation.x = -Math.PI / 2;
+      for (let i = 0; i < 24; i++) { const a = i * Math.PI / 12, r = radius - .34; put(x + Math.sin(a) * r, .034, z + Math.cos(a) * r, .045, .012, i % 3 ? .10 : .22, inlay); }
     }
     for (const tile of local) {
       // All four faces, where before only the two pointing away from the camera were carved. That choice
@@ -410,6 +470,10 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
     bars.forEach((b, i) => { matrix.compose(at.set(b.x, b.y + b.sy / 2, b.z), rotation, scale.set(.07, b.sy, .07)); grille.setMatrixAt(i, matrix); });
     world.add(grille);
   } else { ringGeometry.dispose(); barGeometry.dispose(); }
+  // The two carved stones, handed back so the frame can hang the chamber's own masonry on them.
+  // `stone` takes it straight and `pale` a shade up, which is the relationship the two were built
+  // with and the one that keeps a column parting from the coursework behind it.
+  return { stone, pale, inlay, lip, dark, bronze };
 }
 
 /* -------------------------------------------------------------------- paving

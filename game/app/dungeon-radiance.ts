@@ -100,10 +100,17 @@ type Offer = { at: THREE.Vector3; colour: THREE.Color; intensity: number };
  */
 export function borrowedLight(light: THREE.PointLight, homeColour: number) {
   const offer: Offer = { at: new THREE.Vector3(), colour: new THREE.Color(), intensity: 0 };
+  const home = new THREE.Color(homeColour);
   let best = 0, lent = false;
   return {
     /** True if the last `settle` gave the lamp to an event rather than the torch. */
     get lent() { return lent; },
+    /**
+     * The colour the lamp burns when nothing has borrowed it. Live, because what burns in a chamber is
+     * the chamber's: copy the mood's fire into it and the sconce this lamp goes back to matches the
+     * three it was never lent from.
+     */
+    home,
     /**
      * Offer the lamp to something happening at `at`. `near` is the distance from
      * the knight, which is what decides the contest when two things happen at
@@ -116,12 +123,12 @@ export function borrowedLight(light: THREE.PointLight, homeColour: number) {
     },
     /**
      * Hang the lamp for this frame: on the winning bid, or back on the torch at
-     * `home` burning at `intensity`. Called once, after every bid is in.
+     * `at` burning at `intensity`. Called once, after every bid is in.
      */
-    settle(home: THREE.Vector3 | undefined, intensity: number) {
+    settle(at: THREE.Vector3 | undefined, intensity: number) {
       lent = best > 0;
       if (lent) { light.position.copy(offer.at); light.color.copy(offer.colour); light.intensity = offer.intensity; }
-      else { if (home) light.position.copy(home); light.color.setHex(homeColour); light.intensity = intensity; }
+      else { if (at) light.position.copy(at); light.color.copy(home); light.intensity = intensity; }
       best = 0;
     },
   };

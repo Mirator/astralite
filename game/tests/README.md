@@ -204,6 +204,36 @@ await new Promise(done => {
 d.sort((a, b) => a - b); d[Math.floor(d.length / 2)]; // median, capped by the display refresh
 ```
 
+## The palette, measured
+
+`tests/browser/art-direction.spec.ts` holds `docs/art-direction.md` to its own rules, off the rendered
+canvas in CIE Lab rather than off the constants in `ROOM_MOOD`. What a mark is worth on screen is what
+survives the key light, the fog, the weathering shader and ACES, and none of those are visible from a
+palette table — a version of this that compared constants passed through a round in which four fifths
+of the bright pixels in two of three chambers were rendering under a quarter saturation.
+
+Two measurements, both taken by copying the framebuffer in the same task as the draw. The renderer is
+built without `preserveDrawingBuffer`, so a `drawImage` straight after a synchronous
+`advanceTime(0, true)` is inside the window where the buffer still exists and a screenshot decoded
+afterwards is not.
+
+- **What a chamber is lit by.** The top half per cent of the frame by chroma, averaged. Its hue has to
+  be within forty degrees of the family's fire at chroma 26 or better, which is the document's second
+  rule stated as a number: what is burning is the most saturated thing in the frame.
+- **What the tell is worth.** Each chamber is drawn twice, once with the body at rest and once at the
+  top of its tell, and the frames are differenced. The pixels the mark covers are exactly the pixels
+  that changed, so nothing has to know where a ground decal landed on screen. The mark has to be a
+  mean ΔE of 25 from the stone under it, and its own core — the pixels it changed most, as against its
+  antialiased hem — within eighteen degrees of `THREAT` at chroma 45, in every family. That second
+  assertion is the regression guard for drawing the arc additively, which lets the paving underneath
+  set the mark's hue and rendered the same constant as dusty pink over violet slate and muddy orange
+  over teal.
+
+`dungeonTest.teleport` snaps the mood rather than sliding it, so a driver that jumps into a chamber to
+photograph it is not catching the lights still on their way there, and `render_game_to_text` carries a
+`mood` block: the room graph cannot say which family is lighting a frame, because on the approach the
+answer is genuinely neither room's.
+
 ## Numbers from the last pass
 
 Measured on a dev build, 1346×1282 canvas, ~2700–4800 floor tiles.

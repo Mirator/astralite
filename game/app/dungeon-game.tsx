@@ -94,7 +94,7 @@ function makeKnight() {
   // keeps the accent alive in the corridor and out on the bridge, where nothing overhead catches metal.
   const brass = new THREE.MeshStandardMaterial({ color: 0xffc86a, roughness: .38, metalness: .55, emissive: 0x4a2c07 });
   const shadow = new THREE.MeshStandardMaterial({ color: 0x05090c, roughness: 1 });
-  const red = new THREE.MeshStandardMaterial({ color: 0xcb2130, roughness: 0.85, emissive: 0x430610, side: THREE.DoubleSide });
+  const red = new THREE.MeshStandardMaterial({ color: 0x9e1f33, roughness: 0.85, emissive: 0x430610, side: THREE.DoubleSide });
   // The boots, the skirt and the pouch were a mid brown, which is the one warm mid value the bridge
   // planks also occupy. Down to near-black so the bottom of the figure anchors instead of floating.
   const leather = new THREE.MeshStandardMaterial({ color: 0x2c1a14, roughness: 1 });
@@ -171,6 +171,19 @@ function makeKnight() {
 }
 
 const shared = <T extends THREE.BufferGeometry>(geometry: T) => { geometry.userData.shared = true; return geometry; };
+/**
+ * The two colours a blow is told in, and the only two in the keep no chamber is allowed to take.
+ *
+ * `THREAT` is every windup, of every kind, in every theme. It sits at H8, eighteen degrees off the
+ * hottest fire any family burns and clear of the other two entirely, and it wins the one contest that
+ * matters on hardness and brightness rather than on hue: a hard-edged arc closing on the body, drawn
+ * opaque and above the tone-mapped range, against stone that has none of those three properties.
+ *
+ * `COMMIT` is the single frame it lands on, stamped on the mark and on the body together. Before this
+ * the tell was an opacity ramp from .2 to .7 at a fixed size, which says that something is happening
+ * but never says when — and when is the whole question.
+ */
+const THREAT = 0xff4529, COMMIT = 0xffd6c2;
 const BONES = {
   pelvis: shared(new THREE.BoxGeometry(0.48, 0.22, 0.25)),
   spine: shared(new THREE.BoxGeometry(0.13, 0.58, 0.13)),
@@ -224,7 +237,12 @@ function makeSkeleton(kind: Enemy['kind']) {
   const brass = new THREE.MeshStandardMaterial({ color: warden?0x7a6c43:0x6f6244, roughness: .52, metalness: .55 });
   // Eye colour is the cheapest rank badge there is: one unlit speck already being drawn, and it names the
   // kind from across the room before the silhouette has resolved.
-  const eye = new THREE.MeshBasicMaterial({ color: warden?0xffd23a:stalker?0xff421f:0xff8a2a });
+  // Three kinds, three hues, learned once. That is what colour is for, and it only works if the three
+  // arrive as the three saturated points they were picked to be: ACES at exposure 1.15 was pulling all
+  // of them toward the same hot cream, which is the one thing a category mark must not do. Fog stays
+  // on, unlike the tell — an eye is part of a body and should go when the body goes, and a pair of them
+  // burning clear through a fog bank the skeleton behind them has faded into is a ghost, not a guard.
+  const eye = new THREE.MeshBasicMaterial({ color: warden?0xffd23a:stalker?0xd6ff5e:0xff8a2a, toneMapped: false });
   const pelvis = new THREE.Mesh(BONES.pelvis, bone); pelvis.position.y = 0.55;
   const spine = new THREE.Mesh(BONES.spine, bone); spine.position.y = 0.91;
   const ribs = new THREE.Mesh(BONES.ribs, bone);
@@ -454,6 +472,7 @@ export default function DungeonGame() {
     // taken only once the knight has stood on it for STAIR_DWELL seconds.
     let stairOpen = false, stairDwell = 0;
     const stairSpot = new THREE.Vector3();
+    let parapetSkin: THREE.MeshStandardMaterial | null = null;
     let stairSeal: THREE.Mesh | null = null, stairRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> | null = null, stairGlow: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial> | null = null, stairLight: Radiance | null = null;
     let floorGroup = new THREE.Group();
     let water: THREE.Mesh | null = null;
@@ -471,7 +490,7 @@ export default function DungeonGame() {
       if (stairSeal) stairSeal.visible = false;
       if (stairRing) stairRing.visible = true;
       if (stairGlow) stairGlow.visible = true;
-      burst(stairSpot, 0xffc573, 24);
+      burst(stairSpot, 0xfbc956, 24);
       setNotice('The stair opens'); setNoticeDetail('step onto it to descend'); noticeTime = 4;
     };
     const offerBoon = () => {
@@ -569,7 +588,13 @@ export default function DungeonGame() {
     const player = makeKnight(); world.add(player);
     // The knight's own lantern, and the one lever that protects rule two. Same treatment: no cutoff ring
     // around him, and enough intensity that this round's floor work cannot ride him down with it.
-    const fill = new THREE.PointLight(0x9ed3d6, 20, 0, 2); scene.add(fill);
+    // Warm, and the same warm in all three families. It used to be cold, which worked while every
+    // brazier in the keep burned amber and stopped working the moment two of the three families went
+    // cold themselves: a cyan lantern inside a witchfire-lit hall is one more blue light in a blue
+    // room. A warm lamp is the one thing none of the three themes now burns for itself, so the knight
+    // carries the only warm pool in the standing keep and in the flood, and in the ruin, where he does
+    // not, the cape is already doing it.
+    const fill = new THREE.PointLight(0xffdfbe, 27, 0, 2); scene.add(fill);
     // Every room in the keep was lit by these same lamps under this same fog, so a theme could only
     // ever differ from its neighbours by the base colour of its paving — and the moss tint in the
     // stone shader pulled even that back toward one drowned green. Eight frames, one colour. The
@@ -583,6 +608,10 @@ export default function DungeonGame() {
     // door. The first frame of a floor snaps rather than sliding, so a descent never fades in.
     const moodKey = new THREE.Color(), moodSky = new THREE.Color(), moodGround = new THREE.Color();
     const moodFog = new THREE.Color(), moodBack = new THREE.Color(), moodTo = new THREE.Color();
+    // What burns here, and the one accent hung on cloth. These two cross the threshold with the lights
+    // rather than with the stone, because a brazier three rooms back is the thing that says which way
+    // the knight has come from.
+    const moodFire = new THREE.Color(), moodBanner = new THREE.Color(), moodMasonry = new THREE.Color(), moodBed = new THREE.Color();
     const moodNumbers = { key: 0, hemisphere: 0, fog: 0, environment: 0 };
     let moodFloor: typeof floor | null = null, moodCell = '', moodTheme: keyof typeof ROOM_MOOD = 'keep', moodSnap = true;
     const mixTo = (v: THREE.Vector3, to: readonly [number, number, number], k: number) =>
@@ -602,6 +631,8 @@ export default function DungeonGame() {
       const m = ROOM_MOOD[moodTheme], k = moodSnap ? 1 : rate; moodSnap = false;
       moodKey.lerp(moodTo.setHex(m.key), k); moodSky.lerp(moodTo.setHex(m.sky), k); moodGround.lerp(moodTo.setHex(m.ground), k);
       moodFog.lerp(moodTo.setHex(m.fog), k); moodBack.lerp(moodTo.setHex(m.background), k);
+      moodFire.lerp(moodTo.setHex(m.fire), k); moodBanner.lerp(moodTo.setHex(m.banner), k);
+      moodMasonry.lerp(moodTo.setHex(m.masonry), k); moodBed.lerp(moodTo.setHex(m.foundation), k);
       moodNumbers.key += (m.keyIntensity - moodNumbers.key) * k;
       moodNumbers.hemisphere += (m.hemisphere - moodNumbers.hemisphere) * k;
       moodNumbers.fog += (m.fogDensity - moodNumbers.fog) * k;
@@ -610,12 +641,16 @@ export default function DungeonGame() {
       hemisphere.color.copy(moodSky); hemisphere.groundColor.copy(moodGround); hemisphere.intensity = moodNumbers.hemisphere;
       (scene.fog as THREE.FogExp2).color.copy(moodFog); (scene.fog as THREE.FogExp2).density = moodNumbers.fog;
       (scene.background as THREE.Color).copy(moodBack); scene.environmentIntensity = moodNumbers.environment;
+      // Every lamp in the keep, including the one that gets lent out: the sconce it returns to has to
+      // burn what its three neighbours burn or a borrow reads as a colour change rather than a flare.
+      for (const light of torchLights) light.color.copy(moodFire);
+      ember.home.copy(moodFire);
       mixTo(tideMood.value, m.water, k);
       mixTo(stoneMood.moss.value, m.moss, k); mixTo(stoneMood.warm.value, m.warm, k);
       mixTo(stoneMood.cool.value, m.cool, k); mixTo(stoneMood.crown.value, m.crown, k);
       stoneMood.mossAmount.value += (m.mossAmount - stoneMood.mossAmount.value) * k;
     };
-    const playerRing = new THREE.Mesh(new THREE.RingGeometry(0.5,0.55,40),new THREE.MeshBasicMaterial({color:0xa1d8ce,transparent:true,opacity:0.45,depthWrite:false}));playerRing.rotation.x=-Math.PI/2;world.add(playerRing);
+    const playerRing = new THREE.Mesh(new THREE.RingGeometry(0.5,0.55,40),new THREE.MeshBasicMaterial({color:0xcfe6e4,transparent:true,opacity:0.45,depthWrite:false}));playerRing.rotation.x=-Math.PI/2;world.add(playerRing);
     const cameraFocus = new THREE.Vector3();
     const velocity = new THREE.Vector3(), facing = new THREE.Vector3(1, 0, -0.6).normalize();
     const attackFacing = facing.clone(), dashFacing = facing.clone();
@@ -830,12 +865,12 @@ export default function DungeonGame() {
         damaged.receiveShadow=true;floorGroup.add(damaged);
       }
       phase('tiles');
-      const planks = new THREE.InstancedMesh(new THREE.BoxGeometry(1.43,.2,.34),new THREE.MeshStandardMaterial({color:0x665040,roughness:.95}),bridgeTiles.length*4);
+      const planks = new THREE.InstancedMesh(new THREE.BoxGeometry(1.43,.2,.34),new THREE.MeshStandardMaterial({color:0x372c21,roughness:.95}),bridgeTiles.length*4);
       // Every board was one of two values, which is why a span read as a striped decal. Each one now takes
       // its own weathering off its position, so no two neighbours match.
       bridgeTiles.forEach(({x,z},i)=>{for(let n=0;n<4;n++){matrix.makeTranslation(x*TILE,-.09,z*TILE+(n-1.5)*.365);planks.setMatrixAt(i*4+n,matrix);
         const grain=Math.abs(x*13+z*29+n*7)%9,damp=Math.abs(x*3-z*5+n*11)%4;
-        planks.setColorAt(i*4+n,new THREE.Color(n%2?0xbca17d:0xd0b68f).multiplyScalar(.74+grain*.062).offsetHSL(damp%2?.008:-.018,-.02+damp*.012,0));}});planks.receiveShadow=true;floorGroup.add(planks);
+        planks.setColorAt(i*4+n,new THREE.Color(n%2?0x5f503c:0x6c5c45).multiplyScalar(.74+grain*.062).offsetHSL(damp%2?.008:-.018,-.02+damp*.012,0));}});planks.receiveShadow=true;floorGroup.add(planks);
       const { minX, maxX, minZ, maxZ } = floor.bounds;
       tide = tidalMaterial(new THREE.Vector4((minX + maxX) * TILE / 2, (minZ + maxZ) * TILE / 2, (maxX - minX) * TILE / 2 + 1.5, (maxZ - minZ) * TILE / 2 + 1.5));
       water = new THREE.Mesh(new THREE.PlaneGeometry((maxX - minX + 40) * TILE, (maxZ - minZ + 40) * TILE), tide.material);
@@ -850,7 +885,7 @@ export default function DungeonGame() {
       // Neutral rather than teal: the kerb runs the full border of every tile on the floor including the
       // corridors, so whatever hue it holds is a hue the whole keep holds. It takes the chamber's from
       // the weathering uniforms instead.
-      const parapetGeometry=new RoundedBoxGeometry(1,0.58,1,1,.1),parapetMaterial=new THREE.MeshStandardMaterial({color:0x6b6f70,roughness:.8});weatherStone(parapetMaterial);
+      const parapetGeometry=new RoundedBoxGeometry(1,0.58,1,1,.1),parapetMaterial=new THREE.MeshStandardMaterial({color:0x6b6f70,roughness:.8});parapetSkin=parapetMaterial;weatherStone(parapetMaterial);
       const parapets=new Map<string,typeof borders>();for(const b of borders){const key=`${Math.floor(b.x/18)},${Math.floor(b.z/18)}`;const batch=parapets.get(key);if(batch)batch.push(b);else parapets.set(key,[b]);}
       for(const local of parapets.values()){
         const walls=new THREE.InstancedMesh(parapetGeometry,parapetMaterial,local.length);
@@ -870,10 +905,23 @@ export default function DungeonGame() {
           // inside it by the fragment shader along with the light it throws on
           // the paving: same draw call, same ninety-six triangles, and a grate
           // that is part of the floor it is burning instead of a decal over it.
-          // It is additive for the same reason — a telegraph that can only ever
-          // darken the stone under it is the "flat black ellipse" the review saw.
+          // It is additive for the same reason: a grate that can only ever darken
+          // the stone under it is the "flat black ellipse" the review saw. That is
+          // the opposite call from the windup arc a few lines down, and both are
+          // right. This is a soft glow whose whole job is to look like heat coming
+          // up through the floor, so taking the paving's colour with it is what
+          // makes it part of the floor. The arc is a signal that must mean the
+          // same thing in three chambers, so taking the paving's colour with it
+          // was the bug.
+          //
+          // Dormant, it is scorched iron rather than the hot red it used to be.
+          // That red sat on the telegraph's own hue to within a fifth of a degree
+          // at two and a half times its chroma, so a grate sitting there doing
+          // nothing wore the colour that means a blow is landing. Dead grey was
+          // tried in between and went too far the other way: a hazard the player
+          // cannot pick out of the paving is not a fair one.
           const spread = shrine ? 1.9 : 3.25;
-          const skin = new THREE.MeshBasicMaterial({ color: shrine ? 0x83ffd7 : 0xff6c28, transparent: true, opacity: 1, side: THREE.DoubleSide, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
+          const skin = new THREE.MeshBasicMaterial({ color: shrine ? 0x71f4c4 : 0x7a5238, transparent: true, opacity: 1, side: THREE.DoubleSide, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
           const glow = litDisc(skin, shrine ? 'shrine-disc-v1' : 'ember-disc-v1', shrine ? 4.2 : 2.0);
           glow.edge.value = (shrine ? 1.125 : 1.69) / spread; glow.width.value = (shrine ? .26 : .13) / spread;
           const mesh = new THREE.Mesh(new THREE.RingGeometry(0, spread, 48), skin);
@@ -890,7 +938,7 @@ export default function DungeonGame() {
             }
           }
           if (shrine) {
-            const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(.5), new THREE.MeshStandardMaterial({color:0x9affe0,emissive:0x48cba0,emissiveIntensity:2,metalness:.3,roughness:.2}));
+            const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(.5), new THREE.MeshStandardMaterial({color:0xa8f7d8,emissive:0x48cba0,emissiveIntensity:2,metalness:.3,roughness:.2}));
             crystal.position.set(room.x*TILE,1.2,room.z*TILE); floorGroup.add(crystal); mesh.userData.crystal = crystal;
           }
         }
@@ -905,10 +953,10 @@ export default function DungeonGame() {
         // from across the hall on every floor's lighting, not only the darkest.
         // Wider than the shaft and soft to its rim: what comes up a stair is
         // light, and a hard-edged disc exactly the size of the hole was a lid.
-        const shaftSkin = new THREE.MeshBasicMaterial({ color: 0xffc573, transparent: true, opacity: 1, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
+        const shaftSkin = new THREE.MeshBasicMaterial({ color: 0xfbc956, transparent: true, opacity: 1, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending });
         stairLight = litDisc(shaftSkin, 'stair-shaft-v1', 2.2); stairLight.band.value = 0;
         stairGlow = new THREE.Mesh(new THREE.CircleGeometry(2.05, 32), shaftSkin); stairGlow.rotation.x = -Math.PI / 2; stairGlow.position.set(stairSpot.x, .08, stairSpot.z); stairGlow.visible = false; stairGlow.renderOrder = 4; floorGroup.add(stairGlow);
-        stairRing = new THREE.Mesh(new THREE.RingGeometry(1.5, 1.85, 48), new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: .85, side: THREE.DoubleSide, depthWrite: false })); stairRing.rotation.x = -Math.PI / 2; stairRing.position.set(stairSpot.x, .09, stairSpot.z); stairRing.visible = false; stairRing.renderOrder = 5; floorGroup.add(stairRing); }
+        stairRing = new THREE.Mesh(new THREE.RingGeometry(1.5, 1.85, 48), new THREE.MeshBasicMaterial({ color: 0xfbc956, transparent: true, opacity: .85, side: THREE.DoubleSide, depthWrite: false })); stairRing.rotation.x = -Math.PI / 2; stairRing.position.set(stairSpot.x, .09, stairSpot.z); stairRing.visible = false; stairRing.renderOrder = 5; floorGroup.add(stairRing); }
       placeDrop(floor.weaponDrop.kind, floor.weaponDrop.x, floor.weaponDrop.z);
       phase('atmosphere');
       enemyData = floor.spawns.map((spawn, index) => {
@@ -917,8 +965,39 @@ export default function DungeonGame() {
         const group = makeSkeleton(kind); group.position.set(spawn.x * TILE,0.03,spawn.z * TILE); group.visible = !spawn.ambush; floorGroup.add(group);
         if (kind === 'warden') group.scale.setScalar(1.3);
         if (kind === 'stalker') group.scale.set(.94,1,.94);
-        const cue = new THREE.Mesh(kind === 'stalker' ? new THREE.PlaneGeometry(5,1.7).translate(2.5,0,0) : BONES.cue,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xff522b:0xffae52,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false}));cue.rotation.x=-Math.PI/2;floorGroup.add(cue);
-        const bar = new THREE.Mesh(BONES.bar,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xffb65f:0xe89a79,depthTest:false}));bar.renderOrder=10;floorGroup.add(bar);
+        // One colour for all three kinds. Which body is winding up is already answered by the shape —
+        // the stalker's long lane against the others' arc — and by the eye it is answered with, so the
+        // two amber tells this replaced were spending hue on a question nobody was asking and spending
+        // it in the same band the torches burn in. `toneMapped` and `fog` off: this is the one
+        // mark in the keep the player answers on a deadline, and it has no business being compressed by
+        // the same curve as the wall behind it or dimmed by the distance it is seen from.
+        // Opaque over the floor rather than added to it, and drawn through whatever stands in the way.
+        //
+        // Additive was the obvious choice and it was wrong, measurably: the result is floor plus red,
+        // so the paving's own green and blue survive underneath and set the hue. The same `0xff4529`
+        // came out dusty pink over the keep's violet slate and muddy orange-brown over the flood's
+        // teal — the two families whose fire was moved off amber precisely to leave red free. A mark
+        // whose colour is decided by the room it is drawn in is not a signal. Normal blending at a
+        // high opacity carries its own colour instead, and `toneMapped: false` writes it through
+        // unchanged, so the tell is the same red in all three chambers.
+        //
+        // Two passes of one shape, which is how a mark stays a mark behind a pier.
+        //
+        // Depth-tested alone, a plinth or a column between the lens and a body ate part of the arc and,
+        // in the drowned chambers, most of it. Depth-test off alone was worse: a hot arc painted over
+        // solid stone makes the stone look like glass and smears the knight it crosses. So the solid
+        // pass keeps its depth test and belongs to the world, and a faint copy behind it does not — at
+        // a third of the opacity it is invisible wherever the real arc already shows and a red ghost
+        // wherever something is standing in front of it. Seen through, rather than not seen.
+        //
+        // Full opacity on the solid pass, not the .88 a first cut used. At .88 the mark tops out around
+        // 94 of a possible 100 while a brazier's core clips at 100, which is the one thing a signal
+        // carrying a deadline may not do: be dimmer than the furniture. `toneMapped: false` buys the
+        // headroom and the opacity was giving it straight back.
+        const cueGeometry = kind === 'stalker' ? new THREE.PlaneGeometry(5,1.7).translate(2.5,0,0) : BONES.cue;
+        const cue = new THREE.Mesh(cueGeometry,new THREE.MeshBasicMaterial({color:THREAT,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,toneMapped:false,fog:false}));cue.rotation.x=-Math.PI/2;cue.renderOrder=9;floorGroup.add(cue);
+        const ghost = new THREE.Mesh(cueGeometry,new THREE.MeshBasicMaterial({color:THREAT,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,depthTest:false,toneMapped:false,fog:false}));ghost.renderOrder=8;cue.add(ghost);
+        const bar = new THREE.Mesh(BONES.bar,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xffb65f:0xe89a79,depthTest:false,toneMapped:false,fog:false}));bar.renderOrder=10;floorGroup.add(bar);
         const anchors:THREE.Object3D[]=kind==='stalker'?group.userData.limbs.slice(0,2):[group.userData.weapon];
         const trails=anchors.map(anchor=>{const effect=weaponTrail(kind==='warden'?0xffa15c:kind==='stalker'?0xffcc90:0xffd39b,kind==='warden'?.13:.095);floorGroup.add(effect.mesh);return {effect,anchor,inner:kind==='stalker'?new THREE.Vector3(0,-.72,-.12):new THREE.Vector3(0,0,-.24),tip:kind==='stalker'?new THREE.Vector3(0,-.87,-.5):new THREE.Vector3(0,0,kind==='warden'?-1.2:-.86)};});
         return { group, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush, anchor:{x:spawn.x*TILE,z:spawn.z*TILE}, notice:0, alertIn:Infinity };
@@ -949,7 +1028,7 @@ export default function DungeonGame() {
       buildFloor(level + 1);
       heal(run, Math.round(run.maxHp * .25)); setHealth(run.hp);
       keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; dashBuffer = 0; audio.pause(false);
-      burst(player.position, 0x8de9be, 22);
+      burst(player.position, 0x71f4c4, 22);
     };
     // A run is nothing but this closure's counters plus floor 1, so it restarts in place: reloading
     // would refetch the bundle and throw away the AudioContext and the GPU context for no gain.
@@ -1030,7 +1109,7 @@ export default function DungeonGame() {
       placeDrop(set, at.x, at.z);
       // Standing still after the swap, so the prompt comes straight back naming the arm just set down.
       overDrop = true; showOffer(set);
-      audio.play('clear'); burst(player.position, 0xe3b774, 14);
+      audio.play('clear'); burst(player.position, 0xfbc956, 14);
       setNotice(`${taken.name} in hand`); setNoticeDetail(taken.detail); noticeTime = 3.5;
       setHeldWeapon(taken.name);
     };
@@ -1160,7 +1239,7 @@ export default function DungeonGame() {
           if (currentRoom.id === floor.goal && !stairClear()) { setNotice(`${goalRoom().name} · wardens bar the stair`); setNoticeDetail('Break them to leave the keep'); noticeTime = 4; }
           const sprung = enemyData.filter(e => e.room === currentRoom.id && !e.awake && !e.dead);
           if (sprung.length) {
-            sprung.forEach(e => { e.awake = true; e.group.visible = true; e.cooldown = Math.max(e.cooldown, 0.9); burst(e.group.position, 0x7fd6c6, 10); });
+            sprung.forEach(e => { e.awake = true; e.group.visible = true; e.cooldown = Math.max(e.cooldown, 0.9); burst(e.group.position, 0xff4529, 10); });
             setNotice(`${currentRoom.name} · ambush`); setNoticeDetail(`${sprung.length} rise from the silt`); noticeTime = 3; audio.play('warn'); shake = 0.12;
           }
         }
@@ -1188,7 +1267,7 @@ export default function DungeonGame() {
           // The shaft stays dark until the knight stands on it, then fills with light as the dwell runs: the same
           // cue tells him the stair is his to take and how close he is to taking it.
           if (stairLight) stairLight.pool.value = .12 + fill * .74 + pulse * .3;
-          ember.bid(lampAt.set(stairSpot.x, .55, stairSpot.z), Math.hypot(player.position.x - stairSpot.x, player.position.z - stairSpot.z), 9 + fill * 19, 0xffb867);
+          ember.bid(lampAt.set(stairSpot.x, .55, stairSpot.z), Math.hypot(player.position.x - stairSpot.x, player.position.z - stairSpot.z), 9 + fill * 19, 0xfbc956);
           if (stairDwell >= STAIR_DWELL) descend();
         }
         if (gameStatus !== 'playing') return;
@@ -1211,8 +1290,8 @@ export default function DungeonGame() {
             // 3.5 — a shrine that makes the knight harder to find is a worse
             // frame however much better the shrine looks. At this strength the
             // inverse square has the light spent by the time it reaches him.
-            if (!feature.used) ember.bid(crystal.position, near, 4.4 + Math.sin(t*2)*.7, 0x8ff2cf);
-            if (!feature.used && near < 1.5 && run.hp < run.maxHp) { feature.used = true; heal(run, 35); setHealth(run.hp); audio.play('clear'); burst(player.position,0x83ffd7,20); setNotice('+35 vitality'); setNoticeDetail(''); noticeTime = 2; }
+            if (!feature.used) ember.bid(crystal.position, near, 4.4 + Math.sin(t*2)*.7, 0x71f4c4);
+            if (!feature.used && near < 1.5 && run.hp < run.maxHp) { feature.used = true; heal(run, 35); setHealth(run.hp); audio.play('clear'); burst(player.position,0x71f4c4,20); setNotice('+35 vitality'); setNoticeDetail(''); noticeTime = 2; }
           } else {
             const wasFiring = feature.phase > 2.6;
             feature.phase = (t + feature.room*.7) % 3.6;
@@ -1225,14 +1304,14 @@ export default function DungeonGame() {
             // that threw no light, so the one dramatic thing in the shot did not
             // belong to the room it was burning.
             feature.glow.pool.value = firing ? .44 + Math.sin(t*27)*.06 : charge**3 * .2;
-            feature.mesh.material.color.setHex(firing ? 0xffe49c : 0xff6c28);
-            if (firing) ember.bid(lampAt.set(feature.mesh.position.x, .85, feature.mesh.position.z), near, 30 + Math.sin(t*31)*5, 0xff9330);
+            feature.mesh.material.color.setHex(firing ? 0xffd6c2 : 0x4a4f57);
+            if (firing) ember.bid(lampAt.set(feature.mesh.position.x, .85, feature.mesh.position.z), near, 30 + Math.sin(t*31)*5, 0xff5a2a);
             // The flare itself throttles the burn — one tick per flare, cleared when the ring goes cold.
             // It used to be the 0.65s hurt timer doing this job, which is why a hazard tick also bought
             // more immunity than a sword: the two roles are now separate.
             if (!firing) feature.burned = false;
             else if (!feature.burned && near < 1.8 && hurt(run, 10, { dashing: dashTime > 0 })) {
-              feature.burned = true; setHealth(run.hp); hurtFlash = .65; shake = .1; audio.play('hurt'); burst(player.position,0xff782c,8);
+              feature.burned = true; setHealth(run.hp); hurtFlash = .65; shake = .1; audio.play('hurt'); burst(player.position,0xff4529,8);
               if(run.hp===0)endRun('hazard');
             }
           }
@@ -1308,7 +1387,7 @@ export default function DungeonGame() {
                 if (detour) { loot++; setPlundered(loot); }
                 setNotice(`${room.name} · ${detour ? 'dead end plundered' : 'cleansed'}`);
                 setNoticeDetail(detour ? `+${XP_DEAD_END} XP · +30 vitality` : '+12 vitality restored');
-                noticeTime = 3.5; rewardTime = 1.4; audio.play('clear'); burst(player.position,0x8de9be,18);
+                noticeTime = 3.5; rewardTime = 1.4; audio.play('clear'); burst(player.position,0x71f4c4,18);
                 document.getElementById(`map-room-${enemy.room}`)?.setAttribute('fill', detour ? '#c2b273' : '#a8d5b0');
               } if (enemy.room === floor.goal && stairClear()) openStair(); }
             }
@@ -1325,14 +1404,26 @@ export default function DungeonGame() {
           if (enemy.alertIn < Infinity) { enemy.alertIn -= dt; if (enemy.alertIn <= 0) { if (enemy.notice <= 0) enemy.notice = dt; enemy.alertIn = Infinity; } }
           enemy.cue.visible = !enemy.dead && (enemy.windup > 0 || enemy.lunge > 0); enemy.bar.visible = !enemy.dead && enemy.hp < enemy.maxHp;
           enemy.bar.position.copy(enemy.group.position).add(new THREE.Vector3(0,enemy.kind === 'warden'?2.65:2.05,0)); enemy.bar.quaternion.copy(camera.quaternion); enemy.bar.scale.x = enemy.hp / enemy.maxHp;
-          enemy.cue.scale.setScalar(enemy.kind === 'warden' ? 1.7 : 1);
+          // The clock. `close` runs 0 at the start of the tell to 1 on the strike, and the mark converges
+          // over it: it opens at nearly twice the reach the blow actually has and shuts onto the body, so
+          // what is left to run is a distance on the floor.
+          //
+          // The opacity ramp is gone. A first pass kept one alongside a quarter-scale convergence and it
+          // was the worst of both — a quarter is under the threshold at which a mark moving with its own
+          // body reads as closing at all, and the fade underneath was doing what the whole rewrite exists
+          // to stop doing. The mark arrives at full strength and the only thing that changes is its size.
+          const close = enemy.windup > 0 ? 1 - enemy.windup / enemy.tell : 1;
+          enemy.cue.scale.setScalar((enemy.kind === 'warden' ? 1.7 : 1) * (1.9 - .9 * close));
           enemy.cue.position.copy(enemy.group.position); enemy.cue.position.y = 0.055; enemy.cue.rotation.z = Math.atan2(-enemy.aim.z,enemy.aim.x);
-          (enemy.cue.material as THREE.MeshBasicMaterial).opacity = 0.2 + (1 - enemy.windup / enemy.tell) * 0.5;
+          const cueSkin = enemy.cue.material as THREE.MeshBasicMaterial;
+          cueSkin.opacity = 1; cueSkin.color.setHex(THREAT);
+          const cueGhost = enemy.cue.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+          cueGhost.material.opacity = .34; cueGhost.material.color.setHex(THREAT);
           if (enemy.dead) { if(enemy.death)advanceDeath(enemy.death,dt);return; }
           const hurtPlayer = () => {
             if (gameStatus !== 'playing' || !hurt(run, enemy.damage, { dashing: dashTime > 0, warded: true })) return;
             setHealth(run.hp);
-            audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4c2f,8);impacts.emit(player.position,0xff8763,enemy.kind==='warden');
+            audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4529,8);impacts.emit(player.position,0xff8763,enemy.kind==='warden');
             // Which kind landed the killing blow is the one thing only this call site knows.
             if(run.hp===0)endRun(enemy.kind);
           };
@@ -1371,7 +1462,10 @@ export default function DungeonGame() {
           enemy.group.userData.skull.rotation.y=Math.sin(t*1.5+enemy.phase)*.06;
           if(enemy.kind==='guard')enemy.group.userData.limbs[0].rotation.x=-.16+gait*.12-.1*(enemy.windup>0?1-enemy.windup/enemy.tell:pose.recovery);
           enemy.cue.visible=enemy.windup>0||(enemy.lunge>0&&enemy.attackAge<.09);
-          if(enemy.windup<=0)(enemy.cue.material as THREE.MeshBasicMaterial).opacity=.5*Math.max(0,1-enemy.attackAge/.09);
+          // Landed. The mark is at its tightest already, so the last thing it does is stop being the
+          // warning and become the blow: one frame of `COMMIT` on the floor while the body carries the
+          // same flare above it, then out inside a tenth of a second.
+          if(enemy.windup<=0){const fade=Math.max(0,1-enemy.attackAge/.09);const skin=enemy.cue.material as THREE.MeshBasicMaterial;skin.color.setHex(COMMIT);skin.opacity=fade;const gh=enemy.cue.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;gh.material.color.setHex(COMMIT);gh.material.opacity=fade*.34;enemy.cue.scale.setScalar(enemy.kind==="warden"?1.7:1);}
           enemy.trails.forEach(trail=>trail.effect.update(dt,pose.trail,trail.anchor,trail.inner,trail.tip));
           // A struck body flares for two frames and is back to its own colour inside six. The flat 0.8
           // this replaced held an orange tint for the whole 0.2s of hitFlash, which is fifteen frames of
@@ -1386,7 +1480,13 @@ export default function DungeonGame() {
           if (enemy.hitFlash > (rig.wasFlashing ?? 0)) rig.struckAt = elapsed;
           rig.wasFlashing = enemy.hitFlash;
           const struck = rig.struckAt === undefined ? 0 : Math.max(0, 1 - (elapsed - rig.struckAt) / 0.1) ** 2.2;
-          enemy.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.emissive.setHex(struck > 0 ? 0xffc98a : enemy.windup > 0 ? 0xb83915 : 0x000000); o.material.emissiveIntensity = struck > 0 ? 0.2 + struck * 0.5 : 0.5; } });
+                    // The tell's second channel. The body already lit during a windup, but at one flat dull brick
+          // for the whole of it, which says a blow is coming and never says when — the same fault the
+          // arc on the floor had. It takes the threat colour and rides the same clock, so the body is
+          // dimmest at the top of the tell and hottest on the frame the blade goes out. That is what
+          // makes the tell survive a pier standing between the lens and the arc.
+          const closing = enemy.windup > 0 ? 1 - enemy.windup / enemy.tell : 0;
+          enemy.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.emissive.setHex(struck > 0 ? COMMIT : enemy.windup > 0 ? THREAT : 0x000000); o.material.emissiveIntensity = struck > 0 ? 0.2 + struck * 0.5 : enemy.windup > 0 ? 0.5 + closing * 1.6 : 0.5; } });
         });
         // Separate bodies without moving a guard during its committed windup; the rule itself lives in
         // dungeon-enemy, and only the write back into the scene graph belongs here.
@@ -1473,7 +1573,9 @@ export default function DungeonGame() {
       particles.forEach((p) => { p.life -= dt; p.velocity.y -= dt * 7; p.mesh.position.addScaledVector(p.velocity, dt); p.mesh.scale.setScalar(Math.max(0, p.life * 2)); });
       for (let i = particles.length - 1; i >= 0; i--) if (particles[i].life <= 0) { world.remove(particles[i].mesh); if (particles[i].mesh.material !== sparkMat) (particles[i].mesh.material as THREE.Material).dispose(); particles.splice(i, 1); }
       hurtFlash = Math.max(0, hurtFlash - dt); shake = Math.max(0, shake - dt); tickRun(run, dt);
-      atmosphere?.update(t,player.position,cleared);
+      atmosphere?.update(t,player.position,cleared,moodFire,moodBanner,moodMasonry,moodBed);
+      // The parapet is carved work too, built here rather than in the atmosphere pass but lit the same.
+      parapetSkin?.color.copy(moodMasonry);
       const nearest = [...(atmosphere?.torchPositions ?? [])].sort((a,b)=>a.distanceToSquared(player.position)-b.distanceToSquared(player.position));
       // Three of the four go to their sconces. The fourth is settled below, once
       // the accents have had their chance to ask for it.
@@ -1513,7 +1615,10 @@ export default function DungeonGame() {
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     hooks.dungeonTest = {
-      teleport: (x, z) => {player.position.set(x, 0.03, z);slash.clear();},
+      // The mood snaps rather than sliding. Crossing a threshold on foot is worth a third of a second
+      // of cross-fade; arriving somewhere by fixture is not a walk, and a driver that teleports into a
+      // chamber to photograph it would otherwise catch the lights still on their way there.
+      teleport: (x, z) => {player.position.set(x, 0.03, z);moodCell='';moodSnap=true;slash.clear();},
       // Fixture setup, like teleport: put a named arm in hand without walking a rack down. An unknown id
       // arms the Tideblade rather than leaving the knight empty-handed, as weaponById does everywhere.
       equip: (id) => { equip(weaponById(id).id); setHeldWeapon(weaponById(id).name); },
@@ -1602,6 +1707,11 @@ export default function DungeonGame() {
       camera: { x: camera.position.x, z: camera.position.z, focusX: cameraFocus.x, focusZ: cameraFocus.z, restX: cameraFocus.x + 9.2, restZ: cameraFocus.z + 11.5 },
       features: features.map(f => ({room:f.room, shrine:f.shrine, used:f.used, burned:f.burned, phase:f.phase, x:f.mesh.position.x,z:f.mesh.position.z,radius:f.shrine?1.5:1.8})),
       buildMs,
+      // What the chamber is actually being lit with this frame, as hex. A driver measuring whether a
+      // tell reads against the stone it is drawn on needs to know which family it is standing in, and
+      // the room graph cannot tell it: the lights cross a threshold on the approach rather than on the
+      // doorway, so for a third of a second the answer is genuinely neither room's.
+      mood: { theme: moodTheme, fire: '#' + moodFire.getHexString(), key: '#' + moodKey.getHexString(), fog: '#' + moodFog.getHexString(), banner: '#' + moodBanner.getHexString() },
       floor: { level, waterfalls: atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
       player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashBuffer, dashTime, dashCooldown, invulnerable: run.invuln, hurtFlash, swordAngle: player.userData.sword.rotation.y, cloak:{anchor:player.userData.cape.position.toArray(),pitch:player.userData.cape.rotation.x}, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, locomotion: {speed:gaitSpeed,phase:walkPhase,sprint:locomotion.sprint,pitch:player.userData.torso.rotation.x,height:player.position.y,arm:player.userData.arm.rotation.x,knees:player.userData.legs.map((leg:THREE.Group)=>leg.userData.knee.rotation.x)}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
       corpses: enemyData.filter(e=>e.dead).map(e=>({kind:e.kind,x:e.group.position.x,y:e.group.position.y,z:e.group.position.z,scale:e.group.scale.toArray(),rotation:e.group.userData.rig.rotation.x,age:e.death?.age,settled:e.death?.settled,visible:e.group.visible,cue:e.cue.visible,bar:e.bar.visible,trails:e.trails.some(trail=>trail.effect.mesh.visible)})),
@@ -1647,7 +1757,7 @@ export default function DungeonGame() {
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      <section className="hud" aria-label="Player status"><div className="health-row"><span>♥</span><b>{health}<small>/{maxHealth}</small></b></div><div className="health-track" role="progressbar" aria-label="Vitality" aria-valuemin={0} aria-valuemax={maxHealth} aria-valuenow={health}><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div><div className="dash-status"><progress ref={dashMeter} max="1" value="1" aria-label="Dash readiness" /></div>{ammo && <div className="quiver" role="progressbar" aria-label="Bolts in hand" aria-valuemin={0} aria-valuemax={ammo.of} aria-valuenow={ammo.held}>{Array.from({ length: ammo.of }, (_, i) => <i key={i} className={i < ammo.held ? 'held' : ''} />)}</div>}<progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} /></section>
+      <section className="hud" aria-label="Player status"><div className="health-row"><span aria-hidden="true" /><b>{health}<small>/{maxHealth}</small></b></div><div className="health-track" role="progressbar" aria-label="Vitality" aria-valuemin={0} aria-valuemax={maxHealth} aria-valuenow={health}><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div><div className="dash-status"><progress ref={dashMeter} max="1" value="1" aria-label="Dash readiness" /></div>{ammo && <div className="quiver" role="progressbar" aria-label="Bolts in hand" aria-valuemin={0} aria-valuemax={ammo.of} aria-valuenow={ammo.held}>{Array.from({ length: ammo.of }, (_, i) => <i key={i} className={i < ammo.held ? 'held' : ''} />)}</div>}<progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} /></section>
       {floorMap && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action(mapOpen ? 'pause' : 'map')} aria-label={mapOpen ? 'Close floor map' : 'Open floor map'}><svg key={floorBuild} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g transform={`rotate(${mapAngle*180/Math.PI})`}>
         <path d={floorMap.tiles.map(t => `M${t.x - 0.5},${t.z - 0.5}h1v1h-1z`).join('')} fill="#334e56" />
         {floorMap.rooms.map(r => <path key={r.id} id={`map-room-${r.id}`} d={floorMap.tiles.filter(t=>t.room===r.id).map(t=>`M${t.x-.5},${t.z-.5}h1v1h-1z`).join('')} fill={r.id===0?'#5aa89d':r.role==='goal'?'#b8863f':'#4a747c'} />)}
