@@ -109,6 +109,14 @@ export type Snapshot = {
     cleared: number[];
     bounds: Floor['bounds'];
   };
+  /** The lights the chamber is actually being lit with this frame, as `#rrggbb`. */
+  mood: {
+    theme: 'keep' | 'ruins' | 'flooded';
+    fire: string;
+    key: string;
+    fog: string;
+    banner: string;
+  };
   player: {
     x: number;
     z: number;

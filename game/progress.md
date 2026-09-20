@@ -570,3 +570,121 @@ the hero is pale rewards exactly the defect this work removed. Judge separation 
 Verification: typecheck, lint, 137/137 node tests, 66/66 browser tests, the frame budget at all three
 scenes, and a production build - all green on the merged tree. The verticality work is not in this commit;
 it is still under review.
+
+## The palette becomes a place
+
+`docs/art-direction.md` is the standard this round was measured against. Its rule is that colour carries
+category and that urgency is carried by a hard edge closing on a clock, above the tone-mapped range.
+
+### What was wrong
+
+Four torch lights were hardcoded `0xff9440` and fire was not a field of `Mood` at all, so the one saturated
+thing in any frame was identical in all three families and a theme could only be a filter over the stone.
+Every banner in the keep hung from the same `red` material as the knight's cape. Carved work - columns,
+cornices, archivolts, parapets, the bowls fire sits in - was one neutral grey chosen for a keep that had a
+single palette, which came out of every key in the game brighter than the knight. And the windup tell, the
+one mark a player answers on a deadline, ramped opacity from 0.2 to 0.7 at a fixed size and colour: it said
+a blow was coming and never said when.
+
+### What it is now
+
+`Mood` carries `fire`, `banner` and `masonry`, and the frame drives the torch lights, the flame bodies,
+their cores, the halo sprites, the ember motes, `borrowedLight`'s home colour, the cloth, the carved stone,
+the prop bases, the brazier bowls, the parapets and the medallion bed from them. The keep burns violet
+witchfire, the ruin real flame, the flood a cold bioluminescence. Two of the three left amber, which is
+what freed hot red for the tell in every chamber.
+
+The tell converges rather than fades: it opens at 1.9x the reach the blow has and shuts onto the body, at a
+constant 0.88 opacity, in one colour for all three kinds - shape and eye hue already carry which body it is.
+It draws with normal blending, not additive. That was the round's sharpest finding and it came from a
+measurement, not an opinion: additive means floor plus red, so the paving's own green and blue survive and
+set the hue, and the same `0xff4529` measured out as dusty pink over the keep's violet slate and muddy
+orange-brown over the flood's teal. The two families whose fire had just been moved off amber were the two
+where red failed. Normal blending at high opacity carries its own colour instead.
+
+The body is the tell's second channel. It already lit during a windup, at one flat dull brick for the whole
+of it; it now takes the threat colour and rides the same clock. Drawing the arc through the world was tried
+so a pier could not hide it, and reverted - a hot arc painted over solid stone makes the stone look like
+glass and smears the knight it crosses, which is a worse lie than a mark partly behind something. The body
+channel is what makes an occluded tell still a tell.
+
+Paving dropped into the low thirties and gained chroma; carved work and coursework came down under it,
+because measured off the frames they were running twenty points of lightness above the floor they stood on,
+which makes a chamber a bright cage around a dark pit with nothing in it reading as lit by the braziers.
+The medallion's brass went to worn inlay a tenth above its bed: it was a hard bright ring on the floor of
+every chamber, which is the form and family the stair is the only thing allowed to speak in, and its star
+sat brighter than the knight standing on it.
+
+### Measuring it rather than arguing about it
+
+`tests/browser/art-direction.spec.ts` settles both of the document's claims off the rendered canvas in CIE
+Lab, not off the constants - what a tell is worth on screen is what survives the key, the fog, the
+weathering shader and ACES, and none of those are visible from a palette table. It draws each chamber twice,
+once with the body at rest and once at the top of its tell, and differences the frames: the pixels the mark
+covers are exactly the pixels that changed, so nothing has to know where the decal landed on screen. It
+asserts the three fires are more than forty degrees apart, that the mark is mean dE 25 from the stone under
+it, and that its core is within eighteen degrees of `THREAT` at chroma 45 in all three families. That last
+pair is the regression guard for the additive bug.
+
+The first run of it failed, usefully: the keep's witchfire and the flood's bioluminescence were 28 degrees
+apart in Lab, which is two blues, not two places. Both moved.
+
+`dungeonTest.teleport` now snaps the mood rather than sliding it. A threshold crossed on foot is worth a
+third of a second of cross-fade; arriving by fixture is not a walk, and a driver teleporting into a chamber
+to photograph it was catching the lights still on their way there. `render_game_to_text` carries a `mood`
+block for the same reason: the room graph cannot answer which family is lighting a frame, because on the
+approach the answer is genuinely neither room's.
+
+### What four rounds of an independent critic found
+
+Every round was reviewed by a critic given the document and the frames and nothing else, and told to
+measure rather than look. Four things it found that reading the source would not have:
+
+The tell was drawn additively, so the paving underneath set its hue. The same constant measured out as
+dusty pink over the keep's violet slate and muddy orange-brown over the flood's teal, in exactly the two
+families whose fire had just been moved off amber to leave red free. Opaque now, and at full opacity
+rather than the .88 a first cut used: at .88 the mark topped out near 94 of a possible 100 while a
+brazier core clipped at 100, and a signal carrying a deadline may not be dimmer than the furniture.
+
+The keep's witchfire and the flood's bioluminescence were 28 degrees apart in Lab. Two blues, not two
+places. The first run of the new spec caught it before a human looked at a frame.
+
+The pillar plinth and capital were built from the brazier's brass, which is why one warm tan slab
+survived three rounds of recolouring every stone around it. And the flames were washing white because an
+additive halo sprite sits over the whole flame — two rounds were spent correcting the core mesh, which
+was never the white thing.
+
+The spec itself claimed to measure pixels and was comparing palette constants. It passed comfortably
+through the round in which four fifths of the bright pixels in both cold chambers were rendering under a
+quarter saturation. It reads the canvas now, and a brightness band went in beside it: "dark field" has no
+lower bound written into it anywhere, and three rounds of honouring it took the frame's ninetieth
+percentile from the mid forties to the low thirties one step at a time with nothing watching.
+
+Verification: typecheck, lint, 142/142 node tests, the full browser suite, and four measured assertions
+per chamber in `art-direction.spec.ts`.
+
+### The small things
+
+A pass over what was left after the critic stopped failing it, none of it structural.
+
+Five tokens in `globals.css` were declared and never referenced, which is the smell a token block exists
+to remove; four are wired to the literals they duplicated and `--ink-panel` is gone, because every use of
+that colour carries an alpha and a `var()` cannot take one appended. The Unicode heart beside the
+vitality figure was the one glyph in the game borrowed from a web page, and a screen reader had to say it
+out loud before reaching the bar underneath that already means the same thing: it is the rotated square
+the title sigil is cut from now, in the threat channel, and marked `aria-hidden`. The rank track spends
+most of a run empty and at three pixels on a near-black fill with its border removed it read as a dead
+black bar under the other two rather than as a channel waiting to fill; a faint track instead.
+
+The medallion had been over-corrected. Putting the star under its bed was right and taking the rings and
+ticks with it was not: everything inside three points of the same value is a stain, not an engraving. A
+cut reads as a cut because it has both edges, so the star and the ticks keep the trough and the three
+rings take a lit lip. They are a quarter of a unit wide, which is the whole reason a lip can be lifted
+there at all — at that width it is a drawn line, where the same value across the star's face was a slab
+catching the moon.
+
+The ember grate went too far the other way in the same pass. Its dormant colour had been sitting on the
+telegraph's own hue to within a fifth of a degree at two and a half times its chroma, so a grate doing
+nothing wore the colour that means a blow is landing; the correction made it dead grey, and a hazard the
+player cannot pick out of the paving is not a fair one. Scorched iron: nineteen degrees off the tell and
+at a third of its chroma, visible as a burnt thing and not as a warning.

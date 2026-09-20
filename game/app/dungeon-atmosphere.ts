@@ -48,7 +48,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   // are built like any other, so they borrow the nearest chamber's stone rather than
   // arriving as a grey ribbon laid across a room that has committed to a colour.
   const nearestRoom=(x:number,z:number)=>{let best=Infinity,found=floor.rooms[0];for(const r of floor.rooms){const d=(r.x-x)**2+(r.z-z)**2;if(d<best){best=d;found=r;}}return found;};
-  addCarvedArchitecture(world,floor);
+  const carved=addCarvedArchitecture(world,floor);
   const stone=new THREE.MeshStandardMaterial({color:0x5c6064,roughness:.95}),trim=new THREE.MeshStandardMaterial({color:0x8c7352,roughness:.72,metalness:.25});
   weatherStone(stone);
   // The bowl is a six-sided cylinder under an open fire and was reading as one flat value top to bottom.
@@ -59,10 +59,15 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const shaftStone=new THREE.MeshStandardMaterial({color:0x7a7f82,roughness:.86});weatherStone(shaftStone);
   const wood=new THREE.MeshStandardMaterial({color:0x51382b,roughness:1}),moss=new THREE.MeshStandardMaterial({color:0x42594b,roughness:1});
   const clothCanvas=document.createElement('canvas');clothCanvas.width=128;clothCanvas.height=256;const cc=clothCanvas.getContext('2d')!;
-  cc.fillStyle='#792c38';cc.fillRect(0,0,128,256);cc.strokeStyle='#d7b375';cc.lineWidth=3;cc.strokeRect(9,8,110,240);
+  // Drawn in greys so the chamber can hang its own colour on it. A `MeshStandardMaterial` map only
+  // ever multiplies, so the field has to be the darker of the two for the device to stay the lighter
+  // of the two once a tint is applied; painting the wine red in here is what made every banner in the
+  // keep the knight's own cape whatever room it hung in.
+  cc.fillStyle='#a8a8a8';cc.fillRect(0,0,128,256);cc.strokeStyle='#ffffff';cc.lineWidth=3;cc.strokeRect(9,8,110,240);
   cc.beginPath();cc.moveTo(64,54);cc.lineTo(88,104);cc.lineTo(64,158);cc.lineTo(40,104);cc.closePath();cc.stroke();cc.beginPath();cc.moveTo(64,36);cc.lineTo(64,185);cc.moveTo(28,104);cc.lineTo(100,104);cc.stroke();
   const clothTexture=new THREE.CanvasTexture(clothCanvas);clothTexture.colorSpace=THREE.SRGBColorSpace;
   const red=new THREE.MeshStandardMaterial({map:clothTexture,side:THREE.DoubleSide,roughness:1});
+  const runner=new THREE.MeshStandardMaterial({map:clothTexture,side:THREE.DoubleSide,roughness:1});
   const waterCanvas=document.createElement('canvas');waterCanvas.width=64;waterCanvas.height=128;const wc=waterCanvas.getContext('2d')!;wc.fillStyle='#619d9e';wc.fillRect(0,0,64,128);
   for(let i=0;i<35;i++){wc.fillStyle=i%2?'#c4eee0aa':'#83c7c4aa';wc.fillRect((i*17)%64,(i*37)%128,1+i%3,15+i%25);}
   const flowTexture=new THREE.CanvasTexture(waterCanvas);flowTexture.wrapT=THREE.RepeatWrapping;flowTexture.repeat.y=2;flowTexture.colorSpace=THREE.SRGBColorSpace;
@@ -75,7 +80,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const warm=new THREE.MeshBasicMaterial({color:0xffba65,toneMapped:false}),foam=new THREE.MeshBasicMaterial({color:0xb4e6de,transparent:true,opacity:.7,depthWrite:false});
   const flames:THREE.Mesh[]=[],torchPositions:THREE.Vector3[]=[],banners:THREE.Mesh[]=[],seals:THREE.Mesh[]=[],sealTints:number[]=[],falls:THREE.Mesh[]=[],ripples:THREE.Mesh[]=[];
   const glowMap=glowTexture(),halos:THREE.Sprite[]=[];
-  const haloMaterial=new THREE.SpriteMaterial({map:glowMap,color:0xffbc70,transparent:true,opacity:.55,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false});
+  const haloMaterial=new THREE.SpriteMaterial({map:glowMap,color:0xffbc70,transparent:true,opacity:.3,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false});
   const coreMaterial=new THREE.MeshBasicMaterial({color:0xffefb9,toneMapped:false});
   let state=floor.seed^0x12345;const random=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/4294967296;};
   function mesh(geo:THREE.BufferGeometry,material:THREE.Material,x:number,y:number,z:number){const m=new THREE.Mesh(geo,material);m.position.set(x,y,z);m.castShadow=m.receiveShadow=true;world.add(m);return m;}
@@ -106,9 +111,9 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
       // where his feet are, which for a column close in means a broken stump in its own plinth — which is
       // what a drowned keep has anyway, and still reads as mass.
       const room=floor.rooms[p.room],air=headroom(x-room.x*TILE,z-room.z*TILE);
-      const h=Math.max(.5,Math.min(3.9+random()*1.7,air-.54)),base=mesh(PROP.plinth,trim,x,.24,z);base.scale.set(1.5,1.4,1.5);
+      const h=Math.max(.5,Math.min(3.9+random()*1.7,air-.54)),base=mesh(PROP.plinth,carved.pale,x,.24,z);base.scale.set(1.5,1.4,1.5);
       const shaft=mesh(PROP.column,shaftStone,x,h/2+.34,z);shaft.scale.set(1.45,h,1.45);
-      const cap=mesh(PROP.capital,trim,x,h+.44,z);cap.scale.set(1.62,1.4,1.62);
+      const cap=mesh(PROP.capital,carved.pale,x,h+.44,z);cap.scale.set(1.62,1.4,1.62);
     } else {
       // A ruin heap of four pebbles was the flattest thing in the keep. The first piece is now a snapped
       // column shaft still standing in its own rubble, which is mid-height mass on the same four meshes.
@@ -257,7 +262,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     const material=new THREE.MeshBasicMaterial({color:ROOM_MOOD[room.theme].seal,transparent:true,opacity:.24,depthWrite:false});
     sealTints.push(ROOM_MOOD[room.theme].seal);
     const seal=mesh(new THREE.RingGeometry(room.shape==='round'?2.2:1.0,room.shape==='round'?2.27:1.04,room.shape==='round'?40:4),material,x,.026,z);seal.rotation.x=-Math.PI/2;seal.castShadow=false;seals.push(seal);
-    if(room.shape==='gallery')for(let offset=-room.halfZ+1;offset<room.halfZ;offset+=2){const strip=mesh(new THREE.PlaneGeometry(1.1,2.8),red,x,.025,z+offset*TILE);strip.rotation.x=-Math.PI/2;strip.castShadow=false;}
+    if(room.shape==='gallery')for(let offset=-room.halfZ+1;offset<room.halfZ;offset+=2){const strip=mesh(new THREE.PlaneGeometry(1.1,2.8),runner,x,.025,z+offset*TILE);strip.rotation.x=-Math.PI/2;strip.castShadow=false;}
   }
   const motesGeo=new THREE.BufferGeometry(),positions=new Float32Array(100*3);for(let i=0;i<100;i++){positions[i*3]=(random()-.5)*30;positions[i*3+1]=random()*4;positions[i*3+2]=(random()-.5)*30;}
   motesGeo.setAttribute('position',new THREE.BufferAttribute(positions,3));const motes=new THREE.Points(motesGeo,new THREE.PointsMaterial({color:0xb6d6c8,size:.035,transparent:true,opacity:.5,depthWrite:false}));world.add(motes);
@@ -265,8 +270,50 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   emberGeo.setAttribute('position',new THREE.BufferAttribute(emberPositions,3));
   const emberMaterial=new THREE.PointsMaterial({color:0xffb45b,size:.065,transparent:true,opacity:.8,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false});
   const embers=new THREE.Points(emberGeo,emberMaterial);embers.frustumCulled=false;world.add(embers);
-  return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,update(t:number,player:THREE.Vector3,cleared:Set<number>){
+  // Scratch colours for the fire and the stone, so a frame that recolours every flame and every
+  // column in the keep allocates nothing.
+  const coreTint=new THREE.Color(),haloTint=new THREE.Color(),white=new THREE.Color(0xffffff);
+  const paleTint=new THREE.Color(),bowlTint=new THREE.Color(),black=new THREE.Color(0x000000);
+  const inlayTint=new THREE.Color(),runnerTint=new THREE.Color(),trimTint=new THREE.Color();
+  const brassCast=new THREE.Color(0xb08a4e),timberCast=new THREE.Color(0x6d523a);
+  return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,update(t:number,player:THREE.Vector3,cleared:Set<number>,fire:THREE.Color,banner:THREE.Color,masonry:THREE.Color,bed:THREE.Color){
     shore.time.value=t;
+    // What burns is the chamber's, not the floor's. The flame body takes the mood colour straight, the
+    // core is the same hue run most of the way to white so a flame still has a hot centre, and the halo
+    // and embers sit between the two. One hue, four jobs, and it crosses a threshold with the lights.
+    warm.color.copy(fire);emberMaterial.color.copy(fire);
+    // A core run most of the way to white desaturates the one thing the family is named for: measured,
+    // four fifths of the bright pixels in the keep and the flood came out under a quarter saturation,
+    // so violet and cyan survived only on the skirt while the hot middle was a white dot. Orange got
+    // away with it and the two cold fires did not. A quarter of the way instead, which still reads as
+    // a hotter centre because the whole flame is drawn above the tone-mapped range.
+    coreMaterial.color.copy(coreTint.copy(fire).lerp(white,.18));
+    haloMaterial.color.copy(haloTint.copy(fire));
+    red.color.copy(banner);
+    // Brass and timber were the last of the shared kit: one gold hoop and one brown rail in all three
+    // families, and in a chamber committed to violet the hoops were the warmest thing in the frame.
+    // They keep their own character and take the chamber's cast, which is what a metal and a plank do
+    // under a coloured light in any case.
+    trim.color.copy(trimTint.copy(masonry).lerp(brassCast,.34));
+    timber.color.copy(bowlTint.copy(masonry).lerp(timberCast,.55).lerp(black,.18));
+    // Carved work belongs to its chamber. One neutral grey served the whole keep before, which put
+    // every column, cornice and arch above the knight in value in all three families; these take the
+    // mood, with the carving a shade up from the coursework and the bowl a shade down, because a bowl
+    // with an open fire in it is lit from inside and has no business being pale before it is.
+    // Under the coursework, not over it. `pale` exists so a standing column parts from the wall behind
+    // it, and a lift was the lazy way to buy that: measured, it put cap stones and lit pillar faces at
+    // sixty to sixty-eight lightness over paving in the low twenties, which is brighter than the knight
+    // and brighter than the enemy winding up beside him — and those caps are what stands between the
+    // lens and a tell. A column parts from a wall just as well by being darker than it, and darker is
+    // the direction the whole field was moving anyway.
+    paleTint.copy(masonry).lerp(black,.22);
+    carved.stone.color.copy(masonry);carved.pale.color.copy(paleTint);
+    carved.inlay.color.copy(inlayTint.copy(bed).lerp(black,.3));
+    carved.lip.color.copy(inlayTint.copy(bed).lerp(white,.2));
+    carved.bronze.color.copy(trimTint.copy(masonry).lerp(brassCast,.34));carved.dark.color.copy(bed);
+    runner.color.copy(runnerTint.copy(banner).lerp(black,.5));
+    stone.color.copy(masonry);shaftStone.color.copy(paleTint);
+    bowlStone.color.copy(bowlTint.copy(masonry).lerp(black,.3));
     motes.position.set(player.x,Math.sin(t*.2)*.2,player.z);motes.rotation.y=t*.01;
     flames.forEach((f,i)=>{f.scale.set(.9+Math.sin(t*7+i)*.1,1.65+Math.sin(t*9+i)*.3,.85);f.rotation.y=t+i;});
     banners.forEach((b,i)=>{if(b.position.distanceToSquared(player)<900)animateCloth(b,t+i,.1);});
@@ -277,5 +324,5 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     falls.forEach((fall,i)=>{for(let j=0;j<16;j++){const phase=(t*.8+j/16+i*.31)%1,angle=j*2.4,k=(i*16+j)*3;const span=.12+phase*.65;sprayPositions[k]=fall.position.x+Math.cos(angle)*span;sprayPositions[k+1]=-2.7+Math.sin(phase*Math.PI)*(.2+(j%3)*.12);sprayPositions[k+2]=fall.position.z+Math.sin(angle)*span;}});sprayGeometry.attributes.position.needsUpdate=true;
     seals.forEach((seal,i)=>{const m=seal.material as THREE.MeshBasicMaterial;m.color.setHex(cleared.has(i)?0x9dcf9e:sealTints[i]);m.opacity=cleared.has(i)?.6:.16;});
     flowTexture.offset.y=t*.5;falls.forEach((f,i)=>{f.scale.x=1+Math.sin(t*4+i)*.06;});
-  },dispose(){clothTexture.dispose();sprayGeometry.dispose();sprayMaterial.dispose();contactMap.dispose();flowTexture.dispose();glowMap.dispose();haloMaterial.dispose();coreMaterial.dispose();emberGeo.dispose();emberMaterial.dispose();motesGeo.dispose();(motes.material as THREE.Material).dispose();}};
+  },dispose(){runner.dispose();clothTexture.dispose();sprayGeometry.dispose();sprayMaterial.dispose();contactMap.dispose();flowTexture.dispose();glowMap.dispose();haloMaterial.dispose();coreMaterial.dispose();emberGeo.dispose();emberMaterial.dispose();motesGeo.dispose();(motes.material as THREE.Material).dispose();}};
 }

@@ -196,9 +196,9 @@ export function makeWeaponDrop(id: WeaponId, m: ArmoryPalette, plate: Plate) {
   const collar = new THREE.Mesh(new THREE.TorusGeometry(.26, .06, 4, 8), m.brass);
   collar.rotation.x = Math.PI / 2; collar.position.y = .53; group.add(collar);
   // A warm glow off the plinth so the marker carries in the keep's dark halls without a HUD element.
-  const glow = new THREE.Mesh(new THREE.SphereGeometry(.2, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffd79a, transparent: true, opacity: .55 }));
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(.2, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffe9ae, transparent: true, opacity: .55 }));
   glow.position.y = .6; group.add(glow);
-  const ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> = new THREE.Mesh(new THREE.RingGeometry(1.02, 1.3, 40), new THREE.MeshBasicMaterial({ color: 0xe3b774, transparent: true, opacity: .5, side: THREE.DoubleSide, depthWrite: false }));
+  const ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> = new THREE.Mesh(new THREE.RingGeometry(1.02, 1.3, 40), new THREE.MeshBasicMaterial({ color: 0xfbc956, transparent: true, opacity: .5, side: THREE.DoubleSide, depthWrite: false }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = .05; group.add(ring);
   group.traverse(object => { if (object instanceof THREE.Mesh) { object.castShadow = object !== ring; object.receiveShadow = object !== ring; } });
   return { group, ring, blade: arm };
@@ -237,7 +237,7 @@ export function makeFlask(m: ArmoryPalette) {
 export function makePoolMesh() {
   const mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> = new THREE.Mesh(
     new THREE.RingGeometry(.2, 1, 36),
-    new THREE.MeshBasicMaterial({ color: 0xff7a2e, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color: 0xff5a2a, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }),
   );
   mesh.rotation.x = -Math.PI / 2; mesh.position.y = .07; mesh.visible = false;
   return mesh;
