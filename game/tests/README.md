@@ -54,7 +54,7 @@ automated drivers; nothing in the game itself calls them.
 
 | Hook | What it does |
 | --- | --- |
-| `render_game_to_text()` | JSON snapshot: mode, health, rank, boons, objective, floor, enemies, `buildMs`, `render` counters, `settings`, `camera` |
+| `render_game_to_text()` | JSON snapshot: mode, `building` (a floor build pending behind the loading veil), health, rank, boons, objective, floor, enemies, `buildMs`, `render` counters, `settings`, `camera` |
 | `advanceTime(ms, draw = true)` | Steps the simulation deterministically. **The normal rAF loop stops after the first call** — reload to get it back |
 | `dungeonTest.teleport(x, z)` | Moves the knight in world units (`tileX * TILE`) |
 | `dungeonTest.descend()` | Takes the stair without fighting, capped at the last floor |

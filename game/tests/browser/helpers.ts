@@ -21,6 +21,8 @@ export type Point = { x: number; z: number };
 export type Snapshot = {
   coordinates: string;
   mode: 'ready' | 'paused' | 'playing' | 'complete' | 'won' | 'lost';
+  /** Whether a floor build is pending behind the loading veil. */
+  building: boolean;
   boonOffer: boolean;
   muted: boolean;
   roomName: string;
@@ -305,6 +307,9 @@ export class Game {
     await page.waitForFunction(
       () => typeof (window as GameWindow).render_game_to_text === 'function',
     );
+    // The hook goes up a render before the veil comes down, so a scenario that
+    // looked at the screen straight away could catch the tail of the boot wait.
+    await page.locator('.loading-veil').waitFor({ state: 'detached' });
     // Manual time before anything else: the rAF loop stops on the first call,
     // so every later assertion reads a simulation this test stepped itself.
     await game.step(0);
@@ -411,6 +416,20 @@ export class Game {
     await expect(enterButton).toBeEnabled();
     await enterButton.click();
     await expect(this.page.locator('.intro-screen')).toBeHidden();
+  }
+
+  /**
+   * Waits out a floor build deferred behind the loading veil. The veil is raised
+   * in the same breath as the action that asks for the build, so `building` is
+   * already true by the time a click resolves; what this waits for is the frames
+   * the veil needs to paint and the build that happens between them.
+   */
+  async built() {
+    await expect
+      .poll(() => this.state().then((state) => state.building), {
+        message: 'the floor build behind the loading veil never finished',
+      })
+      .toBe(false);
   }
 
   /** The pure floor behind the live one, for legal fixture positions. */

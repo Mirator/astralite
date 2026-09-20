@@ -329,6 +329,9 @@ export default function DungeonGame() {
   const [roomName, setRoomName] = useState('The Tide Gate'), [plundered, setPlundered] = useState(0);
   const [advance, setAdvance] = useState(0);
   const [notice, setNotice] = useState(''), [, setNoticeDetail] = useState(''), [ready, setReady] = useState(false);
+  // What the keep is busy doing while the player waits on it, or null when it is not busy. Only ever set
+  // for work that blocks the main thread long enough to be felt — which in this game is a floor build.
+  const [loading, setLoading] = useState<string | null>(null);
   const dashMeter = useRef<HTMLProgressElement>(null);
   const [displayLost, setDisplayLost] = useState(false), [floorBuild, setFloorBuild] = useState(0);
   // Deliberately not the same flag as displayLost: that is a context taken away mid-descent and handed
@@ -784,6 +787,26 @@ export default function DungeonGame() {
       particles.length = 0;
       dashTrails.forEach(m=>{m.userData.life=0;m.visible=false;(m.material as THREE.MeshBasicMaterial).opacity=0;});
     };
+    // Building a floor is the one thing here that blocks the main thread long enough to be felt — a tenth
+    // of a second on a desktop, several times that on a phone — and every build is something the player has
+    // just asked for and is now waiting on with no sign that anything is happening. So the veil goes up
+    // first and the work waits two frames: a single rAF callback still runs before the frame it belongs to
+    // is painted, so with one the build would land on the very frame the veil was meant to appear in and
+    // nothing would ever be seen. A third frame after it lets the new floor be drawn under the veil before
+    // it lifts, or a descent would flash the floor it just left. The mark spins on the compositor, which is
+    // what keeps it turning through a block the main thread cannot answer.
+    let building = false;
+    const veiled = (line: string, work: () => void) => {
+      // A second press while a build is pending would queue a second build: the status that guards each
+      // caller does not change until the work this one is holding actually runs.
+      if (building) return;
+      building = true; setLoading(line);
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (stopped) return;
+        work();
+        requestAnimationFrame(() => { if (stopped) return; building = false; setLoading(null); });
+      }));
+    };
     // An explicit seed replays a floor verbatim; without one the keep is new every descent.
     const buildFloor = (nextLevel: number, seed?: number) => {
       const clock = performance.now(); let mark = clock;
@@ -1025,17 +1048,19 @@ export default function DungeonGame() {
     const continueDescent = () => {
       if (gameStatus !== 'complete') return;
       if (level >= FLOORS) { endRun(null); return; }
-      buildFloor(level + 1);
-      heal(run, Math.round(run.maxHp * .25)); setHealth(run.hp);
-      keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; dashBuffer = 0; audio.pause(false);
-      burst(player.position, 0x71f4c4, 22);
+      veiled(`Descending to floor ${level + 1}`, () => {
+        buildFloor(level + 1);
+        heal(run, Math.round(run.maxHp * .25)); setHealth(run.hp);
+        keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; dashBuffer = 0; audio.pause(false);
+        burst(player.position, 0x71f4c4, 22);
+      });
     };
     // A run is nothing but this closure's counters plus floor 1, so it restarts in place: reloading
     // would refetch the bundle and throw away the AudioContext and the GPU context for no gain.
     // Everything buildFloor(1) already rebuilds (floor, level, rooms, enemies, map, status) is left to it,
     // but the run must be fresh first because it snapshots kills and XP as the floor's baseline. A whole
     // new `run` is the point of createRun(): a field added to the sim can never be forgotten here.
-    const restart = (seed?: number) => {
+    const restart = (seed?: number) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', () => {
       run = createRun(); boonsTaken = [];
       attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; dashBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0; clearShots();
       walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
@@ -1050,7 +1075,7 @@ export default function DungeonGame() {
       buildFloor(1, seed);
       player.rotation.set(0, Math.atan2(-facing.x, -facing.z), 0); player.userData.sword.rotation.y = 0;
       audio.pause(false);
-    };
+    });
     // Read before floor 1 overwrites the stored seed, so "Last keep" still offers the previous visit's.
     const restoreSave = () => { setBest(readBest()); setPriorSeed(readSeed()); setRunLog(readRuns()); };
     restoreSave();
@@ -1691,7 +1716,7 @@ export default function DungeonGame() {
       if (draw) renderer.render(scene, camera);
     };
     hooks.render_game_to_text = () => JSON.stringify({
-      coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
+      coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
       health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: weapon.id, name: weapon.name, damage: weapon.damage, reach: weapon.reach, duration: weapon.duration, strikeDamage: weapon.damage + run.strike, ranged: !!weapon.ranged, quiver: weapon.ranged ? quiver : null, capacity: weapon.ranged ? weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, stairDwell, deadEndsPlundered: loot },
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
@@ -1749,6 +1774,9 @@ export default function DungeonGame() {
   // a name announces itself; Tab then reaches the card's own controls first.
   const focusCard = useCallback((card: HTMLElement | null) => { card?.focus({ preventScroll: true }); }, []);
   const cardOpen = !started || (paused && !mapOpen) || (boonChoice.length > 0 && status === 'playing') || status === 'complete' || status === 'won' || status === 'lost';
+  // A display that was never granted has its own screen and nothing left to wait for. Everything else waits
+  // on the mount that builds the world, and then on whatever floor build the player has asked for since.
+  const veil = displayFailed ? null : ready ? loading : 'Waking the keep';
   return (
     <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
@@ -1818,6 +1846,12 @@ export default function DungeonGame() {
       {/* Plain markup on purpose: the canvas was never mounted, so this is the only thing left to look at. */}
       {displayFailed && <div className="end-screen display-failed"><div className="end-card" role="alertdialog" aria-modal="true" aria-labelledby="display-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">THE GATE STAYS SHUT</span><h1 id="display-title">No light to see by.</h1><p>This browser could not open a 3D display, so the keep cannot be drawn. That most often means hardware acceleration is switched off in the browser&rsquo;s settings.</p></div></div>}
       {displayLost && <output className="display-notice">Display interrupted · the descent is paused</output>}
+      {/* The one screen that has to exist before the page can run, so it is written into the prerendered
+          HTML rather than raised by an effect: it is up while the bundle is still arriving and stays up
+          through the mount that builds the world, which is the longest wait in the game and was a black
+          rectangle. After that it belongs to the two moments that build a floor from nothing — a descent
+          and a fresh run — and to nothing else, because nothing else here makes the player wait. */}
+      {veil && <output className="loading-veil"><i className="veil-mark" aria-hidden="true" /><b>{veil}</b></output>}
       {/* The alternative layout, not a fallback bolted onto the stick: four buttons a screen reader can name
           and reach, each speaking the same discrete move:/stop: protocol every automated driver uses. It is
           the worse way to play — one direction at a time, no diagonals — and the only way to play at all if

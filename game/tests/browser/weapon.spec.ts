@@ -99,6 +99,7 @@ test('a new descent starts on the sword the knight walks in with', async ({ game
   expect((await game.state()).weapon.id).not.toBe('tideblade');
 
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'restart' })));
+  await game.built();
   await game.step(600);
   const fresh = await game.state();
   expect(fresh.weapon.id).toBe('tideblade');
