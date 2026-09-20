@@ -12,7 +12,7 @@
 // The numbers are a yardstick for comparing one build against another, not a claim about how a human
 // plays. Compare a batch against a batch from the same policy; a single run tells you nothing.
 import { WEAPONS, weaponById, type WeaponId } from '../../app/dungeon-weapon.ts';
-import { DEFAULT_POLICY, simulateRun, type Cause, type Policy, type RunReport } from './sim.ts';
+import { DEFAULT_POLICY, simulateRun, type Cause, type FloorReport, type Policy, type RunReport } from './sim.ts';
 
 const args = process.argv.slice(2);
 const flag = (name: string) => args.includes(`--${name}`);
@@ -77,14 +77,44 @@ if (flag('compare')) {
   console.log(`  median run ${(median(reports.map(r => r.seconds)) / 60).toFixed(1)} min · median rank ${median(reports.map(r => r.rank))} · median kills ${median(reports.map(r => r.kills))}\n`);
 
   // The headline number: a keep that gets easier as it goes shows up here as a falling death rate.
-  console.log('  floor   reached   died   death rate   median clear   median HP left');
+  // The last three columns are the silence between fights: idle and alone are seconds, first contact is
+  // per room entered - see FloorReport in sim.ts for exactly what each counts.
+  console.log('  floor   reached   died   death rate   median clear   median HP left   median idle   longest gap   first contact');
   for (let level = 1; level <= 3; level++) {
     const reached = reports.filter(r => r.floors.length >= level);
     const fell = reached.filter(r => r.floors[level - 1].outcome === 'died');
     const cleared = reached.filter(r => r.floors[level - 1].outcome === 'cleared');
     const hp = cleared.map(r => r.floors[level - 1].hpAfter / r.floors[level - 1].maxHpAfter * 100);
-    console.log(`  ${level}       ${String(reached.length).padStart(7)}   ${String(fell.length).padStart(4)}   ${share(fell.length, reached.length).padStart(10)}   ${`${median(cleared.map(r => r.floors[level - 1].seconds)).toFixed(0)}s`.padStart(13)}   ${`${median(hp).toFixed(0)}%`.padStart(14)}`);
+    const idle = reached.map(r => r.floors[level - 1].idle);
+    const alone = reached.map(r => r.floors[level - 1].alone);
+    const firstContact = reached.map(r => r.floors[level - 1].firstContact).filter(v => v > 0);
+    console.log(`  ${level}       ${String(reached.length).padStart(7)}   ${String(fell.length).padStart(4)}   ${share(fell.length, reached.length).padStart(10)}   ${`${median(cleared.map(r => r.floors[level - 1].seconds)).toFixed(0)}s`.padStart(13)}   ${`${median(hp).toFixed(0)}%`.padStart(14)}   ${`${median(idle).toFixed(1)}s`.padStart(11)}   ${`${median(alone).toFixed(1)}s`.padStart(11)}   ${`${median(firstContact).toFixed(2)}s`.padStart(12)}`);
   }
+
+  // Where the idle total in the table above actually goes. Corridor/barren/spent/live-no-contact are
+  // disjoint and sum to idle (sim.ts asserts it per floor); backtrack is a cross-cutting slice of the
+  // same idle seconds, not a fifth bucket, so it is not added into the total.
+  console.log('  idle attribution   floor   corridor         barren           spent            live, no contact   backtrack (of idle)');
+  const idleRow = (label: string, floors: FloorReport[]) => {
+    const idleTotal = floors.reduce((s, f) => s + f.idle, 0);
+    const bucket = (pick: (f: FloorReport) => number) => floors.reduce((s, f) => s + pick(f), 0);
+    const corridor = bucket(f => f.idleCorridor), barren = bucket(f => f.idleBarren), spent = bucket(f => f.idleSpent);
+    const live = bucket(f => f.idleLiveNoContact), backtrack = bucket(f => f.idleBacktrack);
+    const cell = (seconds: number) => `${`${seconds.toFixed(0)}s`.padStart(6)} (${share(seconds, idleTotal).padStart(5)})`;
+    console.log(`  ${label.padEnd(18)}   ${cell(corridor).padEnd(14)}   ${cell(barren).padEnd(14)}   ${cell(spent).padEnd(14)}   ${cell(live).padEnd(16)}   ${cell(backtrack)}`);
+  };
+  for (let level = 1; level <= 3; level++) idleRow(`floor ${level}`, reports.flatMap(r => r.floors.filter(f => f.level === level)));
+  idleRow('overall', reports.flatMap(r => r.floors));
+  console.log('');
+
+  // Cheap, separate checks on the same question: how much of the floor is corridor at all, and how often
+  // the navigator walks back into a room it already emptied.
+  console.log('  corridor & re-crossings   floor   corridor tiles (median)   corridor seconds (median, idle or not)   barren rooms (median)   spent-room re-crossings (median)');
+  for (let level = 1; level <= 3; level++) {
+    const reached = reports.filter(r => r.floors.length >= level).map(r => r.floors[level - 1]);
+    console.log(`  ${' '.padEnd(23)}   ${String(level).padStart(5)}   ${String(median(reached.map(f => f.corridorTiles))).padStart(22)}   ${`${median(reached.map(f => f.corridorSeconds)).toFixed(1)}s`.padStart(38)}   ${String(median(reached.map(f => f.barrenRooms))).padStart(20)}   ${String(median(reached.map(f => f.spentRecrossings))).padStart(31)}`);
+  }
+  console.log('');
 
   const causes: Cause[] = ['guard', 'stalker', 'warden', 'hazard'];
   const dealt = Object.fromEntries(causes.map(c => [c, reports.reduce((sum, r) => sum + r.floors.reduce((s, f) => s + f.damage[c], 0), 0)])) as Record<Cause, number>;

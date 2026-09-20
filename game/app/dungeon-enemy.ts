@@ -12,6 +12,18 @@ export type EnemyKind = 'guard' | 'stalker' | 'warden';
 // inside the room he stands in — a hall should wake as one — and tight everywhere else, so the floor
 // does not simulate a pursuit three rooms away that the player will never see.
 export const ACTIVATION = { sameRoom: 22, elsewhere: 10 };
+// A body that has just come into range does not act on it instantly: it spends a beat turning to face
+// the knight before it commits to anything, which is what makes waking read as an event rather than a
+// switch flipping. Short, so it never reads as hesitation once a fight is already under way.
+export const NOTICE_TIME = 0.32;
+// When one body starts that beat, whichever still-dozing bodies stand within this radius of it, in the
+// same room, join in too - nearest first, each ALERT_STAGGER later than the last, so a whole room does
+// not snap awake on a single frame. This is the difference between a queue and a fight: see
+// `nearbyDozers`, which a caller uses to schedule the stagger across frames.
+export const ALERT_RADIUS = 6, ALERT_STAGGER = 0.15;
+// A body with nothing to react to does not stand still: it paces this far each way from where it
+// spawned, slow enough that nobody mistakes it for a patrol route or a chase.
+export const PATROL_SPAN = 1.6, PATROL_SPEED = 0.55;
 // How far a committed blow actually reaches, versus how far away the enemy will start winding one up.
 // The gap between the two is the telegraph: it commits while you are still walking in.
 export const STRIKE_RANGE: Record<EnemyKind, number> = { guard: 1.55, stalker: 1.55, warden: 2.55 };
@@ -79,7 +91,10 @@ export const enemyStats = (kind: EnemyKind, level: number): EnemyStats => {
 
 // Everything a decision reads off an enemy. The renderer's Enemy also carries a THREE.Group, a health
 // bar, a telegraph mesh and a gait phase; none of that decides anything.
-export type EnemyView = { kind: EnemyKind; x: number; z: number; room: number; cooldown: number; hitFlash: number; windup: number; lunge: number; tell: number; speed: number; aim: Point };
+// `anchor` is fixed at spawn and never returned by an intent - it is the post a dozing body paces
+// around, not something a frame changes. `notice` is the one piece of memory the noticing beat needs:
+// 0 while dozing, climbing to NOTICE_TIME once something has its attention, pinned there once alert.
+export type EnemyView = { kind: EnemyKind; x: number; z: number; room: number; cooldown: number; hitFlash: number; windup: number; lunge: number; tell: number; speed: number; aim: Point; anchor: Point; notice: number };
 
 export type World = {
   cells: Set<string>;
@@ -93,26 +108,49 @@ export type World = {
 
 // What the enemy should do this frame. The caller applies it: it owns the body, the animation and the
 // damage call. `act` says which branch ran, because each drives a different set of poses:
-//   inert  — too far to simulate. Only cooldown and hitFlash are meaningful; ignore the rest.
-//   lunge  — mid-pounce. Already moved; the trailing walk/idle animation is skipped for it.
-//   windup — committed to a swing, weapon rising. `hit` on the frame the tell runs out.
-//   ready  — on guard: turned to `face`, and stepped if it had room to.
+//   dozing   — has not noticed the knight. Paces near `anchor`; `notice` reads 0.
+//   noticing — has just noticed: turned to `face` him and holding, a beat before it commits to anything.
+//   lunge    — mid-pounce. Already moved; the trailing walk/idle animation is skipped for it.
+//   windup   — committed to a swing, weapon rising. `hit` on the frame the tell runs out.
+//   ready    — on guard: turned to `face`, and stepped if it had room to.
 export type EnemyIntent = {
-  act: 'inert' | 'lunge' | 'windup' | 'ready';
+  act: 'dozing' | 'noticing' | 'lunge' | 'windup' | 'ready';
   x: number; z: number;
   cooldown: number; hitFlash: number; windup: number; lunge: number;
   aim: Point;
+  // 0 while dozing, otherwise the noticing clock - see EnemyView. The caller feeds this straight back in
+  // next frame, exactly like windup or cooldown.
+  notice: number;
   // Yaw to turn the body to, or null to leave it as it is (a lunging or winding body is committed).
   face: number | null;
   // This frame's blow connects. The caller decides what the knight's invulnerability makes of it.
   hit: boolean;
   sound: 'warn' | 'dash' | null;
   // Range to the knight before this frame's movement, which is what the gait and the poses read.
-  // Not computed for an inert body, which nothing looks at again this frame.
+  // Not computed for a dozing body, which nothing looks at again this frame.
   distance: number;
 };
 
 export type CrowdBody = { x: number; z: number; windup: number; dead: boolean };
+
+// The shape `nearbyDozers` needs from a body: where it is, which room it claims, whether it has already
+// started noticing, and whether it is still around to notice anything at all.
+export type Wakeable = { x: number; z: number; room: number; notice: number; dead: boolean };
+
+// Bodies a freshly-noticing one should pull in too, nearest first, so a caller can stagger the actual
+// kick by ALERT_STAGGER seconds a rank rather than waking a whole room in the same frame - a watch that
+// turns together, not a flashbang. Only counts bodies still fully dormant in the same room: one already
+// noticing, already alert, or standing in a different room, has nothing left to catch or no business
+// joining a fight it cannot see.
+export function nearbyDozers(bodies: readonly Wakeable[], sourceIndex: number, radius = ALERT_RADIUS): number[] {
+  const source = bodies[sourceIndex];
+  if (!source) return [];
+  return bodies
+    .map((body, index) => ({ index, distance: Math.hypot(body.x - source.x, body.z - source.z) }))
+    .filter(({ index, distance }) => index !== sourceIndex && !bodies[index].dead && bodies[index].notice <= 0 && bodies[index].room === source.room && distance <= radius)
+    .sort((a, b) => a.distance - b.distance)
+    .map(({ index }) => index);
+}
 
 // Frame deltas arrive from rAF, from the manual stepper and from a tab that was hidden for a minute, so
 // a junk one is dropped rather than subtracted: a single NaN would otherwise make every cooldown NaN
@@ -164,6 +202,32 @@ export function separateCrowd(cells: Set<string>, bodies: readonly CrowdBody[], 
   return moved;
 }
 
+// A per-body direction rather than a per-frame random draw, so a seed replays the same pace and two
+// guards standing apart do not swing in lockstep. Classic hash-the-coordinates noise: cheap, and stable
+// for the life of the body since `anchor` never moves.
+const patrolHeading = (anchor: Point): Point => {
+  const seed = Math.sin(anchor.x * 12.9898 + anchor.z * 78.233) * 43758.5453;
+  const angle = (seed - Math.floor(seed)) * Math.PI * 2;
+  return { x: Math.sin(angle), z: Math.cos(angle) };
+};
+
+// A body with nobody to react to is not an AI, just a transform and a phase: it paces a short line
+// through its own spawn point and turns around at each end. `aim` carries the direction it is currently
+// walking in while dozing - attack aim and patrol heading are never both live, so the field is free to
+// double up rather than adding one more piece of state every caller has to thread through.
+function dozeIntent(enemy: EnemyView, world: World, dt: number, rest: Omit<EnemyIntent, 'act' | 'distance'>): EnemyIntent {
+  const heading = patrolHeading(enemy.anchor);
+  const forward = !(enemy.aim.x || enemy.aim.z) || enemy.aim.x * heading.x + enemy.aim.z * heading.z >= 0;
+  let dirX = forward ? heading.x : -heading.x, dirZ = forward ? heading.z : -heading.z;
+  const along = (enemy.x - enemy.anchor.x) * heading.x + (enemy.z - enemy.anchor.z) * heading.z;
+  // Turn around the instant either post is reached, rather than drifting past it.
+  if (forward && along >= PATROL_SPAN) { dirX = -heading.x; dirZ = -heading.z; }
+  else if (!forward && along <= -PATROL_SPAN) { dirX = heading.x; dirZ = heading.z; }
+  const landed = { x: enemy.x, z: enemy.z };
+  moveOnFloor(world.cells, landed, dirX * PATROL_SPEED * dt, dirZ * PATROL_SPEED * dt);
+  return { ...rest, act: 'dozing', notice: 0, x: landed.x, z: landed.z, aim: { x: dirX, z: dirZ }, face: Math.atan2(-dirX, -dirZ), distance: 0 };
+}
+
 // One enemy, one frame. Assumes the caller has already dropped the asleep and the dying — those two are
 // visual states the renderer resolves, and neither ticks a cooldown.
 export function decideEnemy(enemy: EnemyView, player: Point, world: World, frameDt: number): EnemyIntent {
@@ -171,9 +235,22 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   // Ticked before the activation cutoff, so a body that has been standing in a far room still comes out
   // of its recovery: reaching it must not hand the player a free swing it never earned.
   const hitFlash = Math.max(0, enemy.hitFlash - dt), cooldown = enemy.cooldown - dt;
-  const rest = { x: enemy.x, z: enemy.z, cooldown, hitFlash, windup: enemy.windup, lunge: enemy.lunge, aim: { x: enemy.aim.x, z: enemy.aim.z }, face: null, hit: false, sound: null } satisfies Omit<EnemyIntent, 'act' | 'distance'>;
+  const rest = { x: enemy.x, z: enemy.z, cooldown, hitFlash, windup: enemy.windup, lunge: enemy.lunge, aim: { x: enemy.aim.x, z: enemy.aim.z }, notice: enemy.notice, face: null, hit: false, sound: null } satisfies Omit<EnemyIntent, 'act' | 'distance'>;
   const cellX = Math.round(enemy.x / TILE), cellZ = Math.round(enemy.z / TILE);
-  if (!isActive(world.pathDistance(cellX, cellZ), enemy.room === world.activeRoom)) return { ...rest, act: 'inert', distance: 0 };
+  const nearby = isActive(world.pathDistance(cellX, cellZ), enemy.room === world.activeRoom);
+  // A beat already under way - its own or one caught from a neighbour - runs to completion even on a
+  // frame where the knight himself is still outside this body's own cutoff; see `nearbyDozers`.
+  const midNotice = enemy.notice > 0 && enemy.notice < NOTICE_TIME;
+  if (!nearby && !midNotice) return dozeIntent(enemy, world, dt, rest);
+
+  if (enemy.notice < NOTICE_TIME) {
+    const notice = Math.min(NOTICE_TIME, enemy.notice + dt);
+    const toX = player.x - enemy.x, toZ = player.z - enemy.z;
+    return { ...rest, act: 'noticing', notice, face: Math.atan2(-toX, -toZ), distance: Math.hypot(toX, toZ) };
+  }
+  // Fully noticed already, but the knight has since moved out of range and nothing is holding the beat
+  // open: settle back into the pace rather than standing there alert forever.
+  if (!nearby) return dozeIntent(enemy, world, dt, rest);
 
   const toX = player.x - enemy.x, toZ = player.z - enemy.z, distance = Math.hypot(toX, toZ);
 

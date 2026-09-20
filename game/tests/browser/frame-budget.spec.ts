@@ -16,9 +16,19 @@ import {
  * browser has no GPU and rasterises in software, where the same frame drawn a
  * hundred times reports a median of 130ms, a mean of 430ms and a 95th
  * percentile of 1900ms. A number with that much spread cannot fail a build
- * honestly. The renderer's own counters can: draw calls and triangles are exact,
- * identical run to run, and they are what actually moves when someone pays for a
- * better-looking frame with more geometry.
+ * honestly. The renderer's own counters can, and they are what actually moves
+ * when someone pays for a better-looking frame with more geometry.
+ *
+ * One correction to an earlier claim here, measured rather than assumed: the
+ * counters are NOT identical run to run in every scene. The flooded hall and the
+ * contact frame repeat exactly. The junction does not — six repeats gave 498 to
+ * 502 draw calls, 343,528 to 343,716 triangles, and even 187 or 188 geometries,
+ * because its parapet batches per spatial cell and the knight does not settle on
+ * precisely the same spot every run, so a cell drifts in and out of frustum. Its
+ * ceiling is therefore the observed maximum of that band: it still catches a
+ * regression of more than about four draw calls in that scene, and it does not
+ * catch a smaller one. Tighten it by making the scene settle deterministically,
+ * not by lowering the number until it flakes.
  *
  * The figures below were measured on the pinned seeds these scenes use. Raising
  * one is a deliberate act: change the number here, in the same commit, and say
@@ -34,9 +44,35 @@ import {
 // The headroom is for that, and the numbers below are the new ceiling, not a
 // target: a change that does not buy vertical structure should still come in at
 // the old figures.
+//
+// Re-baselined again on 2026-09-19, the same day, by the room and corridor
+// shrink in dungeon-floor.ts's sizeFor/fits/addRoom (idle time measured at half
+// a floor was rooms getting cleared and then walked back over; the fix was to
+// make a room cheaper to cross). Every pinned seed in this file changed with
+// it, since a smaller room graph is a different floor. flooded-hall and
+// strike-contact both came in comfortably under the ceiling above on their new
+// seeds - 439 / 198,818 and 385 / 162,059 - which reads as the smaller rooms
+// costing less to draw, not as anything about the frames themselves changing.
+// junction did not: its new seed measured over the old 459 on draw calls
+// alone even though its triangle count fell. The parapet along every border
+// tile is batched into one InstancedMesh per 18-unit grid cell (see the
+// `parapets` map above), so its draw-call count tracks how many of those
+// cells the view touches, not how much wall is in it; a smaller room graph
+// fits more rooms and their borders into the same capture radius, spreading
+// them over more cells even as the total geometry shrinks.
+//
+// Unlike the other two, junction is not exactly reproducible run to run - six
+// repeats measured calls from 498 to 502 and triangles from 343,528 to
+// 343,716, which is something in this scene's own idle animation rather than
+// this change (nothing here draws off an un-pinned random draw; it reads as
+// small per-frame drift in which tiles the parapet grid batches touch at the
+// exact 640ms mark). flooded-hall and strike-contact held their figures exact
+// across the same six repeats: 439 / 198,818 and 385 / 162,059. The three
+// figures below are the highest this round actually measured for each scene,
+// not headroom stacked on top of that.
 const BUDGET = {
-  'flooded-hall': { calls: 584, triangles: 339_211 },
-  junction: { calls: 459, triangles: 351_138 },
+  'flooded-hall': { calls: 439, triangles: 198_818 },
+  junction: { calls: 502, triangles: 343_716 },
   // Not one of the two heaviest frames, and here for a different reason: it is
   // the only scene that draws the blade trail, the impact accents and a hit
   // flash at once. Without it, work on how a blow lands is bounded by two
@@ -63,7 +99,7 @@ const spend = async (game: Game, scene: keyof typeof BUDGET) => {
 };
 
 test.describe('the busiest fight', () => {
-  test.use({ seeds: [0x3e] });
+  test.use({ seeds: [0x60] });
   test('a flooded hall with the watch closing stays inside its budget', async ({
     game,
   }) => {
@@ -76,7 +112,7 @@ test.describe('the busiest fight', () => {
         floor.spawns.filter((s) => s.room === room.id && s.kind === 'guard')
           .length >= 3,
     );
-    expect(hall, 'seed 0x3e no longer holds the hall this budget was set on')
+    expect(hall, 'seed 0x60 no longer holds the hall this budget was set on')
       .toBeDefined();
     const pack = floor.spawns
       .filter((spawn) => spawn.room === hall!.id)
@@ -93,7 +129,7 @@ test.describe('the busiest fight', () => {
 });
 
 test.describe('the widest room', () => {
-  test.use({ seeds: [0x20] });
+  test.use({ seeds: [0x150] });
   test('a junction branching three ways stays inside its budget', async ({
     game,
   }) => {
@@ -107,7 +143,7 @@ test.describe('the widest room', () => {
     );
     expect(
       junction,
-      'seed 0x20 no longer holds the junction this budget was set on',
+      'seed 0x150 no longer holds the junction this budget was set on',
     ).toBeDefined();
     const centre = roomCentre(floor, junction!.id);
     await game.teleport(centre.x, centre.z);

@@ -46,7 +46,7 @@ const firstBy = <T>(items: T[], rank: (item: T) => number) =>
     .sort((a, b) => a.key - b.key)[0]?.item;
 
 test.describe('flooded hall', () => {
-  test.use({ seeds: [0x3e] });
+  test.use({ seeds: [0x60] });
   test('a torchlit flooded hall with three guards closing', async ({ game }) => {
     await game.enter();
     const floor = await game.floor();
@@ -63,7 +63,7 @@ test.describe('flooded hall', () => {
     );
     expect(
       hall,
-      'seed 0x3e no longer holds a torchlit flooded hall with three guards',
+      'seed 0x60 no longer holds a torchlit flooded hall with three guards',
     ).toBeDefined();
     const pack = floor.spawns
       .filter((spawn) => spawn.room === hall!.id)
@@ -178,6 +178,20 @@ test.describe('gauntlet', () => {
       clearance: 3.2,
     });
     await game.teleport(stand.x, stand.z);
+    // A gauntlet room this size puts every spawn within closing distance of any
+    // stand point, so the pair of stalkers it always holds (see generateFloor's
+    // roster) would land a hit during the wait below well before the flare does.
+    // This frame is a study of the fire, not of the fight, so the same
+    // fixture the strike scenes use to freeze a dummy keeps these two off the
+    // clock instead.
+    const stalkers = (await game.state()).enemies
+      .map((enemy, index) => ({ ...enemy, index }))
+      .filter((enemy) => enemy.room === rings[0].room);
+    if (stalkers.length) {
+      await game.configureCombat({
+        enemies: stalkers.map((enemy) => ({ index: enemy.index, cooldown: 999 })),
+      });
+    }
     await game.step(SETTLE);
     // The grates burn through the last second of a 3.6s cycle, off a clock that
     // started at mount rather than at the teleport, so the wait is computed once
@@ -239,7 +253,7 @@ test.describe('strike', () => {
 });
 
 test.describe('dark corridor', () => {
-  test.use({ seeds: [0x2a] });
+  test.use({ seeds: [0x128] });
   test('a corridor with no brazier in view', async ({ game }) => {
     await game.enter();
     const floor = await game.floor();
@@ -263,11 +277,16 @@ test.describe('dark corridor', () => {
       ({ tile, away }) => -away * 1e6 + tile.x * 1e3 + tile.z,
     );
     // The view is orthographic and roughly 20 by 14 world units across, so a
-    // brazier this far off cannot be casting into the frame.
+    // brazier further than half that frame's own diagonal (hypot(20,14)/2 =
+    // ~12.2) off the teleported spot cannot be casting into it. 24 was the
+    // margin the old, roughly-twice-as-large rooms happened to clear for free;
+    // rooms this size (see sizeFor in dungeon-floor.ts) no longer carry a
+    // corridor that isolated, so the bar is 18 - still half again the real
+    // geometric minimum, not the frame's edge.
     expect(
       darkest?.away ?? 0,
-      'seed 0x2a has no unlit run left',
-    ).toBeGreaterThan(24);
+      'seed 0x128 has no unlit run left',
+    ).toBeGreaterThan(18);
     await game.teleport(darkest!.tile.x * TILE, darkest!.tile.z * TILE);
     await game.step(SETTLE);
     await shot(game, 'dark-corridor');
@@ -275,7 +294,7 @@ test.describe('dark corridor', () => {
 });
 
 test.describe('junction', () => {
-  test.use({ seeds: [0x20] });
+  test.use({ seeds: [0x150] });
   test('a wide junction where three ways branch off the trunk', async ({
     game,
   }) => {
@@ -289,7 +308,7 @@ test.describe('junction', () => {
     );
     expect(
       junction,
-      'seed 0x20 no longer branches three ways off one chamber',
+      'seed 0x150 no longer branches three ways off one chamber',
     ).toBeDefined();
     const centre = roomCentre(floor, junction!.id);
     await game.teleport(centre.x, centre.z);
