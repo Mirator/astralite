@@ -688,3 +688,33 @@ telegraph's own hue to within a fifth of a degree at two and a half times its ch
 nothing wore the colour that means a blow is landing; the correction made it dead grey, and a hazard the
 player cannot pick out of the paving is not a fair one. Scorched iron: nineteen degrees off the tell and
 at a third of its chroma, visible as a burnt thing and not as a warning.
+
+## The wait gets a screen
+
+Three moments in this game make the player wait on the main thread, and none of them said so. The
+longest is the first: the page paints its intro card at about 200ms and the world is not built until
+about 700ms, so for half a second the card offered a dead LOADING… button over a black rectangle. The
+other two are the floor builds — a descent and a fresh run — which measure 70 to 160ms here on a
+desktop with a GPU, and are the only work in the game that blocks long enough to be felt.
+
+A veil now covers all three. It is markup in the prerendered HTML rather than an overlay raised by an
+effect, which matters more than it sounds: the wait it covers starts while the bundle is still
+arriving, so anything React mounts is by definition too late for it. The first test in
+`loading.spec.ts` asserts exactly that by reading the served HTML.
+
+The two floor builds needed the work deferred, not just a flag set. A single `requestAnimationFrame`
+callback still runs before the frame it belongs to is painted, so a build behind one would land on the
+very frame the veil was meant to appear in and nothing would ever be seen; `veiled` waits two, and
+takes a third afterwards so the new floor is drawn under the veil before it lifts rather than flashing
+the floor it just left. The mark turns on `transform` alone, which is a compositor animation and
+therefore the one thing on screen that keeps moving through a block the main thread cannot answer.
+Under a reduced-motion answer it fades instead of turning, rather than going still like the drifting
+prompts — a player who asked for less movement still has to be told the keep has not stopped.
+
+`veiled` carries its own `building` flag because the status each caller guards on does not change
+until the work it is holding actually runs: without it a second press on DESCEND would queue a second
+build of the same floor. The flag is on the snapshot too, so a driver can tell a floor that has not
+arrived yet from one that never will, and `game.built()` is what the three tests that cross a build
+now wait on.
+
+Verification: typecheck, lint, 142/142 node tests, the full browser suite.

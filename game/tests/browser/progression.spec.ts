@@ -163,6 +163,7 @@ test('killing the last warden ends a floor, freezes it, and waits for a real Con
     await game.capture(`floor-${level}-complete`);
 
     await page.locator('.success-screen button').click();
+    await game.built();
     await game.step(16);
     const next = await game.state();
 
@@ -260,6 +261,7 @@ test('a rank-up on the last warden opens its boon before the floor results, and 
   await expect(page.locator('.success-screen')).toBeVisible();
 
   await page.locator('.success-screen button').click();
+  await game.built();
   await game.step(16);
   const descended = await game.state();
   expect(descended.mode).toBe('playing');

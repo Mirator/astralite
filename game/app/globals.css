@@ -242,3 +242,17 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 .quiver { display: flex; gap: 3px; margin-top: 5px; }
 .quiver i { width: 13px; height: 5px; border: 1px solid #cf9c5b66; background: transparent; transition: background .12s, border-color .12s; }
 .quiver i.held { background: var(--goal); border-color: var(--goal); }
+
+/* The loading veil. First thing in the prerendered HTML and last thing over everything else, so it
+   outranks the map screen and every card beneath it. The mark animates transform and opacity and nothing
+   else: both run on the compositor, which is the whole point of it — the main thread is blocked building a
+   floor for as long as this is up, and a mark driven from there would freeze in the same breath. */
+.loading-veil { position: absolute; inset: 0; z-index: 14; display: grid; place-content: center; justify-items: center; gap: 22px; padding: 24px; background: radial-gradient(circle at 50% 42%, #102229, var(--ink-deep) 72%); text-align: center; }
+.veil-mark { width: 44px; height: 44px; border: 1px solid #96a6a555; border-top-color: var(--ember); animation: veil-turn 1.1s linear infinite; }
+.loading-veil b { max-width: 24ch; color: var(--bone); font: 400 clamp(19px, 4.4vw, 26px)/1.35 Georgia, serif; }
+@keyframes veil-turn { from { transform: rotate(45deg); } to { transform: rotate(405deg); } }
+@keyframes veil-breathe { 50% { opacity: .32; } }
+/* A turning mark is movement, and a player who asked for less of it still has to be told the keep has not
+   stopped — so this one fades where the drifting prompts above simply hold still. */
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion="full"]) .veil-mark { transform: rotate(45deg); animation: veil-breathe 2.4s ease-in-out infinite; } }
+:root[data-motion="reduce"] .veil-mark { transform: rotate(45deg); animation: veil-breathe 2.4s ease-in-out infinite; }
