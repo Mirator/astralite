@@ -10,7 +10,9 @@
 // The knight is a policy, not a player: it walks the flood toward the stair, engages what wakes, and
 // dodges a tell it has had time to read. It is a consistent yardstick for comparing builds against each
 // other, not a claim about how well a human plays.
-import { canAbortSwing, swordContacts } from '../../app/dungeon-combat.ts';
+import { eightWay } from '../../app/dungeon-aim.ts';
+import { beatOf, chainLength } from '../../app/dungeon-weapon.ts';
+import { canAbortSwing, DASH_TIME, dashImmune, playerSpeed, swordContacts } from '../../app/dungeon-combat.ts';
 import { ALERT_STAGGER, decideEnemy, enemyStats, hitCooldown, interruptsWindup, nearbyDozers, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { playerAttackPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
@@ -51,11 +53,19 @@ export type Policy = {
    * much the exploit is worth.
    */
   kite: boolean;
+  /**
+   * Aim the way a keyboard does: eight screen directions, so a swing is up to 22.5 degrees off what it
+   * was pointed at. Off by default, because the navigator has always aimed exactly and every balance
+   * number this repository has recorded was measured that way — turning it on by default would silently
+   * reinterpret all of them. On, it measures the world a keyboard-only player actually played before
+   * pointer and stick aim existed, which is the only way to price what aim was worth.
+   */
+  quantise: boolean;
   /** Which card to take from a draft. Defaults to the first offered. */
   pickBoon?: (offer: Boon[], run: Run) => string;
 };
 
-export const DEFAULT_POLICY: Policy = { reaction: 0.22, dodge: 0.8, explore: true, weapon: TIDEBLADE, kite: false };
+export const DEFAULT_POLICY: Policy = { reaction: 0.22, dodge: 0.8, explore: true, weapon: TIDEBLADE, kite: false, quantise: false };
 
 export type FloorReport = {
   level: number;
@@ -296,6 +306,10 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const facing = { x: 0, z: 1 };
   let attackFacing = { x: 0, z: 1 };
   let attackTime = 0, dashTime = 0, dashCooldown = 0, stairDwell = 0, t = 0;
+  // The attack string, exactly as dungeon-game.tsx keeps it. Without this the batch measures a
+  // chainless sword against a game that chains, which is the same class of mistake as the
+  // navigator aiming perfectly while the player could not.
+  let chainBeat = 0, chainIdle = Infinity, swing: Weapon = weapon;
   const swingHits = new Set<Body>();
   const shots: Shot[] = [];
   let quiver = weapon.ranged ? weapon.ranged.capacity : 0, reload = 0;
@@ -369,12 +383,12 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     // A tell it has had time to read, from something close enough to land, is worth a dodge.
     const threat = live.find(b => b.windup > 0 && b.tell - b.windup >= policy.reaction
       && Math.hypot(b.x - player.x, b.z - player.z) < STRIKE_RANGE[b.kind] + (b.kind === 'stalker' ? 2.6 : 0.4));
-    if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, weapon) && nerve() < policy.dodge) {
+    if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, swing) && nerve() < policy.dodge) {
       // A pounce is out-run sideways; a swing is out-run backwards.
       const away = unit(player.x - threat.x, player.z - threat.z);
       const step = threat.kind === 'stalker' ? { x: -away.z, z: away.x } : away;
       facing.x = step.x; facing.z = step.z;
-      dashTime = 0.18; dashCooldown = run.dashSpan; attackTime = 0; swingHits.clear();
+      dashTime = DASH_TIME; dashCooldown = run.dashSpan; attackTime = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; swingHits.clear();
     }
 
     // Only a body the knight could actually walk at in a straight line is worth charging. Without the
@@ -384,6 +398,20 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       .map(b => ({ body: b, distance: Math.hypot(b.x - player.x, b.z - player.z) }))
       .filter(entry => entry.distance < 14 && hasClearPath(floor.cells, player, entry.body))
       .sort((a, b) => a.distance - b.distance)[0];
+
+    // The keyboard's eight, on the same screen basis the game builds its movement from. Snapping the
+    // aim rather than the movement is deliberate: what the keys quantise is the direction the swing
+    // goes out in, and the knight walked in eight directions before and after.
+    const aimAs = (to: { x: number; z: number }) => policy.quantise ? eightWay(to) : to;
+
+    // Continue the string if the last swing ended inside the arm's window, else start a new one.
+    const openSwing = () => {
+      const linking = chainIdle <= (weapon.chain?.window ?? 0) && chainBeat + 1 < chainLength(weapon);
+      chainBeat = linking ? chainBeat + 1 : 0;
+      chainIdle = 0;
+      swing = beatOf(weapon, chainBeat);
+      attackTime = swing.duration;
+    };
 
     let move: { x: number; z: number } | null = null;
     if (target && dashTime <= 0) {
@@ -395,7 +423,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         // whether there is a bolt in hand, not whether he is close enough to swing.
         const range = bow.speed * bow.flight;
         if (quiver > 0 && attackTime <= 0 && target.distance < range * 0.8) {
-          attackTime = weapon.duration; attackFacing = toward; facing.x = toward.x; facing.z = toward.z;
+          const aimed = aimAs(toward);
+          openSwing(); attackFacing = aimed; facing.x = aimed.x; facing.z = aimed.z;
         }
         // Dry, or being crowded, and the knight simply outruns everything in the keep.
         if (policy.kite || quiver === 0) { if (target.distance < range * 0.55) move = away; }
@@ -405,7 +434,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         // into a hammer it could have worked from outside, and a cleaver would stop short of its own edge.
         move = policy.kite && target.distance < 1.2 ? away : toward;
       } else if (attackTime <= 0) {
-        attackTime = weapon.duration; attackFacing = toward; facing.x = toward.x; facing.z = toward.z; swingHits.clear();
+        const aimed = aimAs(toward);
+        openSwing(); attackFacing = aimed; facing.x = aimed.x; facing.z = aimed.z; swingHits.clear();
       }
     } else if (dashTime <= 0) {
       // Nothing awake in reach: walk the flood. A branch worth plundering first, then the stair.
@@ -423,8 +453,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     }
 
     if (move) { facing.x = move.x; facing.z = move.z; }
-    const threatened = live.some(b => (b.x - player.x) ** 2 + (b.z - player.z) ** 2 < 100);
-    const speed = dashTime > 0 ? 12 : attackTime > 0 ? weapon.moveSpeed : threatened ? 5.8 : 8.5;
+    const speed = playerSpeed({ dashing: dashTime > 0, attacking: attackTime > 0, weapon: swing });
     if (dashTime > 0) moveOnFloor(floor.cells, player, facing.x * speed * DT, facing.z * speed * DT);
     else if (move) moveOnFloor(floor.cells, player, move.x * speed * DT, move.z * speed * DT);
 
@@ -435,10 +464,11 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       const back = reloadStep(quiver, weapon.ranged.capacity, reload, weapon.ranged.refill, DT);
       quiver = back.spare; reload = back.timer;
     }
+    chainIdle = attackTime > 0 ? 0 : chainIdle + DT;
     if (attackTime > 0) {
-      const wasLive = playerAttackPose(weapon.duration - attackTime, weapon).active;
+      const wasLive = playerAttackPose(swing.duration - attackTime, swing, chainBeat).active;
       attackTime = Math.max(0, attackTime - DT);
-      const pose = playerAttackPose(weapon.duration - attackTime, weapon);
+      const pose = playerAttackPose(swing.duration - attackTime, swing, chainBeat);
       // One bolt on the frame the blade would have gone live, rather than damage for every live frame.
       if (weapon.ranged && pose.active && !wasLive && quiver > 0) {
         quiver -= 1; shotCount += 1;
@@ -446,13 +476,13 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       }
       if (!weapon.ranged && pose.active) for (const body of bodies) {
         if (body.dead || !body.awake || swingHits.has(body)) continue;
-        if (!swordContacts(floor.cells, player, attackFacing, body, run.reach, weapon)) continue;
+        if (!swordContacts(floor.cells, player, attackFacing, body, run.reach, swing)) continue;
         swingHits.add(body);
-        body.hp -= weapon.damage + run.strike;
+        body.hp -= swing.damage + run.strike;
         body.hitFlash = 0.2;
-        const broke = interruptsWindup(body.kind, body.windup, weapon.stagger);
+        const broke = interruptsWindup(body.kind, body.windup, swing.stagger);
         if (broke) body.windup = 0;
-        body.cooldown = Math.max(body.cooldown, hitCooldown(body.kind, broke, weapon.stagger));
+        body.cooldown = Math.max(body.cooldown, hitCooldown(body.kind, broke, swing.stagger));
         const push = unit(body.x - player.x, body.z - player.z), shove = body.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
         moveOnFloor(floor.cells, body, push.x * shove, push.z * shove);
         if (body.hp <= 0) {
@@ -490,7 +520,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         });
       }
       if (intent.hit) {
-        const dealt = hurt(run, body.damage, { dashing: dashTime > 0, warded: true });
+        const dealt = hurt(run, body.damage, { dashing: dashImmune(dashTime), warded: true });
         damage[body.kind] += dealt;
         if (dealt && live.filter(b => Math.hypot(b.x - player.x, b.z - player.z) < 4).length >= 3) surrounded += dealt;
         if (run.hp <= 0) return endFloor('died');
@@ -585,7 +615,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       const phase = (t + ring.room * 0.7) % 3.6, firing = phase > 2.6;
       if (!firing) { ring.burned = false; continue; }
       if (ring.burned || Math.hypot(ring.x - player.x, ring.z - player.z) >= 1.8) continue;
-      const dealt = hurt(run, 10, { dashing: dashTime > 0 });
+      const dealt = hurt(run, 10, { dashing: dashImmune(dashTime) });
       if (dealt) { ring.burned = true; damage.hazard += dealt; if (run.hp <= 0) return endFloor('died'); }
     }
 

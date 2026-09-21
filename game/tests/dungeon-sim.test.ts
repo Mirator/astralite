@@ -13,7 +13,7 @@ test('a fresh run carries every field the game restores on restart, and nothing 
   assert.deepEqual(createRun(), {
     hp: 100, maxHp: 100, kills: 0, totalXp: 0,
     rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
-    strike: 0, dashSpan: 1.35, reach: 0, draught: 0, guardAgainst: 1,
+    strike: 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
     invuln: 0, taken: [],
   });
   // Two runs never share structure, or a restart would carry the old run's boons forward.
@@ -80,7 +80,7 @@ test('every boon lands exactly once, and only while a draft is open', () => {
 
   const step = drafting();
   takeBoon(step, 'step');
-  assert.equal(step.dashSpan, 1.35 * 0.7);
+  assert.equal(step.dashSpan, 0.8 * 0.7);
 
   const reach = drafting();
   takeBoon(reach, 'reach');

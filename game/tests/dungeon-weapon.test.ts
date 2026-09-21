@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canAbortSwing, swordContacts } from '../app/dungeon-combat.ts';
+import { canAbortSwing, swordContacts, WALK_SPEED } from '../app/dungeon-combat.ts';
 import { PLAYER_ATTACK_ANTICIPATION, PLAYER_ATTACK_CONTACT_END, PLAYER_ATTACK_DURATION, playerAttackPose } from '../app/dungeon-attack-pose.ts';
 import { cellKey } from '../app/dungeon-floor.ts';
-import { FOUND_WEAPONS, STARTING_WEAPON, TIDEBLADE, WEAPONS, weaponById, type Weapon } from '../app/dungeon-weapon.ts';
+import { beatOf, chainLength, FOUND_WEAPONS, STARTING_WEAPON, TIDEBLADE, WEAPONS, weaponById, type Weapon, type WeaponId } from '../app/dungeon-weapon.ts';
 
 const openFloor = (half = 8) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
 const cells = openFloor();
@@ -121,4 +121,45 @@ test('the arms are told apart by reach, arc and rate rather than by one being be
     const w = WEAPONS[id];
     if (w.reach > TIDEBLADE.reach) assert.ok(w.duration > TIDEBLADE.duration || w.damage < TIDEBLADE.damage, `${id} out-reaches the sword for free`);
   }
+});
+
+test('a chain overlays the arm rather than replacing it', () => {
+  const chained = (Object.keys(WEAPONS) as WeaponId[]).filter(id => WEAPONS[id].chain);
+  assert.deepEqual(chained.sort(), ['fangs', 'tideblade'], 'only the two light melee arms chain');
+
+  for (const id of chained) {
+    const arm = WEAPONS[id];
+    assert.equal(beatOf(arm, 0), arm, 'beat zero is the arm itself, untouched');
+    assert.equal(chainLength(arm), 1 + arm.chain!.beats.length);
+    assert.ok(arm.chain!.window > 0 && arm.chain!.window < 0.5, `${id}'s link window is human-sized`);
+
+    const beats = Array.from({ length: chainLength(arm) }, (_, i) => beatOf(arm, i));
+    for (const [index, beat] of beats.entries()) {
+      // Every beat is a complete weapon, or something downstream reads an undefined number.
+      assert.equal(beat.id, arm.id);
+      assert.ok(beat.duration > 0 && beat.anticipation > 0, `${id} beat ${index} has a clock`);
+      assert.ok(beat.anticipation < beat.contactEnd && beat.contactEnd <= beat.duration,
+        `${id} beat ${index} winds up, connects, then recovers`);
+      assert.ok(beat.damage > 0 && beat.reach > 0);
+      assert.ok(beat.moveSpeed > 0 && beat.moveSpeed < WALK_SPEED,
+        `${id} beat ${index} is slower mid-swing than walking`);
+    }
+
+    // The point of the last beat is that it costs something and pays something. A finish that were
+    // merely another copy of the opener would leave the held key exactly as shapeless as before.
+    const first = beats[0], last = beats[beats.length - 1];
+    assert.ok(last.damage > first.damage, `${id} finishes harder than it opens`);
+    assert.ok(last.duration > first.duration, `${id} finishes slower than it opens`);
+    assert.ok(last.contactEnd - last.anticipation > first.contactEnd - first.anticipation,
+      `${id}'s finish is committed for longer, which is what a dash cannot cut`);
+    assert.ok(last.moveSpeed <= first.moveSpeed, `${id} is rooted harder on its finish`);
+  }
+});
+
+test('an arm past the end of its string holds the last beat', () => {
+  const last = beatOf(TIDEBLADE, chainLength(TIDEBLADE) - 1);
+  assert.deepEqual(beatOf(TIDEBLADE, 99), last, 'an index off the end cannot produce a swing with no numbers');
+  // And an arm with no chain is its own only beat, whatever is asked for.
+  assert.equal(beatOf(WEAPONS.maul, 3), WEAPONS.maul);
+  assert.equal(chainLength(WEAPONS.maul), 1);
 });

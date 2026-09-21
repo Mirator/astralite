@@ -7,6 +7,7 @@ import {
   PLAYER_ATTACK_LAUNCH,
   playerAttackPose,
 } from '../app/dungeon-attack-pose.ts';
+import { TIDEBLADE } from '../app/dungeon-weapon.ts';
 
 const numericFields = ['swordYaw', 'swordPitch', 'swordRoll', 'bodyYaw', 'bodyRoll', 'armReach'] as const;
 
@@ -98,4 +99,39 @@ test('the cut travels broadly from the backswing into the strike direction', () 
   assert.ok(Math.abs(finish.bodyYaw - 0.34) < 0.000001);
   assert.ok(Math.abs(finish.bodyRoll) < 0.1);
   assert.ok(finish.armReach > 0);
+});
+
+test('an odd beat is the same cut from the other shoulder', () => {
+  const age = TIDEBLADE.anticipation + 0.03;
+  const first = playerAttackPose(age, TIDEBLADE, 0);
+  const second = playerAttackPose(age, TIDEBLADE, 1);
+  const third = playerAttackPose(age, TIDEBLADE, 2);
+
+  // The lateral channels flip and nothing else does: a back-cut is the same arm at the same height
+  // travelling the other way, so negating pitch or reach would swing it at the floor.
+  assert.equal(second.swordYaw, -first.swordYaw);
+  assert.equal(second.swordRoll, -first.swordRoll);
+  assert.equal(second.bodyYaw, -first.bodyYaw);
+  assert.equal(second.bodyRoll, -first.bodyRoll);
+  assert.equal(second.swordPitch, first.swordPitch);
+  assert.equal(second.armReach, first.armReach);
+  assert.equal(second.active, first.active);
+  assert.equal(second.trail, first.trail);
+
+  // Even beats come back to the original side, so a three-beat string reads left, right, left.
+  assert.equal(third.swordYaw, first.swordYaw);
+  // And the default is the unmirrored swing every arm had before strings existed.
+  assert.deepEqual(playerAttackPose(age, TIDEBLADE), first);
+});
+
+test('a mirrored beat still sweeps through a real arc', () => {
+  // Mirroring must not collapse the cut: the blade has to travel as far on the back-cut as on the
+  // forehand, or the second beat would read as a twitch.
+  const sweep = (beat: number) => {
+    const early = playerAttackPose(TIDEBLADE.anticipation * 0.9, TIDEBLADE, beat).swordYaw;
+    const late = playerAttackPose(TIDEBLADE.contactEnd, TIDEBLADE, beat).swordYaw;
+    return Math.abs(late - early);
+  };
+  assert.ok(sweep(0) > 1, 'the forehand sweeps through more than a radian');
+  assert.equal(sweep(1).toFixed(9), sweep(0).toFixed(9));
 });

@@ -48,7 +48,7 @@ export type Run = {
 export const createRun = (): Run => ({
   hp: 100, maxHp: 100, kills: 0, totalXp: 0,
   rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
-  strike: 0, dashSpan: 1.35, reach: 0, draught: 0, guardAgainst: 1,
+  strike: 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
   invuln: 0, taken: [],
 });
 

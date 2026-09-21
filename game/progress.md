@@ -718,3 +718,64 @@ arrived yet from one that never will, and `game.built()` is what the three tests
 now wait on.
 
 Verification: typecheck, lint, 142/142 node tests, the full browser suite.
+
+## Controls: a pointer, a pad, a dash that travels, and a string
+
+Plan 003. The keep's controls were one verb short of its genre: aim was movement. The swing took its
+direction from whatever the movement keys said on the frame it started, so the knight could strike in
+eight directions and never in one while walking in another. The Tideblade's arc absorbs the 22.5° that
+costs; the Keep Crossbow's does not. A bolt carries 11.8 units and stops within 0.62 of a body, so a
+worst-aligned target was struck out to about 1.5 of those units and the other ten were decoration.
+
+`dungeon-aim.ts` is the way out, and it is pure: `groundPoint` inverts the orthographic projection in
+closed form — orthographic is what makes it exact rather than a raycast, because every screen point
+sends a ray the same way — and `snapAim` closes the gap the keys leave by pulling a swing onto a body
+within 35°. The camera basis is derived from `CAMERA_OFFSET` rather than written down beside the one
+the game loop already had, and a test asserts the two agree; had they drifted, a pointer and a key
+would have steered in different worlds and no amount of tuning would have made aiming feel right.
+
+The rule that decides who owns the aim took two attempts. "Last device wins" is wrong, and the browser
+test caught it: it let a *movement* key take the aim back, which breaks the one case a pointer exists
+for. Walking right while cutting left has to be expressible. Striking or dodging from the keyboard is
+a claim on the aim; walking is not — so someone on the keyboard with a cursor parked wherever the
+intro card left it is never aimed at that corner, and someone on a mouse can retreat and cut behind.
+
+The simulator could not measure any of this. `attackFacing = toward` — it has always aimed perfectly,
+so it never modelled the quantisation the change removes, and the "pre-aim baseline" the plan asked
+for would have been the post-aim world under another name. `--quantise` fixes that, default off so
+every number this repository has recorded still means what it said. What aim is worth, measured: the
+five melee arms do not move at all (4.5m before and after, all of them), and the crossbow goes from
+61.7% of runs escaping to 99.0%, from 38.3% dying to 1.0%. Not dominance — at 6.1m it is still the
+slowest arm in the keep. It went from unusable to viable, which is a different claim than the one
+the plan made, and the batch is why we know.
+
+The dash now travels. 0.18s at 12 netted 1.12 units over a walk against a warden's 2.55 reach, which
+made it an invulnerability blink rather than a way to be somewhere else. What sets the new numbers is
+one rule, and it lives in the suite rather than in a comment: `DASH_TIME * (DASH_SPEED - WALK_SPEED)`
+must clear a warden's reach. The first pass at 0.24s and 19 nets 2.52 against 2.55 and fails its own
+rule by three hundredths; the test said so, and 19.5 is what passes. Immunity covers only the first
+0.1s, so the tail is a commitment. The proximity tax is gone: `weapon.moveSpeed` already charges for
+committing to a swing, and charging again for merely standing near something awake cost mobility
+exactly when responsiveness mattered.
+
+That first tuning was too strong and the batch said so — a warden went from dealing 44% of the damage
+the knight suffered to 7%, which is to say it stopped being what kills people. Cooldown to 0.8s and
+immunity to 0.1s puts uptime at 12.5% against the old 13%: the same defensive value, bought with a
+dash that covers two and a half times the ground. The distance was never a lever.
+
+Worth recording about the instrument: the navigator escapes 100% of runs and dies in 0% both before
+and after, at every policy tried. The batch measures pace and the composition of damage, and those
+moved clearly — every arm 0.6 to 0.9 minutes faster. It is not a measure of whether a human can die,
+and tuning hard against it would be trusting it past what it can see.
+
+Finally the held strike has a shape. It used to restart an identical swing forever, so holding the key
+was strictly optimal and carried no rhythm. The Tideblade and the Twin Fangs now swing three beats:
+the second mirrored, the third slower, heavier, rooted and committed for longer — and `canAbortSwing`
+already refuses a dash inside contact, so the cost of the finish falls out of a rule that was already
+there. A beat is a `Partial<Weapon>` overlaid on the arm, which is why this needed no new plumbing:
+`swordContacts`, `playerAttackPose`, `playerSpeed` and `canAbortSwing` all take a Weapon already. The
+other five arms have no chain and are untouched; a string on a slow committed heave is a different
+weapon, not a better one.
+
+Verification: typecheck, lint, 163/163 node tests, and the browser suite including new `aim.spec.ts`,
+`dash.spec.ts` and `chain.spec.ts`.
