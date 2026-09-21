@@ -1,4 +1,5 @@
 import {
+  type Browser,
   expect,
   test as base,
   type CDPSession,
@@ -30,6 +31,73 @@ export { canStand, expect, hasClearPath, TILE };
  * `GAME_TEST_GL=d3d11` run is a different renderer's output.
  */
 export const CAPTURING = process.env.GAME_TEST_CAPTURE === '1';
+
+/**
+ * Boot a page per test the way this suite did before pooling, rather than resetting one the worker
+ * already has. Twelve of the fifteen seconds a scenario used to cost were that boot - module load, a
+ * WebGL context and a first floor - paid eighty-five times for a page every test threw away.
+ *
+ * The pooled path is the default and the isolated one is kept alive deliberately: it is the oracle. If
+ * the two ever disagree, a reset is not returning the page to the state a boot leaves it in, and the
+ * nightly `isolated` run on main is what says so before a pull request inherits it.
+ */
+export const ISOLATED = process.env.GAME_TEST_ISOLATE === '1';
+
+// The same two values playwright.config.ts builds its baseURL from. A context opened here rather
+// than by the `context` fixture does not inherit that baseURL, so it is restated rather than guessed.
+const HOST = '127.0.0.1';
+const PORT = Number(process.env.GAME_TEST_PORT ?? 3000);
+
+/**
+ * Fields a reset is allowed to differ from a boot on, as dotted paths, and why. Anything not named
+ * here is compared, so this list is the whole of what the guard does not cover: keep it short, keep
+ * the reasons, and prefer a narrower path to a broader one. `settings` rather than `settings.sound`
+ * would hide `muted`, which is game state and must not drift.
+ */
+const DRIFTS = [
+  // Wall-clock milliseconds the floor build took. A number that measures the machine cannot match.
+  'buildMs',
+  // The renderer's own counters describe whatever was last drawn, and a reset does not draw.
+  // `frame-budget.spec.ts` is what holds these to a ceiling, and it draws its own frame first.
+  'render',
+  // The AudioContext's own lifecycle. A page that has booted but never started a run has no running
+  // context, and one cannot be un-started: the browser gives it out on a gesture and keeps it. This
+  // is the hardware's state, not the game's - `muted` and the settings beside it are still compared.
+  'settings.sound',
+] as const;
+
+/**
+ * Below this, a number is zero. Poses and velocities settle by exponential damping, which approaches
+ * a rest value without ever arriving: a knight who has stopped moving reports an arm angle of -1e-19
+ * where a knight who never moved reports 0. Treating that as a difference would make the guard cry
+ * leak on every scenario that moved anything, which is all of them.
+ */
+const ZERO = 1e-9;
+
+/** The snapshot as the leak guard compares it: drifting fields dropped, damping residue snapped. */
+const comparable = (state: Snapshot) => {
+  const settle = (value: unknown): unknown => {
+    if (typeof value === 'number') return Math.abs(value) < ZERO ? 0 : value;
+    if (Array.isArray(value)) return value.map(settle);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, inner]) => [key, settle(inner)]),
+      );
+    }
+    return value;
+  };
+  const copy = settle(state) as Record<string, unknown>;
+  for (const path of DRIFTS) {
+    const steps = path.split('.');
+    const leaf = steps.pop()!;
+    let node: Record<string, unknown> | undefined = copy;
+    for (const step of steps) {
+      node = node?.[step] as Record<string, unknown> | undefined;
+    }
+    if (node) delete node[leaf];
+  }
+  return JSON.stringify(copy, null, 1);
+};
 
 export type Floor = ReturnType<typeof generateFloor>;
 export type Point = { x: number; z: number };
@@ -203,6 +271,7 @@ type GameWindow = Window & {
     descend: () => void;
     buildFloor: (level: number) => void;
     grantXp: (amount: number) => void;
+    reset: (seed?: number) => void;
     configureCombatFixture?: (fixture: CombatFixture) => void;
   };
 };
@@ -303,29 +372,43 @@ export class Game {
     readonly seeds: number[],
   ) {}
 
-  /** Fresh page, pinned seeds, manual time, error recording. Not yet started. */
-  static async open(page: Page, info: TestInfo, seeds: number[]) {
+  /**
+   * Fresh page, pinned seeds, manual time, error recording. Not yet started.
+   *
+   * `watch` is false for the one boot a worker's pooled page gets: that page outlives this `Game`,
+   * so the listeners belong to the pool, which re-points them at each scenario in turn. Attaching
+   * them here too would go on charging a page's whole life to a object nobody holds any more.
+   */
+  static async open(page: Page, info: TestInfo, seeds: number[], watch = true) {
     const game = new Game(page, info, seeds);
-    page.on('pageerror', (error) => game.pageErrors.push(String(error)));
-    page.on('console', (message) => {
-      if (message.type() === 'error') game.consoleErrors.push(message.text());
-    });
-    page.on('requestfailed', (request) => {
-      const failure = request.failure()?.errorText ?? 'unknown';
-      // Vite drops in-flight HMR probes when the page navigates; that is not a
-      // missing asset and must not fail an otherwise clean run.
-      if (failure === 'net::ERR_ABORTED') return;
-      game.failedRequests.push(`${request.url()} (${failure})`);
-    });
+    if (watch) {
+      page.on('pageerror', (error) => game.pageErrors.push(String(error)));
+      page.on('console', (message) => {
+        if (message.type() === 'error') game.consoleErrors.push(message.text());
+      });
+      page.on('requestfailed', (request) => {
+        const failure = request.failure()?.errorText ?? 'unknown';
+        // Vite drops in-flight HMR probes when the page navigates; that is not a
+        // missing asset and must not fail an otherwise clean run.
+        if (failure === 'net::ERR_ABORTED') return;
+        game.failedRequests.push(`${request.url()} (${failure})`);
+      });
+    }
+    // The pinned draws live behind a handle rather than being baked into the closure: a pooled page
+    // outlives the seeds of the test it was booted for, and the next scenario has to be able to hand it
+    // a different set and rewind the cursor without a reload. The isolated path uses the same handle,
+    // so there is one way seeds are pinned rather than two that can drift apart.
     await page.addInitScript((pinned: number[]) => {
       const source = crypto;
       const original = source.getRandomValues.bind(source);
-      let index = 0;
+      const handle = { values: pinned, index: 0 };
+      (window as unknown as { __pinnedSeeds: typeof handle }).__pinnedSeeds = handle;
       // Only the single-word draw `buildFloor` makes is pinned; everything else
       // keeps real entropy, so nothing but the floor seed is stubbed out.
       const pinnedDraw = (array: Parameters<Crypto['getRandomValues']>[0]) => {
-        if (array instanceof Uint32Array && array.length === 1) {
-          array[0] = pinned[Math.min(index++, pinned.length - 1)] >>> 0;
+        if (array instanceof Uint32Array && array.length === 1 && handle.values.length) {
+          array[0] =
+            handle.values[Math.min(handle.index++, handle.values.length - 1)] >>> 0;
           return array;
         }
         return original(array);
@@ -352,6 +435,94 @@ export class Game {
       'floor seed did not come from the pinned fixture; the generator entry point changed',
     ).toBe(seeds[0] >>> 0);
     return game;
+  }
+
+  /**
+   * Points a pooled page's seed handle at this scenario's draws and rewinds the cursor. The reset
+   * below takes no seed on purpose: `buildFloor(1)` without one draws from the handle exactly as the
+   * first load did, so floor 2 and floor 3 get the second and third pinned words rather than the
+   * first and second. Passing the seed straight to `restart` would skip that draw and quietly shift
+   * every later floor by one.
+   */
+  static pin(page: Page, seeds: number[]) {
+    return page.evaluate((values: number[]) => {
+      const handle = (window as unknown as {
+        __pinnedSeeds?: { values: number[]; index: number };
+      }).__pinnedSeeds;
+      if (!handle) throw new Error('the pinned seed handle is gone');
+      handle.values = values;
+      handle.index = 0;
+    }, seeds);
+  }
+
+  /**
+   * Returns a pooled page to the state a fresh one is in, for the price of a floor build rather than
+   * a page load. Storage first, because the save is read while floor 1 is built; then the game's own
+   * `restart`, which is the path the end screen uses and therefore the one that has to stay correct.
+   */
+  async reset(seeds: number[]) {
+    await this.page.evaluate(() => {
+      try {
+        localStorage.clear();
+      } catch {
+        /* storage blocked: nothing was remembered to begin with */
+      }
+    });
+    await Game.pin(this.page, seeds);
+    await this.page.evaluate(() => {
+      const hook = (window as GameWindow).dungeonTest;
+      if (!hook) throw new Error('dungeonTest is gone');
+      hook.reset();
+    });
+    await this.built();
+    await this.step(0);
+    const first = await this.state();
+    expect(
+      first.floor.seed,
+      'the reset floor did not come from the pinned fixture',
+    ).toBe(seeds[0] >>> 0);
+  }
+
+  /**
+   * A scenario's turn on the worker's page: reset it to this scenario's seeds, and take delivery of
+   * whatever the browser complains about while it runs.
+   */
+  static async adopt(page: Page, info: TestInfo, seeds: number[], pool: Pool) {
+    const game = new Game(page, info, seeds);
+    pool.sink = game;
+    await game.reset(seeds);
+    return game;
+  }
+
+  /**
+   * What keeps a pooled page honest, and the reason this suite can stop booting one per test.
+   *
+   * A reset is only as good as the fields it remembers, and the half of it that does not come from
+   * the game's own `restart` is exactly the half that can rot as the game grows. So rather than
+   * trusting it, every scenario ends by resetting back to the seeds the worker booted on and holding
+   * the whole snapshot against what that boot produced. Anything a scenario leaves behind that the
+   * reset does not clear fails the scenario that left it, naming the field - not the innocent one
+   * that inherits it three tests later, which is how this repository lost a day to a reused stalker
+   * carrying a released pounce across a test boundary.
+   */
+  async prove(pool: Pool) {
+    // A scenario that already failed has a page in whatever state the failure left it; the diff
+    // would be noise on top of a real error, and the reset below is still worth doing for the next.
+    const clean = this.info.status === this.info.expectedStatus;
+    await this.reset(DEFAULT_SEEDS);
+    pool.sink = null;
+    if (!clean || pool.baseline === null) return;
+    expect(
+      await this.comparable(),
+      'this scenario left state behind that a reset did not clear, so the pooled page no longer ' +
+        'matches a freshly booted one. Either reset it in `dungeonTest.reset`, or mark the spec ' +
+        '`test.use({ isolate: true })` and say why.',
+    ).toBe(pool.baseline);
+  }
+
+  /** The snapshot as the leak guard compares it: everything but the fields in `DRIFTS`. */
+  async comparable() {
+    return comparable(await this.state());
   }
 
   state(): Promise<Snapshot> {
@@ -572,12 +743,133 @@ export class Game {
   }
 }
 
-export const test = base.extend<{ seeds: number[]; game: Game }>({
+/**
+ * One booted page per worker, handed to every scenario that can take it.
+ *
+ * The page carries the error listeners, because they belong to the page and not to the scenario
+ * currently driving it; `sink` is what the fixture re-points at each `Game` so a stray console error
+ * is still charged to the test that caused it.
+ */
+class Pool {
+  page: Page | null = null;
+  /** Whole-snapshot state a boot leaves behind, which every reset is then held against. */
+  baseline: string | null = null;
+  sink: {
+    pageErrors: string[];
+    consoleErrors: string[];
+    failedRequests: string[];
+  } | null = null;
+
+  constructor(private readonly browser: Browser) {}
+
+  async take(info: TestInfo) {
+    if (this.page) return this.page;
+    const context = await this.browser.newContext({
+      viewport: { width: 1000, height: 700 },
+      baseURL: `http://${HOST}:${PORT}`,
+    });
+    const page = await context.newPage();
+    page.on('pageerror', (error) => this.sink?.pageErrors.push(String(error)));
+    page.on('console', (message) => {
+      if (message.type() === 'error') this.sink?.consoleErrors.push(message.text());
+    });
+    page.on('requestfailed', (request) => {
+      const failure = request.failure()?.errorText ?? 'unknown';
+      if (failure === 'net::ERR_ABORTED') return;
+      this.sink?.failedRequests.push(`${request.url()} (${failure})`);
+    });
+    const game = await Game.open(page, info, DEFAULT_SEEDS, false);
+    this.baseline = await game.comparable();
+    this.page = page;
+    return page;
+  }
+
+  async close() {
+    await this.page?.context().close();
+  }
+}
+
+/**
+ * Options this project varies per scenario. A pooled context cannot change any of them mid-life -
+ * `hasTouch` and `isMobile` are fixed when the context opens, and a stored settings blob is read on
+ * load - so a scenario that changes one gets its own page, exactly as every scenario used to.
+ */
+const needsOwnPage = (options: {
+  isolate: boolean;
+  hasTouch: boolean;
+  isMobile: boolean;
+  storageState: unknown;
+  viewport: { width: number; height: number } | null;
+}) =>
+  ISOLATED ||
+  options.isolate ||
+  options.hasTouch ||
+  options.isMobile ||
+  options.storageState !== undefined ||
+  options.viewport?.width !== 1000 ||
+  options.viewport?.height !== 700;
+
+export const test = base.extend<
+  { seeds: number[]; isolate: boolean; game: Game },
+  { pool: Pool }
+>({
   seeds: [DEFAULT_SEEDS, { option: true }],
+  /**
+   * Opts a scenario out of the pool. Three specs need it and say why at their own `test.use`: they
+   * assert on what a boot does, so a page that is already booted is not the thing under test.
+   */
+  isolate: [false, { option: true }],
+  pool: [
+    async ({ browser }, runWorker) => {
+      const pool = new Pool(browser);
+      await runWorker(pool);
+      await pool.close();
+    },
+    { scope: 'worker' },
+  ],
+  // Overridden rather than added: specs destructure `{ game, page }` and drive the page directly, so
+  // the two have to be the same object. A scenario that needs its own gets a context built here from
+  // the options it asked for; the rest are handed the worker's.
+  page: async (
+    { browser, pool, isolate, hasTouch, isMobile, storageState, viewport },
+    runTest,
+    info,
+  ) => {
+    if (
+      !needsOwnPage({ isolate, hasTouch, isMobile, storageState, viewport })
+    ) {
+      await runTest(await pool.take(info));
+      return;
+    }
+    const context = await browser.newContext({
+      viewport: viewport ?? undefined,
+      hasTouch,
+      isMobile,
+      storageState,
+      baseURL: `http://${HOST}:${PORT}`,
+    });
+    const own = await context.newPage();
+    await runTest(own);
+    await context.close();
+  },
   // Named `runTest`, not `use`: a bare `use` reads as a React hook to the linter.
-  game: async ({ page, seeds }, runTest, info) => {
-    const game = await Game.open(page, info, seeds);
+  game: async (
+    { page, pool, seeds, isolate, hasTouch, isMobile, storageState, viewport },
+    runTest,
+    info,
+  ) => {
+    const own = needsOwnPage({
+      isolate,
+      hasTouch,
+      isMobile,
+      storageState,
+      viewport,
+    });
+    const game = own
+      ? await Game.open(page, info, seeds)
+      : await Game.adopt(page, info, seeds, pool);
     await runTest(game);
+    if (!own) await game.prove(pool);
     await game.finish();
   },
 });

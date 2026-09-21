@@ -1,5 +1,9 @@
 import { expect, test } from './helpers.ts';
 
+// The veil is what a boot looks like from outside, so a page that is already booted has nothing
+// to show. Every scenario here needs its own load.
+test.use({ isolate: true });
+
 type VeilWindow = Window & { veilSeen?: string | null };
 
 /**

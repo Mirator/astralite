@@ -22,8 +22,18 @@ The browser suite needs Chromium once per machine
 (`npx playwright install chromium`). It starts its own dev server on
 `127.0.0.1:3000` and will not adopt one that is already running, so stop yours
 first. All four gates run in CI on pull requests and again before deployment;
-there they run as parallel jobs, with the browser suite split across six shards
-at two workers each, and its Chromium restored from cache.
+there they run as parallel jobs, with the browser suite split across three
+shards at two workers each, and its Chromium restored from cache.
+
+A worker boots one page and resets it between scenarios rather than loading one
+per test, which is where most of the suite's time used to go. Three specs opt
+out with `test.use({ isolate: true })` because they assert on what a boot does,
+and a scenario that changes context options - a phone viewport, touch, a stored
+settings blob - gets its own page automatically. Every pooled scenario ends by
+resetting back to the booted state and holding the whole snapshot against it, so
+state left behind fails the scenario that left it rather than the next one along.
+If you need something reset, reset it in `dungeonTest.reset`; widening `DRIFTS`
+in `tests/browser/helpers.ts` hides the problem instead of fixing it.
 
 Four environment variables shape a browser run. Two of them are the difference
 between a suite you can iterate on and one you cannot:
@@ -34,6 +44,7 @@ between a suite you can iterate on and one you cannot:
 | `GAME_TEST_CAPTURE=1` | Writes the reference frames. Off by default — nothing asserts on a PNG, and drawing them is the expensive half of the suite. Needed only when reviewing the art, and then on SwiftShader, since the baseline in `output/shots/baseline/` came off that renderer. |
 | `GAME_TEST_WORKERS` | How many scenarios run at once. One locally; CI sets two. Nothing here measures wall-clock time, so this is a throughput knob, not a correctness one. |
 | `GAME_TEST_PORT` | Moves the dev server, so two checkouts can verify at once. |
+| `GAME_TEST_ISOLATE=1` | Boots a page per scenario, as the suite did before pooling. This is the oracle: a nightly run on main compares it against the pooled path, and a disagreement means a reset is not restoring something a boot sets. Reach for it when a pooled failure looks like contamination. |
 
 The two combine: `GAME_TEST_GL=d3d11 GAME_TEST_CAPTURE=1 npm run test:browser`
 gives you frames quickly, but they are a different renderer's output and are
