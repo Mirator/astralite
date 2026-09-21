@@ -545,14 +545,24 @@ export class Game {
     );
   }
 
-  /** Dispatches one named game action, the same event the UI buttons send. */
-  async act(detail: string) {
+  /**
+   * Dispatches named game actions, the same events the UI buttons send.
+   *
+   * Several in one call go out in a single evaluate, with no frame between them. That is the only
+   * honest way to say "a second press while the veil is up": two separate round-trips race the three
+   * animation frames `veiled` waits out, and on a loaded machine the round-trips lose - the veil is
+   * already down, the second press is an ordinary restart, and it eats the next pinned seed.
+   */
+  async act(detail: string, ...more: string[]) {
     await this.page.evaluate(
-      (name) =>
-        window.dispatchEvent(
-          new CustomEvent('dungeon-action', { detail: name }),
-        ),
-      detail,
+      (names: string[]) => {
+        for (const name of names) {
+          window.dispatchEvent(
+            new CustomEvent('dungeon-action', { detail: name }),
+          );
+        }
+      },
+      [detail, ...more],
     );
   }
 

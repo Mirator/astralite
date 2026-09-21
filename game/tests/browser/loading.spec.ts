@@ -64,8 +64,10 @@ test('a second press while the veil is up does not build a second keep', async (
   seeds,
 }) => {
   await game.enter();
-  await game.act('restart');
-  await game.act('restart');
+  // Both presses in one dispatch. Sent as two calls they are two round-trips racing the three frames
+  // the veil waits out, which is a race this test used to win on an idle machine and lose on a busy
+  // one - and losing it looks exactly like the bug it is here to catch.
+  await game.act('restart', 'restart');
   await game.built();
   expect((await game.state()).floor.seed).toBe(seeds[1] >>> 0);
 });

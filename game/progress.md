@@ -950,3 +950,25 @@ test, and an afternoon went into proving the failure predated the change under r
 request's red X is on a page its author is looking at. A red push to main is not. The job opens an
 issue. It is the weaker half of the fix - the stronger one is requiring these checks before a merge,
 which is a branch protection setting and cannot live in this file.
+
+### The race pooling uncovered
+
+The first CI run of this change failed one scenario, and it is worth recording because the cause was
+not the pooling and the fix was not to slow anything down.
+
+`a second press while the veil is up does not build a second keep` sent its two presses as two
+`act('restart')` calls, which is two round-trips into the page. `veiled` holds `building` for three
+animation frames, about 50ms; a round-trip is usually well under that, so the second press normally
+arrived while the veil was up and was suppressed. When it does not, the veil is already down, the
+second press is an ordinary restart, it eats the next pinned seed, and the assertion reads floor 3's
+seed where it wanted floor 2's - which is indistinguishable from the bug the test exists to catch.
+
+That race was always there. What this change did was lose it: a worker used to spend most of every
+scenario waiting on a page load, and now it drives the simulation continuously, so the neighbouring
+worker on the same runner is genuinely busier and the round-trip is genuinely slower.
+
+The fix is to stop racing. `act` takes several actions and dispatches them in one evaluate, with no
+frame between them, so "while the veil is up" is guaranteed by construction rather than by winning a
+timing bet. Fifteen consecutive local runs of that spec pass. A test that has to be fast enough to
+pass is not testing what its name says.
+
