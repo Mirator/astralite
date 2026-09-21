@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { planFloorMotifs } from './dungeon-decor-layout.ts';
+import { buildFloorMotifs } from './dungeon-floor-motifs.ts';
 import { type Room, TILE, type generateFloor } from './dungeon-floor';
 import { weatherStone } from './dungeon-motion';
 
@@ -240,20 +242,14 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
   const mesh = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number) => {
     const item = new THREE.Mesh(geometry, material); item.position.set(x, y, z); item.receiveShadow = true; world.add(item); return item;
   };
+  // Every chamber used to carve the same 16-point compass into its own medallion bed - the same
+  // decoration in almost every room, whatever the theme. `planFloorMotifs` gives each room at most
+  // one of three theme-distinct constructions instead (see `dungeon-floor-motifs.ts`), skipping a
+  // gauntlet or the goal room entirely and reasoning about a sanctuary's shrine centre and the
+  // weapon drop's own clearance so a motif never spills onto a feature that owns its floor already.
+  const motifs = buildFloorMotifs(world, floor, planFloorMotifs(floor), { dark, inlay, lip });
   for (const room of floor.rooms) {
     const local = floor.tiles.filter(t => t.room === room.id && !t.wood);
-    // Engraved medallions are flush with the walking surface, with subdued bronze inlay.
-    const x = room.x * TILE, z = room.z * TILE, radius = room.shape === 'round' ? 3.15 : 2.35;
-    if (room.encounter !== 'gauntlet') {
-      const disk = mesh(new THREE.CircleGeometry(radius, 64), dark, x, .028, z); disk.rotation.x = -Math.PI / 2;
-      for (const r of [radius, radius - .16, radius * .65]) {
-        const ring = mesh(new THREE.RingGeometry(r - .025, r, 64), lip, x, .031, z); ring.rotation.x = -Math.PI / 2;
-      }
-      const star = new THREE.Shape();
-      for (let i = 0; i < 16; i++) { const a = i * Math.PI / 8, r = i % 2 ? radius * .19 : radius * (i % 4 ? .43 : .59); if (i) star.lineTo(Math.sin(a) * r, Math.cos(a) * r); else star.moveTo(Math.sin(a) * r, Math.cos(a) * r); }
-      star.closePath(); const compass = mesh(new THREE.ShapeGeometry(star), inlay, x, .034, z); compass.rotation.x = -Math.PI / 2;
-      for (let i = 0; i < 24; i++) { const a = i * Math.PI / 12, r = radius - .34; put(x + Math.sin(a) * r, .034, z + Math.cos(a) * r, .045, .012, i % 3 ? .10 : .22, inlay); }
-    }
     for (const tile of local) {
       // All four faces, where before only the two pointing away from the camera were carved. That choice
       // is the whole of the review's finding: every tall thing in the keep stood on the far wall, so the
@@ -473,7 +469,7 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
   // The two carved stones, handed back so the frame can hang the chamber's own masonry on them.
   // `stone` takes it straight and `pale` a shade up, which is the relationship the two were built
   // with and the one that keeps a column parting from the coursework behind it.
-  return { stone, pale, inlay, lip, dark, bronze };
+  return { stone, pale, inlay, lip, dark, bronze, motifs: motifs.realized };
 }
 
 /* -------------------------------------------------------------------- paving

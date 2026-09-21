@@ -972,3 +972,89 @@ frame between them, so "while the veil is up" is guaranteed by construction rath
 timing bet. Fifteen consecutive local runs of that spec pass. A test that has to be fast enough to
 pass is not testing what its name says.
 
+Plan 004: replaced the single 16-point compass every room's medallion bed carved, whatever its
+theme, with three theme-distinct constructions. `dungeon-decor-layout.ts` is new and pure -
+`decorReservations` gives conservative world-space rectangles for every room's motif, the goal, a
+sanctuary's clear centre, a gauntlet's whole floor and the weapon drop; `planRoomMotif` plans at
+most one motif per room from a seed and room id, rejecting only a gauntlet, the goal, a keep
+sanctuary (no fragment of a solid shield can hold a hole without becoming something else) and a
+motif that would spill onto a hole, a corridor, wood, or the drop's own clearance, shrinking the bed
+conservatively before giving up on it entirely. `dungeon-floor-motifs.ts` is new and builds three
+canonical unit-space constructions - keep an octagonal bed with a shield cut and a hairline split;
+ruins three separated sectors of that same octagon, the fourth dropped outright, each edged where it
+was cut and carrying one broken chevron; flooded three parallel channels crossed by two bars, no
+disk at all - and bakes every room's instance straight into merged, per-material, per-region
+geometry (the same 12-tile regions `dungeon-game.tsx` already batches paving with), reusing the
+existing `dark`/`inlay`/`lip` materials rather than adding new ones. `dungeon-art.ts`'s
+`addCarvedArchitecture` calls the two in place of the old disk/rings/star/ticks block. A sanctuary's
+1.6-unit clear centre is built into the ruins/flooded construction directly (an annular sector, a
+channel with a circular gap cut around the origin) rather than trimmed out of a construction that
+runs through the centre - the first version did the latter, and a channel or a fan sector that
+passes through the centre loses far more than the circle itself once whole triangles are dropped
+instead of the geometry being built to avoid it; a triangle-centroid clip against `clearRadius`
+remains as a safety net, not the primary defence. `addAtmosphere` threads the realized list through
+as `motifs` on its return value (a one-line, additive change to `dungeon-atmosphere.ts`, which is
+outside this plan's stated file list but unavoidable: it is the one link in the existing
+`buildFloor -> addAtmosphere -> addCarvedArchitecture` call chain the plan itself keeps, and there is
+no other way to reach `dungeon-game.tsx` without calling `addCarvedArchitecture` a second time).
+`dungeon-game.tsx` exposes it as `graphics.motifs` on `render_game_to_text`, so a driver can check
+what actually got attached rather than a second recomputation of the planner's own descriptors.
+
+New tests: `dungeon-decor-layout.test.ts` (repeatability, all three themes across a sample, no
+mutation, every room shape, negative coordinates, goal/gauntlet exclusion, sanctuary clearance, drop
+clearance, reservation shapes) and `dungeon-floor-motifs.test.ts` (finite/upward-facing/in-budget
+triangles across ten seeds and three levels, every vertex inside some planned bed, a sanctuary's
+clear centre empty but still holding a substantial motif outside it - the regression guard for the
+bug above, which the first, narrower version of this test would not have caught - stable rebuilds,
+safe disposal). `tests/browser/floor-motifs.spec.ts` checks the live scene against the pure planner
+on the same floor (exact match, not a re-derivation), all three themes realized on seed 0x1, no
+motif in a gauntlet or the goal, no keep motif in a sanctuary, a pinned-seed reset realizing the same
+motifs, and stable geometry/texture counts across four rebuilds; a second block captures each theme's
+motif (combat frozen first, so a live windup cannot obscure the frame) at desktop size, a third at
+390x844 phone size.
+
+Verification: baseline `art-direction.spec.ts` and `frame-budget.spec.ts` were run and captured
+(`test-results/graphics-004-before`, SwiftShader) before any source edit. After: `npm run typecheck`,
+`npm run lint`, `npm test` (178 tests, the 15 new here), the full `GAME_TEST_GL=d3d11` browser suite
+(97 passed, 1 pre-existing skip), and `npm run build` all pass; `git diff --check` from root is
+clean. Removing the per-room disk/rings/star/ticks meshes and replacing them with merged,
+region-batched geometry left every frame-budget scene under its ceiling with room to spare rather
+than closer to it: flooded-hall 434/439 calls and 193,188/198,818 triangles, junction 490/502 and
+332,890/343,716, strike-contact 371/447 and 152,556/236,196 (all previously nearer their ceilings).
+Captured and opened `test-results/graphics-004-after` (SwiftShader, seed 0x1) alongside the before
+set: the keep motif reads as a clean octagon with a traced border and a hairline split; the flooded
+motif's three channels and two crossbars are legible even before zooming; the ruins motif was, on
+first capture, reduced to an almost invisible sliver inside a sanctuary room (the clip-after-building
+bug above) - fixed and re-captured, after which a live, non-sanctuary ruins room shows the radiating
+cut-edge hairlines and the gap where the fourth sector is missing. Reviewed at desktop (1000x700)
+and phone (390x844) sizes, and against the existing `art-direction.spec.ts` telegraph and fire
+measurements, which are unchanged. Limitation carried forward: the ruins motif is the most visually
+subtle of the three against its own warm, already-dark paving and the existing seal ring's wash;
+distinguishable at native size and confirmed geometrically distinct and correctly built by direct
+inspection, but a future pass could give it more contrast if a reviewer wants it louder.
+
+CI follow-up: `browser (2)` (of 3) failed 3/3 times, always on the same pre-existing, unrelated
+test - `polish.spec.ts`'s "polish on a phone" - timing out in `Game.enter()` waiting on
+`render_game_to_text` after `page.goto('/')`. Confirmed against the last six merged PRs that this
+test never fails on `main`, so the failure traced back to this PR rather than pre-existing
+flakiness. Root cause: `floor-motifs.spec.ts`'s three "a ${theme} chamber's motif reads at phone
+size" tests each declared their own `test.use({ viewport, isMobile: true, hasTouch: true })`, which
+`needsOwnPage` (helpers.ts) turns into a brand-new isolated browser context per test - a full fresh
+page boot (module load, WebGL context, first floor build) rather than the worker's pooled page the
+rest of the suite reuses. CI's per-test timings showed those three tests costing 23.7s, 16.4s and
+27.4s - almost entirely boot overhead - on a `GAME_TEST_WORKERS=2` shard already carrying another
+new, expensive test ("repeated rebuilds..." at 44.4s); the combined wall-clock pushed shard 2 long
+enough that `polish.spec.ts`'s own pre-existing isolated-mobile test (paying the same fresh-boot
+cost, and sharing the same resource contention) reliably blew through its 15s boot timeout.
+Fix: the phone describe block's three per-theme tests were consolidated into one test that boots a
+single isolated mobile context, then walks the knight between the three theme rooms already known
+to coexist on seed 0x1's floor (per "three different theme motifs are attached" above) via
+`game.teleport`, checking and capturing each in turn - one fresh-boot cost instead of three, with no
+coverage dropped (same per-theme assertions, same three named captures). Locally this dropped
+`floor-motifs.spec.ts`'s total runtime from roughly 33s to about 22s for the file, with the phone
+block itself running in ~1.3-1.4s once warm (not directly comparable to CI's cold, contended
+timings, but confirms one boot replaced three). Re-ran the full gate: `npm run typecheck`, `npm run
+lint`, `npm test` (178 tests), `GAME_TEST_GL=d3d11 npm run test:browser` (95 passed, 1 pre-existing
+skip, including `polish.spec.ts`'s phone test unmodified), `npm run build`, and `git diff --check`
+from root - all pass.
+

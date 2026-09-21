@@ -211,6 +211,10 @@ export type Snapshot = {
     fog: string;
     banner: string;
   };
+  /** What the floor's own motif geometry actually attached, not a recomputation of the planner. */
+  graphics: {
+    motifs: { room: number; theme: 'keep' | 'ruins' | 'flooded' }[];
+  };
   player: {
     x: number;
     z: number;

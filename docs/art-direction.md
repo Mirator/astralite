@@ -140,6 +140,35 @@ the mid forties to the low thirties, one step at a time, with nothing watching.
 Dark is the point. Unlit is a different game, and the difference between them is
 worth a number.
 
+## Floor motifs
+
+Every room used to carve the same 16-point compass into its own medallion bed —
+one decoration standing in for eight rooms of theme. `dungeon-decor-layout.ts`
+plans at most one motif per room (`planFloorMotifs`/`planRoomMotif`) and
+`dungeon-floor-motifs.ts` builds it (`buildFloorMotifs`); `dungeon-art.ts` wires
+the two into `addCarvedArchitecture` in place of the old disk, rings, star and
+ticks. The three constructions differ by shape, not by a new colour on shared
+stone — `dark`, `inlay` and `lip` are exactly the materials the old compass
+used, unchanged.
+
+| Theme | Construction |
+| --- | --- |
+| keep | A solid octagonal bed with a broad shield cut into its centre and a hairline splitting it; the octagon's own outer edge is traced in `lip`, complete in one variant and missing one edge in the other. |
+| ruins | Three of the octagon's four quadrants survive as separated sectors — the fourth is gone entirely, not merely thinned — each edged in `lip` where it was cut and carrying one broken chevron near its outer face. |
+| flooded | Three parallel channels in `dark`, no disk at all, crossed by two narrow `lip` bars. |
+
+A room's seed and id pick a quarter-turn orientation and one of two variants
+per theme; nothing here consumes the floor generator's own randomness. A
+gauntlet and the goal room never carry one — the first reserves its whole
+floor for the fight, the second for its stair seal. A sanctuary keeps a
+1.6-unit radius clear at its centre for the shrine; a `keep` sanctuary gets no
+motif at all, since a solid shield has no fragment that can hold a hole
+without becoming something else, while `ruins` and `flooded` build their
+sectors and channels around the clear circle directly, rather than drawing
+the ordinary construction and cutting a hole in it. Existing seal rings and
+shrine markers are untouched — they say what a room is doing, and stay
+separate from what its floor looks like when nothing is.
+
 ## What is still shared
 
 Named rather than hidden. The sea, the foliage, the spray and the motes carry
