@@ -779,3 +779,34 @@ weapon, not a better one.
 
 Verification: typecheck, lint, 163/163 node tests, and the browser suite including new `aim.spec.ts`,
 `dash.spec.ts` and `chain.spec.ts`.
+
+## A dash that could never ride out a flare
+
+`main` went red on the merge of #30 and nobody noticed: run 35580107278 on `3ad0055` failed
+`gameplay.spec.ts:321`, the same test that then failed on the next branch off it. The run before it, on
+`beac77e` itself, passed - which is the only reason this looked like flake. It is not. The test fails
+15 times out of 15 locally: on SwiftShader and on d3d11, with captures on and off, on one worker, and
+on a clean `beac77e` checkout in a separate worktree with nothing else applied. Always 58 then 48.
+
+The gauntlet's burn is latched by `feature.burned`, and the latch sat behind the hit:
+
+    else if (!feature.burned && near < 1.8 && hurt(run, 10, { dashing: dashImmune(dashTime) })) {
+      feature.burned = true; ...
+
+So a refused hit left the ring armed and it tried again on the next tick. A dash carries
+`DASH_IFRAMES` of 0.1s out of a `DASH_TIME` of 0.24, and a flare burns for a whole second, so the ring
+always outlasted the i-frames and landed the blow the moment they lapsed. A dash could not ride out a
+flare at all - which is the one thing a dash through fire is for, and what the test's own name claims.
+
+The comment two lines above already said what was intended - "one tick per flare, cleared when the ring
+goes cold", and that the 0.65s hurt timer used to do this job - so the code did not match its own
+stated design. The latch now fires on the tick the flare reaches him, landed or not.
+
+Worth being plain about the alternative that was rejected: narrowing the assertion to the 0.1s i-frame
+window would have turned the suite green without touching the game. It would also have made the test
+assert the opposite of its name, and frozen a regression in place as though it were the design.
+
+Verification: typecheck, lint, 163/163 node tests, and `gameplay.spec.ts`, `combat.spec.ts` and
+`dash.spec.ts` in full - 18/18, including the failing gauntlet scenario, `a lethal gauntlet ends the
+tick`, and `the dash is immune at the head and exposed in the tail`, which pins the window this change
+deliberately does not widen.
