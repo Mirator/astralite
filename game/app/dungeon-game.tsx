@@ -1499,9 +1499,16 @@ export default function DungeonGame() {
             // It used to be the 0.65s hurt timer doing this job, which is why a hazard tick also bought
             // more immunity than a sword: the two roles are now separate.
             if (!firing) feature.burned = false;
-            else if (!feature.burned && near < 1.8 && hurt(run, 10, { dashing: dashImmune(dashTime) })) {
-              feature.burned = true; setHealth(run.hp); hurtFlash = .65; shake = .1; audio.play('hurt'); burst(player.position,0xff4529,8);
-              if(run.hp===0)endRun('hazard');
+            // Spent on the tick it reaches him, landed or not. The latch used to sit behind `hurt`, so a
+            // refused hit left the ring armed and it simply tried again the next tick - and since a dash
+            // carries 0.1s of i-frames against a flare that burns for a second, the ring always won. No
+            // dash could ride one out, which is the thing a dash through fire is for.
+            else if (!feature.burned && near < 1.8) {
+              feature.burned = true;
+              if (hurt(run, 10, { dashing: dashImmune(dashTime) })) {
+                setHealth(run.hp); hurtFlash = .65; shake = .1; audio.play('hurt'); burst(player.position,0xff4529,8);
+                if(run.hp===0)endRun('hazard');
+              }
             }
           }
         }
