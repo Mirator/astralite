@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
 import {
   canStand,
+  CAPTURING,
   expect,
   Game,
   openSpot,
@@ -35,6 +36,10 @@ const SETTLE = 640;
 const shot = async (game: Game, name: string) => {
   await game.page.evaluate(() => document.fonts.ready.then(() => undefined));
   await game.capture(name);
+  // The counters belong to the frame the capture drew. Without a capture no
+  // frame was drawn, and reading them would report whatever was last on the
+  // canvas as though it were this scene.
+  if (!CAPTURING) return;
   const r = (await game.state()).render;
   console.log(`COST ${name} calls=${r.calls} triangles=${r.triangles} geometries=${r.geometries} textures=${r.textures}`);
 };

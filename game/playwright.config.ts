@@ -12,13 +12,17 @@ const baseURL = `http://${HOST}:${PORT}`;
 export default defineConfig({
   testDir: './tests/browser',
   outputDir: './test-results',
-  // One worker: every scenario drives the same simulation through manual time,
-  // and a second WebGL context on the same machine only adds noise. CI buys its
-  // parallelism with more runners instead, one shard each.
-  workers: 1,
-  // Not for local concurrency — with a single worker there is none. This is what
+  // One worker by default, because on a developer machine a second WebGL
+  // context only takes cores off the first. It is not a correctness constraint:
+  // nothing in this suite measures wall-clock time — the clock is stepped by
+  // hand, and `frame-budget.spec.ts` holds the renderer's own counters for
+  // exactly the reason that a software rasteriser's durations cannot be
+  // trusted — so a runner with cores going spare can drive more than one at a
+  // time. CI sets `GAME_TEST_WORKERS`; a local run stays at one unless asked.
+  workers: Number(process.env.GAME_TEST_WORKERS ?? 1),
+  // Mostly not for concurrency — at one worker there is none. This is what
   // makes `--shard` split test by test instead of file by file, which is the
-  // difference between two even shards and a 14/3 split.
+  // difference between even shards and a 14/3 split.
   fullyParallel: true,
   // A retry would hide the flake this suite exists to catch.
   retries: 0,

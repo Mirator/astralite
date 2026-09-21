@@ -810,3 +810,79 @@ Verification: typecheck, lint, 163/163 node tests, and `gameplay.spec.ts`, `comb
 `dash.spec.ts` in full - 18/18, including the failing gauntlet scenario, `a lethal gauntlet ends the
 tick`, and `the dash is immune at the head and exposed in the tail`, which pins the window this change
 deliberately does not widen.
+
+## Nineteen minutes of pull-request feedback, and where it went
+
+Measured off the CI logs of run 35576604538 rather than guessed at. `checks` took 37 seconds and
+`build` 38; the two browser shards took 18.8 and 18.1 minutes. So the browser suite is the entire
+wall clock of this pipeline — about 37 minutes of work — and everything else is noise beside it.
+
+Three things in that 37 minutes, from the per-test times in the log:
+
+**The boot floor is 12 seconds and it is paid 85 times — about 17 minutes, or 46% of the suite.**
+The cheapest meaningful test in the suite is `smoke.spec` at 12.0s; `dash.spec:40` is 12.3s and
+`combat.spec:243` is 12.7s. The control is `loading.spec.ts:10`, the one test that does not take the
+`game` fixture: **60 milliseconds.** All of it is `Game.open` — fresh context, `goto('/')` against the
+Vite dev server, three.js, a WebGL context on SwiftShader, a floor, a frame.
+
+**The captures cost about 3.5 minutes and CI deleted every one of them.** `shots.spec.ts` alone is
+5.6 minutes, of which the strike sequence is 1.6 (32 frames) and the dash sequence 1.4 (24 frames) —
+roughly 2.6s per capture on a software rasteriser. The upload step in the workflow is `if: failure()`,
+so a green run drew eighty frames and threw them all away. Worth stating plainly because the waste was
+invisible: the job looked like it was testing.
+
+**The remaining ~16 minutes is real simulation and assertions**, and is not obviously reducible.
+
+### What changed
+
+Captures are off unless asked for. Nothing in the suite asserts on a PNG, and this was checked call
+site by call site rather than assumed: every helper that reads pixels — `loudestColour`,
+`tellAgainstStone` — calls `advanceTime(0, true)` itself, and the two places that hold render counters
+against a ceiling (`polish.spec:57` and `:82`) are preceded by their own `step(…, true)`. So
+`Game.capture` is a no-op under `GAME_TEST_CAPTURE=0` and skips the draw as well as the readback, which
+is the expensive half. Failure diagnostics are untouched: those come from the config's
+`screenshot: 'only-on-failure'`, not from this helper. The reviewed set is now taken deliberately, from
+the `captures` input on the workflow, which is also the only way to get it off the same SwiftShader the
+baseline in `output/shots/baseline/` came from.
+
+Two shards became six. The runners are free on a public repository and the only floor is the ~50s each
+one spends on checkout, `npm ci` and starting a dev server.
+
+`workers` became `GAME_TEST_WORKERS`, and CI sets it to 2. The old comment claimed a second WebGL
+context on one machine "only adds noise", and that does not survive contact with the suite: **nothing
+here measures wall-clock time.** The clock is stepped by hand through `advanceTime`, and
+`frame-budget.spec.ts` holds the renderer's counters precisely because a software rasteriser's
+durations have a 130ms median against a 1900ms 95th percentile and cannot fail a build honestly. What
+the old setting actually did was leave three of a runner's four cores idle. Two rather than four
+because SwiftShader is CPU-bound and the third and fourth workers would mostly contend.
+
+And `GAME_TEST_GL=d3d11` is now in `AGENTS.md`. It has existed since the graphics pass and was recorded
+only here, in one line of this file — which is to say the single biggest lever on local iteration,
+twenty-three minutes down to two and a half, was undiscoverable.
+
+### What this does not do, and what was rejected
+
+It does not touch the 17 minutes of boot, which is now the largest remaining cost by a wide margin. The
+structural fix is a worker-scoped page — boot once per worker, reset between tests through a new
+`dungeonTest.reset(seeds)` alongside the `buildFloor`, `teleport`, `equip` and `grantXp` hooks that
+already exist — and it would take those 37 minutes to about 22. It is deliberately not done here. This
+suite's whole premise is per-test isolation, and a reused page is exactly the failure this repository
+has already had once: the 2026-09-16 entry above records a reused stalker carrying a released pounce
+across a test boundary. That trade is worth making only if four minutes still proves too slow.
+
+Serving a production build instead of the dev server was also considered and rejected: the fixtures need
+the dev-only `configureCombatFixture`, and "the real page" is part of what these tests are for.
+
+Verification: typecheck, lint, and `progression.spec.ts` locally with zero PNGs written, which is what
+confirms no assertion depended on a capture.
+
+Then measured on CI, run 35588947404: **5 minutes 32 seconds against nineteen and a half.** Shard times
+were 5m21s, 4m32s, 4m51s, 5m32s, 3m40s and 3m44s, so the split is even enough that a seventh shard
+would buy little against its own ~50s of setup. `GAME_TEST_WORKERS=2` is no longer untested: two
+workers drove every shard and the timing-sensitive scenes came through, including `junction`, whose
+counters drift within a band and were the thing most likely to mind the company.
+
+That run was red, on `gameplay.spec.ts:321` — but so was `main`, on the same test, before this branch
+existed. See the entry above. Nothing here caused it: the test failed 15 out of 15 locally on both
+renderers, with captures on and off, on one worker, and on a clean checkout of the commit this branch
+started from.

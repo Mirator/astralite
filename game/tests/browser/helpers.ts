@@ -15,6 +15,22 @@ import {
 
 export { canStand, expect, hasClearPath, TILE };
 
+/**
+ * Whether this run produces the reference frames. They are artefacts for a
+ * human to look at: nothing in the suite asserts on a PNG, and every helper
+ * that does read pixels — `loudestColour`, `tellAgainstStone` — draws its own
+ * frame first, so no check anywhere depends on a capture having happened.
+ *
+ * Off by default, because the capture is the expensive half of this suite on a
+ * software rasteriser and CI threw the images away on every green run: the
+ * workflow only uploads them when something failed. `GAME_TEST_CAPTURE=1` asks
+ * for them, and the `captures` input on Verify and Deploy asks for them on a
+ * runner — which is where the reviewed set has to come from, since the
+ * baseline in `output/shots/baseline/` was taken on SwiftShader and a local
+ * `GAME_TEST_GL=d3d11` run is a different renderer's output.
+ */
+export const CAPTURING = process.env.GAME_TEST_CAPTURE === '1';
+
 export type Floor = ReturnType<typeof generateFloor>;
 export type Point = { x: number; z: number };
 
@@ -49,6 +65,14 @@ export type Snapshot = {
     draught: number;
     dashSpan: number;
     guardAgainst: number;
+  };
+  /** Dev-only view of who owns the aim and where the cursor is, in NDC. */
+  aim: {
+    device: 'keys' | 'pointer';
+    ndc: { x: number; y: number } | null;
+    span: number;
+    aspect: number;
+    pad: { x: number; z: number } | null;
   };
   remaining: number;
   objective: {
@@ -507,8 +531,13 @@ export class Game {
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   }
 
-  /** Draws once, then saves a capture for human review under the test output. */
+  /**
+   * Draws once, then saves a capture for human review under the test output.
+   * A no-op unless this run was asked for the reference frames — see
+   * `CAPTURING`. Returns the file it wrote, or null when it wrote nothing.
+   */
   async capture(name: string) {
+    if (!CAPTURING) return null;
     await this.step(0, true);
     const file = this.info.outputPath(`${name}.png`);
     await this.page.screenshot({ path: file, timeout: 60_000 });

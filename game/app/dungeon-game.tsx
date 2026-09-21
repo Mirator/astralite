@@ -1898,6 +1898,7 @@ export default function DungeonGame() {
       effects: { impacts: impacts.active },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.
+      aim: { device: aimDevice, ndc: pointerNdc, span: viewSpan, aspect: viewAspect, pad: padLook },
       settings: { ...settingsRef.current, reduceMotion: easeMotion, filter: renderer.domElement.style.filter, shake, hitStop, sound: audio.level() },
       // The camera's rest position is focus plus a fixed offset, so anything left over is the shake — which
       // makes "reduced motion actually stopped the camera moving" something a driver can read rather than see.
