@@ -886,3 +886,89 @@ That run was red, on `gameplay.spec.ts:321` — but so was `main`, on the same t
 existed. See the entry above. Nothing here caused it: the test failed 15 out of 15 locally on both
 renderers, with captures on and off, on one worker, and on a clean checkout of the commit this branch
 started from.
+
+## One page per worker, and the guard that makes it safe to say so
+
+The entry above left 17 of the suite's 33 minutes in per-test boots and said why it was not touching
+them: this suite's premise is per-test isolation, and a reused page is the failure this repository
+already had once. That reasoning was right about the risk and wrong about the price of covering it.
+
+The reset itself turned out to be small, because the game already had one. `restart` is what the end
+screen runs, and its comment states the property this needed: "A whole new `run` is the point of
+`createRun()`: a field added to the sim can never be forgotten here." So `dungeonTest.reset` is that
+path plus the few counters a restart deliberately keeps - `hasStarted`, the clock - because a player
+restarting has already started and a fresh page has not. That second half is the part that can rot.
+
+### The guard is the actual work
+
+Every pooled scenario ends by resetting back to the seeds its worker booted on and holding the whole
+snapshot against what that boot produced. Not a list of fields to check - the whole snapshot, minus a
+`DRIFTS` list that is three entries long and carries a reason each. Two properties matter:
+
+- It fails the scenario that left the state behind, naming the field, rather than the innocent one
+  that inherits it three tests later. That is the difference between a morning and a day.
+- It cannot be satisfied by remembering to reset things. Either the page comes back to boot state or
+  the suite says which field did not.
+
+It earned that on the first run. Three leaks, all of which a hand-written checklist would have missed:
+
+**The AudioContext stays running.** A page that booted but never started a run has no running context
+and one cannot be un-started - the browser hands it out on a gesture and keeps it. This is the only
+true drift admitted, and it went in as `settings.sound` rather than `settings`, because `muted` lives
+beside it and is game state.
+
+**The rig froze mid-stride.** Poses are reached by damping, and `advanceTime(0)` has a `dt` of zero,
+so nothing moves: a knight left mid-swing by one scenario was still mid-swing for the next. Fixed by
+recording every transform the rig is born with and restoring it, rather than listing bones - a list
+would want a new line every time the knight grows a joint, and the list is what rots.
+
+**A quaternion round-trip.** Restoring through `quaternion` returned -0.1 as -0.09999999999999999.
+That one was not forgiven in the guard: the cause was the restore, so the restore stores Euler. Only
+genuine damping residue below 1e-9 is snapped, and the threshold says why.
+
+### Numbers, and the shard count
+
+Locally on d3d11 the whole suite is 88 tests in 1.8 minutes; a scenario that cost seconds now costs
+about 600ms, and the boot is paid once per worker instead of 88 times. CI is the case that matters,
+where a boot was twelve seconds rather than one.
+
+Shards went from six back to three in the same change. Six was right when the work was 33 minutes; at
+under twenty it would spend more of the run on the ~50s of checkout, `npm ci` and dev server than on
+testing. Three also halves what a single run holds - at eight jobs a run, two overlapping runs came
+close enough to a public repository's concurrency limit that a third queued, which is exactly what
+made the merge of #31 sit for thirteen minutes before it started.
+
+### Two guards outside the suite
+
+`GAME_TEST_ISOLATE=1` restores the old boot-per-test path and runs nightly on main. If it disagrees
+with the pooled run in either direction, a reset is not returning a page to boot state and the
+in-suite guard has a hole. The answer is to close it in `reset`, not to widen `DRIFTS`.
+
+And an `alarm` job, because the thing that actually went wrong today was not a slow suite. The merge
+of #30 went red on main at 08:51 and nobody saw it; the next branch cut from main inherited a failing
+test, and an afternoon went into proving the failure predated the change under review. A pull
+request's red X is on a page its author is looking at. A red push to main is not. The job opens an
+issue. It is the weaker half of the fix - the stronger one is requiring these checks before a merge,
+which is a branch protection setting and cannot live in this file.
+
+### The race pooling uncovered
+
+The first CI run of this change failed one scenario, and it is worth recording because the cause was
+not the pooling and the fix was not to slow anything down.
+
+`a second press while the veil is up does not build a second keep` sent its two presses as two
+`act('restart')` calls, which is two round-trips into the page. `veiled` holds `building` for three
+animation frames, about 50ms; a round-trip is usually well under that, so the second press normally
+arrived while the veil was up and was suppressed. When it does not, the veil is already down, the
+second press is an ordinary restart, it eats the next pinned seed, and the assertion reads floor 3's
+seed where it wanted floor 2's - which is indistinguishable from the bug the test exists to catch.
+
+That race was always there. What this change did was lose it: a worker used to spend most of every
+scenario waiting on a page load, and now it drives the simulation continuously, so the neighbouring
+worker on the same runner is genuinely busier and the round-trip is genuinely slower.
+
+The fix is to stop racing. `act` takes several actions and dispatches them in one evaluate, with no
+frame between them, so "while the veil is up" is guaranteed by construction rather than by winning a
+timing bet. Fifteen consecutive local runs of that spec pass. A test that has to be fast enough to
+pass is not testing what its name says.
+

@@ -34,6 +34,49 @@ concurrency:
 # artifact storage — so a failed gate still means nothing reaches Pages, and the
 # happy path does not pay for the gates twice over in wall-clock time.
 jobs:
+  # Something has to notice. The merge of #30 went red on `main` at 08:51 and nobody saw it: the next
+  # branch off main inherited a failing suite, and an afternoon went into proving the failure was not
+  # the change under review. A pull request's own red X is on screen where its author is looking; a
+  # red push to main is on a page nobody has open. This job is the shout.
+  #
+  # It is not a substitute for requiring these checks before a merge - that is a branch protection
+  # setting and lives outside this file - but it is the half that can live in the repository.
+  alarm:
+    needs: [checks, browser, build]
+    if: failure() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const sha = context.sha.slice(0, 7);
+            const run = context.serverUrl + '/' + context.repo.owner + '/'
+              + context.repo.repo + '/actions/runs/' + context.runId;
+            const body = [
+              'The verify suite failed on `main` at ' + context.sha + '.',
+              '',
+              run,
+              '',
+              'Nothing merged after this is trustworthy until it is green: a branch cut from',
+              'here inherits the failure and will look like its own regression.',
+            ].join('\n');
+            const open = await github.rest.issues.listForRepo({
+              ...context.repo, state: 'open', labels: 'red-main',
+            });
+            if (open.data.length) {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: open.data[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                ...context.repo, title: 'main is red: ' + sha, body,
+                labels: ['red-main'],
+              });
+            }
+
   # The fast gates. Nothing here needs a browser, so nothing here waits for one.
   checks:
     runs-on: ubuntu-latest
@@ -53,9 +96,12 @@ jobs:
   # thirty-odd minutes of work and everything else is under a minute. It is cut
   # two ways at once.
   #
-  # Across machines, by shard. Six rather than two, because the runners are free
-  # on a public repository and the only floor is the ~50s each one spends on
-  # checkout, `npm ci` and starting the dev server.
+  # Across machines, by shard. Three. It was six while every scenario booted its
+  # own page; now that a worker boots one and resets it, the work itself is down
+  # from ~33 minutes to under twenty, and six shards would spend more of the run
+  # on the ~50s of checkout, `npm ci` and dev server than on testing. Three also
+  # halves what one run holds: at eight jobs a run, two overlapping runs came
+  # close enough to a public repository's concurrency limit that a third queued.
   #
   # And on each machine, by worker. The single worker was never a correctness
   # constraint — see the note in playwright.config.ts — and a runner has four
@@ -68,7 +114,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3]
     defaults:
       run:
         working-directory: game
@@ -83,7 +129,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           browser: 'true'
-      - run: npm run test:browser -- --shard=${{ matrix.shard }}/6
+      - run: npm run test:browser -- --shard=${{ matrix.shard }}/3
       # Traces and screenshots are only written when something failed, and they
       # are the whole reason a red run is diagnosable without a local repro.
       # The capture run uploads on success too: the frames are its entire point.

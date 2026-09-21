@@ -1,0 +1,83 @@
+# The oracle for the pooled browser suite.
+#
+# Every scenario on a pull request now runs on a page some earlier scenario booted, reset between
+# times by `dungeonTest.reset`. Two things guard that. The first is in `helpers.ts` and runs on every
+# scenario: reset back to the seeds the worker booted on, and hold the whole snapshot against what
+# that boot produced. The second is this workflow, which does not trust the first.
+#
+# `GAME_TEST_ISOLATE=1` restores what the suite did before pooling: one page per scenario, booted,
+# never reused. If a run here is green while a pull request is red, or the other way round, then a
+# reset is not returning a page to the state a boot leaves it in, and the guard has a hole in it. The
+# answer is to close the hole in `reset`, not to widen `DRIFTS`.
+#
+# Nightly rather than per pull request because it costs what the pooled suite used to: about forty
+# minutes of work. That is the whole point of not running it on the critical path.
+name: Isolated suite
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    defaults:
+      run:
+        working-directory: game
+    env:
+      GAME_TEST_ISOLATE: '1'
+      GAME_TEST_WORKERS: 2
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
+        with:
+          browser: 'true'
+      - run: npm run test:browser -- --shard=${{ matrix.shard }}/6
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: isolated-report-shard-${{ matrix.shard }}
+          path: |
+            game/playwright-report
+            game/test-results
+          retention-days: 7
+
+  # A nightly failure that only exists in the Actions tab is a nightly failure nobody reads.
+  alarm:
+    needs: [isolated]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const open = await github.rest.issues.listForRepo({
+              ...context.repo, state: 'open', labels: 'isolated-drift',
+            });
+            const body = `The isolated suite failed where the pooled one passes.\n\n${run}\n\n`
+              + `That means a scenario behaves differently on a freshly booted page than on a reset `
+              + `one, so \`dungeonTest.reset\` is not restoring something a boot sets. Fix the reset `
+              + `or mark the spec \`isolate\`; widening \`DRIFTS\` in helpers.ts hides it instead.`;
+            if (open.data.length) {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: open.data[0].number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                ...context.repo,
+                title: 'Isolated suite drifted from the pooled one',
+                body, labels: ['isolated-drift'],
+              });
+            }

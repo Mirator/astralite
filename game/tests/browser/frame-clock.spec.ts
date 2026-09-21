@@ -1,5 +1,8 @@
 import { expect, test } from './helpers.ts';
 
+// This hands the page an older first animation timestamp, which only exists once per load.
+test.use({ isolate: true });
+
 test('an older first animation timestamp cannot create a startup hit pause', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(String(error)));

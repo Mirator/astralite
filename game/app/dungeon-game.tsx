@@ -596,6 +596,16 @@ export default function DungeonGame() {
     // ring and reaches no wall, so each event lifts its offer off the paving.
     const lampAt = new THREE.Vector3();
     const player = makeKnight(); world.add(player);
+    // Every transform the rig is born with, so a reset can put it back. The pose is reached by
+    // damping, which approaches a rest value without arriving, and `advanceTime(0)` moves nothing -
+    // so a rig a scenario left mid-stride would still be mid-stride for the next one on the same
+    // page. Recording the pose beats listing the bones, which would want a line every time the
+    // knight grows one.
+    // Euler rather than quaternion: a rotation that goes out through a quaternion and back comes
+    // home a bit-width away from where it left, and -0.1 restored as -0.09999999999999999 is a
+    // difference the pooled-page guard is right to refuse to ignore.
+    const restPose = new Map<THREE.Object3D, { p: THREE.Vector3; r: THREE.Euler }>();
+    player.traverse((o) => restPose.set(o, { p: o.position.clone(), r: o.rotation.clone() }));
     // The knight's own lantern, and the one lever that protects rule two. Same treatment: no cutoff ring
     // around him, and enough intensity that this round's floor work cannot ride him down with it.
     // Warm, and the same warm in all three families. It used to be cold, which worked while every
@@ -1808,7 +1818,7 @@ export default function DungeonGame() {
     const hooks = window as Window & {
       advanceTime?: (ms: number, draw?: boolean) => void;
       render_game_to_text?: () => string;
-      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void };
+      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void };
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     hooks.dungeonTest = {
@@ -1822,6 +1832,22 @@ export default function DungeonGame() {
       descend: () => buildFloor(Math.min(FLOORS, level + 1)),
       buildFloor: (nextLevel) => buildFloor(nextLevel),
       grantXp: (amount) => award(grantXp(run, amount)),
+      // What a test driver uses instead of opening the page again, which costs twelve seconds of module
+      // load, WebGL boot and a first floor. It is the same `restart` the end screen runs - so a field
+      // added to the sim is reset by the code that already had to remember it - plus the handful of
+      // counters a restart deliberately keeps, because a player restarting has already started and a
+      // fresh page has not. That second half is the part that can rot, which is why nothing trusts it:
+      // `helpers.ts` holds every reset against the snapshot a real boot produced and fails the next test
+      // by field name rather than letting it leak. `manualTime` is not cleared on purpose - the driver
+      // owns the clock from its first `advanceTime` and must keep owning it across a reset.
+      reset: (seed) => {
+        hasStarted = false; setStarted(false); setCapturing(null);
+        elapsed = 0; runStart = 0; floorStart = 0; activeRoom = 0;
+        // Before restart, which places the knight on the new floor's start tile: this puts the rig
+        // back, not the body.
+        restPose.forEach((rest, o) => { o.position.copy(rest.p); o.rotation.copy(rest.r); });
+        restart(seed);
+      },
       // Straight off the store, re-validated on the way out, so what comes back is what a later session
       // would also see — not whatever this session happens to be holding in React state.
       runLog: () => readRuns(),
