@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      captures:
+        description: >-
+          Produce the reference frames and upload them. Off by default: nothing
+          asserts on a PNG, and a green run used to draw eighty of them and
+          throw them away. This is how the reviewed set is taken, because it has
+          to come off the same SwiftShader the baseline did.
+        type: boolean
+        default: false
 
 # The default for every job, and therefore everything a pull request can reach —
 # including a pull request from a fork. Only the deploy job widens it, and a pull
@@ -40,27 +49,45 @@ jobs:
       - run: npm run lint
       - run: npm test
 
-  # The browser suite runs one worker per machine, so the way to make it quicker
-  # is more machines rather than more workers: a second WebGL context sharing a
-  # runner is exactly the noise this suite exists to detect.
+  # Where the whole wall clock of this pipeline lives: the browser suite is
+  # thirty-odd minutes of work and everything else is under a minute. It is cut
+  # two ways at once.
+  #
+  # Across machines, by shard. Six rather than two, because the runners are free
+  # on a public repository and the only floor is the ~50s each one spends on
+  # checkout, `npm ci` and starting the dev server.
+  #
+  # And on each machine, by worker. The single worker was never a correctness
+  # constraint — see the note in playwright.config.ts — and a runner has four
+  # cores that one software rasteriser cannot use. Two is deliberate rather than
+  # four: SwiftShader is CPU-bound, so the second worker nearly pays for itself
+  # and the third and fourth would mostly contend. Lower it to 1 here if a
+  # scenario ever turns out to mind the company; nothing else needs to change.
   browser:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4, 5, 6]
     defaults:
       run:
         working-directory: game
+    env:
+      GAME_TEST_WORKERS: 2
+      # The reference frames are for a human, nothing asserts on them, and the
+      # upload below only fires on a failure — so a green run drew eighty
+      # software-rasterised frames and deleted them. Ask for them explicitly.
+      GAME_TEST_CAPTURE: ${{ inputs.captures && '1' || '0' }}
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
         with:
           browser: 'true'
-      - run: npm run test:browser -- --shard=${{ matrix.shard }}/2
+      - run: npm run test:browser -- --shard=${{ matrix.shard }}/6
       # Traces and screenshots are only written when something failed, and they
       # are the whole reason a red run is diagnosable without a local repro.
-      - if: failure()
+      # The capture run uploads on success too: the frames are its entire point.
+      - if: failure() || inputs.captures
         uses: actions/upload-artifact@v7
         with:
           name: playwright-report-shard-${{ matrix.shard }}

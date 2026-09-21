@@ -13,7 +13,7 @@ past sessions and `plans/` holds implementation plans. Node 22.13 or newer.
 | Types | `npm run typecheck` |
 | Lint | `npm run lint` |
 | Node suite (generator, combat rules) | `npm test` |
-| Browser suite (real game, Playwright) | `npm run test:browser` |
+| Browser suite (real game, Playwright) | `npm run test:browser` — on Windows prefix `GAME_TEST_GL=d3d11` and it is ten times quicker |
 | Browser stability | `npm run test:browser -- --repeat-each=3` |
 | Production build | `npm run build` |
 | Dev server | `npm run dev` |
@@ -22,8 +22,23 @@ The browser suite needs Chromium once per machine
 (`npx playwright install chromium`). It starts its own dev server on
 `127.0.0.1:3000` and will not adopt one that is already running, so stop yours
 first. All four gates run in CI on pull requests and again before deployment;
-there they run as parallel jobs, with the browser suite split across two shards
-and its Chromium restored from cache.
+there they run as parallel jobs, with the browser suite split across six shards
+at two workers each, and its Chromium restored from cache.
+
+Four environment variables shape a browser run. Two of them are the difference
+between a suite you can iterate on and one you cannot:
+
+| Variable | Effect |
+| --- | --- |
+| `GAME_TEST_GL=d3d11` | Renders on the machine's actual GPU instead of SwiftShader: **twenty-three minutes becomes two and a half.** Use it for every local run that is not producing reference frames. |
+| `GAME_TEST_CAPTURE=1` | Writes the reference frames. Off by default — nothing asserts on a PNG, and drawing them is the expensive half of the suite. Needed only when reviewing the art, and then on SwiftShader, since the baseline in `output/shots/baseline/` came off that renderer. |
+| `GAME_TEST_WORKERS` | How many scenarios run at once. One locally; CI sets two. Nothing here measures wall-clock time, so this is a throughput knob, not a correctness one. |
+| `GAME_TEST_PORT` | Moves the dev server, so two checkouts can verify at once. |
+
+The two combine: `GAME_TEST_GL=d3d11 GAME_TEST_CAPTURE=1 npm run test:browser`
+gives you frames quickly, but they are a different renderer's output and are
+not comparable with the baseline. A reviewable set comes from the `captures`
+input on the Verify and Deploy workflow.
 
 ## Input and time hooks
 
