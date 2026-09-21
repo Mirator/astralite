@@ -187,6 +187,7 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 .floor-map { width: 130px; background: #09171d66; border: 0; }.floor-map svg { height: 90px; }
 .game-options button { width: 40px; height: 40px; font-size: 20px; }
 .chamber-notice { top: 12%; }.chamber-notice b { font-size: 22px; }
+.control-note { margin-top: 2px; opacity: .72; }
 .menu-details { margin: 24px 0 16px; color: #bbceca; font-size: 14px; }.menu-details summary { cursor: pointer; }.menu-details p { line-height: 1.6; }.menu-settings { display: flex; gap: 10px; }.menu-settings button { padding: 10px 14px; border: 1px solid #96b1ab55; background: #102329; color: #dae5df; cursor: pointer; }
 /* Nested one level in, under Settings: same control, less weight, so the default Settings view still
    reads short with the nine rebind buttons folded away behind their own summary. */

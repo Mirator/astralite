@@ -130,6 +130,15 @@ export type Snapshot = {
     dashBuffer: number;
     dashTime: number;
     dashCooldown: number;
+    /** Which beat of an attack string is running, and what it is worth. */
+    chain: {
+      beat: number;
+      beats: number;
+      /** Seconds since the last swing ended, or null when nothing has swung yet. */
+      idle: number | null;
+      damage: number;
+      duration: number;
+    };
     swordAngle: number;
     legs: number[];
     locomotion: { speed:number; phase:number; sprint:number; pitch:number; height:number; arm:number; knees:number[] };

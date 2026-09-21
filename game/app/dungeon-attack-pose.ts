@@ -215,7 +215,36 @@ function rangedPose(age: number, weapon: Weapon): PlayerAttackPose {
 }
 
 /** Return the player rig pose for elapsed attack time, clamping outside the swing to rest. */
-export function playerAttackPose(ageSeconds: number, weapon: Weapon = TIDEBLADE): PlayerAttackPose {
+/**
+ * A swing, with its lateral channels flipped: the same cut coming from the other shoulder.
+ *
+ * This is what a second beat of a string is. Pitch and reach are untouched, because a back-cut is the
+ * same arm at the same height travelling the other way — negating those as well would have the knight
+ * swinging at the floor on every other beat.
+ */
+const mirrored = (pose: PlayerAttackPose): PlayerAttackPose => ({
+  ...pose,
+  swordYaw: -pose.swordYaw,
+  swordRoll: -pose.swordRoll,
+  bodyYaw: -pose.bodyYaw,
+  bodyRoll: -pose.bodyRoll,
+});
+
+/**
+ * `beat` is which swing of a string this is, counting from zero. Odd beats come from the other side.
+ * Everything else about the curve is the weapon's, and a beat of a chain *is* a weapon — see `beatOf`
+ * — so a longer or heavier beat needs nothing here.
+ */
+export function playerAttackPose(
+  ageSeconds: number,
+  weapon: Weapon = TIDEBLADE,
+  beat = 0,
+): PlayerAttackPose {
+  const pose = swingPose(ageSeconds, weapon);
+  return beat % 2 ? mirrored(pose) : pose;
+}
+
+function swingPose(ageSeconds: number, weapon: Weapon): PlayerAttackPose {
   const age = finiteAge(ageSeconds);
   if (age <= 0 || age >= weapon.duration) return { ...REST };
   if (weapon.ranged) return rangedPose(age, weapon);

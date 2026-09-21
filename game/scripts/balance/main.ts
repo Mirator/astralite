@@ -7,6 +7,7 @@
 //   npm run balance -- --weapon cleaver   one arm
 //   npm run balance -- --compare          every arm, side by side
 //   npm run balance -- --compare --kite   the same, with the knight backing away as he fights
+//   npm run balance -- --compare --quantise  the same, aiming with eight keys instead of a pointer
 //   npm run balance -- --json             machine-readable, for diffing two branches
 //
 // The numbers are a yardstick for comparing one build against another, not a claim about how a human
@@ -30,6 +31,7 @@ const policy: Policy = {
   dodge: value('dodge', DEFAULT_POLICY.dodge),
   explore: !flag('no-explore'),
   kite: flag('kite'),
+  quantise: flag('quantise'),
   weapon: args.includes('--weapon') ? weaponById(args[args.indexOf('--weapon') + 1]) : DEFAULT_POLICY.weapon,
 };
 

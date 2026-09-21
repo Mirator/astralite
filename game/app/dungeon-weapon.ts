@@ -72,7 +72,38 @@ export type Weapon = {
    * the knight's aim.
    */
   burst?: { radius: number; life: number; damage: number; interval: number };
+  /**
+   * Beats after the first, for an arm that swings a string rather than the same cut over and over.
+   *
+   * Absent means one repeating swing, which is what every arm did and what five of the seven still do.
+   * A beat is an overlay on the weapon itself rather than a new kind of object: everything downstream
+   * of a swing — `swordContacts`, `canAbortSwing`, `playerAttackPose`, `playerSpeed` — already takes a
+   * Weapon, so a beat that *is* a Weapon needs no new plumbing anywhere. `beatOf` applies it.
+   *
+   * What a chain is for: holding the strike key used to restart an identical swing forever, so holding
+   * it was strictly optimal and the input carried no rhythm at all. A string gives the held key a
+   * shape, and puts the cost on the last beat, which is the one that commits.
+   */
+  chain?: {
+    /** Seconds after a swing ends within which the next strike continues the string. */
+    window: number;
+    beats: Partial<Weapon>[];
+  };
 };
+
+/**
+ * The weapon a given beat of a string swings as. Beat 0 is the arm itself; later beats overlay it.
+ * An index past the end holds the last beat rather than falling off, so a caller cannot produce a
+ * swing with no numbers.
+ */
+export const beatOf = (weapon: Weapon, beat: number): Weapon => {
+  const beats = weapon.chain?.beats;
+  if (!beats?.length || beat <= 0) return weapon;
+  return { ...weapon, ...beats[Math.min(beat, beats.length) - 1] };
+};
+
+/** How many beats the string has, counting the arm's own swing as the first. */
+export const chainLength = (weapon: Weapon) => 1 + (weapon.chain?.beats.length ?? 0);
 
 /**
  * The knight's own sword, and the shape every other arm is measured against. These are the values the
@@ -93,6 +124,25 @@ export const TIDEBLADE: Weapon = {
   knockback: 0.38,
   wardenKnockback: 0.1,
   stagger: false,
+  /**
+   * Back-cut, then a two-handed finish. The second beat is the first one mirrored and costs nothing
+   * extra — it is there so the string reads as a string rather than as one cut on repeat. The third
+   * is where the cost and the payoff both are: half again as long, rooted nearly to the spot, and
+   * wide enough to take a second body with it. Its contact window is the longest of the three, and
+   * `canAbortSwing` already refuses a dash inside contact, so committing to it is a real decision
+   * rather than a number.
+   */
+  chain: {
+    window: 0.26,
+    beats: [
+      { duration: 0.36, anticipation: 0.06, contactEnd: 0.17, damage: 4, arc: 0.32 },
+      {
+        duration: 0.56, anticipation: 0.14, contactEnd: 0.3,
+        damage: 7, arc: 0.12, reach: 1.95, moveSpeed: 1.9,
+        knockback: 0.62, wardenKnockback: 0.18,
+      },
+    ],
+  },
 };
 
 /**
@@ -114,6 +164,21 @@ export const TWIN_FANGS: Weapon = {
   knockback: 0.18,
   wardenKnockback: 0.05,
   stagger: false,
+  /**
+   * The same three beats as the sword, at the knives' own rate. The finish is a cross-cut rather than
+   * a heave: it does less than the Tideblade's and takes less time to be caught inside, which is the
+   * trade the whole arm is built on.
+   */
+  chain: {
+    window: 0.22,
+    beats: [
+      { duration: 0.21, anticipation: 0.04, contactEnd: 0.1, damage: 3, arc: 0.42 },
+      {
+        duration: 0.36, anticipation: 0.085, contactEnd: 0.21,
+        damage: 5, arc: 0.22, moveSpeed: 3.4, knockback: 0.3,
+      },
+    ],
+  },
 };
 
 /**
