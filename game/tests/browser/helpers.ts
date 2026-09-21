@@ -66,6 +66,14 @@ export type Snapshot = {
     dashSpan: number;
     guardAgainst: number;
   };
+  /** Dev-only view of who owns the aim and where the cursor is, in NDC. */
+  aim: {
+    device: 'keys' | 'pointer';
+    ndc: { x: number; y: number } | null;
+    span: number;
+    aspect: number;
+    pad: { x: number; z: number } | null;
+  };
   remaining: number;
   objective: {
     floor: number;

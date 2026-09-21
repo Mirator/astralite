@@ -127,3 +127,47 @@ test('the right mouse button dodges', async ({ game, page }) => {
   await game.step(16);
   expect((await game.state()).player.dashTime).toBeGreaterThan(0);
 });
+
+test('the aim follows the cursor as it moves, not just where it first was', async ({ game, page }) => {
+  // The gap this closes: every other test here puts the cursor somewhere once and strikes. That passes
+  // just as well if the aim latched onto the first position it ever saw and never updated again, which
+  // is exactly the failure a player would notice within one fight.
+  await game.enter();
+  await game.step(120);
+
+  const box = await canvasBox(page);
+  const strikeAt = async (fraction: number) => {
+    await page.mouse.move(box.x + box.width * fraction, box.y + box.height * 0.5);
+    await game.step(48);
+    await page.mouse.down({ button: 'left' });
+    await game.step(16);
+    const state = await game.state();
+    await page.mouse.up({ button: 'left' });
+    await game.step(700);
+    expect(state.player.attackTime, `the swing at ${fraction} started`).toBeGreaterThan(0);
+    return along(state.player.facing, SCREEN_DIRECTIONS.right);
+  };
+
+  // Left, right, then left again: the third reading is what catches an aim that moves once and sticks.
+  expect(await strikeAt(0.1), 'cut to the left of the picture').toBeLessThan(-0.5);
+  expect(await strikeAt(0.9), 'then to the right, without touching a key').toBeGreaterThan(0.5);
+  expect(await strikeAt(0.1), 'and back to the left again').toBeLessThan(-0.5);
+});
+
+test('moving the cursor alone re-aims, with no click at all', async ({ game, page }) => {
+  await game.enter();
+  await game.step(120);
+  const box = await canvasBox(page);
+
+  await page.mouse.move(box.x + box.width * 0.85, box.y + box.height * 0.5);
+  await game.step(48);
+  const right = await game.state();
+  expect(right.aim.device, 'the pointer owns the aim once it has moved').toBe('pointer');
+  expect(right.aim.ndc, 'and the game knows where it is').not.toBeNull();
+  const wasX = right.aim.ndc!.x;
+
+  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.5);
+  await game.step(48);
+  const left = await game.state();
+  expect(left.aim.ndc!.x, 'the cursor position tracks across the screen').toBeLessThan(wasX - 0.5);
+});
