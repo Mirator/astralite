@@ -139,6 +139,9 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
       const h=Math.max(.5,Math.min(3.9+random()*1.7,air-.54)),base=mesh(PROP.plinth,carved.pale,x,.24,z);base.scale.set(1.5,1.4,1.5);
       const shaft=mesh(PROP.column,shaftStone,x,h/2+.34,z);shaft.scale.set(1.45,h,1.45);
       const cap=mesh(PROP.capital,carved.pale,x,h+.44,z);cap.scale.set(1.62,1.4,1.62);
+      // Plan 007: the shaft and cap are the "pillar shafts/caps" the local actor cutaway is allowed to
+      // open a window in - the low plinth is a foot, not a wall, and stays out of it.
+      shaft.userData.cameraOccluder=true;cap.userData.cameraOccluder=true;
     } else {
       // A ruin heap of four pebbles was the flattest thing in the keep. The first piece is now a snapped
       // column shaft still standing in its own rubble, which is mid-height mass on the same four meshes.
@@ -247,7 +250,9 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     // few hundredths of a radian of yaw and a hint of roll per block puts a broken line on the top of
     // each course and a chipped corner on the skyline. It is composed into a quaternion this loop was
     // already building from the identity, so it costs nothing at all — not a triangle, not a call.
-    local.forEach((b,i)=>{spin.setFromEuler(settle.set((random()-.5)*.055,(random()-.5)*.16,(random()-.5)*.055));matrix.compose(at.set(b.x,b.y,b.z),spin,size.set(b.sx,b.sy,b.sz));masonry.setMatrixAt(i,matrix);masonry.setColorAt(i,tint.setHex(b.color).multiplyScalar(.78+random()*.44).offsetHSL(random()*.03-.015,random()*.05-.02,0));});masonry.castShadow=masonry.receiveShadow=true;world.add(masonry);
+    local.forEach((b,i)=>{spin.setFromEuler(settle.set((random()-.5)*.055,(random()-.5)*.16,(random()-.5)*.055));matrix.compose(at.set(b.x,b.y,b.z),spin,size.set(b.sx,b.sy,b.sz));masonry.setMatrixAt(i,matrix);masonry.setColorAt(i,tint.setHex(b.color).multiplyScalar(.78+random()*.44).offsetHSL(random()*.03-.015,random()*.05-.02,0));});masonry.castShadow=masonry.receiveShadow=true;
+    // Plan 007: high wall masonry is eligible for the local actor cutaway.
+    masonry.userData.cameraOccluder=true;world.add(masonry);
   }
   // A span was the flattest thing in the keep: four boards over open water with a kerb and nothing else,
   // and both masonry passes skipped it because it belongs to no room. dd-ss-07 builds its jetty out of what

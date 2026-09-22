@@ -17,6 +17,20 @@ import {
 export { canStand, expect, hasClearPath, TILE };
 
 /**
+ * How many RGBA texels differ by more than `threshold` summed across R+G+B, between two same-sized
+ * frames. Eight levels on any one channel is past dither and compression noise; below that a frame is
+ * "the same" for the purposes this counts pixels for.
+ */
+export const countChangedPixels = (a: Uint8ClampedArray, b: Uint8ClampedArray, threshold = 8) => {
+  let changed = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    const delta = Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+    if (delta > threshold) changed++;
+  }
+  return changed;
+};
+
+/**
  * Whether this run produces the reference frames. They are artefacts for a
  * human to look at: nothing in the suite asserts on a PNG, and every helper
  * that does read pixels — `loudestColour`, `tellAgainstStone` — draws its own
@@ -275,6 +289,22 @@ export type CombatFixture = {
   }[];
 };
 
+/** Plan 007: one slot's read-only state, as `dungeonTest.cutawayDiagnostics()` reports it. */
+export type CutawaySlotDiagnostic = {
+  owner: 'player' | 'guard' | 'stalker' | 'warden' | null;
+  id: number | 'player' | null;
+  strength: number;
+  radii: [number, number];
+  /** View-space centre, in the units the fragment shader itself compares against. */
+  center: { x: number; y: number; z: number };
+};
+export type CutawayDiagnostics = {
+  slots: CutawaySlotDiagnostic[];
+  registeredMeshCount: number;
+  registeredMaterialCount: number;
+  enabled: boolean;
+};
+
 type GameWindow = Window & {
   advanceTime?: (ms: number, draw?: boolean) => void;
   render_game_to_text?: () => string;
@@ -286,6 +316,10 @@ type GameWindow = Window & {
     grantXp: (amount: number) => void;
     reset: (seed?: number) => void;
     configureCombatFixture?: (fixture: CombatFixture) => void;
+    /** Read-only target/material state; absent from a production build. */
+    cutawayDiagnostics?: () => CutawayDiagnostics;
+    /** Same-frame A/B toggle for the cutaway shader; never mutates a target's own state. */
+    setCutawayEnabled?: (enabled: boolean) => void;
   };
 };
 
@@ -614,6 +648,92 @@ export class Game {
       if (!hook) throw new Error('dungeonTest is gone');
       hook.buildFloor(value);
     }, level);
+  }
+
+  /**
+   * A single real draw's raw RGBA pixels - the cutaway left exactly as it is, no A/B toggle. For
+   * comparing the *same* rendered instant across two calls (a pause, a zero-time redraw), where
+   * `cutawayFrames`'s off/on pair would answer a different question.
+   */
+  async framePixels(): Promise<Uint8ClampedArray> {
+    const pixels = await this.page.evaluate(() => {
+      const advance = (window as GameWindow).advanceTime;
+      if (!advance) throw new Error('advanceTime is gone');
+      advance(0, true);
+      const gl = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
+      const copy = document.createElement('canvas');
+      copy.width = gl.width; copy.height = gl.height;
+      const ctx = copy.getContext('2d', { willReadFrequently: true })!;
+      ctx.drawImage(gl, 0, 0);
+      return Array.from(ctx.getImageData(0, 0, copy.width, copy.height).data);
+    });
+    return Uint8ClampedArray.from(pixels);
+  }
+
+  /**
+   * Draws a frame, pauses, steps simulation time forward with drawing off, then draws again - all in
+   * one evaluated task. A pause and its subsequent draw were originally driven as separate
+   * `page.evaluate` round trips (dispatch the action, then read pixels), which occasionally read a
+   * transient frame from the real browser's own paint/compositor scheduling in the gap between them -
+   * a test-harness race, not a simulation bug, but one only a single synchronous task can rule out for
+   * certain. `dungeon-action` is the exact event the pause button and `Game.act` both dispatch.
+   */
+  async pauseFreezeCheck(pausedMs: number): Promise<{ before: Uint8ClampedArray; after: Uint8ClampedArray }> {
+    const result = await this.page.evaluate((ms: number) => {
+      const advance = (window as GameWindow).advanceTime;
+      if (!advance) throw new Error('advanceTime is gone');
+      const gl = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
+      const copy = document.createElement('canvas');
+      copy.width = gl.width; copy.height = gl.height;
+      const ctx = copy.getContext('2d', { willReadFrequently: true })!;
+      const frame = () => { ctx.clearRect(0, 0, copy.width, copy.height); ctx.drawImage(gl, 0, 0); return Array.from(ctx.getImageData(0, 0, copy.width, copy.height).data); };
+      advance(0, true);
+      const before = frame();
+      window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'pause' }));
+      advance(ms, false);
+      advance(0, true);
+      const after = frame();
+      window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'pause' }));
+      return { before, after };
+    }, pausedMs);
+    return { before: Uint8ClampedArray.from(result.before), after: Uint8ClampedArray.from(result.after) };
+  }
+
+  /** Plan 007, development-only: the controller's own target/material state, for test setup and
+   * assertions that must not substitute for the pixel evidence `cutawayFrames` below supplies. */
+  async cutawayDiagnostics(): Promise<CutawayDiagnostics> {
+    return this.page.evaluate(() => {
+      const hook = (window as GameWindow).dungeonTest?.cutawayDiagnostics;
+      if (!hook) throw new Error('dungeonTest.cutawayDiagnostics is gone');
+      return hook();
+    });
+  }
+
+  /**
+   * Draws the identical instant twice, once with the cutaway disabled and once enabled, and returns
+   * both frames' raw RGBA pixels plus the canvas size. Both draws happen inside one evaluated task,
+   * exactly like `art-direction.spec.ts`'s `tellAgainstStone`: the renderer has no
+   * `preserveDrawingBuffer`, so a `drawImage` has to happen in the same task as the draw that produced
+   * the framebuffer it copies. Toggling `uCutawayEnabled` never advances the simulation or touches a
+   * single target's own fade/position state, so the two frames differ only in whether the shader discards.
+   */
+  async cutawayFrames(): Promise<{ width: number; height: number; off: Uint8ClampedArray; on: Uint8ClampedArray }> {
+    const result = await this.page.evaluate(() => {
+      const win = window as GameWindow;
+      const setEnabled = win.dungeonTest?.setCutawayEnabled;
+      const advance = win.advanceTime;
+      if (!setEnabled || !advance) throw new Error('dungeonTest.setCutawayEnabled or advanceTime is gone');
+      const gl = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
+      const copy = document.createElement('canvas');
+      copy.width = gl.width; copy.height = gl.height;
+      const ctx = copy.getContext('2d', { willReadFrequently: true })!;
+      const frame = () => { ctx.clearRect(0, 0, copy.width, copy.height); ctx.drawImage(gl, 0, 0); return Array.from(ctx.getImageData(0, 0, copy.width, copy.height).data); };
+      setEnabled(false); advance(0, true); const off = frame();
+      setEnabled(true); advance(0, true); const on = frame();
+      setEnabled(true); // restored: the dev fixture defaults enabled
+      return { width: copy.width, height: copy.height, off, on };
+    });
+    return { width: result.width, height: result.height, off: Uint8ClampedArray.from(result.off), on: Uint8ClampedArray.from(result.on) };
   }
 
   /**
