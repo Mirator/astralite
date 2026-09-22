@@ -1,4 +1,4 @@
-import { expect, test } from './helpers.ts';
+import { expect, type GameWindow, test } from './helpers.ts';
 
 // The veil is what a boot looks like from outside, so a page that is already booted has nothing
 // to show. Every scenario here needs its own load.
@@ -38,9 +38,15 @@ test('a fresh run waits behind the veil and lifts it on the new keep', async ({
     }).observe(document.body, { childList: true, subtree: true });
   });
 
-  await game.act('restart');
-  // Raised in the same breath as the ask: the build itself is two frames away.
-  expect((await game.state()).building).toBe(true);
+  // Raised in the same breath as the ask, and read in it too: the veil is up for three frames, and a
+  // second round-trip to ask about it is a race a busy runner loses, reporting a veil that already lifted.
+  const raised = await page.evaluate(() => {
+    window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'restart' }));
+    const hook = (window as GameWindow).render_game_to_text;
+    if (!hook) throw new Error('render_game_to_text is gone');
+    return (JSON.parse(hook()) as { building: boolean }).building;
+  });
+  expect(raised).toBe(true);
 
   await game.built();
   await expect(page.locator('.loading-veil')).toBeHidden();
