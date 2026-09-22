@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
+import { diffPixels, type DiffStats } from '../../scripts/shots/diff.ts';
 
 /**
  * Diffs two directories of captures and reports, per file, how many pixels
@@ -11,6 +12,9 @@ import { expect, test } from '@playwright/test';
  * every reference shot depends on. It found that our stills agree to the last
  * value step while the strike strip does not, and that the difference is impact
  * sparks drawing real entropy rather than the swing moving.
+ *
+ * The diff itself lives in `scripts/shots/diff.ts`, shared with the contact sheet
+ * `npm run shots:compare` draws, so the two can never disagree about a number.
  *
  *   DIFF_A=path/to/one DIFF_B=path/to/other npx playwright test zz-pixel-diff
  */
@@ -27,7 +31,9 @@ test('diff', async ({ page }) => {
     const load = (dir: string) =>
       `data:image/png;base64,${readFileSync(`${dir}/${name}`).toString('base64')}`;
     const report = await page.evaluate(
-      async ([a, b]) => {
+      async ([a, b, source]) => {
+        // The shared diff arrives as source text; see scripts/shots/diff.ts for why.
+        const diff = (0, eval)(`(${source})`);
         const grab = async (src: string) => {
           const image = new Image();
           image.src = src;
@@ -41,40 +47,9 @@ test('diff', async ({ page }) => {
         };
         const one = await grab(a);
         const two = await grab(b);
-        let changed = 0;
-        let worst = 0;
-        let minX = 1e9;
-        let minY = 1e9;
-        let maxX = -1;
-        let maxY = -1;
-        let sum = 0;
-        for (let i = 0; i < one.data.length; i += 4) {
-          const d = Math.max(
-            Math.abs(one.data[i] - two.data[i]),
-            Math.abs(one.data[i + 1] - two.data[i + 1]),
-            Math.abs(one.data[i + 2] - two.data[i + 2]),
-          );
-          if (!d) continue;
-          changed++;
-          sum += d;
-          if (d > worst) worst = d;
-          const p = i / 4;
-          const x = p % one.width;
-          const y = (p / one.width) | 0;
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-        return {
-          total: one.width * one.height,
-          changed,
-          worst,
-          mean: changed ? +(sum / changed).toFixed(2) : 0,
-          box: maxX < 0 ? null : [minX, minY, maxX, maxY],
-        };
+        return diff(one.data, two.data, one.width) as DiffStats;
       },
-      [load(A!), load(B!)],
+      [load(A!), load(B!), diffPixels.toString()],
     );
     console.log(
       `DIFF ${name} changed=${report.changed}/${report.total} (${((report.changed / report.total) * 100).toFixed(2)}%) worst=${report.worst} mean=${report.mean} box=${JSON.stringify(report.box)}`,

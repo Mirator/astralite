@@ -15,6 +15,7 @@ past sessions and `plans/` holds implementation plans. Node 22.13 or newer.
 | Node suite (generator, combat rules) | `npm test` |
 | Browser suite (real game, Playwright) | `npm run test:browser` — on Windows prefix `GAME_TEST_GL=d3d11` and it is ten times quicker |
 | Browser stability | `npm run test:browser -- --repeat-each=3` |
+| Before/after contact sheet (art changes) | `npm run shots:compare` — `game/tests/README.md` has the options |
 | Production build | `npm run build` |
 | Dev server | `npm run dev` |
 

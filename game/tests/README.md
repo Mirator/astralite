@@ -204,6 +204,60 @@ await new Promise(done => {
 d.sort((a, b) => a - b); d[Math.floor(d.length / 2)]; // median, capped by the display refresh
 ```
 
+## Before and after, on one sheet
+
+```bash
+npm run shots:compare                      # fork point with main vs the working tree
+npm run shots:compare -- --base HEAD       # HEAD vs the working tree: near zero, or a scene is unstable
+npm run shots:compare -- --before ../output/shots/baseline --gl swiftshader
+npm run shots:compare -- --help
+```
+
+For an art change: every scene in `tests/browser/shots.spec.ts` captured on the previous version and on the
+working tree, and a contact sheet at `outputs/shots-compare/<timestamp>/index.html` with a row per scene -
+previous | current | difference x6, with the change's bounding box outlined in magenta so a few pixels can
+be found - its changed-pixel count, worst and mean step and bounding box, and draw calls and triangles before
+and after from the `COST` lines. The concept sheet's main scene
+(`docs/reference/dungeons-beyond-concept.png`, the top-left 960x515) is pinned beside the index, and the two
+strips fold away under their own headings. It judges nothing and always exits 0 when both captures ran; a
+human looks at it.
+
+- **Previous** defaults to the commit the branch forked from `main` (`git merge-base main HEAD`), which is
+  what a pull request is reviewed against. On main's tip that is HEAD itself, so it compares uncommitted work
+  with HEAD, or a clean tree with `HEAD~1`. `--base <ref>` picks any commit; use `--base origin/main` if the
+  local `main` is stale. It is captured from a temporary `git worktree` in the system temp directory that
+  borrows this checkout's `node_modules` through a junction - so no `npm ci`, and a base with a different
+  `package-lock.json` gets a warning, since it would run on today's dependencies. The worktree is removed
+  when the run ends, including after a failure or ^C, and the junction is always unlinked before anything
+  deletes a directory.
+- **`--before <dir>`** uses a directory of PNGs instead, and `--after <dir>` does the same for the current
+  side: two earlier `before/` or `after/` folders re-sheet in seconds with no capture at all, keeping what
+  they were captured from.
+- **One renderer on both sides.** `--gl d3d11` (the default) takes about 45s a side for `shots.spec.ts`
+  alone, 1.5 minutes for the whole comparison; `--gl swiftshader` is the renderer `output/shots/baseline/`
+  came off, and took 135s for one side on the same machine. Each side records its renderer in
+  `meta.json`; the tool refuses a directory captured on the other one unless told `--allow-mixed-gl`, and
+  warns when it cannot tell. It refuses a base too old to honour `GAME_TEST_GL` rather than silently
+  capturing it on SwiftShader.
+- **Serial.** The base capture runs, finishes and releases its port before the working tree's starts; each
+  is one Playwright worker. The working tree uses `GAME_TEST_PORT` (default 3000) and the base the next port
+  up (`--port`, `--base-port`); both are checked before anything starts, because the suite will not adopt a
+  server that is already there.
+- `--grep <pattern>` narrows the run to matching `shots.spec.ts` test titles, e.g. `--grep "flooded|warden"`.
+
+The output directory is under the root `outputs/` ignore rule rather than under `test-results/`, which the
+next `npm run test:browser` empties. It holds `before/` and `after/` (the PNGs, `costs.json`, `meta.json`
+and the run's `run.log`), `diff/`, `summary.json` and the sheet. The diff is `scripts/shots/diff.ts`, the
+same one `zz-pixel-diff.spec.ts` reports.
+
+What `--base HEAD` looks like on d3d11 (2026-09-22, `e2f49b5`), which is the floor under any real change:
+the flooded hall and the warden chamber are identical; the strike contact frame, the shrine and every strip
+frame move by at most 85 pixels (the strike strip's sparks, the dash's dust); the bridge (2,495 px, worst 6)
+and the junction (2,895 px, worst 1) move faintly along the top walls; the dark corridor (21,041 px, worst 17)
+moves along the top walls and in the HUD bars; and the gauntlet (38,310 px, 5.5%, worst 203) changes wherever
+its embers are, because they draw real entropy. Read a change in those scenes against that, and a d3d11 sheet
+only against another d3d11 sheet.
+
 ## The palette, measured
 
 `tests/browser/art-direction.spec.ts` holds `docs/art-direction.md` to its own rules, off the rendered
