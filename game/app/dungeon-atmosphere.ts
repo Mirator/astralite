@@ -276,7 +276,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const paleTint=new THREE.Color(),bowlTint=new THREE.Color(),black=new THREE.Color(0x000000);
   const inlayTint=new THREE.Color(),runnerTint=new THREE.Color(),trimTint=new THREE.Color();
   const brassCast=new THREE.Color(0xb08a4e),timberCast=new THREE.Color(0x6d523a);
-  return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,update(t:number,player:THREE.Vector3,cleared:Set<number>,fire:THREE.Color,banner:THREE.Color,masonry:THREE.Color,bed:THREE.Color){
+  return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,motifs:carved.motifs,update(t:number,player:THREE.Vector3,cleared:Set<number>,fire:THREE.Color,banner:THREE.Color,masonry:THREE.Color,bed:THREE.Color){
     shore.time.value=t;
     // What burns is the chamber's, not the floor's. The flame body takes the mood colour straight, the
     // core is the same hue run most of the way to white so a flame still has a hot centre, and the halo

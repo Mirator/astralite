@@ -10,6 +10,7 @@ the operator asks.
 | [001 — Make gameplay verification portable and required](001-verification-baseline.md) | P1 | Done, committed 2026-09-14 on `fix/combat-integration-and-ci` | See below |
 | [002 — Make attacks, damage mitigation, and boon transitions consistent](002-combat-integrity.md) | P1 | Done, committed 2026-09-14 on `fix/combat-integration-and-ci` (Salt Ward keeps the later rule: enemy steel only) | See below |
 | [003 — Bring the controls up to genre standard](003-controls-and-feel.md) | P2 | Stages A–D implemented on `feat/loading-veil`, not committed | See the plan's Evidence section |
+| [004 — Give each room family a distinct floor motif](004-distinct-room-motifs.md) | P2 | Implemented, not committed | See the plan's Evidence section, and `game/progress.md` |
 
 ## 001 — Verification baseline
 
