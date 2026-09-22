@@ -1238,3 +1238,134 @@ visible", the check that actually settles it is isolating that something from ev
 alongside it and confirming it renders on its own - not a harder look at a crop of the combined
 scene.
 
+## Plan 006: merged two-cell slabs and settled strips instead of a perfect grid
+
+Implemented on top of 004/005, same working tree. Baseline established first: `npm run typecheck`,
+`npm run lint`, `npm test` (187 tests) and, on `GAME_TEST_GL=d3d11`, `art-direction.spec.ts` and
+`frame-budget.spec.ts` all passed before any source edit.
+
+Three new pure modules, none of them importing three.js or React:
+
+- `dungeon-paving-layout.ts`: `planPavingPatches(floor)` plans, per room, a bounded set of merged
+  two-cell pairs and settled, staggered strips. Eligibility for either treatment requires every cell
+  within two cardinal steps to belong to the same room's own stone footprint (interior only, clear of
+  any hole, wood tile, corridor or a neighbouring room's ownership) and outside every rectangle
+  `dungeon-decor-layout.ts`'s `decorReservations` returns, expanded by a 0.3-unit margin - which is
+  also why a gauntlet, whose whole footprint is one such reservation, never receives a patch. Pairing
+  targets a seeded 20-30% coverage of a room's eligible cells once it has at least 24 of them, capped
+  so a pair never claims more than 35% of the room's total stone cells; candidate pairs are scored per
+  theme (`keep` favours its own long axis and stays near the centreline, `ruins` scatters two or three
+  offset clusters with alternating orientation, `flooded` pulls toward the room's edges) and accepted
+  best-first without reusing a cell. Settled singles then claim a theme-sized fraction (5/12/8%) of
+  whatever eligible cells the pairs left, in staggered three-or-four-cell strips seeded toward the
+  room's edges. Everything here is deterministic off `floor.seed` and `room.id` alone (own hash, salted
+  per cell/cluster/strip - never touches the generator's own PRNG) and mutates nothing it is handed.
+- `dungeon-paving-patches.ts`: `pavingPatchGeometry()` builds the merged slab by hand - one top quad,
+  four rim quads, four skirt quads, eighteen triangles total, the same nine-quad shape
+  `pavingGeometry('plain')` already uses for one tile, just built on independent half-width/half-depth
+  (2.91 x 1.43, `2*TILE-0.05` by `TILE-0.05`) rather than one shared half, since a rectangle's four
+  sides are not a single trapezoid turned four times the way a square's are. Every quad's winding is
+  picked by `orientQuad`, which computes the flat normal and flips the vertex order if it disagrees
+  with an explicit expected outward direction, rather than trusting a hand-picked corner order to be
+  right - directly applying the lesson two entries above this one, at construction time instead of
+  after a capture catches it missing. The whole rectangle is mapped over one 0..1 UV space rather than
+  the single-tile mapping repeated twice, so the existing edge-shaded stone texture's own border falls
+  only on the true outer boundary.
+- `dungeon-surface.ts`: a presentation-only support-height index for plan 008 to reuse.
+  `buildSurfaceIndex` bins every upward-facing triangle (by the sign of its own flat normal, source
+  winding respected rather than assumed) into the grid cell its bounding box touches; `sampleSurface`
+  returns the highest face whose barycentric coordinates actually contain the query point, or `null`
+  for a real gap. Never consulted for collision - `floor.cells`/`canStand` are untouched.
+
+`dungeon-game.tsx` wires the three in: `planPavingPatches` runs once per `buildFloor`, right after
+`generateFloor`. Paired cells are filtered out of the plain/groove/dish top batches entirely (their
+top is the new merged-slab `InstancedMesh` instead, one per spatial batch a pair actually falls in,
+tinted with the two source cells' own `slabTint` blended); every stone cell keeps its own foundation
+regardless. Settled singles are forced into the plain batch (bypassing the per-tile groove/dish/old-
+settled roll, so the two mechanisms never stack) and get a new, shallower transform
+(`macroSettle`: 0.025-0.045 additional sink, up to 0.03 radian of tilt on each axis) instead of the
+existing damage variant's own settle. After `addAtmosphere` (which is where floor motifs attach),
+every mesh tagged `userData.walkingSurface = true` - plain/groove/dish/pair tops, wood planks, floor
+motifs - is walked once, its geometry's position attribute transformed by its own (or its instance's)
+world matrix into numeric triangles, and handed to `buildSurfaceIndex` alongside a per-cell
+theme/wood map built from `floor.tiles`. The result is kept in a closure variable and a compact
+`graphics.paving = { pairs, settled, surfaceCells }` summary is added to `render_game_to_text`,
+counting only the realized batches - no geometry buffers in the diagnostic.
+
+New tests: `dungeon-paving-layout.test.ts` (28 cases spanning seeds 1-100 x levels 1-3: determinism,
+no mutation, pair adjacency/same-room/same-batch, no cell claimed twice, nothing inside a reservation
+with margin, a gauntlet never gets a patch, the 35% coverage bound holds per room, negative-coordinate
+floors work, every theme realizes a pair and a settled single across the sample),
+`dungeon-paving-patches.test.ts` (the geometry is exactly 18 triangles at the stated bounds, no vertex
+sits on the old centre joint, every facet's winding and stored normal agree and point outward/upward,
+a bounding box/sphere exist, the UV mapping spans the whole rectangle rather than repeating the
+single-tile one), and `dungeon-surface.test.ts` (flat/tilted/rotated/merged/motif-like surfaces sample
+correctly, a downward face is never a support, overlapping faces resolve to the higher one, negative
+cells and genuine gaps work, barycentric interpolation checked against hand-computed weights rather
+than just "some plausible number").
+
+New browser spec `macro-paving.spec.ts` (seed 0x5d/93, which realizes a pair and a settled single in
+all three themes on one floor, plus 0x22/34 for a `hall`-shaped room and 0x2 for a wide junction):
+the live `graphics.paving` counters match an independent call to `planPavingPatches` on the same
+floor; a pinned-seed reset and four repeated rebuilds are stable; walking from one cell of a pair onto
+its other cell, and off a settled single, both displace the knight normally (no invisible seam); a
+strike against a target standing on a merged slab connects exactly like anywhere else; all three
+themes, a narrow hall, a junction and a bridge-approach-beside-a-pair are captured for review, plus
+one isolated mobile context walking between all three themes (not three separate mobile boots, per
+the CI-budget lesson from 004/005). 13 tests, all under 2s each on `GAME_TEST_GL=d3d11` (measured
+total: this spec's 13 tests summed to about 12.5s combined against the full suite's ~3 minutes) - no
+new per-test page boot beyond the one existing mobile describe block already pays for.
+
+**Visual verification, done the way the two entries above this one say to do it - by isolating and
+zooming into the actual capture PNGs, not by glancing at a full-frame screenshot:**
+
+A camera-accurate projection script (same technique as the ruins-tongue fix above: replicate the
+game's fixed orthographic camera - position `focus + (9.2, 12.5, 11.5)`, `lookAt(focus)`, span 7.2,
+aspect from the 1000x700 canvas - in a throwaway script, project a known world point, and use that to
+crop precisely rather than guess) located each fixture's pair and settled single in the SwiftShader
+captures (`test-results/graphics-006-after`, reviewed and then discarded - nothing here is committed,
+matching the plan's own `test-results/` ignore rule). Nearest-neighbour 2-4x crops (no LANCZOS, for
+the same reason the ruins-tongue investigation avoided it) confirmed, in every theme:
+
+- **keep** (room 1, "Hollow Court"): one clearly elongated slab, roughly twice the length of its
+  neighbours along the same diagonal, with no interior seam and no repeated texture border down its
+  middle.
+- **ruins** (room 12): two separate elongated slabs visible in one crop, both continuous, both
+  correctly bevelled at their true outer edges only.
+- **flooded** (room 8, "The Sunken Stair"): one elongated slab, same signature, in the goal/warden
+  room - confirming a pair can legally sit in a goal room once clear of its 2.2-unit stair reservation.
+- **a junction** (seed 0x2, room 1, a `court`-shaped room with three branches): once precisely located
+  via the same projection technique, the merged slab reads identically to the other three.
+- **a bridge approach** (seed 0x5d, room 1): the knight standing exactly on the wood-plank transition
+  shows clean ordinary planks and clean ordinary paving on both sides - no patch geometry anywhere
+  near the wood, matching the eligibility rule's own two-step clearance.
+
+A settled single (room 1's own, cell (10,-10)) was checked two ways rather than one: visually, at 4-5x
+zoom with brightness/contrast boosted (the keep theme is dark by design), the tile's own bevel reads
+as very slightly uneven rather than dramatically sunk - expected, since the spec caps the effect at
+0.045 units of sink and 0.03 radians of tilt, which this camera's own vertical scale (~0.76 screen-units
+per world-unit, ~49px per screen-unit at this canvas size) renders as roughly a 1-2px difference; and
+numerically, by recomputing the exact same seeded hash formula `macroSettle` uses for eight different
+settled cells across all three themes, confirming every one produces a non-zero, in-range drop
+(0.025-0.045) and tilt (±0.03 rad on each axis) - ruling out the specific failure mode "the formula
+always returns near-zero and the effect is invisible because it isn't really there," which a purely
+visual pass on a deliberately subtle effect cannot rule out on its own. An attempt to get fully live
+ground truth (patching `THREE.WebGLRenderer.prototype.render` on a manually-driven dev-server session
+to read the actual instance matrix back) was abandoned part-way through: the dynamically re-imported
+`three` module was a distinct module instance from the one the running app actually used, so the
+patched prototype was never the one in the app's own prototype chain, and chasing the exact
+Vite-optimized-deps identity down was a worse use of time than the two checks above, which already
+rule out the two failure modes that matter (wrong/degenerate math; visibly broken geometry).
+
+Gates: `npm run typecheck`, `npm run lint`, `npm test` (215, up from 187), the full
+`GAME_TEST_GL=d3d11 npm run test:browser` (116 passed, 1 pre-existing skip - `zz-pixel-diff.spec.ts`,
+unchanged), `npm run build`, and `git diff --check` from root all pass. `frame-budget.spec.ts`'s three
+ceilings are unaffected and, incidentally, came in under their previous measurements in two of three
+scenes (junction 498/502 calls, 326,192/343,716 triangles; flooded-hall 428/439, 196,500/198,818) -
+merging two ordinary 18-triangle tops into one 18-triangle pair is a net saving wherever a pair lands,
+not a new cost.
+
+No deviation from the plan's scope list. `dungeon-decor-layout.ts` was not touched - its existing
+`decorReservations` contract already covered every case this plan needed (gauntlet, goal, sanctuary
+centre, weapon drop), so the "only if a missing reservation is found" clause never triggered.
+

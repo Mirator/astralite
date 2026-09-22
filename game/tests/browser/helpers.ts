@@ -221,6 +221,8 @@ export type Snapshot = {
       body: { width: number; height: number; depth: number; y: number };
       core: { width: number; height: number; depth: number };
     }[];
+    /** Realized macro paving (plan 006), derived from the actual batches rather than recomputed. */
+    paving: { pairs: number; settled: number; surfaceCells: number };
   };
   player: {
     x: number;
