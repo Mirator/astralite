@@ -14,7 +14,8 @@
     "test:browser": "playwright test",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "format": "oxfmt",
-    "balance": "node --experimental-strip-types scripts/balance/main.ts"
+    "balance": "node --experimental-strip-types scripts/balance/main.ts",
+    "balance:check": "node --experimental-strip-types scripts/balance/check.ts"
   },
   "dependencies": {
     "@types/three": "^0.185.4",

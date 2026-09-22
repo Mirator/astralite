@@ -33,7 +33,97 @@ concurrency:
 # Building publishes nothing — `upload-pages-artifact` writes to this run's own
 # artifact storage — so a failed gate still means nothing reaches Pages, and the
 # happy path does not pay for the gates twice over in wall-clock time.
+#
+# All three sit behind `changes`, so a change that touches only prose skips them,
+# and `verified` is the one check that reports either way.
 jobs:
+  # Twenty minutes of browser suite for a typo in a plan is the cost this pays
+  # off. Plain git rather than a paths-filter action: the question is one diff,
+  # and every action this pipeline runs is GitHub's own; a third-party one, run
+  # with the checkout, is more supply chain than one diff is worth.
+  #
+  # Every doubt resolves to "code changed". A new branch (all-zero `before`), a
+  # force-push whose `before` is gone, a git error, an empty diff, a manual run —
+  # each runs the full set, because a wrong skip ships untested code and a wrong
+  # run only costs time.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      # Full history so both ends of the range are present locally; the whole
+      # repository is tens of megabytes, which is cheaper than being clever.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - id: diff
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          code=true
+          commit() { [[ "$1" =~ ^[0-9a-f]{40}$ && ! "$1" =~ ^0+$ ]] && git cat-file -e "$1^{commit}" 2>/dev/null; }
+          # Three dots on a pull request: what the branch changed since it left
+          # main, not everything main has gained since.
+          case "$EVENT" in
+            pull_request) commit "$PR_BASE" && commit "$PR_HEAD" && range="$PR_BASE...$PR_HEAD" ;;
+            push) commit "$BEFORE" && commit "$AFTER" && range="$BEFORE..$AFTER" ;;
+          esac
+          # --no-renames, or moving game/app/x.ts to docs/x.md would list only
+          # the new path and read as docs-only.
+          if [ -n "${range:-}" ] && files=$(git diff --name-only --no-renames "$range"); then
+            code=false
+            # `*` in a case pattern crosses slashes, so `*.md` is any depth. An
+            # empty diff arrives as one empty line and falls through to code.
+            # Order matters: .github and game/public are code even when the file
+            # is markdown — one steers this pipeline, the other ships to Pages.
+            while IFS= read -r file; do
+              case "$file" in
+                .github/*|game/public/*) code=true ;;
+                *.md|docs/*|plans/*) ;;
+                *) code=true ;;
+              esac
+            done <<< "$files"
+            printf '%s\n' "$files"
+          else
+            echo "No usable range for $EVENT; treating it as a code change."
+          fi
+          echo "code changed: $code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+  # The one check branch protection should require, and the only one it can:
+  # the gates above skip on a docs-only change, and a skipped matrix job reports
+  # under its unexpanded name `browser`, never as `browser (1)`, so requiring the
+  # shards by name would leave every docs-only pull request waiting forever.
+  #
+  # Skipped counts as passing only when `changes` said nothing but prose moved.
+  # Once code changed, every gate must actually have succeeded — a gate that
+  # skipped itself then is a bug in its `if`, not a pass.
+  verified:
+    needs: [changes, checks, browser, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - shell: bash
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          CODE: ${{ needs.changes.outputs.code }}
+          GATES: ${{ needs.checks.result }} ${{ needs.browser.result }} ${{ needs.build.result }}
+        run: |
+          echo "changes: $CHANGES (code changed: ${CODE:-unknown}); checks, browser, build: $GATES"
+          [ "$CHANGES" = success ] || { echo "::error::the changes job did not succeed"; exit 1; }
+          for result in $GATES; do
+            case "$result" in
+              success) ;;
+              skipped) [ "$CODE" = false ] || { echo "::error::a gate was skipped although code changed"; exit 1; } ;;
+              *) echo "::error::a gate ended $result"; exit 1 ;;
+            esac
+          done
+
   # Something has to notice. The merge of #30 went red on `main` at 08:51 and nobody saw it: the next
   # branch off main inherited a failing suite, and an afternoon went into proving the failure was not
   # the change under review. A pull request's own red X is on screen where its author is looking; a
@@ -41,8 +131,11 @@ jobs:
   #
   # It is not a substitute for requiring these checks before a merge - that is a branch protection
   # setting and lives outside this file - but it is the half that can live in the repository.
+  #
+  # `changes` and `verified` are in the list because either can be the only red
+  # job: a broken diff step skips every gate after it, and nothing below it fails.
   alarm:
-    needs: [checks, browser, build]
+    needs: [changes, checks, browser, build, verified]
     if: failure() && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -79,6 +172,8 @@ jobs:
 
   # The fast gates. Nothing here needs a browser, so nothing here waits for one.
   checks:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -91,6 +186,14 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
+      # Sixty seeded bot descents at two skill levels, held to loose bands in
+      # scripts/balance/bands.json. Nothing else notices a change that quietly
+      # makes the keep lethal or trivial: every other gate asserts rules, not
+      # outcomes. About a minute. When it fails on a change that meant to move
+      # the balance, re-measure and update bands.json in the same pull request,
+      # so the new numbers are reviewed with the change; do not loosen a band to
+      # get past a drift nobody intended.
+      - run: npm run balance:check
 
   # Where the whole wall clock of this pipeline lives: the browser suite is
   # thirty-odd minutes of work and everything else is under a minute. It is cut
@@ -110,6 +213,8 @@ jobs:
   # and the third and fourth would mostly contend. Lower it to 1 here if a
   # scenario ever turns out to mind the company; nothing else needs to change.
   browser:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -143,6 +248,8 @@ jobs:
           retention-days: 7
 
   build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -174,9 +281,13 @@ jobs:
   deploy:
     # Every gate, then the deployment. This is the line that keeps a red suite
     # off the live site.
-    needs: [checks, browser, build]
+    needs: [changes, checks, browser, build]
     # A pull request must never be able to publish to Pages, whatever it changed.
-    if: github.event_name != 'pull_request'
+    # And a docs-only push has no artifact to publish: the gates and the build
+    # were skipped, so the site stays on the last code push's deployment. A
+    # skipped `needs` would already stop this job; the `code` test says so
+    # outright rather than leaning on that rule.
+    if: github.event_name != 'pull_request' && needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # Write access lives here alone, in the one job no pull request can trigger.
     permissions:
