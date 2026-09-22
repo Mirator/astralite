@@ -1599,3 +1599,46 @@ Verification: `npm run typecheck`, `npm run lint`, `npm test` (258 pass), `npm r
 clean on both workflows, `git diff --check` clean. Browser suite and build not run (shared machine, and
 nothing they cover changed).
 
+
+
+## Shot comparison: one command for an art change's before/after sheet
+
+`npm run shots:compare` (`scripts/shots/compare.ts`) replaces the hand-made capture/before-after round every
+visual change used to need. It captures `tests/browser/shots.spec.ts` on the previous version and on the
+working tree, one after the other, and writes `outputs/shots-compare/<timestamp>/index.html`: a row per scene
+of previous | current | difference x6 (change box outlined), changed pixels, worst and mean step, bounding
+box, and draw calls and triangles from the `COST` lines, with the concept sheet's main scene pinned beside the
+index and the two strips folded under their own headings. It judges nothing. Usage is in `tests/README.md`.
+
+- Previous defaults to `git merge-base main HEAD` (HEAD for uncommitted work on main's tip, HEAD~1 for a clean
+  one); `--base <ref>` picks any commit, `--before <dir>` / `--after <dir>` take directories instead. The base is
+  a detached `git worktree` in the temp directory with `game/node_modules` junctioned to this checkout's, on
+  port+1, so vite.config's per-port prebundle cache keeps the two apart. Cleanup unlinks the junction before
+  `git worktree remove --force`, and runs on failure (checked with a capture that found no tests: worktree
+  gone, `node_modules` intact, both ports free). ^C is handled but was not exercised.
+- Both sides always use the same renderer. A directory's renderer comes from its `meta.json` (and
+  `output/shots/baseline` is known to be SwiftShader); a mismatch is refused without `--allow-mixed-gl`, and a
+  base whose playwright config predates `GAME_TEST_GL` or `GAME_TEST_PORT` is refused outright.
+- The diff moved out of `zz-pixel-diff.spec.ts` into `scripts/shots/diff.ts`, one self-contained function both
+  callers ship into Chromium as source text. The spec reports the same numbers it did (checked on the run
+  below: identical to the sheet's). `tests/shots-compare.test.ts` (11) covers arguments, the base decision, COST
+  parsing, pairing, the diff and difference image, the source-text rebuild in a fresh VM context, and escaping.
+- Output goes under the root `outputs/` ignore rule, not `test-results/`, because the next browser run empties
+  that. Each run is ~82MB (every PNG twice plus diffs).
+
+`--base HEAD` on d3d11 (`e2f49b5`, 1m36s end to end, 44s and 43s a side): flooded hall and warden chamber
+identical; strike contact 8 px (worst 36), shrine 9 px (worst 1); bridge 2,495 px (0.36%, worst 6) and junction
+2,895 px (0.41%, worst 1), faint, along the top walls; dark corridor 21,041 px (3.01%, worst 17), top walls and
+the HUD bars; gauntlet 38,310 px (5.47%, worst 203), its embers. Strips: dash 7/24 frames moved, at most 470 px
+(frame 00, the HUD corner); strike 28/32 moved, at most 85 px (its sparks). So on d3d11 the strike strip is
+nearly stable and the gauntlet is the scene that is not - the reverse of what the SwiftShader STABILITY run
+suggested. The faint top-wall band and the HUD differences look like something keyed to wall-clock time rather
+than to `advanceTime`; not chased here.
+
+`--before ../output/shots/baseline --gl swiftshader`: 135s for the one capture; every scene 99.7-99.99% changed,
+which is the baseline being stale (it predates plans 004-008 and the smaller rooms), not misalignment - the
+frames line up and the rooms are simply different. `strike-seq-30/31` exist only on the current side.
+
+Gates: `npm run typecheck`, `npm run lint`, `npm test` (269 pass), `git diff --check`. The browser suite was not
+run in full; `shots.spec.ts` passed 10/10 in every capture above and `zz-pixel-diff.spec.ts` passed with
+DIFF_A/DIFF_B set.
