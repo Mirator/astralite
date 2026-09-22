@@ -10,7 +10,64 @@ the operator asks.
 | [001 — Make gameplay verification portable and required](001-verification-baseline.md) | P1 | Done, committed 2026-09-14 on `fix/combat-integration-and-ci` | See below |
 | [002 — Make attacks, damage mitigation, and boon transitions consistent](002-combat-integrity.md) | P1 | Done, committed 2026-09-14 on `fix/combat-integration-and-ci` (Salt Ward keeps the later rule: enemy steel only) | See below |
 | [003 — Bring the controls up to genre standard](003-controls-and-feel.md) | P2 | Stages A–D implemented on `feat/loading-veil`, not committed | See the plan's Evidence section |
-| [004 — Give each room family a distinct floor motif](004-distinct-room-motifs.md) | P2 | Implemented, not committed | See the plan's Evidence section, and `game/progress.md` |
+| [004 — Distinct room floor motifs](004-distinct-room-motifs.md) | P2 | Done, merged via [PR #34](https://github.com/Mirator/astralite/pull/34) 2026-09-22 (CI stability fix in [PR #35](https://github.com/Mirator/astralite/pull/35)) | See the plan's Evidence section, and `game/progress.md` |
+| [005 — Theme-specific light-source shapes](005-theme-light-source-shapes.md) | P2 | TODO | Graphics recommendation 2; planned at `cc6fb85`, 2026-09-21 |
+| [006 — Macro-scale paving variation](006-macro-paving-variation.md) | P2 | TODO; depends on 004 | Graphics recommendation 3; planned at `cc6fb85`, 2026-09-21 |
+| [007 — Local cutaway for occluded actors](007-local-actor-cutaway.md) | P2 | TODO | Graphics recommendation 4; planned at `cc6fb85`, 2026-09-21 |
+| [008 — Surface feedback at foot contacts](008-surface-footstep-feedback.md) | P3 | TODO | Graphics recommendation 5; planned at `cc6fb85`, 2026-09-21 |
+
+## Graphics implementation sequence — 2026-09-21
+
+These five plans are proposed implementation handoffs, not completed work.
+Each contains its own source evidence, exact scope, visual dimensions/motion,
+integration steps, tests, capture procedure, resource ownership and stop rules.
+The supplied numerical values are starting design constraints, not measurements
+from a completed prototype. Source was inspected; no new runtime baseline was
+executed while writing these documents. Executors establish that baseline first.
+
+Recommended order: **004 → 005 → 006 → 007 → 008**. Execute one at a time in
+the integrated checkout: they share `dungeon-game.tsx`, `dungeon-art.ts` and/or
+`dungeon-atmosphere.ts`, and all spend the SAME existing render budget.
+Do not give each executor an independent allowance on top of that budget.
+
+- **004 → 006 is a hard dependency:** 004 introduces world-space decoration
+  reservations; 006 uses them to keep long paving slabs away from room motifs,
+  shrines, goals, weapon drops and gauntlets.
+- 005 is independently implementable but should follow 004 to keep edits serial.
+- 007 follows the geometry work for reliable occlusion captures. It chooses a
+  local dithered cutaway, not a permanent through-wall outline, and includes a
+  prototype gate before broader integration.
+- 008 can be implemented alone; with 006 present it must use realized settled
+  surface heights for contact placement. 006 defines a pure `dungeon-surface.ts`
+  triangle index with `sampleSurface`; 008 reuses it, or introduces the same
+  contract if implemented alone. Its particle budget remains bounded.
+- Known changes made by earlier plans are expected drift: preserve their APIs,
+  tests and logged results. Unexplained source mismatch requires reconciliation.
+
+For a cheaper executor, dispatch one entire plan file, ask it to follow the
+file's scope and verification steps, and require its visual evidence before
+marking DONE. No separate conversation context is needed. Passing structural
+tests alone is insufficient to accept an art change.
+
+Status vocabulary for 004–008: TODO, IN PROGRESS, DONE, or BLOCKED with a short
+reason. A failing pre-existing gate must be reported rather than silently
+accepted. Preserve the historical 001–003 entries below.
+
+### Deliberately excluded from this graphics round
+
+- A new renderer, bloom/SSAO stack, downloaded textures or wholesale palette
+  changes: not needed for the five requested improvements and outside scope.
+- Uniformly shorter walls or a whole-wall transparency effect: removes the
+  architectural depth the current art intentionally added.
+- New collisions, floor holes, water-wading mechanics or physics debris:
+  these are gameplay changes, not the requested presentation work.
+- Detailed new banner heraldry and waterfall reconstruction: considered in the
+  audit but not among the five selected recommendations; no hidden extra plans.
+- General security, balance and dependency audits: not part of these handoffs.
+- Cold-review concern that helper `world` bypasses floor cleanup was checked
+  and rejected: `addAtmosphere` receives `floorGroup`, then passes that same
+  group to `addCarvedArchitecture`. The misleading parameter name does not
+  indicate a leak. Plans explicitly preserve this ownership chain.
 
 ## 001 — Verification baseline
 
