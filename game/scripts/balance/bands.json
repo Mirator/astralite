@@ -1,0 +1,53 @@
+{
+  "note": "Bot numbers from scripts/balance/sim.ts, not human ones: they say whether the keep moved, not how hard it is. Bands are deliberately loose so they catch accidental large drift, not tuning. A deliberate balance change is expected to fail npm run balance:check and to update this file (measured and bands) in the same pull request. Rates and HP are percentages (death rate is of runs that reached the floor; HP left is the median over floors cleared); run length is seconds. With 30 runs one run is 3.3 points of a rate.",
+  "runs": 30,
+  "firstSeed": 1,
+  "policies": {
+    "default": {
+      "policy": {},
+      "measured": {
+        "escapeRate": 100,
+        "floor1.deathRate": 0,
+        "floor2.deathRate": 0,
+        "floor3.deathRate": 0,
+        "floor1.medianHpLeft": 100,
+        "floor2.medianHpLeft": 100,
+        "floor3.medianHpLeft": 100,
+        "medianRunSeconds": 266.1
+      },
+      "bands": {
+        "escapeRate": { "min": 85, "max": 100 },
+        "floor1.deathRate": { "min": 0, "max": 10 },
+        "floor2.deathRate": { "min": 0, "max": 10 },
+        "floor3.deathRate": { "min": 0, "max": 10 },
+        "floor1.medianHpLeft": { "min": 80, "max": 100 },
+        "floor2.medianHpLeft": { "min": 80, "max": 100 },
+        "floor3.medianHpLeft": { "min": 80, "max": 100 },
+        "medianRunSeconds": { "min": 180, "max": 380 }
+      }
+    },
+    "weak": {
+      "policy": { "dodge": 0, "reaction": 0.6 },
+      "measured": {
+        "escapeRate": 93.3,
+        "floor1.deathRate": 0,
+        "floor2.deathRate": 3.3,
+        "floor3.deathRate": 3.4,
+        "floor1.medianHpLeft": 92,
+        "floor2.medianHpLeft": 88,
+        "floor3.medianHpLeft": 73.6,
+        "medianRunSeconds": 241.4
+      },
+      "bands": {
+        "escapeRate": { "min": 75, "max": 100 },
+        "floor1.deathRate": { "min": 0, "max": 10 },
+        "floor2.deathRate": { "min": 0, "max": 15 },
+        "floor3.deathRate": { "min": 0, "max": 20 },
+        "floor1.medianHpLeft": { "min": 78, "max": 100 },
+        "floor2.medianHpLeft": { "min": 70, "max": 100 },
+        "floor3.medianHpLeft": { "min": 55, "max": 92 },
+        "medianRunSeconds": { "min": 170, "max": 340 }
+      }
+    }
+  }
+}

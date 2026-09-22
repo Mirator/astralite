@@ -1559,6 +1559,47 @@ Deviations: particles start at the rim of the sole, not its exact x/z centre (se
 context still delivers it) for the same deterministic stride as desktop; reduced motion is switched on
 through the real pause-menu settings card.
 
+## Docs-only changes skip the gates; a balance band joins the fast ones
+
+Two CI changes in `.github/workflows/deploy-pages.yml`, neither yet run on GitHub.
+
+A new first job, `changes`, diffs the pull request (`base...head`) or the push (`before..sha`) with plain
+git and says whether anything but prose moved. Prose is `*.md` anywhere, `docs/**` and `plans/**`;
+`.github/**` and `game/public/**` always count as code (one steers the pipeline, the other ships to
+Pages). Checked first that nothing in `game/` imports or bundles those files: no `.md` import, `?raw` or
+`import.meta.glob` in `app/`, `scripts/` or the configs, and the only `docs/` mentions are comments in
+`tests/browser/art-direction.spec.ts` and `tests/README.md`. Every doubt means code: `workflow_dispatch`,
+an all-zero or unfetchable `before`, a git error, an empty diff. `--no-renames` so that moving a source
+file into `docs/` still lists the deletion. `checks`, `browser` and `build` run only when code changed;
+`deploy` additionally requires it, so a docs-only push to main leaves the site on the last code push's
+deployment. `verified` is new and is the single check branch protection should require: a skipped matrix
+job reports as `browser`, not `browser (1)`, so requiring shards by name would hold docs-only PRs forever.
+It fails unless `changes` succeeded and every gate succeeded, or skipped on a docs-only change. `alarm`
+now also listens to `changes` and `verified`.
+
+The diff step was exercised locally against this repository's history and a scratch repository: docs-only
+push and PR (plans/README.md) read as prose; a code commit, an all-zero `before`, a missing `before`, a
+short SHA, an empty diff, `workflow_dispatch`, `.github/NOTES.md`, `game/public/help.md` and a rename of
+`game/app/x.ts` to `docs/x.md` all read as code. A non-ASCII path reads as code too (git quotes it), which
+is the safe way to be wrong.
+
+`npm run balance:check` (`scripts/balance/check.ts`) now runs in `checks` after `npm test`. It walks 30
+seeds from seed 1 at the default policy and at `dodge 0, reaction 0.6`, and holds escape rate, per-floor
+death rate, per-floor median HP left and median run length to the loose bands in
+`scripts/balance/bands.json`, which also records what was measured. The pure part (`summarise`,
+`compareBands`) is in `scripts/balance/bands.ts` and covered by `tests/balance-bands.test.ts` without
+running the sim; a floor nobody reached is a missing metric and fails rather than passing by default.
+Measured: default 100% escape, 0% deaths, 100% median HP on all three floors, 266.1s median run; weak
+93.3% escape, deaths 0/3.3/3.4%, median HP 92/88/73.6%, 241.4s. About 60s locally for both policies.
+These are bot numbers; a deliberate balance change is expected to update `bands.json` in its own PR.
+
+Verification: `npm run typecheck`, `npm run lint`, `npm test` (258 pass), `npm run balance:check`
+(pass, 59.8s), the same with the weak policy's floor-3 HP band tightened to max 70 (exit 1, names
+`weak: floor3.medianHpLeft measured 73.6, above band [55, 70]`, band reverted), actionlint 1.7.12
+clean on both workflows, `git diff --check` clean. Browser suite and build not run (shared machine, and
+nothing they cover changed).
+
+
 
 ## Shot comparison: one command for an art change's before/after sheet
 
