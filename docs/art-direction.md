@@ -224,6 +224,50 @@ size that alone would have reintroduced the single-spike read even with the wind
 radius, a deliberate, documented exception to the otherwise-universal "core is 45-55% of body width"
 rule (see the comments on `ruinsFlame` and `windOutward` in `dungeon-flame.ts`).
 
+## Macro paving
+
+Every stone floor used to repeat the same 1.43-unit slab on a perfectly regular grid, at every
+scale — a texture at close range and, from across a hall, a visible rank-and-file of identical
+squares nothing in the room ever broke. `dungeon-paving-layout.ts` plans, per room, a bounded set of
+merged two-cell slabs and settled, staggered strips (`planPavingPatches`); `dungeon-paving-patches.ts`
+builds the merged slab's own geometry (`pavingPatchGeometry`); `dungeon-game.tsx` wires both into the
+existing paving batches in place of the ordinary top on exactly the cells they claim, leaving every
+foundation, every groove/dish damage variant elsewhere, and every existing weathering rule untouched.
+
+| Theme | Long-slab arrangement | Settled treatment |
+| --- | --- | --- |
+| keep | Short courses following the room's own long axis, close to its centreline | One sparse edge patch, ~5% of the room's eligible singles |
+| ruins | Two or three offset clusters, scattered rather than centred, alternating orientation | Up to 12% of eligible singles, in staggered strips near the room's edges |
+| flooded | Pairs pulled toward the room's edges rather than its heart, reading as broken channels | ~8% of eligible singles, in one shallow strip |
+
+Coverage is bounded rather than decorative noise: at most 35% of a room's own stone cells may be
+claimed by a pair, and every candidate cell is checked against `dungeon-decor-layout.ts`'s
+`decorReservations` (with a conservative margin) before it is ever offered to the planner, so a
+motif's bed, a shrine's clear centre, the weapon drop and a gauntlet's whole floor are never touched
+— a gauntlet's entire footprint is one such reservation, which is why it never receives a patch. Nor
+does a settled single ever share a cell with the per-tile `dish`/`groove`/`settled` damage roll
+`dungeon-art.ts` already made: a cell the planner claims is forced to an ordinary top and the new,
+shallower settle transform, so the two mechanisms never stack into a single tile sunk twice.
+
+A merged slab is not two tiles glued together with the joint still modelled — it is one continuous
+eighteen-triangle top with the joint's own rim and skirt built only on its true outer edge, at the
+same physical bevel (`TOP`/`BASE`/`LIP`) every ordinary slab uses, so a pair reads as a longer stone
+actually quarried that way rather than as a texture trick. The two cells' own `slabTint` values are
+blended for the merged slab's colour, and the whole rectangle is mapped over one UV space rather than
+the single-tile mapping repeated twice, which is what stops the existing edge-shaded stone texture
+painting a false seam down the middle.
+
+## Surface index (presentation only)
+
+`dungeon-surface.ts` is a pure, three.js-free module: `buildSurfaceIndex` bins every upward-facing
+triangle from the floor's own walking surfaces — paving tops, merged slabs, wood planks, floor
+motifs, all tagged `userData.walkingSurface` where they are built — into the grid cell it falls in,
+and `sampleSurface` returns the highest such face under a world point, or `null` for a genuine gap.
+`dungeon-game.tsx` rebuilds this once per floor, after everything that could tag a surface exists,
+strictly for later presentation use (plan 008's footstep feedback reads it); collision continues to
+use `floor.cells`/`canStand` exactly as before, and nothing here is ever consulted for whether a
+position is legal to stand on.
+
 ## What is still shared
 
 Named rather than hidden. The sea, the foliage, the spray and the motes carry

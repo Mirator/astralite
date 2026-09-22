@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { pavingGeometry, pavingKind, ROOM_MOOD, tileHash, vaultEnvironment } from './dungeon-art';
+import { planPavingPatches } from './dungeon-paving-layout';
+import { pavingPatchGeometry } from './dungeon-paving-patches';
+import { buildSurfaceIndex, type CellSurface, type SurfaceIndex, type SurfaceTriangle } from './dungeon-surface';
 import { contactShadow, enemyDetails, knightDetails } from './dungeon-characters';
 import { impactEffects } from './dungeon-impact';
 import { playerCloakGeometry } from './dungeon-cloak';
@@ -470,6 +473,11 @@ export default function DungeonGame() {
     let floor!: ReturnType<typeof generateFloor>;
     let enemyData: Enemy[] = [];
     let atmosphere: ReturnType<typeof addAtmosphere> | null = null;
+    // The presentation-only support-height index over this floor's walking surfaces (plan 006/008):
+    // rebuilt from the realized scene at the end of every `buildFloor` and simply replaced, never
+    // patched, so an old floor's index is dropped with it rather than carried forward.
+    let surfaceIndex: SurfaceIndex | null = null;
+    let pavingSummary = { pairs: 0, settled: 0, surfaceCells: 0 };
     let visited = new Set<number>([0]), cleared = new Set<number>([0]), spineRooms = new Set<number>();
     let reached = 0, loot = 0, level = 1;
     let floorStart = 0, floorKills = 0, floorXp = 0;
@@ -840,6 +848,9 @@ export default function DungeonGame() {
       level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; features = []; stairOpen = false; stairDwell = 0; drop = null; overDrop = false; showOffer(null);
       gameStatus = 'playing'; setStatus('playing');
       floor = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], level);
+      // Pure and deterministic off this floor alone: which stone cells merge into a long slab or
+      // settle as a staggered strip, kept away from every 004 reservation before a single mesh exists.
+      const pavingPlan = planPavingPatches(floor);
       phase('generate');
       // Floor 1 is the run's fingerprint: keeping its seed is what lets a lost run be taken again, and it
       // is what a logged entry carries, so the log is held here rather than read off the current floor.
@@ -890,16 +901,34 @@ export default function DungeonGame() {
         else{matrix.makeRotationY(spin);matrix.setPosition(x*TILE,-.07,z*TILE);}
         return matrix;
       };
+      // Macro paving (plan 006): a merged pair's two cells never get an ordinary top at all - their
+      // slab is the new rectangular patch below - and a settled single is forced to plain regardless
+      // of what the per-tile damage roll would have said, so the two mechanisms never stack.
+      const macroSettle=(x:number,z:number)=>{
+        const spin=(Math.abs(x*13+z*7)%4)*Math.PI/2;
+        const drop=.025+tileHash(x,z,21)*.02, tiltX=(tileHash(x,z,22)-.5)*.06, tiltZ=(tileHash(x,z,23)-.5)*.06;
+        slabEuler.set(tiltX,spin,tiltZ);matrix.compose(slabAt.set(x*TILE,-.07-drop,z*TILE),slabTurn.setFromEuler(slabEuler),slabScale);
+        return matrix;
+      };
       const variants:Record<'groove'|'dish',typeof stoneTiles>={groove:[],dish:[]};
       // Spatial batches let both the view and shadow camera reject distant carved paving.
       const paving=new Map<string,typeof stoneTiles>();for(const tile of stoneTiles){const key=`${Math.floor(tile.x/12)},${Math.floor(tile.z/12)}`;const batch=paving.get(key);if(batch)batch.push(tile);else paving.set(key,[tile]);}
       for(const local of paving.values()){
-        const plain=local.filter(t=>{const kind=pavingKind(t.x,t.z);if(kind==='groove'||kind==='dish'){variants[kind].push(t);return false;}return true;});
+        const plain=local.filter(t=>{
+          const key=`${t.x},${t.z}`;
+          if(pavingPlan.pairedCells.has(key))return false; // top drawn by the merged pair mesh below
+          if(pavingPlan.settledCells.has(key))return true; // ordinary geometry, new settle transform
+          const kind=pavingKind(t.x,t.z);if(kind==='groove'||kind==='dish'){variants[kind].push(t);return false;}return true;
+        });
         const tiles=new THREE.InstancedMesh(tileGeometry,floorMaterial,plain.length),foundations=new THREE.InstancedMesh(foundationGeometry,foundationMaterial,local.length);
         // Every cell keeps its plinth, including the ones whose slab is drawn by a variant mesh below.
         local.forEach(({x,z,room},i)=>{const{mood,wear}=slabTint(x,z,room);matrix.makeTranslation(x*TILE,-1.485,z*TILE);foundations.setMatrixAt(i,matrix);foundations.setColorAt(i,tint.setHex(mood.foundation).multiplyScalar(.86+wear*.24));});
-        plain.forEach(({x,z,room},i)=>{slabTint(x,z,room);tiles.setColorAt(i,tint);tiles.setMatrixAt(i,seat(x,z,pavingKind(x,z)==='settled'));});
-        foundations.receiveShadow=tiles.receiveShadow=true;floorGroup.add(foundations,tiles);
+        plain.forEach(({x,z,room},i)=>{
+          slabTint(x,z,room);tiles.setColorAt(i,tint);
+          const settledNew=pavingPlan.settledCells.has(`${x},${z}`);
+          tiles.setMatrixAt(i,settledNew?macroSettle(x,z):seat(x,z,pavingKind(x,z)==='settled'));
+        });
+        foundations.receiveShadow=tiles.receiveShadow=true;tiles.userData.walkingSurface=true;floorGroup.add(foundations,tiles);
       }
       // One instanced draw each for the whole floor. Damage is scattered by a hash, so a variant batched
       // by region would be a batch per region and the junction has eighteen calls of headroom, not sixty.
@@ -908,7 +937,29 @@ export default function DungeonGame() {
         if(!cells.length){geometry.dispose();continue;}
         const damaged=new THREE.InstancedMesh(geometry,floorMaterial,cells.length);
         cells.forEach(({x,z,room},i)=>{slabTint(x,z,room);damaged.setColorAt(i,tint);damaged.setMatrixAt(i,seat(x,z,false));});
-        damaged.receiveShadow=true;floorGroup.add(damaged);
+        damaged.receiveShadow=true;damaged.userData.walkingSurface=true;floorGroup.add(damaged);
+      }
+      // The merged long slabs: one InstancedMesh per spatial batch a pair actually falls in, so a
+      // patch costs the same kind of draw call the ordinary paving already pays for rather than a new
+      // one per pair. Orientation 'z' is the same geometry turned a quarter circle, never a second
+      // build; the tint is the two source cells' own slabTint, blended, so a merged slab weathers as
+      // the average of the two courses it replaces rather than introducing a third palette value.
+      if(pavingPlan.pairs.length){
+        const pairGeometry=pavingPatchGeometry();
+        const pairsByBatch=new Map<string,typeof pavingPlan.pairs>();
+        for(const pair of pavingPlan.pairs){const list=pairsByBatch.get(pair.batch);if(list)list.push(pair);else pairsByBatch.set(pair.batch,[pair]);}
+        for(const list of pairsByBatch.values()){
+          const patches=new THREE.InstancedMesh(pairGeometry,floorMaterial,list.length);
+          list.forEach((pair,i)=>{
+            slabTurn.setFromEuler(slabEuler.set(0,pair.orientation==='z'?Math.PI/2:0,0));
+            matrix.compose(slabAt.set(pair.x,-.07,pair.z),slabTurn,slabScale);
+            patches.setMatrixAt(i,matrix);
+            slabTint(pair.ax,pair.az,pair.room);const a=tint.clone();
+            slabTint(pair.bx,pair.bz,pair.room);const b=tint.clone();
+            patches.setColorAt(i,a.lerp(b,.5));
+          });
+          patches.receiveShadow=true;patches.userData.walkingSurface=true;floorGroup.add(patches);
+        }
       }
       phase('tiles');
       const planks = new THREE.InstancedMesh(new THREE.BoxGeometry(1.43,.2,.34),new THREE.MeshStandardMaterial({color:0x372c21,roughness:.95}),bridgeTiles.length*4);
@@ -916,7 +967,7 @@ export default function DungeonGame() {
       // its own weathering off its position, so no two neighbours match.
       bridgeTiles.forEach(({x,z},i)=>{for(let n=0;n<4;n++){matrix.makeTranslation(x*TILE,-.09,z*TILE+(n-1.5)*.365);planks.setMatrixAt(i*4+n,matrix);
         const grain=Math.abs(x*13+z*29+n*7)%9,damp=Math.abs(x*3-z*5+n*11)%4;
-        planks.setColorAt(i*4+n,new THREE.Color(n%2?0x5f503c:0x6c5c45).multiplyScalar(.74+grain*.062).offsetHSL(damp%2?.008:-.018,-.02+damp*.012,0));}});planks.receiveShadow=true;floorGroup.add(planks);
+        planks.setColorAt(i*4+n,new THREE.Color(n%2?0x5f503c:0x6c5c45).multiplyScalar(.74+grain*.062).offsetHSL(damp%2?.008:-.018,-.02+damp*.012,0));}});planks.receiveShadow=true;planks.userData.walkingSurface=true;floorGroup.add(planks);
       const { minX, maxX, minZ, maxZ } = floor.bounds;
       tide = tidalMaterial(new THREE.Vector4((minX + maxX) * TILE / 2, (minZ + maxZ) * TILE / 2, (maxX - minX) * TILE / 2 + 1.5, (maxZ - minZ) * TILE / 2 + 1.5));
       water = new THREE.Mesh(new THREE.PlaneGeometry((maxX - minX + 40) * TILE, (maxZ - minZ + 40) * TILE), tide.material);
@@ -943,6 +994,51 @@ export default function DungeonGame() {
       }
       phase('walls');
       atmosphere = addAtmosphere(floorGroup, floor);
+      // The presentation-only support-height index (plan 006/008): every mesh tagged
+      // `walkingSurface=true` -- paving tops (plain, groove, dish, merged pairs), wood planks and
+      // floor motifs -- is read back into world-space triangles once, here, after everything that
+      // could tag one has been built. Collision keeps using `floor.cells`/`canStand`; nothing here is
+      // ever consulted for whether a position is legal to stand on.
+      world.updateMatrixWorld(true);
+      {
+        const triangles: SurfaceTriangle[] = [];
+        const instanceMatrix = new THREE.Matrix4(), worldMatrix = new THREE.Matrix4();
+        const corners = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+        const collect = (geometry: THREE.BufferGeometry, transform: THREE.Matrix4) => {
+          const position = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+          if (!position) return;
+          const index = geometry.getIndex();
+          const triCount = index ? index.count / 3 : position.count / 3;
+          for (let t = 0; t < triCount; t++) {
+            for (let k = 0; k < 3; k++) {
+              const vi = index ? index.getX(t * 3 + k) : t * 3 + k;
+              corners[k].set(position.getX(vi), position.getY(vi), position.getZ(vi)).applyMatrix4(transform);
+            }
+            triangles.push({
+              ax: corners[0].x, ay: corners[0].y, az: corners[0].z,
+              bx: corners[1].x, by: corners[1].y, bz: corners[1].z,
+              cx: corners[2].x, cy: corners[2].y, cz: corners[2].z,
+            });
+          }
+        };
+        floorGroup.traverse((o) => {
+          if (!(o instanceof THREE.Mesh) || !o.userData.walkingSurface) return;
+          if (o instanceof THREE.InstancedMesh) {
+            for (let i = 0; i < o.count; i++) {
+              o.getMatrixAt(i, instanceMatrix);
+              worldMatrix.multiplyMatrices(o.matrixWorld, instanceMatrix);
+              collect(o.geometry, worldMatrix);
+            }
+          } else {
+            collect(o.geometry, o.matrixWorld);
+          }
+        });
+        const cellMeta = new Map<string, CellSurface>();
+        for (const t of floor.tiles) cellMeta.set(cellKey(t.x, t.z), { theme: themeOf(t.x, t.z, t.room), wood: t.wood });
+        surfaceIndex = buildSurfaceIndex(triangles, cellMeta);
+        pavingSummary = { pairs: pavingPlan.pairs.length, settled: pavingPlan.settled.length, surfaceCells: surfaceIndex.cells.size };
+      }
+      phase('surface');
       for (const room of floor.rooms) {
         if (room.id === 0 || !['sanctuary', 'gauntlet'].includes(room.encounter)) continue;
         const shrine = room.encounter === 'sanctuary';
@@ -1938,7 +2034,7 @@ export default function DungeonGame() {
       mood: { theme: moodTheme, fire: '#' + moodFire.getHexString(), key: '#' + moodKey.getHexString(), fog: '#' + moodFog.getHexString(), banner: '#' + moodBanner.getHexString() },
       // What actually got attached to the floor's own group, not a second recomputation of the
       // planner's own descriptors - a driver checking the real scene reads this, not `floor.rooms`.
-      graphics: { motifs: atmosphere?.motifs ?? [], flames: atmosphere?.flames ?? [] },
+      graphics: { motifs: atmosphere?.motifs ?? [], flames: atmosphere?.flames ?? [], paving: pavingSummary },
       floor: { level, waterfalls: atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
       player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashBuffer, dashTime, dashCooldown, chain: { beat: chainBeat, beats: chainLength(weapon), idle: Number.isFinite(chainIdle) ? chainIdle : null, damage: swing.damage + run.strike, duration: swing.duration }, invulnerable: run.invuln, hurtFlash, swordAngle: player.userData.sword.rotation.y, cloak:{anchor:player.userData.cape.position.toArray(),pitch:player.userData.cape.rotation.x}, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, locomotion: {speed:gaitSpeed,phase:walkPhase,sprint:locomotion.sprint,pitch:player.userData.torso.rotation.x,height:player.position.y,arm:player.userData.arm.rotation.x,knees:player.userData.legs.map((leg:THREE.Group)=>leg.userData.knee.rotation.x)}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
       corpses: enemyData.filter(e=>e.dead).map(e=>({kind:e.kind,x:e.group.position.x,y:e.group.position.y,z:e.group.position.z,scale:e.group.scale.toArray(),rotation:e.group.userData.rig.rotation.x,age:e.death?.age,settled:e.death?.settled,visible:e.group.visible,cue:e.cue.visible,bar:e.bar.visible,trails:e.trails.some(trail=>trail.effect.mesh.visible)})),

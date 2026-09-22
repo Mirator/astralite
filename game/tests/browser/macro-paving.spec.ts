@@ -1,0 +1,251 @@
+import { planPavingPatches } from '../../app/dungeon-paving-layout.ts';
+import { canStand, expect, Game, keyToward, roomCentre, strikeStance, test, TILE, type Floor } from './helpers.ts';
+
+/**
+ * Plan 006's macro paving: merged two-cell slabs and settled, staggered strips. This checks the real
+ * scene rather than the pure planner a second time - `dungeon-paving-layout.test.ts` and
+ * `dungeon-paving-patches.test.ts` already cover `planPavingPatches`/`pavingPatchGeometry` in
+ * isolation - so what is worth asking here is whether `dungeon-game.tsx` actually wired the two
+ * together: the live `graphics.paving` counters, real movement across a merged slab and a settled
+ * single, and a landed blow, rather than a second recomputation standing in for a look at the
+ * attached scene.
+ */
+
+/** What every scene gets before its first frame: torches lit, water moving. */
+const SETTLE = 640;
+
+/** Seed 0x5d (93 decimal), level 1: realizes a pair and a settled single in all three themes at once. */
+const FIXTURE_SEED = 0x5d;
+
+/** Holds every live enemy off cooldown, so a capture meant to show paving does not instead catch a windup. */
+const freezeCombat = async (game: Game) => {
+  const state = await game.state();
+  await game.configureCombat({
+    enemies: state.enemies.map((_, index) => ({ index, cooldown: 999, windup: 0 })),
+  });
+  await game.step(16);
+};
+
+/** A room that actually realized a pair of this theme, read off the pure planner for the given floor. */
+const pairRoom = (floor: Floor, theme: 'keep' | 'ruins' | 'flooded') => {
+  const pair = planPavingPatches(floor).pairs.find((p) => p.theme === theme);
+  return pair ? floor.rooms[pair.room] : undefined;
+};
+
+test.describe('macro paving matches the pure planner', () => {
+  test.use({ seeds: [FIXTURE_SEED] });
+
+  test('the live scene realizes exactly what the planner plans, in every theme, with a non-empty surface index', async ({ game }) => {
+    test.slow();
+    await game.enter();
+    const floor = await game.floor();
+    const plan = planPavingPatches(floor);
+    await game.step(SETTLE);
+    const state = await game.state();
+
+    expect(state.graphics.paving.pairs, 'realized pair count does not match the pure planner').toBe(plan.pairs.length);
+    expect(state.graphics.paving.settled, 'realized settled count does not match the pure planner').toBe(plan.settled.length);
+    expect(state.graphics.paving.surfaceCells, 'the surface index built no cells at all').toBeGreaterThan(0);
+    expect(plan.pairs.length, `seed 0x${FIXTURE_SEED.toString(16)} no longer plans any pair; pick a new fixture seed`).toBeGreaterThan(0);
+    expect(plan.settled.length, `seed 0x${FIXTURE_SEED.toString(16)} no longer plans any settled single; pick a new fixture seed`).toBeGreaterThan(0);
+
+    const pairThemes = new Set(plan.pairs.map((p) => p.theme));
+    expect([...pairThemes].sort(), 'fixture floor should realize a pair in every theme').toEqual(['flooded', 'keep', 'ruins']);
+  });
+
+  test('a pinned-seed reset realizes the same paving the first build did', async ({ game }) => {
+    await game.enter();
+    await game.step(SETTLE);
+    const before = (await game.state()).graphics.paving;
+    await game.reset([FIXTURE_SEED]);
+    await game.step(SETTLE);
+    const after = (await game.state()).graphics.paving;
+    expect(after).toEqual(before);
+  });
+
+  test('repeated rebuilds of the same floor settle at stable geometry and texture counts', async ({ game }) => {
+    await game.enter();
+    await game.step(SETTLE);
+    const counts: { geometries: number; textures: number }[] = [];
+    for (let i = 0; i < 4; i++) {
+      await game.buildFloor(1);
+      await game.step(0, true);
+      const { geometries, textures } = (await game.state()).render;
+      counts.push({ geometries, textures });
+    }
+    const last = counts[counts.length - 1];
+    for (const count of counts.slice(1)) {
+      expect(count, 'geometry/texture counts drifted across identical rebuilds - a leak, not paving').toEqual(last);
+    }
+  });
+});
+
+test.describe('a merged slab and a settled strip behave exactly like ordinary paving', () => {
+  test.use({ seeds: [FIXTURE_SEED] });
+
+  test('walking from one cell of a pair onto the other moves the knight normally, no invisible seam', async ({ game }) => {
+    await game.enter();
+    const floor = await game.floor();
+    const pair = planPavingPatches(floor).pairs.find((p) => p.room === 1);
+    expect(pair, 'seed fixture room 1 no longer plans a keep pair').toBeDefined();
+    expect(canStand(floor.cells, pair!.bx * TILE, pair!.bz * TILE), 'the pair\'s own second cell is not walkable').toBe(true);
+    await game.teleport(pair!.ax * TILE, pair!.az * TILE);
+    await game.step(0);
+    const before = await game.state();
+    const direction = { x: pair!.bx - pair!.ax, z: pair!.bz - pair!.az };
+    const { key } = keyToward(direction);
+    await game.page.keyboard.down(key);
+    await game.step(500);
+    await game.page.keyboard.up(key);
+    await game.step(0);
+    const after = await game.state();
+    const displaced = Math.hypot(after.player.x - before.player.x, after.player.z - before.player.z);
+    expect(displaced, 'no movement at all across the merged slab\'s own two cells - an invisible wall').toBeGreaterThan(TILE * 0.3);
+  });
+
+  test('standing on a settled single, the knight can still walk off it in any open direction', async ({ game }) => {
+    await game.enter();
+    const floor = await game.floor();
+    const single = planPavingPatches(floor).settled.find((s) => s.room === 1);
+    expect(single, 'seed fixture room 1 no longer plans a settled single').toBeDefined();
+    expect(canStand(floor.cells, single!.x * TILE, single!.z * TILE), 'the settled cell itself is not walkable').toBe(true);
+    await game.teleport(single!.x * TILE, single!.z * TILE);
+    await game.step(0);
+    const before = await game.state();
+    await game.page.keyboard.down('ArrowUp');
+    await game.step(400);
+    await game.page.keyboard.up('ArrowUp');
+    await game.step(0);
+    const after = await game.state();
+    const displaced = Math.hypot(after.player.x - before.player.x, after.player.z - before.player.z);
+    expect(displaced, 'the knight never moved off the settled single - stuck on the new geometry').toBeGreaterThan(TILE * 0.2);
+  });
+
+  test('a strike against a target standing on a merged slab lands exactly like anywhere else', async ({ game }) => {
+    await game.enter();
+    await game.step(120);
+    const floor = await game.floor();
+    const pair = planPavingPatches(floor).pairs.find((p) => p.room === 1);
+    expect(pair, 'seed fixture room 1 no longer plans a keep pair').toBeDefined();
+    const target = { x: pair!.x, z: pair!.z };
+    const stance = strikeStance(floor, target);
+    await game.teleport(stance.x, stance.z);
+    await game.page.keyboard.down(stance.key);
+    await game.step(16);
+    await game.page.keyboard.up(stance.key);
+    const blade = (await game.state()).weapon.strikeDamage;
+    await game.configureCombat({
+      enemies: [{ index: 0, x: target.x, z: target.z, hp: Math.min(8, blade * 2), cooldown: 10, windup: 0 }],
+    });
+    const before = (await game.state()).enemies.find((e) => Math.hypot(e.x - target.x, e.z - target.z) < 0.5)?.hp;
+    await game.act('attack');
+    await game.step(130);
+    const state = await game.state();
+    expect(state.player.attackTime, 'the frame this checks is not inside a swing').toBeGreaterThan(0);
+    const after = state.enemies.find((e) => Math.hypot(e.x - target.x, e.z - target.z) < 0.5)?.hp;
+    expect(
+      after === undefined || (before !== undefined && after < before),
+      'a strike against a target standing on a merged slab did not connect',
+    ).toBe(true);
+  });
+});
+
+test.describe('all three themes read as a distinct macro change', () => {
+  test.use({ seeds: [FIXTURE_SEED] });
+  for (const theme of ['keep', 'ruins', 'flooded'] as const) {
+    test(`a ${theme} chamber's merged slabs and settled strip are captured for review`, async ({ game }) => {
+      await game.enter();
+      const floor = await game.floor();
+      const room = pairRoom(floor, theme);
+      expect(room, `seed fixture never realized a ${theme} pair`).toBeDefined();
+      const centre = roomCentre(floor, room!.id);
+      await game.teleport(centre.x, centre.z);
+      await game.step(SETTLE);
+      expect((await game.state()).mood.theme).toBe(theme);
+      await freezeCombat(game);
+      await game.capture(`paving-${theme}`);
+    });
+  }
+});
+
+test.describe('a narrow hall reads the same macro paving as a wide room', () => {
+  test.use({ seeds: [0x22] }); // 34 decimal: a 'hall'-shaped room realizes a pair here.
+
+  test('a hall\'s merged slabs are captured for review', async ({ game }) => {
+    await game.enter();
+    const floor = await game.floor();
+    const pair = planPavingPatches(floor).pairs.find((p) => floor.rooms[p.room].shape === 'hall');
+    expect(pair, 'seed 0x22 no longer plans a pair in a hall-shaped room').toBeDefined();
+    const room = floor.rooms[pair!.room];
+    const centre = roomCentre(floor, room.id);
+    await game.teleport(centre.x, centre.z);
+    await game.step(SETTLE);
+    await freezeCombat(game);
+    await game.capture('paving-narrow-hall');
+  });
+});
+
+test.describe('a junction with several branches reads the same macro paving', () => {
+  test.use({ seeds: [0x2] });
+
+  test('a junction\'s merged slabs and settled strip are captured for review', async ({ game }) => {
+    await game.enter();
+    const floor = await game.floor();
+    const junction = floor.rooms.find((r) =>
+      floor.spine.includes(r.id) && floor.edges.filter(([a, b]) => a === r.id || b === r.id).length >= 3);
+    expect(junction, 'seed 0x2 no longer holds the junction this fixture was set on').toBeDefined();
+    const plan = planPavingPatches(floor);
+    expect(plan.pairs.some((p) => p.room === junction!.id), 'the junction room no longer plans a pair').toBe(true);
+    const centre = roomCentre(floor, junction!.id);
+    await game.teleport(centre.x, centre.z);
+    await game.step(SETTLE);
+    await freezeCombat(game);
+    await game.capture('paving-junction');
+  });
+});
+
+test.describe('a bridge approach beside a merged slab reads cleanly', () => {
+  test.use({ seeds: [FIXTURE_SEED] });
+
+  test('the wood-to-stone transition near a pair is captured for review, with no patch on the wood itself', async ({ game }) => {
+    await game.enter();
+    const floor = await game.floor();
+    const plan = planPavingPatches(floor);
+    // A wood (bridge) tile close to one of the fixture's own pairs, so the capture shows both the
+    // merged slab and the ordinary plank transition in one frame.
+    const pair = plan.pairs.find((p) => p.room === 1)!;
+    const bridge = floor.tiles.find((t) => t.wood && Math.hypot(t.x - pair.ax, t.z - pair.az) < 8);
+    expect(bridge, 'seed fixture no longer has a bridge tile near room 1\'s pair').toBeDefined();
+    for (const cell of [...plan.pairedCells, ...plan.settledCells]) {
+      const [x, z] = cell.split(',').map(Number);
+      expect(Math.hypot(x - bridge!.x, z - bridge!.z), `patch cell ${cell} sits on or beside the bridge tile itself`).toBeGreaterThan(1.5);
+    }
+    await game.teleport(bridge!.x * TILE, bridge!.z * TILE);
+    await game.step(SETTLE);
+    await freezeCombat(game);
+    await game.capture('paving-bridge-transition');
+  });
+});
+
+test.describe('macro paving on a phone', () => {
+  test.use({ seeds: [FIXTURE_SEED], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  /**
+   * One isolated mobile context, not three: `isMobile`/`hasTouch`/`viewport` force a scenario off the
+   * worker's pooled page (see `needsOwnPage` in helpers.ts), so each separate `test` here would pay a
+   * full fresh page boot for the sake of walking to a different room. The fixture seed already
+   * realizes all three themes' pairs on one floor, so a single boot walks the knight between them.
+   */
+  test('every theme\'s merged slabs read at phone size', async ({ game }) => {
+    await game.enter();
+    const floor = await game.floor();
+    for (const theme of ['keep', 'ruins', 'flooded'] as const) {
+      const room = pairRoom(floor, theme);
+      expect(room, `seed fixture never realized a ${theme} pair`).toBeDefined();
+      const centre = roomCentre(floor, room!.id);
+      await game.teleport(centre.x, centre.z);
+      await game.step(SETTLE);
+      await freezeCombat(game);
+      await game.capture(`paving-${theme}-phone`);
+    }
+  });
+});
