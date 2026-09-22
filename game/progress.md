@@ -1163,7 +1163,78 @@ edits to bowls") sits close enough to each theme's body base that, from the game
 camera, it visually screens off most of a flame's lower silhouette regardless of theme; what a
 player actually sees above the rim is closer to each shape's own tip than its full rest envelope.
 This was true of the old octahedron too (confirmed by the `-before` capture) and is unrelated to the
-new geometry, but it is part of why `ruins`'s second tongue reads as subtle rather than bold, and a
-future pass that wants louder silhouettes would have to touch the rim height or the body's own
-vertical placement, both outside this plan.
+new geometry.
+
+## Plan 005 follow-up: the ruins tongue that was not there
+
+A reviewer, reading this same `test-results/graphics-005-after` capture set rather than trusting the
+paragraph above it, said the "subtle second tongue" claim did not hold up: every `ruins` frame they
+opened showed one spike on a pale cap, not two. They asked for the claim to be checked by actual
+measurement rather than by eye a second time, not just re-reviewed.
+
+It was right, and the paragraph above it - "reads as subtle rather than bold" - was a misdiagnosis:
+the second tongue was not subtle, it was not rendering at all, and re-looking at the same PNGs harder
+was never going to find a tongue that was not in them.
+
+**How this was actually checked this time**, in order:
+
+1. A projection script replicated the game's exact camera (position, `lookAt`, orthographic frustum,
+   from `dungeon-game.tsx`) in a throwaway Node script using the real `three` package, and projected
+   both tongue apexes' world positions through it. At the geometry's numbers as committed, the two
+   apexes separated by about 5px on a 1000-wide canvas, against tongues 5-8px wide apiece - already
+   grounds to suspect the gap was too tight to read, before touching a single rendered pixel.
+2. A brazier was rendered with its halo, core and rim mesh temporarily deleted (a few commented-out
+   lines, reverted immediately after), isolating the raw body mesh with no lighting effects layered
+   over it, and captured at native resolution with nearest-neighbour scaling (no LANCZOS blur, which
+   a first pass's crops had used and which can smear two adjacent thin shapes into what looks like
+   one soft-edged one). That capture showed **one** tongue. Not two overlapping ones, not one washed
+   pale by the halo - one, full stop, with nothing where the second belonged.
+3. That ruled out "halo/rim washing it out" as the explanation and pointed at the geometry or its
+   winding. Re-reading `solid()` (the shared triangle-winding helper) found the bug: it decides which
+   way to wind a face by testing the face's normal against the vector from the **global origin** to
+   that face's centroid. That is a correct test only when the shape being built is actually centred
+   on the origin - true for `keep` and `flooded`, both single peaks built that way on purpose, and
+   false for either of `ruins`'s two tongues considered on its own, since each sits well off to one
+   side of the origin by design. For the shorter tongue, the faces on its side facing back toward the
+   taller one - precisely the faces the camera needed to see - have a true outward direction that
+   disagrees with "away from the origin", so the shared winding test flipped them backward and
+   three.js back-face-culled them into nothing. Not small, not faint: absent.
+4. Fixed by winding each tongue outward from its own vertex centroid instead of the shared origin
+   (`windOutward` takes an explicit centre now; `mergeSolids` concatenates the two independently-wound
+   triangle buffers into the one `BufferGeometry` the plan asks for). Re-ran the same isolated,
+   halo/core/rim-free capture: both tongues rendered, a tall one and a visibly separate, shorter one.
+5. With the bug fixed, the *other* two problems a first pass had already reasoned through (and had
+   partly compensated for, blind to the winding bug underneath) turned out to matter for real: the
+   apex separation the projection script measured (~5px) was retested and confirmed too tight even
+   with both tongues actually rendering, and the halo (sized to match a single peak, several times
+   wider than the whole twin-tongue body) filled the gap between two now-real tongues with its own
+   glow. Both were already recorded above as deliberate choices; both got a second, larger pass:
+   apex separation widened from 0.32 to 0.51 (radius correspondingly thinned, from 0.105/0.075 to
+   0.065/0.048, so the total width stays within a pixel or two of the same 0.50 the table gives), and
+   `ruins`'s halo shrunk from 2.6x2.7 to 1.5x1.7 - well past a cosmetic trim, specifically so the
+   body's own silhouette carries the read instead of the glow smoothing over it.
+6. Re-captured with everything restored (halo, core, rim, at their final sizes) and reviewed at
+   native resolution with nearest-neighbour crops rather than LANCZOS ones: `ruins` now shows a tall
+   tongue and a distinctly shorter, separate one beside it, in both the idle and the mid-windup frame.
+
+Gates re-run after the fix: `npm run typecheck`, `npm run lint`, `npm test` (187), the full
+`GAME_TEST_GL=d3d11 npm run test:browser` (103 passed, 1 pre-existing skip, unchanged), `npm run
+build`, and `git diff --check` from root all pass again. `frame-budget.spec.ts`'s three ceilings are
+unaffected (the triangle count per tongue did not change, only vertex positions).
+
+The corrected, checked claim: `keep` reads as one narrow, taller-than-wide diamond; `flooded` reads
+as a low, wider-than-tall faceted bud; `ruins` reads as two distinct tongues, a tall one and a
+visibly shorter, separate one beside it, confirmed by (a) a camera-accurate projection of both
+apexes showing they separate on screen, (b) an isolated capture of the raw body mesh with no halo,
+core or rim to interfere, showing both tongues actually drawing, and (c) a final capture with the
+full rig restored, at native resolution, with both tongues still legible. Everything in the previous
+entry that was not about the second tongue's visibility - the theme resolution, the pose rhythms, the
+budget numbers, the test suite - was unaffected by this and remains as recorded.
+
+Lesson for next time, stated plainly so it does not have to be relearned: a capture reviewed by eye,
+especially through an upscaled/interpolated crop, can fail to distinguish "a real but subtle feature"
+from "a feature that silently is not being drawn at all". Where a claim is "two of something are
+visible", the check that actually settles it is isolating that something from everything drawn
+alongside it and confirming it renders on its own - not a harder look at a crop of the combined
+scene.
 

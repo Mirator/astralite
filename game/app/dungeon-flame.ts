@@ -8,33 +8,69 @@ type Face = readonly [number, number, number];
 type Vertex = readonly [number, number, number];
 
 /**
- * Builds a small closed solid from explicit vertices and triangular faces, flat- or smooth-shaded
- * by `computeVertexNormals`. Every shape below is star-shaped around its own local origin — every
- * face's centroid sits on the same side of the origin the face itself does — so a face wound the
- * wrong way is caught by testing its normal against its own centroid and, if it disagrees, corrected
- * by swapping two vertices rather than trusting the caller's ordering. That is what "correct outward
- * winding" below actually rests on: not careful bookkeeping by hand, but a check every face passes.
+ * Winds a small closed solid's faces outward and returns its raw triangle positions (not yet a
+ * `BufferGeometry` - see `solid` and `mergeSolids` below, which are what callers actually use).
+ *
+ * "Outward" is decided by testing each face's normal against the vector from `center` to that
+ * face's own centroid, and swapping two vertices to flip the face if they disagree. That test is
+ * only correct when `center` genuinely sits inside the solid being wound - the origin for `keep`
+ * and `flooded`, which really are built star-shaped around it, but NOT the global origin for either
+ * of `ruins`'s two tongues individually, since each one is its own small solid sitting well off to
+ * one side. Passing the origin for those (as an earlier version of this file did) silently flips
+ * the faces on whichever side of a tongue faces back toward the origin - the exact faces a camera
+ * looking at that tongue from roughly that direction needs - which is why a capture of the finished
+ * scene showed only one tongue rendering at all: the second one's near faces were wound backward and
+ * back-face culled, not merely small or hidden behind the halo. `ruinsFlame` calls this once per
+ * tongue with that tongue's own vertex centroid as `center`, which is what makes the winding test
+ * correct for an off-centre shape.
  */
-function solid(vertices: readonly Vertex[], faces: readonly Face[]): THREE.BufferGeometry {
+function windOutward(vertices: readonly Vertex[], faces: readonly Face[], center: Vertex): Float32Array {
   const positions = new Float32Array(faces.length * 9);
   faces.forEach(([i0, i1, i2], f) => {
     const p0 = vertices[i0]; let p1 = vertices[i1]; let p2 = vertices[i2];
     const ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
     const vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-    const cx = (p0[0] + p1[0] + p2[0]) / 3, cy = (p0[1] + p1[1] + p2[1]) / 3, cz = (p0[2] + p1[2] + p2[2]) / 3;
+    const cx = (p0[0] + p1[0] + p2[0]) / 3 - center[0];
+    const cy = (p0[1] + p1[1] + p2[1]) / 3 - center[1];
+    const cz = (p0[2] + p1[2] + p2[2]) / 3 - center[2];
     if (nx * cx + ny * cy + nz * cz < 0) { const swap = p1; p1 = p2; p2 = swap; }
     const o = f * 9;
     positions[o] = p0[0]; positions[o + 1] = p0[1]; positions[o + 2] = p0[2];
     positions[o + 3] = p1[0]; positions[o + 4] = p1[1]; positions[o + 5] = p1[2];
     positions[o + 6] = p2[0]; positions[o + 7] = p2[1]; positions[o + 8] = p2[2];
   });
+  return positions;
+}
+
+/** Wraps a triangle-position buffer into a finished, normal- and bounds-computed geometry. */
+function fromPositions(positions: Float32Array): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;
+}
+
+/** Builds a small closed solid that really is star-shaped around the origin: `keep`, `flooded`. */
+function solid(vertices: readonly Vertex[], faces: readonly Face[]): THREE.BufferGeometry {
+  return fromPositions(windOutward(vertices, faces, [0, 0, 0]));
+}
+
+/** The average position of a small vertex list - used as each `ruins` tongue's own winding centre. */
+function centroidOf(vertices: readonly Vertex[]): Vertex {
+  let x = 0, y = 0, z = 0;
+  for (const v of vertices) { x += v[0]; y += v[1]; z += v[2]; }
+  return [x / vertices.length, y / vertices.length, z / vertices.length];
+}
+
+/** Concatenates several independently-wound triangle buffers into one finished geometry. */
+function mergeSolids(parts: readonly Float32Array[]): THREE.BufferGeometry {
+  const positions = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+  let offset = 0;
+  for (const p of parts) { positions.set(p, offset); offset += p.length; }
+  return fromPositions(positions);
 }
 
 /** One face fan shared by the two bipyramids (`keep`, `flooded`): apex 0, apex 1, ring 2..5. */
@@ -85,9 +121,18 @@ function keepFlame(part: FlamePart): THREE.BufferGeometry {
  * BufferGeometry — never a group with two materials, which would add a draw. The second tongue's
  * apex sits at 65% of the first's height. Both apexes keep the same x position and the same shared
  * base plane at every size - core included - so from the brazier's own raised, angled camera the
- * taller tongue cannot swallow the shorter one into a single spike, which a first pass at this drew
- * and read exactly like `keep`'s one asymmetric diamond rather than two tongues. Rest envelope
- * 0.50 x 0.65 x 0.35.
+ * taller tongue cannot swallow the shorter one into a single spike. Rest envelope 0.50 x 0.65 x 0.35.
+ *
+ * Getting two tongues that actually READ as two tongues took a second pass past the one above: a
+ * projection of both apexes through the game's own fixed orthographic camera (position, lookAt and
+ * frustum copied from `dungeon-game.tsx`; see the throwaway script this was checked with) showed the
+ * first attempt - apexes 0.32 apart, each tongue a comfortable 0.21-0.15 wide - separating by only
+ * about 5px on a 1000-wide canvas, against tongues 5-8px wide apiece: less gap than either tongue's
+ * own width, which a captured frame duly showed as one fused shape. Most of the 0.50 width budget
+ * now goes to keeping the two apexes apart (0.51 total separation) rather than to either tongue's
+ * own radius (0.065/0.048, down from 0.105/0.075), which reprojects to a ~15px gap against ~4-5px
+ * -wide tongues at the same camera - a real valley, not a rounding error - while the two tongues'
+ * combined span still lands within a pixel or two of the same 0.50 envelope the table gives.
  *
  * Deliberate deviation from the plan's generic "core is 45-55% body width": that figure reads
  * naturally for one peak, where "width" and "how far the flame's own mass reaches" are the same
@@ -108,7 +153,7 @@ function ruinsFlame(part: FlamePart): THREE.BufferGeometry {
   // above the rim's own silhouette without changing the 0.65 figure the spec table gives.
   const baseY = -0.10 * f.h, tallHeight = 0.65 * f.h, shortHeight = tallHeight * 0.65;
   const tallApexY = baseY + tallHeight, shortApexY = baseY + shortHeight;
-  const tallX = -0.155, shortX = 0.165, tallR = 0.105 * f.w, shortR = 0.075 * f.w;
+  const tallX = -0.26, shortX = 0.27, tallR = 0.065 * f.w, shortR = 0.048 * f.w;
   const tongue = (apexX: number, apexY: number, r: number): Vertex[] => [
     [apexX, apexY, 0],
     [apexX, baseY, r],
@@ -118,7 +163,16 @@ function ruinsFlame(part: FlamePart): THREE.BufferGeometry {
   const tall = tongue(tallX, tallApexY, tallR);
   const short = tongue(shortX, shortApexY, shortR);
   const tetra: readonly Face[] = [[0, 1, 2], [0, 2, 3], [0, 3, 1], [1, 3, 2]];
-  return solid([...tall, ...short], [...tetra, ...(tetra.map(([a, b, c]) => [a + 4, b + 4, c + 4] as Face))]);
+  // Each tongue is wound outward from its OWN centroid, not the shared origin: the two are wide
+  // apart on purpose (see above), and testing a face on the far tongue's near side against the
+  // origin disagrees with what that face's own solid calls outward, flipping it backward and
+  // back-face-culling it invisible - which is why an earlier version of this rendered only one
+  // tongue, not a small or washed-out second one. Merging the two independently-wound buffers
+  // keeps this "one BufferGeometry, no material group" the same as before.
+  return mergeSolids([
+    windOutward(tall, tetra, centroidOf(tall)),
+    windOutward(short, tetra, centroidOf(short)),
+  ]);
 }
 
 /**
@@ -205,10 +259,16 @@ export function flamePose(theme: FlameTheme, time: number, phase: number): Flame
 /** Body centre height, above the bowl rim, that lets each theme's taller/shorter profile clear it. */
 export const FLAME_BASE_Y: Record<FlameTheme, number> = { keep: 1.52, ruins: 1.43, flooded: 1.28 };
 
-/** Halo footprint per theme; never exceeds the shared 2.7 x 3.5 ceiling. */
+/**
+ * Halo footprint per theme; never exceeds the shared 2.7 x 3.5 ceiling. `ruins` shrinks well past a
+ * cosmetic trim: at 2.6 x 2.7 the additive glow was several times wider than the whole twin-tongue
+ * body (0.50 wide) and filled in exactly the gap between the two peaks that makes them read as two,
+ * turning a real ~15px silhouette valley (see `ruinsFlame`) back into one smooth bright dome in a
+ * captured frame. Smaller here is what lets the body's own shape carry the read it needs to.
+ */
 export const FLAME_HALO_SCALE: Record<FlameTheme, { x: number; y: number }> = {
   keep: { x: 2.0, y: 3.3 },
-  ruins: { x: 2.6, y: 2.7 },
+  ruins: { x: 1.5, y: 1.7 },
   flooded: { x: 2.7, y: 1.9 },
 };
 

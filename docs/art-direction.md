@@ -184,18 +184,45 @@ the same six ember slots every family always had.
 | ruins | Two closed tetrahedra sharing one mesh — a taller tongue and a shorter one at 65% of its height, standing apart rather than merged into one spike. | Height varies at mixed 1.7/2.9 Hz and the tip sways sideways; irregular-looking, fully deterministic. |
 | flooded | A low, broad, faceted bud with an off-centre peak — the ring dominates, there is no tall tip. | Width and height breathe slowly at 0.45 Hz; no vertical shooting, no rotation. |
 
-Two things a first pass at this got wrong, both only visible in a rendered capture rather than in
-the geometry alone. First, giving every source a small random static yaw (so two braziers of the
-same theme would not look stamped from one another) fought `ruins` in particular: its two tongues
-sit apart on one local axis, and a random turn just as often points that axis at the camera edge-on,
-hiding the shorter tongue behind the taller one. Sources no longer carry a static rotation; the
-per-source phase still desyncs each one's breathing and sway, which is the desync the brief actually
-asked for. Second, a core built by uniformly scaling the body's own geometry toward its shared
-origin is correct for one peak, but for two it pulls both peaks toward each other by the same
-factor — at core size that reads as a single spike again, the same failure the shape exists to fix.
+Several things a first pass at this got wrong, none visible from the geometry's own numbers - only
+from a rendered capture, and one of those only from a capture with the halo and rim stripped back
+out to isolate what the body mesh itself was actually drawing.
+
+The one that mattered: `ruins`'s two tongues are built as two independent tetrahedra merged into one
+`BufferGeometry`, and the shared builder that winds every flame's faces outward decided "outward" by
+testing a face's normal against the vector from the *global origin* to that face's centroid. That is
+correct for `keep` and `flooded`, which really are single shapes centred on the origin, but wrong for
+either of `ruins`'s tongues on its own, since each sits well off to one side. For the shorter tongue
+in particular, the faces on its near side - facing back toward the taller one, which is exactly the
+side the camera needed - had a true outward direction that disagreed with "away from the origin",
+and got their winding flipped backward and back-face-culled into nothing. A capture with the halo,
+core and rim removed to isolate the raw body confirmed it directly: one tongue rendered, the other
+did not exist on screen at all, not merely small or washed out. The fix winds each tongue outward
+from its own vertex centroid instead of the shared origin (`windOutward`/`mergeSolids` in
+`dungeon-flame.ts`), which is the only change that made a second tongue appear at all.
+
+Two more only became visible once both tongues were actually rendering. A projection of both apexes
+through the game's own fixed camera (matched to `dungeon-game.tsx`'s position, lookAt and frustum)
+showed the first surviving attempt separating by roughly 5px on a 1000-wide canvas against tongues
+5-8px wide apiece - less gap than either tongue's own width, and a captured frame duly showed them
+fused. Re-splitting the 0.50 width budget toward separation (0.51 apart) rather than radius
+(0.065/0.048, down from 0.105/0.075) opened a ~15px gap against ~4-5px tongues at the same camera -
+enough of a valley to read as two shapes rather than one uneven one. And the existing halo, sized to
+match `keep`'s or `flooded`'s single peak (2.6 x 2.7), was several times wider than the whole
+twin-tongue body and filled in exactly that gap with its own additive glow; `ruins`'s halo shrinks
+well past a cosmetic trim, to 1.5 x 1.7, so the body's own shape carries the read instead of the glow
+smoothing over it.
+
+Two smaller things, also caught by capture: giving every source a small random static yaw (so two
+braziers of the same theme would not look stamped from one another) fought the separation above -
+a random turn just as often points the tongues' shared axis at the camera edge-on. Sources no longer
+carry a static rotation; the per-source phase still desyncs each one's breathing and sway, which is
+the desync the brief actually asked for. And a core built by uniformly scaling the body's own
+geometry toward its shared origin pulls both peaks toward each other by the same factor - at core
+size that alone would have reintroduced the single-spike read even with the winding fixed - so
 `ruins`'s core keeps both tongues at the body's own x position and shrinks only their own height and
-radius, which is a deliberate, documented exception to the otherwise-universal "core is 45-55% of
-body width" rule (see the comment on `ruinsFlame` in `dungeon-flame.ts`).
+radius, a deliberate, documented exception to the otherwise-universal "core is 45-55% of body width"
+rule (see the comments on `ruinsFlame` and `windOutward` in `dungeon-flame.ts`).
 
 ## What is still shared
 
