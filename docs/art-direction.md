@@ -169,6 +169,34 @@ the ordinary construction and cutting a hole in it. Existing seal rings and
 shrine markers are untouched — they say what a room is doing, and stay
 separate from what its floor looks like when nothing is.
 
+## Flame silhouettes
+
+Every brazier used to burn the same octahedron, scaled and spun the same way, whatever family it
+stood in — one flame shape doing three jobs. `dungeon-flame.ts` builds three theme-owned bodies
+(`createFlameGeometry`) and a pure `flamePose` that animates each on its own clock; `dungeon-atmosphere.ts`
+resolves a brazier's theme from the room it belongs to (`floor.rooms[prop.room].theme`, never the
+current chamber's fire colour) and keeps the same two meshes — body and core — the same halo, and
+the same six ember slots every family always had.
+
+| Theme | Silhouette | Motion |
+| --- | --- | --- |
+| keep | One narrow, asymmetric diamond, tip leaning off true, suspended above the bowl. | Slow vertical breathing and a small bob at 0.65 Hz; no rotation. |
+| ruins | Two closed tetrahedra sharing one mesh — a taller tongue and a shorter one at 65% of its height, standing apart rather than merged into one spike. | Height varies at mixed 1.7/2.9 Hz and the tip sways sideways; irregular-looking, fully deterministic. |
+| flooded | A low, broad, faceted bud with an off-centre peak — the ring dominates, there is no tall tip. | Width and height breathe slowly at 0.45 Hz; no vertical shooting, no rotation. |
+
+Two things a first pass at this got wrong, both only visible in a rendered capture rather than in
+the geometry alone. First, giving every source a small random static yaw (so two braziers of the
+same theme would not look stamped from one another) fought `ruins` in particular: its two tongues
+sit apart on one local axis, and a random turn just as often points that axis at the camera edge-on,
+hiding the shorter tongue behind the taller one. Sources no longer carry a static rotation; the
+per-source phase still desyncs each one's breathing and sway, which is the desync the brief actually
+asked for. Second, a core built by uniformly scaling the body's own geometry toward its shared
+origin is correct for one peak, but for two it pulls both peaks toward each other by the same
+factor — at core size that reads as a single spike again, the same failure the shape exists to fix.
+`ruins`'s core keeps both tongues at the body's own x position and shrinks only their own height and
+radius, which is a deliberate, documented exception to the otherwise-universal "core is 45-55% of
+body width" rule (see the comment on `ruinsFlame` in `dungeon-flame.ts`).
+
 ## What is still shared
 
 Named rather than hidden. The sea, the foliage, the spray and the motes carry
