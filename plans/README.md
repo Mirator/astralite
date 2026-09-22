@@ -11,7 +11,7 @@ the operator asks.
 | [002 — Make attacks, damage mitigation, and boon transitions consistent](002-combat-integrity.md) | P1 | Done, committed 2026-09-14 on `fix/combat-integration-and-ci` (Salt Ward keeps the later rule: enemy steel only) | See below |
 | [003 — Bring the controls up to genre standard](003-controls-and-feel.md) | P2 | Stages A–D implemented on `feat/loading-veil`, not committed | See the plan's Evidence section |
 | [004 — Distinct room floor motifs](004-distinct-room-motifs.md) | P2 | Done, merged via [PR #34](https://github.com/Mirator/astralite/pull/34) 2026-09-22 (CI stability fix in [PR #35](https://github.com/Mirator/astralite/pull/35)) | See the plan's Evidence section, and `game/progress.md` |
-| [005 — Theme-specific light-source shapes](005-theme-light-source-shapes.md) | P2 | TODO | Graphics recommendation 2; planned at `cc6fb85`, 2026-09-21 |
+| [005 — Theme-specific light-source shapes](005-theme-light-source-shapes.md) | P2 | Done, merged via PR #37 2026-09-22 | See the plan's Evidence section, and `game/progress.md` |
 | [006 — Macro-scale paving variation](006-macro-paving-variation.md) | P2 | TODO; depends on 004 | Graphics recommendation 3; planned at `cc6fb85`, 2026-09-21 |
 | [007 — Local cutaway for occluded actors](007-local-actor-cutaway.md) | P2 | TODO | Graphics recommendation 4; planned at `cc6fb85`, 2026-09-21 |
 | [008 — Surface feedback at foot contacts](008-surface-footstep-feedback.md) | P3 | TODO | Graphics recommendation 5; planned at `cc6fb85`, 2026-09-21 |

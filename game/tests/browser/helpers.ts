@@ -214,6 +214,13 @@ export type Snapshot = {
   /** What the floor's own motif geometry actually attached, not a recomputation of the planner. */
   graphics: {
     motifs: { room: number; theme: 'keep' | 'ruins' | 'flooded' }[];
+    /** Every brazier's actual attached theme and body/core bounds, read off the live mesh and its
+     * current pose - not the design table in `dungeon-flame.ts` recomputed from scratch. */
+    flames: {
+      theme: 'keep' | 'ruins' | 'flooded';
+      body: { width: number; height: number; depth: number; y: number };
+      core: { width: number; height: number; depth: number };
+    }[];
   };
   player: {
     x: number;

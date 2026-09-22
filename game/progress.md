@@ -1058,3 +1058,183 @@ lint`, `npm test` (178 tests), `GAME_TEST_GL=d3d11 npm run test:browser` (95 pas
 skip, including `polish.spec.ts`'s phone test unmodified), `npm run build`, and `git diff --check`
 from root - all pass.
 
+## Plan 005: three flames instead of one octahedron in three colours
+
+Implemented on top of 004, same working tree. Baseline established first: `npm run typecheck`,
+`npm run lint`, `npm test` (178 tests) and, on `GAME_TEST_GL=d3d11`, `art-direction.spec.ts` and
+`frame-budget.spec.ts` (7/7) all passed before any source edit, and a SwiftShader capture of
+`art-direction.spec.ts` was taken first (`test-results/graphics-005-before`) for a genuine before/
+after comparison - the working tree was set aside with `git stash push -u`, the pre-edit capture
+run, then the stash re-applied and dropped by its own SHA (never a bare pop, since this worktree
+shares its stash stack with the main checkout and other worktrees).
+
+New `game/app/dungeon-flame.ts`: three theme geometries (`createFlameGeometry(theme, part)`), built
+from explicit vertex/face lists and `computeVertexNormals` rather than a stock primitive, each
+capped at 8 triangles per body-or-core geometry. `keep` is a tall, asymmetric bipyramid, tip leaning
+off axis; `ruins` is two closed tetrahedra sharing one `BufferGeometry` - a tall tongue and a short
+one at 65% of its height, standing well apart on the local x axis; `flooded` is a squashed bipyramid
+with an off-centre peak and a wide equatorial ring. A pure `flamePose(theme, time, phase)` returns
+scale/offset/yaw for one instant - deterministic, no allocation, and unit-tested for exactly that.
+`emberOffset(theme, t, phase, slot)` gives the existing six ember slots per source a rising, a
+drifting or a clustered-local motion by theme, reusing the same buffer.
+
+`dungeon-atmosphere.ts`: `PROP.flame` (the shared octahedron) is gone. A brazier's theme is resolved
+once at build time from `floor.rooms[prop.room].theme` - never the current chamber's fire colour or
+the camera's room - and a per-atmosphere-instance `Map<string, BufferGeometry>` (keyed `theme:part`,
+never marked `shared`) builds each shape lazily and is released by the existing floorGroup traversal
+on rebuild, exactly like any other prop mesh; nothing here introduces a module-level cache. `flames`
+became typed records (`body`, `core`, `theme`, `phase`, `base` position) in place of a bare
+`THREE.Mesh[]`; the per-frame update calls `flamePose` once per source and applies scale/offset/yaw
+to the body, which the core inherits for free as its child. Body centres sit at 1.52/1.43/1.28
+(keep/ruins/flooded), each theme's core is its own smaller geometry (not the body geometry under a
+runtime scale - see the deviation below), and the halo keeps its existing sprite and additive
+material but shrinks per theme (2.0x3.3 / 2.6x2.7 / 2.7x1.9, all inside the old 2.7x3.5 ceiling).
+`render_game_to_text` gained `graphics.flames`: theme, and body/core width/height/depth/y read off
+the actually-attached mesh's own geometry bounds and current pose scale, not the design table
+recomputed - the same "attached, not recomputed" contract `graphics.motifs` already keeps for 004.
+
+New tests: `dungeon-flame.test.ts` (9 cases - triangle caps, finite/non-degenerate bounds, the three
+aspect profiles including a direct check that `ruins`'s two tongues sit on both sides of the shared
+centre at roughly a 65% height ratio, `flamePose` purity and allocation-freedom via a `Float32Array`
+constructor spy, phase desync, ten seconds of sampled poses never sinking a body below y=1.03, and
+each theme moving only the channels its own spec names) and `tests/browser/theme-flames.spec.ts` (a
+brazier's theme/count/core-proportion resolve from `floor.rooms[prop.room]`; a zero-time redraw and
+a pause both leave every source's reported pose unchanged; crossing into another theme's room never
+swaps an old brazier's shape; a pinned-seed rebuild after all three shapes have drawn settles at
+stable counts; one capture test per theme showing four idle phases plus a mid-windup frame; one
+isolated mobile context - not three - walking the knight between all three theme rooms already known
+to coexist on seed 0x1, per the CI-budget lesson 004 paid for).
+
+Two deliberate deviations from a literal reading of the plan, both driven by what a rendered capture
+showed rather than by the geometry alone:
+
+- **No per-source static yaw.** A first pass gave each body's `rotation.y` a fixed value from its own
+  seeded `phase`, so two braziers of the same theme would not look like one stamped copy of the
+  other. Captured and reviewed, this actively broke `ruins`: its two tongues sit apart on one local
+  axis, and a random yaw just as often turns that axis to face the fixed isometric camera edge-on,
+  hiding the shorter tongue behind the taller one - a captured `ruins` brazier read as one spike,
+  indistinguishable from `keep`. `rotationY` is now 0 for every theme; `phase` still desyncs each
+  source's breathing/sway timing, which is the desync the plan actually asks for ("Seeded phase per
+  source avoids synchronized breathing") - only the extra, self-imposed static rotation is gone.
+- **`ruins`'s core is not 45-55% of body width.** That figure is written for one peak, where a
+  body's overall width and a peak's own reach are the same measurement. For `ruins` the body's width
+  is mostly the *gap* between its two peaks; a core built by uniformly scaling the body's own
+  geometry toward its shared local origin (which is what `keep` and `flooded` do, correctly, since
+  they have one peak) pulls both peaks toward each other by that same factor, and at 45-55% scale
+  that collapses back into the single-spike failure above - confirmed by a captured, reviewed frame
+  before this was caught. `ruinsFlame`'s core keeps both apexes at the body's own x position and
+  shrinks only each tongue's own height (still <=65%) and radius, which `theme-flames.spec.ts` checks
+  with a `ruins`-specific bound (core visibly smaller on every axis, never within 95% of body width/
+  depth, never collapsed under 30%) in place of the universal 45-55% window used for the other two.
+  Both exceptions and their reasoning are written on `ruinsFlame` and `flamePose` in
+  `dungeon-flame.ts`, and repeated in `docs/art-direction.md`'s new "Flame silhouettes" section.
+
+Verification: `npm run typecheck`, `npm run lint`, `npm test` (187 tests, the 9 new here), the full
+`GAME_TEST_GL=d3d11 npm run test:browser` (103 passed, 1 pre-existing skip - unchanged from 004's
+own baseline plus the 7 new `theme-flames.spec.ts` cases), `npm run build`, and `git diff --check`
+from root all pass. `frame-budget.spec.ts`'s three ceilings are unchanged and, if anything, further
+from their limit than 004 left them, since the new geometries are smaller and simpler than the old
+octahedron plus its 0.55/0.8/0.55-scaled core copy: flooded-hall 428/439 calls and 196,500/198,818
+triangles, junction 496/502 and 326,280/343,716, strike-contact 371/447 and 154,500/236,196.
+
+Captured and opened `test-results/graphics-005-after` (SwiftShader, seed 0x1), alongside the
+`-before` set taken on the unmodified octahedron flame for the same chambers. All three themes were
+inspected at native size via cropped, upscaled PNGs read directly (not just saved): `keep` reads as
+one narrow, clearly-taller-than-wide diamond leaning slightly off axis; `flooded` reads as a low,
+distinctly wider-than-tall faceted cube/bud with an off-centre top facet, nothing about it shooting
+upward; `ruins` reads as a tall primary tongue with a smaller, shorter, laterally offset second tongue
+beside it, confirmed by a tight crop after the two deviations above were found and fixed - the
+second tongue is legitimately smaller than the first (65% height, per spec) and reads as a subtler
+feature of the silhouette than the primary one, a limitation carried forward openly rather than
+inflating its share of the shape past what "unequal" calls for. Reviewed idle (four phases: 0/150/
+300/600ms) and a mid-windup frame (an enemy parked beside the knight rather than on the brazier, so
+neither obscures the other) for all three themes at desktop size (1000x700), and once more at phone
+size (390x844) via the single isolated mobile context above. The existing `art-direction.spec.ts`
+telegraph and fire measurements are unchanged and still pass at the same thresholds.
+
+Cost of the one new isolated-context test (`theme-flames.spec.ts`'s phone block): 1.5-1.9s warm on
+`GAME_TEST_GL=d3d11` in repeated local runs - one fresh boot, not three, following 004's own
+CI-budget fix; no other new test here requests its own context. The heaviest new test is the
+three-rebuild stability check (`buildFloor` x3), which cost 1.2s warm/~6-11s on SwiftShader,
+comparable to 004's own four-rebuild motif test.
+
+Limitation carried forward: the brazier's existing rim (`PROP.rim`, out of this plan's scope - "no
+edits to bowls") sits close enough to each theme's body base that, from the game's fixed isometric
+camera, it visually screens off most of a flame's lower silhouette regardless of theme; what a
+player actually sees above the rim is closer to each shape's own tip than its full rest envelope.
+This was true of the old octahedron too (confirmed by the `-before` capture) and is unrelated to the
+new geometry.
+
+## Plan 005 follow-up: the ruins tongue that was not there
+
+A reviewer, reading this same `test-results/graphics-005-after` capture set rather than trusting the
+paragraph above it, said the "subtle second tongue" claim did not hold up: every `ruins` frame they
+opened showed one spike on a pale cap, not two. They asked for the claim to be checked by actual
+measurement rather than by eye a second time, not just re-reviewed.
+
+It was right, and the paragraph above it - "reads as subtle rather than bold" - was a misdiagnosis:
+the second tongue was not subtle, it was not rendering at all, and re-looking at the same PNGs harder
+was never going to find a tongue that was not in them.
+
+**How this was actually checked this time**, in order:
+
+1. A projection script replicated the game's exact camera (position, `lookAt`, orthographic frustum,
+   from `dungeon-game.tsx`) in a throwaway Node script using the real `three` package, and projected
+   both tongue apexes' world positions through it. At the geometry's numbers as committed, the two
+   apexes separated by about 5px on a 1000-wide canvas, against tongues 5-8px wide apiece - already
+   grounds to suspect the gap was too tight to read, before touching a single rendered pixel.
+2. A brazier was rendered with its halo, core and rim mesh temporarily deleted (a few commented-out
+   lines, reverted immediately after), isolating the raw body mesh with no lighting effects layered
+   over it, and captured at native resolution with nearest-neighbour scaling (no LANCZOS blur, which
+   a first pass's crops had used and which can smear two adjacent thin shapes into what looks like
+   one soft-edged one). That capture showed **one** tongue. Not two overlapping ones, not one washed
+   pale by the halo - one, full stop, with nothing where the second belonged.
+3. That ruled out "halo/rim washing it out" as the explanation and pointed at the geometry or its
+   winding. Re-reading `solid()` (the shared triangle-winding helper) found the bug: it decides which
+   way to wind a face by testing the face's normal against the vector from the **global origin** to
+   that face's centroid. That is a correct test only when the shape being built is actually centred
+   on the origin - true for `keep` and `flooded`, both single peaks built that way on purpose, and
+   false for either of `ruins`'s two tongues considered on its own, since each sits well off to one
+   side of the origin by design. For the shorter tongue, the faces on its side facing back toward the
+   taller one - precisely the faces the camera needed to see - have a true outward direction that
+   disagrees with "away from the origin", so the shared winding test flipped them backward and
+   three.js back-face-culled them into nothing. Not small, not faint: absent.
+4. Fixed by winding each tongue outward from its own vertex centroid instead of the shared origin
+   (`windOutward` takes an explicit centre now; `mergeSolids` concatenates the two independently-wound
+   triangle buffers into the one `BufferGeometry` the plan asks for). Re-ran the same isolated,
+   halo/core/rim-free capture: both tongues rendered, a tall one and a visibly separate, shorter one.
+5. With the bug fixed, the *other* two problems a first pass had already reasoned through (and had
+   partly compensated for, blind to the winding bug underneath) turned out to matter for real: the
+   apex separation the projection script measured (~5px) was retested and confirmed too tight even
+   with both tongues actually rendering, and the halo (sized to match a single peak, several times
+   wider than the whole twin-tongue body) filled the gap between two now-real tongues with its own
+   glow. Both were already recorded above as deliberate choices; both got a second, larger pass:
+   apex separation widened from 0.32 to 0.51 (radius correspondingly thinned, from 0.105/0.075 to
+   0.065/0.048, so the total width stays within a pixel or two of the same 0.50 the table gives), and
+   `ruins`'s halo shrunk from 2.6x2.7 to 1.5x1.7 - well past a cosmetic trim, specifically so the
+   body's own silhouette carries the read instead of the glow smoothing over it.
+6. Re-captured with everything restored (halo, core, rim, at their final sizes) and reviewed at
+   native resolution with nearest-neighbour crops rather than LANCZOS ones: `ruins` now shows a tall
+   tongue and a distinctly shorter, separate one beside it, in both the idle and the mid-windup frame.
+
+Gates re-run after the fix: `npm run typecheck`, `npm run lint`, `npm test` (187), the full
+`GAME_TEST_GL=d3d11 npm run test:browser` (103 passed, 1 pre-existing skip, unchanged), `npm run
+build`, and `git diff --check` from root all pass again. `frame-budget.spec.ts`'s three ceilings are
+unaffected (the triangle count per tongue did not change, only vertex positions).
+
+The corrected, checked claim: `keep` reads as one narrow, taller-than-wide diamond; `flooded` reads
+as a low, wider-than-tall faceted bud; `ruins` reads as two distinct tongues, a tall one and a
+visibly shorter, separate one beside it, confirmed by (a) a camera-accurate projection of both
+apexes showing they separate on screen, (b) an isolated capture of the raw body mesh with no halo,
+core or rim to interfere, showing both tongues actually drawing, and (c) a final capture with the
+full rig restored, at native resolution, with both tongues still legible. Everything in the previous
+entry that was not about the second tongue's visibility - the theme resolution, the pose rhythms, the
+budget numbers, the test suite - was unaffected by this and remains as recorded.
+
+Lesson for next time, stated plainly so it does not have to be relearned: a capture reviewed by eye,
+especially through an upscaled/interpolated crop, can fail to distinguish "a real but subtle feature"
+from "a feature that silently is not being drawn at all". Where a claim is "two of something are
+visible", the check that actually settles it is isolating that something from everything drawn
+alongside it and confirming it renders on its own - not a harder look at a crop of the combined
+scene.
+

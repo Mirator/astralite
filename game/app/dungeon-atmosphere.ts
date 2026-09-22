@@ -2,6 +2,15 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { addCarvedArchitecture, facesCamera, headroom, OFF_FRAME, ROOM_MOOD } from './dungeon-art';
 import { TILE, type generateFloor } from './dungeon-floor';
+import {
+  createFlameGeometry,
+  emberOffset,
+  FLAME_BASE_Y,
+  FLAME_HALO_SCALE,
+  flamePose,
+  type FlamePart,
+  type FlameTheme,
+} from './dungeon-flame';
 import { animateCloth, contactTexture, glowTexture, shorelineMaterial, weatherStone } from './dungeon-motion';
 
 export function stoneTexture() {
@@ -34,7 +43,6 @@ const PROP = {
   base: keep(new RoundedBoxGeometry(TILE, .32, TILE, 1, .13)),
   bowl: keep(new THREE.CylinderGeometry(.34, .5, .8, 6)),
   rim: keep(new THREE.CylinderGeometry(.5, .3, .24, 8)),
-  flame: keep(new THREE.OctahedronGeometry(.24)),
   barrel: keep(new THREE.CylinderGeometry(.44, .4, 1.0, 9)),
   hoop: keep(new THREE.CylinderGeometry(.46, .46, .09, 9)),
   plinth: keep(new RoundedBoxGeometry(.95, .25, .95, 1, .1)),
@@ -78,8 +86,19 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   `);};
   flowing.customProgramCacheKey=()=> 'soft-waterfall-v1';
   const warm=new THREE.MeshBasicMaterial({color:0xffba65,toneMapped:false}),foam=new THREE.MeshBasicMaterial({color:0xb4e6de,transparent:true,opacity:.7,depthWrite:false});
-  const flames:THREE.Mesh[]=[],torchPositions:THREE.Vector3[]=[],banners:THREE.Mesh[]=[],seals:THREE.Mesh[]=[],sealTints:number[]=[],falls:THREE.Mesh[]=[],ripples:THREE.Mesh[]=[];
-  const glowMap=glowTexture(),halos:THREE.Sprite[]=[];
+  // Every brazier draws the same two meshes it always did (a body and a core), but the geometry
+  // and the pose that animates it now come from the theme the brazier's own room belongs to, not
+  // from one shared octahedron. `flameGeometries` is this atmosphere instance's own lazy cache,
+  // keyed by theme and part: a shape is built the first time a brazier needs it and reused by every
+  // later one, but it is never marked `shared` and never stored anywhere outside this closure, so
+  // the ordinary floorGroup traversal on rebuild disposes it exactly once, same as any other prop
+  // mesh. The core gets its own geometry rather than the body's own one under a runtime scale,
+  // because `ruins`'s two tongues would otherwise be pulled toward each other by that scale and
+  // read as one merged spike at core size - see `createFlameGeometry`'s core-factor comment.
+  const flameGeometries=new Map<string,THREE.BufferGeometry>();
+  const flameGeometry=(theme:FlameTheme,part:FlamePart)=>{const key=`${theme}:${part}`;let g=flameGeometries.get(key);if(!g){g=createFlameGeometry(theme,part);flameGeometries.set(key,g);}return g;};
+  const flames:{body:THREE.Mesh;core:THREE.Mesh;theme:FlameTheme;phase:number;base:THREE.Vector3}[]=[],torchPositions:THREE.Vector3[]=[],banners:THREE.Mesh[]=[],seals:THREE.Mesh[]=[],sealTints:number[]=[],falls:THREE.Mesh[]=[],ripples:THREE.Mesh[]=[];
+  const glowMap=glowTexture(),halos:THREE.Sprite[]=[],haloBases:{x:number;y:number}[]=[];
   const haloMaterial=new THREE.SpriteMaterial({map:glowMap,color:0xffbc70,transparent:true,opacity:.3,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false});
   const coreMaterial=new THREE.MeshBasicMaterial({color:0xffefb9,toneMapped:false});
   let state=floor.seed^0x12345;const random=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/4294967296;};
@@ -87,10 +106,16 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   for(const p of floor.props){const x=p.x*TILE,z=p.z*TILE;
     mesh(PROP.base,stone,x,-.18,z);
     if(p.kind==='brazier'){
+      // The theme is the owning room's, resolved once at build time - never the current chamber's
+      // fire colour or the camera's own room, so a brazier keeps its shape when the player walks on.
+      const theme=floor.rooms[p.room].theme;
+      const phase=random()*Math.PI*2;
       mesh(PROP.bowl,bowlStone,x,.42,z);mesh(PROP.rim,trim,x,.95,z);
-      const flame=mesh(PROP.flame,warm,x,1.33,z);flame.castShadow=false;flames.push(flame);torchPositions.push(new THREE.Vector3(x,1.7,z));
-      const core=new THREE.Mesh(PROP.flame,coreMaterial);core.scale.set(.55,.8,.55);core.position.y=-.04;flame.add(core);
-      const halo=new THREE.Sprite(haloMaterial);halo.position.set(x,1.48,z);halo.scale.set(2.7,3.5,1);world.add(halo);halos.push(halo);
+      const body=mesh(flameGeometry(theme,'body'),warm,x,FLAME_BASE_Y[theme],z);body.castShadow=false;
+      const core=new THREE.Mesh(flameGeometry(theme,'core'),coreMaterial);body.add(core);
+      flames.push({body,core,theme,phase,base:body.position.clone()});torchPositions.push(new THREE.Vector3(x,1.7,z));
+      const haloScale=FLAME_HALO_SCALE[theme];
+      const halo=new THREE.Sprite(haloMaterial);halo.position.set(x,1.48,z);halo.scale.set(haloScale.x,haloScale.y,1);world.add(halo);halos.push(halo);haloBases.push(haloScale);
     } else if(p.kind==='barrel'){
       mesh(PROP.barrel,wood,x,.52,z);
       for(const y of [.2,.78])mesh(PROP.hoop,trim,x,y,z);
@@ -276,7 +301,17 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const paleTint=new THREE.Color(),bowlTint=new THREE.Color(),black=new THREE.Color(0x000000);
   const inlayTint=new THREE.Color(),runnerTint=new THREE.Color(),trimTint=new THREE.Color();
   const brassCast=new THREE.Color(0xb08a4e),timberCast=new THREE.Color(0x6d523a);
-  return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,motifs:carved.motifs,update(t:number,player:THREE.Vector3,cleared:Set<number>,fire:THREE.Color,banner:THREE.Color,masonry:THREE.Color,bed:THREE.Color){
+  return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,motifs:carved.motifs,
+    // What actually got attached, not the geometry module's own design table - a driver checking a
+    // brazier's real silhouette reads the bounds of the mesh three.js is holding, at whatever scale
+    // this frame's pose left it at, rather than recomputing what the pose function should produce.
+    flames:flames.map(f=>{const bodyBox=f.body.geometry.boundingBox!,coreBox=f.core.geometry.boundingBox!;return{theme:f.theme,
+      body:{width:(bodyBox.max.x-bodyBox.min.x)*f.body.scale.x,height:(bodyBox.max.y-bodyBox.min.y)*f.body.scale.y,depth:(bodyBox.max.z-bodyBox.min.z)*f.body.scale.z,y:f.body.position.y},
+      // The core is a child of the body, so its actual on-screen size also carries the body's own
+      // animated pose scale - that inheritance is exactly what lets the core breathe/sway for free.
+      core:{width:(coreBox.max.x-coreBox.min.x)*f.core.scale.x*f.body.scale.x,height:(coreBox.max.y-coreBox.min.y)*f.core.scale.y*f.body.scale.y,depth:(coreBox.max.z-coreBox.min.z)*f.core.scale.z*f.body.scale.z},
+    };}),
+    update(t:number,player:THREE.Vector3,cleared:Set<number>,fire:THREE.Color,banner:THREE.Color,masonry:THREE.Color,bed:THREE.Color){
     shore.time.value=t;
     // What burns is the chamber's, not the floor's. The flame body takes the mood colour straight, the
     // core is the same hue run most of the way to white so a flame still has a hot centre, and the halo
@@ -315,10 +350,15 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     stone.color.copy(masonry);shaftStone.color.copy(paleTint);
     bowlStone.color.copy(bowlTint.copy(masonry).lerp(black,.3));
     motes.position.set(player.x,Math.sin(t*.2)*.2,player.z);motes.rotation.y=t*.01;
-    flames.forEach((f,i)=>{f.scale.set(.9+Math.sin(t*7+i)*.1,1.65+Math.sin(t*9+i)*.3,.85);f.rotation.y=t+i;});
+    // Each body keeps its owning theme's own silhouette; only the pose - scale, a small offset off
+    // its fixed centre, and a static yaw - comes from the clock. The core is this body's child, so
+    // it inherits the same pose for free rather than computing or drawing a second animation.
+    flames.forEach((f)=>{const pose=flamePose(f.theme,t,f.phase);f.body.scale.set(pose.scale.x,pose.scale.y,pose.scale.z);f.body.position.set(f.base.x+pose.offset.x,f.base.y+pose.offset.y,f.base.z+pose.offset.z);f.body.rotation.y=pose.rotationY;});
     banners.forEach((b,i)=>{if(b.position.distanceToSquared(player)<900)animateCloth(b,t+i,.1);});
-    halos.forEach((h,i)=>{const pulse=1+Math.sin(t*9+i)*.06;h.scale.set(2.7*pulse,3.5*pulse,1);});
-    torchPositions.forEach((p,i)=>{for(let j=0;j<6;j++){const phase=(t*.48+j/6+i*.17)%1,k=(i*6+j)*3;emberPositions[k]=p.x+Math.sin(t*1.4+j*5+i)*phase*.3;emberPositions[k+1]=p.y-.3+phase*1.6;emberPositions[k+2]=p.z+Math.cos(t+j*4)*phase*.25;}});
+    halos.forEach((h,i)=>{const pulse=1+Math.sin(t*9+i)*.06,base=haloBases[i];h.scale.set(base.x*pulse,base.y*pulse,1);});
+    // Rising embers for ruins, slow drift for keep, short local motes for flooded - the same six
+    // slots and the same buffer for every theme, so nothing here adds a draw call.
+    torchPositions.forEach((p,i)=>{const f=flames[i];for(let j=0;j<6;j++){const o=emberOffset(f.theme,t,f.phase,j),k=(i*6+j)*3;emberPositions[k]=p.x+o.dx;emberPositions[k+1]=p.y+o.dy;emberPositions[k+2]=p.z+o.dz;}});
     emberGeo.attributes.position.needsUpdate=true;
     ripples.forEach((r,i)=>{const phase=(t*.65+(i%4)*.25)%1;r.scale.setScalar(.65+phase*1.7);r.position.y=-2.7+Math.sin(t*.9)*.05+(i%4)*.008;});
     falls.forEach((fall,i)=>{for(let j=0;j<16;j++){const phase=(t*.8+j/16+i*.31)%1,angle=j*2.4,k=(i*16+j)*3;const span=.12+phase*.65;sprayPositions[k]=fall.position.x+Math.cos(angle)*span;sprayPositions[k+1]=-2.7+Math.sin(phase*Math.PI)*(.2+(j%3)*.12);sprayPositions[k+2]=fall.position.z+Math.sin(angle)*span;}});sprayGeometry.attributes.position.needsUpdate=true;
