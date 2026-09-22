@@ -116,9 +116,11 @@ test.describe('local actor cutaway', () => {
    * no additional coverage, which is exactly the CI-budget mistake this plan's own notes warn against.
    */
   test('an occluded actor reveals a real hole, an unobstructed control does not, and both hold up under a redraw, a pause, moving away and a floor rebuild', async ({ game }) => {
-    // The live occluded/clear-spot search below draws real frames per candidate; the default 120s
-    // budget is right at its normal cost, not comfortably above it.
-    test.setTimeout(240_000);
+    // The live occluded/clear-spot search below draws real frames per candidate under SwiftShader;
+    // a local run already took ~3.9 minutes at the previous 240s ceiling, which a CI shard under
+    // 2-worker CPU contention pushed past that budget with no logic fault (a plain timeout, not the
+    // search's own "no candidate produced a visible cutaway" error). More headroom, not a redesign.
+    test.setTimeout(420_000);
     await game.enter();
     const floor = await game.floor();
 
