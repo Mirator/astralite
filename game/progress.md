@@ -1642,3 +1642,11 @@ frames line up and the rooms are simply different. `strike-seq-30/31` exist only
 Gates: `npm run typecheck`, `npm run lint`, `npm test` (269 pass), `git diff --check`. The browser suite was not
 run in full; `shots.spec.ts` passed 10/10 in every capture above and `zz-pixel-diff.spec.ts` passed with
 DIFF_A/DIFF_B set.
+
+## 2026-09-22 - Triangle ceilings tripled for the model round
+
+Owner decision. `tests/browser/frame-budget.spec.ts` triangle ceilings x3: flooded hall 198,818 -> 596,454,
+junction 343,716 -> 1,031,148, strike contact 236,196 -> 708,588. Draw-call ceilings unchanged (439 / 502 /
+447). What it buys: room for plans 009-011 (weapons, knight, enemies) to add shape; the flooded hall sat exactly on
+its old figure. Draw calls stay the binding constraint on part count. Not re-measured here; no scene's actual
+cost changed with this edit.

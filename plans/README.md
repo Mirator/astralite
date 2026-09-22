@@ -15,6 +15,28 @@ the operator asks.
 | [006 — Macro-scale paving variation](006-macro-paving-variation.md) | P2 | Done, merged via PR #38 2026-09-22 | See the plan's Evidence section, and `game/progress.md` |
 | [007 — Local cutaway for occluded actors](007-local-actor-cutaway.md) | P2 | Done, merged via PR #39 2026-09-22 | See the plan's Evidence section, and `game/progress.md` |
 | [008 — Surface feedback at foot contacts](008-surface-footstep-feedback.md) | P3 | Done, merged via PR #40 2026-09-22 | See `game/progress.md` (plan 008 entry: gates, capture paths, visual verdict and its limitation) |
+| [009 — Bake the armoury and sharpen what each arm says from above](009-weapon-and-pickup-models.md) | P2 | TODO | — |
+| [010 — Make the knight read from above](010-knight-model.md) | P2 | TODO | — |
+| [011 — Three enemies, three silhouettes](011-enemy-models.md) | P2 | TODO | — |
+
+## Model sequence — 2026-09-22
+
+Proposed handoffs, not completed work. Order is **009 → 010 → 011**, one at a
+time, in the same checkout.
+
+- **009 is a hard dependency for both others.** It adds `dungeon-bake.ts`
+  (merge static parts per material), `dungeonTest.actorStats()`, and the
+  `models` scenes in `shots.spec.ts`, and captures **B0**, the shared "before"
+  for all three plans. The base commit lacks those scenes, so only B0 can serve.
+- Each plan pays for its own triangles, mainly by merging parts and dropping
+  sub-pixel rounded bevels (108 triangles against a plain box's 12), and must
+  come in at or below the previous plan's draw calls. The flooded hall was
+  measured at its triangle ceiling, so assume zero headroom there.
+- 011 is split into four stages (bake, guard, stalker, warden) that can each
+  land on their own. It ends by proposing tighter frame-budget ceilings; it
+  does not apply them.
+- All three need `shots:compare` (commit `c45664f`, on `feat/shot-compare` at
+  planning time).
 
 ## Graphics implementation sequence — 2026-09-21
 
