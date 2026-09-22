@@ -28,14 +28,23 @@ export default defineConfig({
   retries: 0,
   forbidOnly: !!process.env.CI,
   timeout: 120_000,
-  expect: { timeout: 15_000 },
+  // Was 15s. A scenario that needs its own browser context (any isolated/mobile/touch
+  // spec - see `needsOwnPage` in tests/browser/helpers.ts) pays a full fresh page boot:
+  // module load, a WebGL context, a first floor, all under CI's 2-worker, CPU-bound
+  // SwiftShader rasteriser. As the suite has grown, that cold boot has started missing
+  // a 15s budget under ordinary CPU contention from a sibling worker's own heavy
+  // scenario - reproduced 4/4 times in a row on an unrelated, unmodified isolated-mobile
+  // scenario (`polish.spec.ts`'s phone test) purely from the shard's total load growing,
+  // with no change to that scenario itself. 25s gives real slack without hiding a true
+  // hang (the per-test ceiling below is still 120s).
+  expect: { timeout: 25_000 },
   reporter: [
     ['list'],
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
   ],
   use: {
     baseURL,
-    actionTimeout: 15_000,
+    actionTimeout: 25_000,
     navigationTimeout: 90_000,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
