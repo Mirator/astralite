@@ -9,6 +9,8 @@ import { pavingPatchGeometry } from './dungeon-paving-patches';
 import { buildSurfaceIndex, type CellSurface, type SurfaceIndex, type SurfaceTriangle } from './dungeon-surface';
 import { contactShadow, enemyDetails, knightDetails } from './dungeon-characters';
 import { impactEffects } from './dungeon-impact';
+import { footstepEffects } from './dungeon-footsteps';
+import { footfalls, footSupport, type FootstepKind } from './dungeon-footstep-rules';
 import { playerCloakGeometry } from './dungeon-cloak';
 import { advanceDeath, startDeath, type DeathAnimation } from './dungeon-death';
 import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
@@ -157,7 +159,7 @@ function makeKnight() {
     const boot = new THREE.Mesh(new THREE.BoxGeometry(.22,.16,.34),leather); boot.position.set(0,-.12,-.06);
     const greave=plate([[-.095,.08],[.095,.08],[.08,-.11],[0,-.14],[-.08,-.11]],.05,iron);greave.position.set(0,-.025,-.105);
     const kneecap=new THREE.Mesh(new THREE.DodecahedronGeometry(.115,0),steel);kneecap.scale.set(.95,.8,.6);kneecap.position.z=-.11;
-    knee.add(shin,boot,greave,kneecap);hip.add(leg,knee);hip.userData.knee=knee;g.add(hip);return hip;
+    knee.add(shin,boot,greave,kneecap);hip.add(leg,knee);hip.userData.knee=knee;hip.userData.boot=boot;g.add(hip);return hip;
   });
   const arm=new THREE.Group();arm.position.set(-.4,.34,0);
   const sleeve=new THREE.Mesh(new THREE.BoxGeometry(.17,.28,.18),dark);sleeve.position.y=-.14;
@@ -546,7 +548,7 @@ export default function DungeonGame() {
     const endRun = (cause: RunCause | null) => {
       if (gameStatus === 'won' || gameStatus === 'lost') return;
       gameStatus = cause ? 'lost' : 'won'; setStatus(gameStatus);
-      slash.clear();enemyData.forEach(enemy=>enemy.trails.forEach(trail=>trail.effect.clear()));
+      slash.clear();enemyData.forEach(enemy=>enemy.trails.forEach(trail=>trail.effect.clear()));footsteps.clear();
       // Re-read instead of holding a snapshot: a second tab may have logged its own runs since this one
       // began, and the log is cheap enough to reread once per run that guessing is not worth it.
       const log = appendRun(readRuns(), { at: Date.now(), floor: level, won: !cause, cause, seconds: Math.max(0, Math.round(elapsed - runStart)), rank: run.rankLevel, xp: run.totalXp, kills: run.kills, boons: [...boonsTaken], seed: firstSeed });
@@ -705,6 +707,12 @@ export default function DungeonGame() {
     // read as one crescent rather than as a wire.
     const slash=weaponTrail(0xffedc5,.14,{inner:.34,outer:1.34});world.add(slash.mesh);
     const impacts=impactEffects();world.add(impacts.group);
+    // Plan 008: one bounded particle batch for every footfall of the mounted game (see dungeon-footsteps).
+    // It owns its geometry and material and disposes them itself on unmount, detaching first so the
+    // generic Mesh traversal below never sees them. `stepLog` is read-only diagnostics, reset on restart.
+    const footsteps=footstepEffects();world.add(footsteps.group);
+    const soleAt=new THREE.Vector3();
+    let stepLog:{contacts:number;skipped:number;kinds:Record<FootstepKind,number>;last:{count:number;side:0|1;kind:FootstepKind;cell:string;x:number;y:number;z:number}|null}={contacts:0,skipped:0,kinds:{keep:0,ruins:0,flooded:0},last:null};
     // The trail samples the blade's world path between these two, so they move with the weapon: a spear
     // sampled at a sword's tip would trail from the middle of its own haft.
     let armed = player.userData.armed as ArmedWeapon;
@@ -818,7 +826,7 @@ export default function DungeonGame() {
       // so the ordinary traversal/dispose below never finds a disposed variant still assigned.
       cutaway.releaseFloor();
       atmosphere?.dispose();
-      impacts.clear();
+      impacts.clear(); footsteps.clear();
       floorGroup.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); } });
       world.remove(floorGroup);
       particles.forEach(p => { world.remove(p.mesh); if (p.mesh.material !== sparkMat) (p.mesh.material as THREE.Material).dispose(); });
@@ -1194,6 +1202,7 @@ export default function DungeonGame() {
       run = createRun(); boonsTaken = [];
       attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; dashBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; clearShots();
       walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
+      footsteps.reset(); stepLog = { contacts: 0, skipped: 0, kinds: { keep: 0, ruins: 0, flooded: 0 }, last: null };
       isPaused = false; keys.clear(); bufferedFacing = null; velocity.set(0, 0, 0);
       facing.set(1, 0, -0.6).normalize(); attackFacing.copy(facing); dashFacing.copy(facing);
       setHealth(run.hp); setMaxHealth(run.maxHp); setDefeated(0); setExperience(0); setXpReward(0);
@@ -1641,6 +1650,22 @@ export default function DungeonGame() {
         player.position.y = 0.03 + locomotion.height + Math.sin(t*2.4)*.012*Math.max(0,1-gaitSpeed);
         player.rotation.x = THREE.MathUtils.damp(player.rotation.x, dashTime > 0 ? -0.3 : 0, 24, dt);
         player.userData.cape.rotation.x = THREE.MathUtils.damp(player.userData.cape.rotation.x, dashTime > 0 ? -.8 : -locomotion.cape, 16, dt);
+        // Plan 008: the SAME crossing the step sound plays on, resolved only now that the legs and the
+        // body carry this update's pose, so the sole's world point is not last frame's. The boot's own
+        // x/z, the support's sampled top for y; no support, wood, or a veil pending means no effect.
+        const falls=footfalls(previousPhase,walkPhase,{dashing:dashTime>0,dt,travelled});
+        if(falls.length&&!building){
+          player.updateWorldMatrix(true,true);
+          for(const fall of falls){
+            stepLog.contacts++;
+            const boot=(player.userData.legs[fall.side] as THREE.Group).userData.boot as THREE.Mesh;
+            soleAt.set(0,-.08,0);boot.localToWorld(soleAt);
+            const support=footSupport(surfaceIndex,soleAt.x,soleAt.z);
+            if(!support){stepLog.skipped++;continue;}
+            footsteps.emit({x:soleAt.x,y:support.y,z:soleAt.z},support.kind,{heading:velocity,reduced:easeMotion});stepLog.kinds[support.kind]++;
+            stepLog.last={count:fall.count,side:fall.side,kind:support.kind,cell:support.cell,x:soleAt.x,y:support.y,z:soleAt.z};
+          }
+        }
         dashTime = Math.max(0, dashTime - dt);
         // Bolts come back on their own clock, never on a cooldown, and the readout only moves when the
         // count does rather than every frame.
@@ -1926,6 +1951,8 @@ export default function DungeonGame() {
       // frameDt, not dt: hit-stop must freeze the world, not the accents that mark
       // the blow which caused it. See impactEffects.update.
       impacts.update(frameDt,camera.quaternion);
+      // `dt`, not `frameDt`: a footfall belongs to the world, so hit-stop and pause hold it where it is.
+      footsteps.update(dt,camera.quaternion);
       // A blow lit nothing: the bloom and the shockwave were additive quads over
       // an unchanged floor, so the loudest thing in the frame was also the only
       // thing in it casting nothing. It bids last because it is the shortest —
@@ -1942,14 +1969,14 @@ export default function DungeonGame() {
     const hooks = window as Window & {
       advanceTime?: (ms: number, draw?: boolean) => void;
       render_game_to_text?: () => string;
-      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void };
+      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void; footstepParticles?: () => ReturnType<typeof footsteps.particles>; setFootstepsEnabled?: (enabled: boolean) => void };
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     hooks.dungeonTest = {
       // The mood snaps rather than sliding. Crossing a threshold on foot is worth a third of a second
       // of cross-fade; arriving somewhere by fixture is not a walk, and a driver that teleports into a
       // chamber to photograph it would otherwise catch the lights still on their way there.
-      teleport: (x, z) => {player.position.set(x, 0.03, z);moodCell='';moodSnap=true;slash.clear();cutaway.clear();},
+      teleport: (x, z) => {player.position.set(x, 0.03, z);moodCell='';moodSnap=true;slash.clear();cutaway.clear();footsteps.clear();},
       // Fixture setup, like teleport: put a named arm in hand without walking a rack down. An unknown id
       // arms the Tideblade rather than leaving the knight empty-handed, as weaponById does everywhere.
       equip: (id) => { equip(weaponById(id).id); setHeldWeapon(weaponById(id).name); },
@@ -1990,6 +2017,10 @@ export default function DungeonGame() {
       // dropped from a production build along with the rest of this block.
       hooks.dungeonTest.cutawayDiagnostics = () => cutaway.diagnostics();
       hooks.dungeonTest.setCutawayEnabled = (enabled) => cutaway.setEnabled(enabled);
+      // Plan 008: every live footstep particle's world state, and a same-frame A/B draw toggle that never
+      // touches a particle - both dropped from a production build with the rest of this block.
+      hooks.dungeonTest.footstepParticles = () => footsteps.particles();
+      hooks.dungeonTest.setFootstepsEnabled = (enabled) => footsteps.setEnabled(enabled);
       hooks.dungeonTest.configureCombatFixture = (fixture) => {
         if (!hasStarted) throw new Error('start the run before staging a combat fixture');
         if (!isPaused && !manualTime) throw new Error('pause or take manual time before staging a combat fixture');
@@ -2050,7 +2081,7 @@ export default function DungeonGame() {
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
-      effects: { impacts: impacts.active },
+      effects: { impacts: impacts.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.
       aim: { device: aimDevice, ndc: pointerNdc, span: viewSpan, aspect: viewAspect, pad: padLook },
@@ -2083,7 +2114,7 @@ export default function DungeonGame() {
     raf = requestAnimationFrame(animate);
     const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 6.3 : 7.2; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); };
     window.addEventListener('resize', resize); resize(); setReady(true);
-    return () => { stopped = true; cancelAnimationFrame(raf); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); atmosphere?.dispose(); texture.dispose(); environment.dispose(); impacts.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
+    return () => { stopped = true; cancelAnimationFrame(raf); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); atmosphere?.dispose(); texture.dispose(); environment.dispose(); impacts.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
   }, []);
 
   const roomCount = floorMap?.rooms.length ?? 0;

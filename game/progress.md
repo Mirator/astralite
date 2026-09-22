@@ -1486,3 +1486,76 @@ still read correctly with every eligible material now wrapped in a cutaway varia
 No deviation from the plan's scope list; every touched file is one the plan named. Not committed to a
 PR - local commit only, per the task's own instruction.
 
+## Plan 008: surface feedback at real foot contacts
+
+Built on plan 007 (`origin/feat/local-actor-cutaway`, PR #39), which sits on 006/005/004. Reuses 006's
+`dungeon-surface.ts` (`buildSurfaceIndex`/`sampleSurface`) unchanged for every contact height; no second
+lookup. `dungeon-surface.ts` and its test are untouched.
+
+What landed:
+
+- `app/dungeon-footstep-rules.ts` (pure): `footfalls(previous, current, {dashing, dt, travelled})` is the
+  existing `floor((phase + PI/2)/PI)` crossing, capped at 2 per update, empty for dash / zero dt / zero
+  travel; `landingLeg` maps odd counts to `legs[0]` (the leg `playerRunPose` has at full forward
+  extension); `footSupport` returns `{kind, cell, y}` from `sampleSurface`, or null on wood, a seam/hole,
+  a cell that is not a floor tile, or no index.
+- `app/dungeon-footsteps.ts`: one pre-allocated batch, 32 camera-facing quads, one BufferGeometry + one
+  MeshBasicMaterial (vec4 vertex colour for alpha, procedural soft mask via `onBeforeCompile`, depth test
+  on, depth write off, no shadows), live quads compacted into `drawRange`, mesh invisible when empty,
+  bounding sphere recomputed from live particles each update. Deterministic hash scatter off a private
+  serial. Ages on simulation `dt`.
+- `dungeon-game.tsx`: `hip.userData.boot` retained at construction; after the legs, body height, pitch
+  and cape are posed, a crossing updates the player's world matrix once and resolves the sole point
+  (`boot.localToWorld(0,-.08,0)`), samples the support and emits. Audio line untouched. Cleared on
+  teleport, floor replacement (`clearFloor`) and `endRun`; `reset()` (serial, counters) on restart;
+  disposed on unmount after detaching itself so the generic traversal cannot double-dispose.
+  `effects.footsteps` in the snapshot (active, drawn, emitted, contacts, skipped, kinds, last contact
+  cell/y); dev-only `footstepParticles()` and `setFootstepsEnabled()` (same-frame A/B), stripped from the
+  production build (checked: neither string appears in `dist/client`).
+
+Bugs the pixel checks caught, not the counters:
+
+1. Dust born at the sole centre was inside the boot mesh and depth-hidden: 1 live particle changed 0
+   pixels (peak ΔRGB 3). Particles are now born on the sole's rim; the first on the rim point facing the
+   lens.
+2. Drops never rendered at all: the streak basis `(across, along)` had the opposite handedness to
+   `(right, up)`, so every drop quad wound away from the camera and FrontSide culling dropped it - 3 live
+   drops, 0 changed pixels. Fixed; `dungeon-footsteps.test.ts` now asserts front-facing winding for every
+   triangle of every kind, and fails on the old basis (verified by reverting the one line).
+
+Tests: `tests/dungeon-footstep-rules.test.ts` (8), `tests/dungeon-footsteps.test.ts` (10; the size/life/
+height/alpha bounds are held to the plan's table restated independently of the implementation's own
+constants), `tests/browser/footsteps.spec.ts` (9, one of them the single isolated phone context).
+SwiftShader wall time per browser test, no capture: four directions 14.6s (includes the pooled boot),
+rest/wall/dash/redraw/pause/teleport 18.4s, hit-stop 1.2s, surface kinds + wood 1.5s, 16 ms vs
+subdivided + repeat resources 11.9s, keep/ruins/flooded pixel proof 11.6/7.1/7.5s, phone 23.1s - whole
+file 1.8 min. With `GAME_TEST_CAPTURE=1` the longest is the phone test at 32.6s.
+
+Render cost: exactly one extra draw while particles are alive (asserted: A/B `render.calls` delta = 1),
+zero when empty. `frame-budget.spec.ts` untouched and unaffected, all three scenes stationary:
+flooded-hall 428/439 calls, 196,500/198,818 triangles; junction 496-498/502 (its documented drift band;
+the pre-edit baseline run measured 496 and 007 recorded 497); strike-contact 371/447, 154,500/236,196.
+
+Captures: `game/test-results/graphics-008-before/` (sprint + polish, SwiftShader, pre-edit) and
+`game/test-results/graphics-008-after/` (footsteps.spec, SwiftShader): per theme contact, +60, +120,
++240 ms full frames, a live combat (hit-stop) frame, phone keep/flooded ordinary and reduced, and for
+each contact a 4x close-up sheet (batch off | on | difference x6), all drawn in one task.
+
+Visual verdict, from opening the PNGs: placement is right. In every close-up the difference sits
+exactly at the base of the planted boot, on the stone, below the ankle, never on the torso, never a ring
+or a flash, never on wood. Measured on screen at +60 ms: keep 16 px changed (peak summed ΔRGB 55), ruins
+45 px (95), flooded 12 px (56); phone keep 26 px, flooded 14 px; reduced motion 3-7 px. That is also the
+limitation: at the plan's own size and alpha ceilings (this implementation sits at the top of them), a
+fleck is 2-6 px at 1000x700, and I could not pick it out at native size in the full frames without the
+difference panel. It is restrained to the edge of imperceptible. Making it read would need sizes or
+alpha outside the plan's ranges - an operator decision, not taken here.
+
+Gates: `npm run typecheck`, `npm run lint`, `npm test` (253 pass), `GAME_TEST_GL=d3d11 npm run
+test:browser` (128 passed, 2 skipped - the same two pre-existing skips as plan 007: `zz-pixel-diff` and
+occlusion's seed-dependent windup case), `npm run build`, `git diff --check` all pass.
+
+Deviations: particles start at the rim of the sole, not its exact x/z centre (see bug 1; still within
+0.35 of the contact, which the node test enforces). The phone test walks with the keyboard (a touch
+context still delivers it) for the same deterministic stride as desktop; reduced motion is switched on
+through the real pause-menu settings card.
+

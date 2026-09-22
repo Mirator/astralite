@@ -194,6 +194,21 @@ export type Snapshot = {
     calls: number;
     triangles: number;
   };
+  /** Live effect pools. `footsteps` is plan 008's contact feedback: particles alive, whether the batch
+   * is drawn, contacts emitted, phase crossings seen, crossings skipped for want of stone support, per
+   * surface emissions, and the last actual support cell/height an emission used. */
+  effects: {
+    impacts: number;
+    footsteps: {
+      active: number;
+      drawn: boolean;
+      emitted: number;
+      contacts: number;
+      skipped: number;
+      kinds: Record<'keep' | 'ruins' | 'flooded', number>;
+      last: { count: number; side: 0 | 1; kind: 'keep' | 'ruins' | 'flooded'; cell: string; x: number; y: number; z: number } | null;
+    };
+  };
   features: {
     room: number;
     shrine: boolean;
@@ -289,6 +304,9 @@ export type CombatFixture = {
   }[];
 };
 
+/** Plan 008: one live footstep particle, as `dungeonTest.footstepParticles()` reports it. */
+export type FootstepParticle = { x: number; y: number; z: number; ox: number; oy: number; oz: number; width: number; length: number; alpha: number; age: number; life: number; droplet: boolean };
+
 /** Plan 007: one slot's read-only state, as `dungeonTest.cutawayDiagnostics()` reports it. */
 export type CutawaySlotDiagnostic = {
   owner: 'player' | 'guard' | 'stalker' | 'warden' | null;
@@ -305,7 +323,7 @@ export type CutawayDiagnostics = {
   enabled: boolean;
 };
 
-type GameWindow = Window & {
+export type GameWindow = Window & {
   advanceTime?: (ms: number, draw?: boolean) => void;
   render_game_to_text?: () => string;
   dungeonTest?: {
@@ -320,6 +338,10 @@ type GameWindow = Window & {
     cutawayDiagnostics?: () => CutawayDiagnostics;
     /** Same-frame A/B toggle for the cutaway shader; never mutates a target's own state. */
     setCutawayEnabled?: (enabled: boolean) => void;
+    /** Plan 008: every live footstep particle's world state; absent from a production build. */
+    footstepParticles?: () => FootstepParticle[];
+    /** Plan 008: same-frame A/B draw toggle for the footstep batch; never touches a particle. */
+    setFootstepsEnabled?: (enabled: boolean) => void;
   };
 };
 

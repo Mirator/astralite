@@ -291,6 +291,38 @@ strictly for later presentation use (plan 008's footstep feedback reads it); col
 use `floor.cells`/`canStand` exactly as before, and nothing here is ever consulted for whether a
 position is legal to stand on.
 
+## Footstep feedback
+
+A planted boot says what it landed on, quietly. `dungeon-footstep-rules.ts` decides when a foot lands
+— the exact `floor((phase + PI/2) / PI)` crossing the step sound already plays on, so a wall, a dash,
+a hit-stop or a pause can never plant one — and which leg (the one `playerRunPose` has at full forward
+extension). The support is `sampleSurface` on the realized floor above, never a flat plane and never
+the global mood: the tile's own theme, the owning room's or else the nearest chamber's, the rule the
+paving itself was coloured by.
+
+| Surface | Per contact | Size | Life | Behaviour |
+| --- | --- | --- | --- | --- |
+| keep stone | 1–2 cool-gray flecks | 0.07–0.08 diameter | 0.20–0.25 s | low sideways spread, ≤ 0.10 high |
+| ruins stone | 2–3 muted ochre-gray flecks | 0.10–0.12 diameter | 0.24–0.32 s | brief low puff, ≤ 0.16 high |
+| flooded stone | 2–3 gray-cyan drops | 0.032–0.035 × 0.07–0.075 | 0.18–0.24 s | short ballistic flick, apex ≤ 0.15, gone on landing |
+| wood, seam, no support | nothing | — | — | no dust off a bridge, no invented splinters |
+
+Flooded means wet boots, not wading: the sea is three units below the walkway and is never touched, and
+there are no ripples on solid paving. Dust and drops are born at the rim of the sole — the first on the
+rim point facing the lens, since the sole's centre is inside the boot mesh itself — stay within 0.35 of
+the contact and under ankle height, use normal blending at a start alpha of 0.19–0.22 (drops
+0.26–0.30), and fade to nothing. Reduced motion keeps one fleck or drop, 0.12 s, under 0.03 of travel.
+
+`dungeon-footsteps.ts` is one pre-allocated batch: 32 camera-facing quads in one geometry and one
+material, a procedural soft mask instead of a texture, live quads compacted into the draw range and the
+mesh switched off when empty — zero draws with nothing alive, one while anything is. It ages on
+simulation time, so hit-stop and pause hold it still, unlike the hit accents, which age on wall time.
+
+Measured, not assumed: at these sizes a fleck is two to six pixels on a 1000×700 frame (≈48 px per
+world unit) and changes a few dozen pixels per contact at most. It anchors the boot rather than
+decorating the frame — and at the ceiling of this table it is close to the threshold of what reads at
+native size. Anything louder is a change to this table, made deliberately.
+
 ## What is still shared
 
 Named rather than hidden. The sea, the foliage, the spray and the motes carry

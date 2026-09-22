@@ -14,7 +14,7 @@ the operator asks.
 | [005 — Theme-specific light-source shapes](005-theme-light-source-shapes.md) | P2 | Done, merged via PR #37 2026-09-22 | See the plan's Evidence section, and `game/progress.md` |
 | [006 — Macro-scale paving variation](006-macro-paving-variation.md) | P2 | Done, merged via PR #38 2026-09-22 | See the plan's Evidence section, and `game/progress.md` |
 | [007 — Local cutaway for occluded actors](007-local-actor-cutaway.md) | P2 | Done, merged via PR #39 2026-09-22 | See the plan's Evidence section, and `game/progress.md` |
-| [008 — Surface feedback at foot contacts](008-surface-footstep-feedback.md) | P3 | TODO | Graphics recommendation 5; planned at `cc6fb85`, 2026-09-21 |
+| [008 — Surface feedback at foot contacts](008-surface-footstep-feedback.md) | P3 | Done, merged via PR #40 2026-09-22 | See `game/progress.md` (plan 008 entry: gates, capture paths, visual verdict and its limitation) |
 
 ## Graphics implementation sequence — 2026-09-21
 
