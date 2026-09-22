@@ -1369,3 +1369,120 @@ No deviation from the plan's scope list. `dungeon-decor-layout.ts` was not touch
 `decorReservations` contract already covered every case this plan needed (gauntlet, goal, sanctuary
 centre, weapon drop), so the "only if a missing reservation is found" clause never triggered.
 
+Plan 007, local actor cutaway. `dungeon-occlusion.ts` is a new controller: fixed uniform storage for
+three centres/radii/strengths plus the camera's own world matrix (needed to recover world-y from a
+view-space varying); a material-variant cache that clones each eligible source material exactly once,
+captures its existing `onBeforeCompile`/`customProgramCacheKey` before installing a wrapper that calls
+the captured hook first and appends the cutaway's own vertex/fragment injection after - so
+`weatherStone`'s hook, and its `stoneWorld` varying, are never touched or duplicated. The vertex hook
+stores `mvPosition.xyz` (already carrying instance transforms, confirmed against the installed three.js
+source per the plan's own anchor-verification instruction) and a camera-relative world-y in two
+uniquely-named varyings after `#include <project_vertex>`; the fragment hook discards after
+`#include <clipping_planes_fragment>` when a fragment sits inside a target's ellipse (smooth from
+normalized radius 0.65 to 1.0), in front of it by 0.10-6.0 world units, above y 0.18, combined across
+up to three targets by max rather than sum, and gated by a 4x4 Bayer dither capped at 90% removal. A
+`uCutawayEnabled` uniform is a same-frame development-only A/B toggle that never touches a target's own
+state. Slot bookkeeping (player always on at strength 1 while playing; up to two enemy slots, filled by
+nearest-first with an id tie-break, faded 0.10s in / 0.16s out, instantly dropped - not faded - the
+instant an id is missing from the caller's own eligible-candidate list, which is what makes death,
+dormancy, room change and out-of-range all resolve to the same "gone" path) lives in the controller,
+independent of any three.js/DOM dependency, so `tests/dungeon-occlusion.test.ts` (20 cases) exercises
+the view/depth math, ellipse limits, the max-not-sum overlap bound, three-slot capacity, stable target
+identity under equal distance, fade timing, instant-clear, and the hook-chaining/no-double-wrap
+behaviour entirely off plain numbers and stub materials, no WebGL required.
+
+`dungeon-art.ts` tags the `stone`/`pale` instanced masonry batches and the archivolt ring
+(`userData.cameraOccluder = true`) inside `addCarvedArchitecture`; the grille's bronze bars, the blind
+lancet, foliage and floor motifs are left untagged (bars and floor tops are explicitly excluded).
+`dungeon-atmosphere.ts` tags a standing pillar's shaft and cap (not its low plinth) and the per-region
+wall-masonry `InstancedMesh` batches. `dungeon-game.tsx` creates one controller for the life of the
+mount; registers every tagged mesh in the SAME traversal that already collects `walkingSurface`
+triangles for the surface index, right after `addAtmosphere` runs, so a floor build never gains a
+second full traversal; calls `cutaway.releaseFloor()` first in `clearFloor`, before the atmosphere and
+floor-group dispose, so a disposed variant is never left assigned; calls `cutaway.syncMaterials()`
+right after `atmosphere.update()` each frame (copying colour/emissive/roughness/metalness/opacity from
+each source material onto its variant, never `Material.copy`, never a new material); and resolves this
+frame's player/enemy candidates and calls `cutaway.update(camera, ...)` right after `camera.lookAt`,
+using simulation `dt` (not `frameDt`) so hit-stop and the pause guard freeze it exactly like everything
+else the same `update()` function drives. Enemy eligibility mirrors the existing threat-cue visibility
+rule verbatim (`windup>0||(lunge>0&&attackAge<.09)`) rather than inventing a second definition of
+"attacking". `teleport` clears the controller's slots explicitly; `restart`/`buildFloor`/pooled reset
+all go through `clearFloor`, which already does. Two development-only hooks
+(`dungeonTest.cutawayDiagnostics`, `dungeonTest.setCutawayEnabled`), guarded by the same
+`NODE_ENV !== 'production'` branch as `configureCombatFixture`, are confirmed absent from
+`npm run build`'s own `dist/client` output by grep.
+
+Step 1's prototype gate was not skipped: the unit suite above was written and passed first, against
+plain TypeScript objects and a fake `{vertexShader, fragmentShader, uniforms}` shader record - proof of
+the math and the hook-composition contract, not of GLSL. Only after that did integration proceed to a
+real `GAME_TEST_GL=d3d11` Chromium session, where the shader actually compiled (three's own
+`onBeforeCompile` chain resolved with no duplicate-anchor or double-wrap errors) and rendered.
+
+Two real bugs surfaced only by that live pixel evidence, both fixed rather than worked around:
+
+1. `cutawayDiagnostics().slots[i].strength` is, by design, always 1 for the player slot while playing
+   (the plan's own "remains at full strength" rule) and ramps toward 1 for an attacking enemy
+   regardless of whether any eligible geometry is anywhere nearby - it is a fade value, not an
+   occlusion signal. An early test draft used it to decide whether a candidate teleport spot was
+   "occluded", which is meaningless for the player slot and unreliable for enemies. Every "is this
+   spot occluded/clear" question in the final test asks the rendered pixels instead (`cutawayFrames`,
+   toggling `uCutawayEnabled` for a same-instant A/B), and the diagnostic is used only for what it does
+   answer honestly: which owner/id holds a slot, and how many slots are allocated.
+2. A room's own centre is not floor-wide safe ground: `headroom`'s clamp only holds a room's own near
+   architecture clear of a centre-standing actor *in that room* - it says nothing about a neighbouring
+   room's own tall backdrop mass. The first "clear control" pick (the first walkable room centre) was
+   sometimes itself faintly occluded. Fixed by searching room centres live for one that actually draws
+   pixel-identical with the cutaway enabled and disabled, the same standard used for the occluded spot.
+3. Driving a pause as two separate `page.evaluate` round trips (dispatch the action, then read pixels)
+   occasionally read a transient frame from the browser's own paint/compositor scheduling in the real
+   time gap between them - reproducing between 0 and several thousand differing pixels across otherwise
+   identical runs, which is the signature of a harness race rather than a simulation bug (a real fade
+   ticking during pause would be a small, *consistent* per-frame drift, not a number that varies wildly
+   run to run including exact zero). Fixed with `Game.pauseFreezeCheck`, which drives the pause
+   dispatch, the simulated time step and both pixel reads inside one synchronous evaluated task, exactly
+   as `cutawayFrames`/`tellAgainstStone` already do for their own before/after pairs. Stable across
+   repeated runs afterward.
+
+Visual review, not just a passing counter: `occlusion-player-occluded-on.png`,
+`occlusion-player-control.png` and `occlusion-mobile-player-occluded.png` were captured
+(`GAME_TEST_GL=d3d11 GAME_TEST_CAPTURE=1`, a new feature with no historical SwiftShader baseline to
+stay comparable with) and opened, then a 260x260 region around the actor was cropped and upscaled for a
+close look. The occluded frame shows a real, small, dithered opening in the pillar's own coping/cap
+stone directly in front of the knight's head and shoulder - the pillar's silhouette, the coping's edge
+and the surrounding paving are all still there and still stone, not a clean hole and not the whole cap
+gone; the knight's cape, pauldron and blade are legible through the dithered gap. The control frame
+(a different room, `roomCentre`) shows the knight fully clear with no dithering artefact anywhere. The
+mobile capture shows the same dithered opening at the phone viewport/aspect. Floor, shadows and the
+rest of the frame are visually unaffected in every capture.
+
+CI-budget shape, per the explicit lesson from 004-006: the five cutaway questions that all need an
+already-found occluded spot and an already-found clear spot (real hole exists, control is clean, a
+zero-time redraw matches, a pause matches, moving away/back opens and closes it, a floor rebuild drops
+stale ids) are one consolidated test rather than five, because the live search for each spot is the
+expensive part (real draws per candidate) and splitting them would repeat that search once per
+question for no additional coverage - exactly the mistake the operator's notes warn against. That one
+test needs `test.setTimeout(240_000)`, stated with a comment: a live multi-candidate search over real
+frames is not comfortably inside the default 120s. The remaining three occlusion scenarios (a windup
+enemy behind a wall, the three-slot/idle-exclusion bookkeeping, one mobile-viewport case using its own
+isolated context as `needsOwnPage` requires) are each their own test. Measured cost on this machine
+(materially slowed by unrelated background load - `wmic cpu get loadpercentage` read 39% and free
+memory was under 15% of 32GB with roughly twenty unrelated Node processes already running - so treat
+these as upper bounds, not clean numbers): the full `occlusion.spec.ts` file, four tests plus one
+mobile-context test, 3-5 minutes; the enemy-windup scenario reports an honest `test.skip` with a stated
+reason when this seed's floor does not happen to place a living enemy in the same room as a usable
+occluder within range, rather than failing or faking a result.
+
+Gates: `npm run typecheck`, `npm run lint`, `npm test` (235, up from 215 - the 20 new cases are
+`tests/dungeon-occlusion.test.ts`), `GAME_TEST_GL=d3d11 npm run test:browser` for the full suite (119
+passed, 2 skipped - the pre-existing `zz-pixel-diff.spec.ts` skip, unchanged, and the seed-dependent
+enemy-windup skip above), `npm run build`, and `git diff --check` from root all pass.
+`frame-budget.spec.ts`'s three ceilings are unaffected and unchanged in shape (flooded-hall 428/439
+calls, 196,500/198,818 triangles; junction 497/502, 326,188/343,716; strike-contact 371/447,
+154,500/236,196): the controller adds zero draw calls and zero triangles by construction (materials
+change, geometry does not), and material property tests in `polish.spec.ts`/`art-direction.spec.ts`
+confirm distant architecture culling, the palette/tell measurements and phone-viewport materials all
+still read correctly with every eligible material now wrapped in a cutaway variant.
+
+No deviation from the plan's scope list; every touched file is one the plan named. Not committed to a
+PR - local commit only, per the task's own instruction.
+

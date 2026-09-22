@@ -257,6 +257,29 @@ blended for the merged slab's colour, and the whole rectangle is mapped over one
 the single-tile mapping repeated twice, which is what stops the existing edge-shaded stone texture
 painting a false seam down the middle.
 
+## Local actor cutaway
+
+The fixed isometric camera means near architecture — a foreground pillar, a buttress, a gate span —
+can stand directly between the lens and an actor who has simply walked (or lunged) behind it, with
+nothing telling the player where the fight went. `dungeon-occlusion.ts` opens a small, camera-facing
+dithered hole in the actual stone rather than adding a permanent through-wall outline: the obstruction
+stays real architecture everywhere else in the frame, and the window only exists where and while an
+actor's own body needs it.
+
+Up to three fixed slots — the player, then at most two nearest awake, alive, in-room enemies within
+four world units, and only while one is winding up or in the instant its blow releases — each carry a
+small elliptical window (0.65–1.35 world units of radius depending on who owns it) centred on that
+body. A vertex/fragment shader hook installed after `weatherStone`'s own (never before it, never
+redeclaring `stoneWorld`) discards a fragment only when it sits inside that ellipse, in front of the
+target by 0.10–6.0 world units, and above knee height — a 4×4 Bayer dither caps the removal at 90% so
+the edge reads as broken stone rather than a clean cut, and overlapping targets combine by maximum,
+never by summing past that cap. Enemy windows fade in over 0.10s and out over 0.16s; death, a hidden
+state or a room change clears one at once instead. Only opaque pillar shafts/caps, high wall masonry
+and carved gate spans are ever tagged eligible (`userData.cameraOccluder`, set once at creation, never
+inferred from colour or class) — floor tops, foundations, water, cloth, foliage, flame, pickups,
+characters and telegraphs never are, and shadows, depth and every other material property are
+untouched.
+
 ## Surface index (presentation only)
 
 `dungeon-surface.ts` is a pure, three.js-free module: `buildSurfaceIndex` bins every upward-facing

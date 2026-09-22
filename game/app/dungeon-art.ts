@@ -454,13 +454,22 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
         rotation.setFromEuler(spin.set(0, b.turn || Math.abs((b.x * 12.9898 + b.z * 78.233) % 1) * .05 - .025, 0));
         matrix.compose(at.set(b.x, b.y, b.z), rotation, scale.set(b.sx, b.sy, b.sz)); batch.setMatrixAt(i, matrix);
       });
-      batch.castShadow = batch.receiveShadow = true; world.add(batch);
+      batch.castShadow = batch.receiveShadow = true;
+      // Plan 007: opaque pillar shafts/caps and high wall masonry are eligible for the local actor
+      // cutaway. `stone`/`pale` are exactly that here — coursework, buttresses, capitals, bases,
+      // copings; `bronze` never reaches this loop (nothing in `blocks` uses it). Tagged once at
+      // creation, never by colour or class, per the plan's own registration rule.
+      if (material === stone || material === pale) batch.userData.cameraOccluder = true;
+      world.add(batch);
     }
   }
   if (rings.length) {
     const arches = new THREE.InstancedMesh(ringGeometry, pale, rings.length);
     rings.forEach((r, i) => { rotation.setFromEuler(new THREE.Euler(0, r.turn ? Math.PI / 2 : 0, 0)); matrix.compose(at.set(r.x, r.y, r.z), rotation, scale.set(1, 1, 1)); arches.setMatrixAt(i, matrix); });
-    arches.receiveShadow = true; world.add(arches);
+    arches.receiveShadow = true;
+    // A carved gate span is eligible; the grille's bars are excluded explicitly by the plan.
+    arches.userData.cameraOccluder = true;
+    world.add(arches);
     const grille = new THREE.InstancedMesh(barGeometry, bronze, bars.length);
     rotation.identity();
     bars.forEach((b, i) => { matrix.compose(at.set(b.x, b.y + b.sy / 2, b.z), rotation, scale.set(.07, b.sy, .07)); grille.setMatrixAt(i, matrix); });

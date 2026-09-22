@@ -13,6 +13,7 @@ import { playerCloakGeometry } from './dungeon-cloak';
 import { advanceDeath, startDeath, type DeathAnimation } from './dungeon-death';
 import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
 import { createDungeonAudio } from './dungeon-audio';
+import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidate } from './dungeon-occlusion';
 import { animateCloth, stoneMood, tideMood, tidalMaterial, weatherStone } from './dungeon-motion';
 import { canStand, generateFloor, hasClearPath, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { CAMERA_OFFSET, groundAim, SCREEN_DOWN, SCREEN_RIGHT, SNAP_REACH, snapAim } from './dungeon-aim';
@@ -469,6 +470,9 @@ export default function DungeonGame() {
     // run before this one mounted, in which case it found no `applyRef` and did nothing; without this the
     // world would sit on the defaults until the player happened to change something else.
     applyRef.current(settingsRef.current, settingsRef.current.reducedMotion ?? matchMedia('(prefers-reduced-motion: reduce)').matches);
+    // Plan 007: one controller for the life of the mount. Only its registration table and target
+    // slots are floor-scoped — `clearFloor` releases them before a floor's own materials are disposed.
+    const cutaway = createCutawayController();
     // Floor-scoped state: everything here is torn down and rebuilt when the knight takes the stair down.
     let floor!: ReturnType<typeof generateFloor>;
     let enemyData: Enemy[] = [];
@@ -810,6 +814,9 @@ export default function DungeonGame() {
     const enemyWorld = { get cells() { return floor.cells; }, get activeRoom() { return activeRoom; }, pathDistance: (x: number, z: number) => distances.get(pathKey(x,z)) ?? Infinity };
     // Only the shared texture, the knight and the lights outlive a floor; the rest is rebuilt per descent.
     const clearFloor = () => {
+      // First: restores every registered mesh's original material and disposes each cutaway variant,
+      // so the ordinary traversal/dispose below never finds a disposed variant still assigned.
+      cutaway.releaseFloor();
       atmosphere?.dispose();
       impacts.clear();
       floorGroup.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); } });
@@ -1022,7 +1029,11 @@ export default function DungeonGame() {
           }
         };
         floorGroup.traverse((o) => {
-          if (!(o instanceof THREE.Mesh) || !o.userData.walkingSurface) return;
+          if (!(o instanceof THREE.Mesh)) return;
+          // Plan 007: register every mesh tagged `cameraOccluder=true` at creation (dungeon-art.ts,
+          // dungeon-atmosphere.ts) exactly once per floor build, never by traversing every frame.
+          if (o.userData.cameraOccluder) cutaway.register(o as THREE.Mesh | THREE.InstancedMesh);
+          if (!o.userData.walkingSurface) return;
           if (o instanceof THREE.InstancedMesh) {
             for (let i = 0; i < o.count; i++) {
               o.getMatrixAt(i, instanceMatrix);
@@ -1877,6 +1888,10 @@ export default function DungeonGame() {
       for (let i = particles.length - 1; i >= 0; i--) if (particles[i].life <= 0) { world.remove(particles[i].mesh); if (particles[i].mesh.material !== sparkMat) (particles[i].mesh.material as THREE.Material).dispose(); particles.splice(i, 1); }
       hurtFlash = Math.max(0, hurtFlash - dt); shake = Math.max(0, shake - dt); tickRun(run, dt);
       atmosphere?.update(t,player.position,cleared,moodFire,moodBanner,moodMasonry,moodBed);
+      // Plan 007: the atmosphere pass just wrote the animated colour every eligible material carries;
+      // copy it onto each material's cutaway variant, which is what every registered mesh actually
+      // renders with now. Never Material.copy, never a new material, just the handful of scalars.
+      cutaway.syncMaterials();
       // The parapet is carved work too, built here rather than in the atmosphere pass but lit the same.
       parapetSkin?.color.copy(moodMasonry);
       const nearest = [...(atmosphere?.torchPositions ?? [])].sort((a,b)=>a.distanceToSquared(player.position)-b.distanceToSquared(player.position));
@@ -1895,6 +1910,19 @@ export default function DungeonGame() {
       // particles, the sound and the health bar do not already say, so nothing is lost by not moving at all.
       if (shake > 0 && !easeMotion) camera.position.add(new THREE.Vector3(Math.sin(t*95)*shake,0,Math.cos(t*83)*shake));
       camera.lookAt(cameraFocus.x,0,cameraFocus.z);
+      // Plan 007: resolve this frame's cutaway targets after the camera has its final position for the
+      // frame, so the view-space centres this writes are never a frame stale. Eligibility mirrors the
+      // existing threat cue exactly (`enemy.windup>0||(enemy.lunge>0&&enemy.attackAge<.09)`) rather than
+      // introducing a second definition of "attacking" - an idle guard, a corpse, a dormant ambush or a
+      // neighbour-room enemy is never in this list at all, which is what clears its slot at once rather
+      // than fading it. `dt`, not `frameDt`, so hit-stop holds a fade exactly where it was.
+      cutaway.update(camera, gameStatus === 'playing' ? { position: player.position } : null,
+        gameStatus === 'playing' ? enemyData.reduce<CutawayEnemyCandidate[]>((list, enemy, index) => {
+          if (enemy.dead || !enemy.awake || enemy.room !== activeRoom) return list;
+          if (player.position.distanceTo(enemy.group.position) > CUTAWAY_ENEMY_RANGE) return list;
+          list.push({ id: index, kind: enemy.kind, position: enemy.group.position, attacking: enemy.windup > 0 || (enemy.lunge > 0 && enemy.attackAge < .09) });
+          return list;
+        }, []) : [], dt);
       // frameDt, not dt: hit-stop must freeze the world, not the accents that mark
       // the blow which caused it. See impactEffects.update.
       impacts.update(frameDt,camera.quaternion);
@@ -1914,14 +1942,14 @@ export default function DungeonGame() {
     const hooks = window as Window & {
       advanceTime?: (ms: number, draw?: boolean) => void;
       render_game_to_text?: () => string;
-      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void };
+      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void };
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     hooks.dungeonTest = {
       // The mood snaps rather than sliding. Crossing a threshold on foot is worth a third of a second
       // of cross-fade; arriving somewhere by fixture is not a walk, and a driver that teleports into a
       // chamber to photograph it would otherwise catch the lights still on their way there.
-      teleport: (x, z) => {player.position.set(x, 0.03, z);moodCell='';moodSnap=true;slash.clear();},
+      teleport: (x, z) => {player.position.set(x, 0.03, z);moodCell='';moodSnap=true;slash.clear();cutaway.clear();},
       // Fixture setup, like teleport: put a named arm in hand without walking a rack down. An unknown id
       // arms the Tideblade rather than leaving the knight empty-handed, as weaponById does everywhere.
       equip: (id) => { equip(weaponById(id).id); setHeldWeapon(weaponById(id).name); },
@@ -1957,6 +1985,11 @@ export default function DungeonGame() {
         if (!Number.isFinite(value)) throw new Error(`${label} must be a finite number`);
         return value;
       };
+      // Plan 007: read-only target/material state for a browser spec, and a same-frame A/B toggle
+      // that never touches a target's own state (see `uCutawayEnabled` in dungeon-occlusion.ts) - both
+      // dropped from a production build along with the rest of this block.
+      hooks.dungeonTest.cutawayDiagnostics = () => cutaway.diagnostics();
+      hooks.dungeonTest.setCutawayEnabled = (enabled) => cutaway.setEnabled(enabled);
       hooks.dungeonTest.configureCombatFixture = (fixture) => {
         if (!hasStarted) throw new Error('start the run before staging a combat fixture');
         if (!isPaused && !manualTime) throw new Error('pause or take manual time before staging a combat fixture');
@@ -2050,7 +2083,7 @@ export default function DungeonGame() {
     raf = requestAnimationFrame(animate);
     const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 6.3 : 7.2; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); };
     window.addEventListener('resize', resize); resize(); setReady(true);
-    return () => { stopped = true; cancelAnimationFrame(raf); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); atmosphere?.dispose(); texture.dispose(); environment.dispose(); impacts.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
+    return () => { stopped = true; cancelAnimationFrame(raf); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); atmosphere?.dispose(); texture.dispose(); environment.dispose(); impacts.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
   }, []);
 
   const roomCount = floorMap?.rooms.length ?? 0;
