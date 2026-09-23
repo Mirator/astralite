@@ -10,8 +10,8 @@ import type { Page } from '@playwright/test';
  * script that installs one before boot is handed the live scene and nothing in the game has to know.
  * That is why the page has to be booted after `probeScene` - a pooled page is already running.
  *
- * Only the body is measured. For the pair of frames that make one figure's mask, that figure casts no
- * shadow and its contact pool is hidden, in both frames: the moon throws a figure's shadow most of a
+ * Only the body is measured. For the frames that make the masks, every measured figure casts no shadow
+ * and its contact pool is hidden: the moon throws a figure's shadow most of a
  * tile away, and a mask that included it would be measuring the floor it falls on.
  */
 
@@ -22,8 +22,16 @@ export const probeScene = (page: Page) =>
     hub.addEventListener('observe', (event) => {
       const detail = (event as CustomEvent).detail as { isScene?: boolean } | undefined;
       if (detail?.isScene) scenes.push(detail);
+      // The renderer, and the camera it last drew with, so a measurement can scissor its frames down
+      // to the figures it reads (see measureMasks).
+      const renderer = detail as { isWebGLRenderer?: boolean; render?: (scene: unknown, camera: unknown) => void } | undefined;
+      if (renderer?.isWebGLRenderer && renderer.render) {
+        const render = renderer.render.bind(renderer);
+        renderer.render = (scene, camera) => { win.__probedCamera = camera; render(scene, camera); };
+        win.__probedRenderer = renderer;
+      }
     });
-    const win = window as unknown as { __THREE_DEVTOOLS__: EventTarget; __probedScenes: unknown[] };
+    const win = window as unknown as { __THREE_DEVTOOLS__: EventTarget; __probedScenes: unknown[]; __probedRenderer?: unknown; __probedCamera?: unknown };
     win.__THREE_DEVTOOLS__ = hub;
     win.__probedScenes = scenes;
   });
@@ -49,7 +57,9 @@ export const measureMasks = (page: Page, targets: Target[]) =>
       isMesh?: boolean;
       material?: { blending?: number };
     };
-    const win = window as unknown as { __probedScenes?: Node[]; advanceTime: (ms: number, draw: boolean) => void };
+    type Renderer = { getPixelRatio: () => number; setScissor: (x: number, y: number, w: number, h: number) => void; setScissorTest: (on: boolean) => void };
+    type Camera = { matrixWorldInverse: { elements: number[] }; projectionMatrix: { elements: number[] } };
+    const win = window as unknown as { __probedScenes?: Node[]; __probedRenderer?: Renderer; __probedCamera?: Camera; advanceTime: (ms: number, draw: boolean) => void };
     const walk = (node: Node, visit: (node: Node) => void) => { visit(node); for (const child of node.children) walk(child, visit); };
     let knight: Node | null = null;
     const enemies: Node[] = [];
@@ -61,15 +71,42 @@ export const measureMasks = (page: Page, targets: Target[]) =>
       if (knight) break;
     }
     if (!knight) throw new Error('no scene holding the knight was announced to the devtools probe');
+    const actors = wanted.map((target) => {
+      const actor = target.knight
+        ? knight!
+        : enemies.find((enemy) => Math.hypot(enemy.position.x - target.x!, enemy.position.z - target.z!) < 0.05);
+      if (!actor) throw new Error(`no actor stands where ${target.name} was placed`);
+      return actor;
+    });
     const gl = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
+    const renderer = win.__probedRenderer, camera = win.__probedCamera;
+    if (!renderer || !camera) throw new Error('the devtools probe saw no renderer drawing');
+    // On SwiftShader the frame is the whole cost of this measurement, so only the part of it holding the
+    // figures is drawn and read: a box a generous 1.4 wide and 2.8 tall around each figure's feet,
+    // projected through the game's camera. A mask that reaches the edge of that region throws below,
+    // so a region too small cannot quietly cut a figure short.
+    const transform = (m: { elements: number[] }, x: number, y: number, z: number) => {
+      const a = m.elements, w = a[3] * x + a[7] * y + a[11] * z + a[15];
+      return [(a[0] * x + a[4] * y + a[8] * z + a[12]) / w, (a[1] * x + a[5] * y + a[9] * z + a[13]) / w, (a[2] * x + a[6] * y + a[10] * z + a[14]) / w];
+    };
+    let rx0 = gl.width, ry0 = gl.height, rx1 = 0, ry1 = 0;
+    for (const actor of actors) for (const dx of [-1.4, 1.4]) for (const dy of [-0.2, 2.8]) for (const dz of [-1.4, 1.4]) {
+      const [vx, vy, vz] = transform(camera.matrixWorldInverse, actor.position.x + dx, dy, actor.position.z + dz);
+      const [nx, ny] = transform(camera.projectionMatrix, vx, vy, vz);
+      const px = (nx + 1) / 2 * gl.width, py = (1 - ny) / 2 * gl.height;
+      rx0 = Math.min(rx0, px); rx1 = Math.max(rx1, px); ry0 = Math.min(ry0, py); ry1 = Math.max(ry1, py);
+    }
+    rx0 = Math.max(0, Math.floor(rx0)); ry0 = Math.max(0, Math.floor(ry0));
+    const width = Math.min(gl.width, Math.ceil(rx1)) - rx0, height = Math.min(gl.height, Math.ceil(ry1)) - ry0;
+    const ratio = renderer.getPixelRatio();
     const copy = document.createElement('canvas');
-    copy.width = gl.width; copy.height = gl.height;
+    copy.width = width; copy.height = height;
     const ctx = copy.getContext('2d', { willReadFrequently: true })!;
     const frame = () => {
       win.advanceTime(0, true);
-      ctx.clearRect(0, 0, copy.width, copy.height);
-      ctx.drawImage(gl, 0, 0);
-      return ctx.getImageData(0, 0, copy.width, copy.height).data;
+      ctx.clearRect(0, 0, width, height);
+      ctx.drawImage(gl, rx0, ry0, width, height, 0, 0, width, height);
+      return ctx.getImageData(0, 0, width, height).data;
     };
     const lin = (v: number) => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
     const lab = (r: number, g: number, b: number) => {
@@ -83,42 +120,47 @@ export const measureMasks = (page: Page, targets: Target[]) =>
     // Eight levels summed over the channels: past dither, as in art-direction.spec.ts.
     const changed = (p: Uint8ClampedArray, q: Uint8ClampedArray, i: number) =>
       Math.abs(p[i] - q[i]) + Math.abs(p[i + 1] - q[i + 1]) + Math.abs(p[i + 2] - q[i + 2]) >= 8;
-    // Two frames with nothing hidden: what a mask would pick up if the scene itself were moving.
-    const a = frame(), b = frame();
-    let noise = 0;
-    for (let i = 0; i < a.length; i += 4) if (changed(a, b, i)) noise++;
-    const masks = wanted.map((target) => {
-      const actor = target.knight
-        ? knight!
-        : enemies.find((enemy) => Math.hypot(enemy.position.x - target.x!, enemy.position.z - target.z!) < 0.05);
-      if (!actor) throw new Error(`no actor stands where ${target.name} was placed`);
-      const casting: Node[] = [], pools: Node[] = [];
-      walk(actor, (node) => {
-        if (!node.isMesh) return;
-        // MultiplyBlending (4) is the contact pool and nothing else on a figure.
-        if (node.material?.blending === 4) { if (node.visible) pools.push(node); }
-        else if (node.castShadow) casting.push(node);
-      });
-      casting.forEach((node) => { node.castShadow = false; });
-      pools.forEach((node) => { node.visible = false; });
-      const shown = frame();
+    // For the same reason it draws seven frames, not eleven: one with nothing changed, one with every
+    // measured figure's shadow and pool off, one per figure with that figure hidden as well, and a last
+    // one with everything restored, which doubles as the noise check against the first - the same scene
+    // drawn twice, so what moved between them is the scene moving.
+    renderer.setScissorTest(true);
+    renderer.setScissor(rx0 / ratio, (gl.height - ry0 - height) / ratio, width / ratio, height / ratio);
+    const a = frame();
+    const casting: Node[] = [], pools: Node[] = [];
+    for (const actor of actors) walk(actor, (node) => {
+      if (!node.isMesh) return;
+      // MultiplyBlending (4) is the contact pool and nothing else on a figure.
+      if (node.material?.blending === 4) { if (node.visible) pools.push(node); }
+      else if (node.castShadow) casting.push(node);
+    });
+    casting.forEach((node) => { node.castShadow = false; });
+    pools.forEach((node) => { node.visible = false; });
+    const shown = frame();
+    const masks = wanted.map((target, index) => {
+      const actor = actors[index];
       actor.visible = false;
       const hidden = frame();
       actor.visible = true;
-      casting.forEach((node) => { node.castShadow = true; });
-      pools.forEach((node) => { node.visible = true; });
-      let pixels = 0, L = 0, A = 0, B = 0, x0 = copy.width, y0 = copy.height, x1 = -1, y1 = -1;
+      let pixels = 0, L = 0, A = 0, B = 0, x0 = width, y0 = height, x1 = -1, y1 = -1;
       for (let i = 0; i < shown.length; i += 4) {
         if (!changed(shown, hidden, i)) continue;
         const [l, aa, bb] = lab(shown[i], shown[i + 1], shown[i + 2]);
         pixels++; L += l; A += aa; B += bb;
-        const p = i / 4, x = p % copy.width, y = Math.floor(p / copy.width);
+        const p = i / 4, x = p % width, y = Math.floor(p / width);
         if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
       }
+      if (pixels && (x0 === 0 || y0 === 0 || x1 === width - 1 || y1 === height - 1)) throw new Error(`${target.name}'s mask reaches the edge of the measured region; widen the box around it`);
       const n = Math.max(pixels, 1);
-      return { name: target.name, pixels, lab: [L / n, A / n, B / n], box: [x0, y0, x1, y1] };
+      // Reported in whole-frame pixels, as before the region existed.
+      return { name: target.name, pixels, lab: [L / n, A / n, B / n], box: [x0 + rx0, y0 + ry0, x1 + rx0, y1 + ry0] };
     });
-    frame();
+    casting.forEach((node) => { node.castShadow = true; });
+    pools.forEach((node) => { node.visible = true; });
+    const b = frame();
+    renderer.setScissorTest(false);
+    let noise = 0;
+    for (let i = 0; i < a.length; i += 4) if (changed(a, b, i)) noise++;
     return { noise, masks };
   }, targets) as Promise<{ noise: number; masks: Mask[] }>;
 
