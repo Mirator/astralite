@@ -1841,3 +1841,30 @@ reads as a blade at native size - a broad dark wedge with a point - rather than 
 visible change: the shield is now a gold ring with a cross rather than eight dots. Caveat: under the struck
 flash (strike-contact) the whole body goes pale, and the broader blade makes that a larger pale area for those
 frames; at rest it is dark iron and nothing like the knight's pale sword.
+
+### Stage C - the stalker: bone claws, longer, fanned
+
+- `BONES.claw` .055 x .48 -> .065 x .62; claws `iron` -> `bone`; fan x (i-1)*.11 -> (i-1)*.15 with the outer two
+  yawed out .25 rad (Euler `YXZ`, so the yaw is about the arm's own vertical after the cone is laid forward).
+  Reach, measured in node off the claw transforms: outer tip .928 -> .976 from the arm pivot, centre .921 -> .954,
+  both inside the plan's +.15. Nothing in the rules reads the claws; `combat.spec.ts` (the lane) passes unchanged.
+- Spine spikes (`enemyDetails`, five bone cones): height x1.25.
+
+`actorStats()` stalker: 13 meshes / 1,998 tris / 1.61 -> 11 / 1,998 / 1.61 (the claws joined each arm's bone
+batch; claw and spike triangle counts are unchanged). Separation: knight-stalker 16.78 -> 18.26, guard-stalker
+6.04 -> 6.92, stalker-warden 18.44 -> 20.61. Stalker mask 1,518 -> 1,579 px, box 51 x 72 -> 53 x 75. Budget:
+flooded hall 350 / 192,228 (no stalker in it), junction 383 / 320,896, strike contact 327 / 153,124. Spec set
+plus models.spec: 31 passed, 1 skipped.
+
+Sheets: vs B0 `outputs/shots-compare/2026-09-23_06-13-56/index.html`; stage C alone (B's captures vs C's)
+`outputs/shots-compare/2026-09-23_06-15-14/index.html`. Changes sit on stalkers only; the flooded hall and the
+bridge are identical; the warden chamber, gauntlet and shrine rows are the floating label, HUD text and the
+gauntlet's entropy-driven embers.
+
+Verdict (stalker acceptance): half met. The claws now read at native size - in the junction's ambush stalker,
+facing the lens, both hands are pale three-pronged fans in front of the body where before they were a dark rake
+you had to look for, and in models-cast the lowered hand shows a pale fan below the forearm. They read as claws,
+not hooks: the cones are straight, and hooking them would mean new geometry the plan did not ask for. The
+silhouette half is not met: in models-cast's three-quarter view the stalker is still a hunched but upright
+figure with a big head (mask 53 x 75 px against the guard's 70 x 81), because what makes it low is the pose
+(`rig.rotation.x = -.38`), which is out of scope here.

@@ -230,7 +230,7 @@ const BONES = {
   plate: shared(new THREE.BoxGeometry(.72,.48,.34)),
   haft: shared(new THREE.CylinderGeometry(.055,.075,1.3,6)),
   hammer: shared(new THREE.BoxGeometry(.72,.36,.38)),
-  claw: shared(new THREE.ConeGeometry(.055,.48,4)),
+  claw: shared(new THREE.ConeGeometry(.065,.62,4)),
   cue: shared(new THREE.RingGeometry(0.85, 1.5, 40, 1, -1.05, 2.1)),
   bar: shared(new THREE.PlaneGeometry(0.8, 0.07)),
 };
@@ -292,7 +292,10 @@ function makeSkeleton(kind: Enemy['kind']) {
   const weapon = new THREE.Group();weapon.position.set(warden?.5:.42,.97,-.12);weapon.rotation.x=warden?.45:.1;
   if(stalker){
     skull.scale.set(.85,.82,1.15);skull.position.z=-.16;ribs.scale.set(.85,1,1);sockets.forEach(eye=>{eye.position.z-=.16;});
-    arms.forEach(arm=>{for(let i=0;i<3;i++){const claw=new THREE.Mesh(BONES.claw,iron);claw.rotation.x=-Math.PI/2;claw.position.set((i-1)*.11,-.83,-.16);arm.add(claw);}});
+    // Plan 011: the claws are the stalker's archetype, so they are its silhouette - bone rather than a dark
+    // rake, longer, and fanned with the outer two turned out. The outer tip ends .05 further from the arm
+    // pivot than before (.93 -> .98), inside the .15 the lane was sized to allow.
+    arms.forEach(arm=>{for(let i=0;i<3;i++){const claw=new THREE.Mesh(BONES.claw,bone);claw.rotation.set(-Math.PI/2,(1-i)*.25,0,'YXZ');claw.position.set((i-1)*.15,-.83,-.16);arm.add(claw);}});
   }else if(warden){
     const plate=new THREE.Mesh(BONES.plate,iron);plate.position.set(0,1.0,-.05);rig.add(plate);
     for(const s of [-1,1]){const shoulder=new THREE.Mesh(BONES.armor,iron);shoulder.position.set(s*.49,1.21,0);shoulder.scale.set(1.18,.72,1);rig.add(shoulder);}

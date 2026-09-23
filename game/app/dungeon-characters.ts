@@ -210,7 +210,7 @@ export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Gr
     add(weapon, box, brass, [0, .19, -1.04], [.32, .025, .1]);
     add(weapon, box, brass, [0, .19, -1.04], [.07, .025, .32]);
   } else if (stalker) {
-    for (let i = 0; i < 5; i++) add(rig, spike, bone, [0, .8 + i * .135, .13], [.065, .23 + i * .04, .065], [.8, 0, 0]);
+    for (let i = 0; i < 5; i++) add(rig, spike, bone, [0, .8 + i * .135, .13], [.065, (.23 + i * .04) * 1.25, .065], [.8, 0, 0]);
     for (const s of [-1, 1]) {
       add(rig, cloth, clothMaterial, [s * .2, .67, .12], [.32, .69, 1], [-.3, s * .5, s * -.25]);
       add(skull, spike, bone, [s * .18, -.2, -.19], [.045, .19, .045], [Math.PI, 0, s * -.12]);

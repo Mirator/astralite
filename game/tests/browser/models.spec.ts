@@ -65,7 +65,7 @@ test.describe('enemies', () => {
    * 14 / 14 / 16; every joint now draws one mesh per material it carries, and going lower would mean
    * sharing a material across bodies, which would flash every enemy at once.
    */
-  const MESHES = { guard: 18, stalker: 13, warden: 19 };
+  const MESHES = { guard: 18, stalker: 11, warden: 19 };
 
   const stageCast = async (page: Page, info: TestInfo) => {
     await probeScene(page);
