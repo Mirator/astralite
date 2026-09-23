@@ -1868,3 +1868,30 @@ not hooks: the cones are straight, and hooking them would mean new geometry the 
 silhouette half is not met: in models-cast's three-quarter view the stalker is still a hunched but upright
 figure with a big head (mask 53 x 75 px against the guard's 70 x 81), because what makes it low is the pose
 (`rig.rotation.x = -.38`), which is out of scope here.
+
+### Stage D - the warden: breastplate relief and faulds
+
+All in `enemyDetails`, merged into the rig's existing brass and iron batches (no new meshes):
+- a brass rim .70 x .03 x .06 at the plate's top-front edge, (0, 1.235, -.20); an iron rib .05 x .40 x .03 down
+  the plate's face, (0, 1.0, -.235);
+- three iron faulds, .50 x .10 x .30 stepped down .08 from y .71, each .02 wider and deeper than the one above.
+  Deviation in reading "out .02": a first cut stepped each plate .02 forward from the breastplate's own z (-.05),
+  and the sheet showed the pelvis's back (z +.125) still pale behind them in the warden chamber's rear view; the
+  faulds are now centred on the pelvis (z 0) and "out" is taken as the flare of a skirt.
+- Warden bone 0x776e5d, iron 0x27302d and brass 0x7a6c43 unchanged.
+
+`actorStats()` warden: 19 meshes / 2,806 tris / 2.339 -> 19 / 3,154 / 2.339 (+348). Separation: knight-warden
+16.02 -> 16.00, guard-warden 18.13 -> 18.06, stalker-warden 20.61 -> 20.50 (the mask's mean moves by 0.3 of b:
+the warden is a dark mass either way). Budget: flooded hall 350 / 192,228, junction 382 / 320,892, strike contact
+327 / 153,124. Spec set plus models.spec: 31 passed, 1 skipped.
+
+Sheets: vs B0 `outputs/shots-compare/2026-09-23_06-23-38/index.html` (the whole round against B0); stage D alone
+(C's captures vs D's) `outputs/shots-compare/2026-09-23_06-24-48/index.html`. Changes sit on wardens only
+(models-cast, the chamber, a warden at the shrine frame's edge); the flooded hall and strike contact are identical.
+
+Verdict (warden acceptance): mostly met, gold edge not. The hips are fixed: in the warden chamber's lower warden,
+seen from behind, the pale pelvis box that sat under the black slab is now three stepped dark plates, so the
+torso reads as one armoured mass from pauldron to thigh, and the crown and hammer still dominate. The gold edge
+barely registers: in models-cast's three-quarter front the plate's top edge is under the jaw, crown spikes and the
+hammer-side pauldron from the game camera, and the rim shows only as a short brass sliver by the arm; the
+chamber's front-facing warden is mid-tell and wholly red. The rib is not visible at native size in any frame.

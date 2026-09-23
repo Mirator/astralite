@@ -207,6 +207,12 @@ export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Gr
       add(weapon, spike, iron, [s * .46, 0, -1.04], [.13, .23, .13], [0, 0, s * -Math.PI / 2]);
     }
     add(rig, joint, brass, [0, 1.12, -.255], [.1, .13, .035]);
+    // Plan 011: the breastplate was one black slab over a pale pelvis box. A gold edge along its top-front
+    // and an iron rib down its face give it relief, and three stepped faulds carry the armour down over the
+    // hips, so the torso reads as one armoured mass from shoulder to thigh and bone shows at limbs and skull.
+    add(rig, box, brass, [0, 1.235, -.2], [.7, .03, .06]);
+    add(rig, box, iron, [0, 1.0, -.235], [.05, .4, .03]);
+    for (let i = 0; i < 3; i++) add(rig, box, iron, [0, .71 - i * .08, 0], [.5 + i * .02, .1, .3 + i * .02]);
     add(weapon, box, brass, [0, .19, -1.04], [.32, .025, .1]);
     add(weapon, box, brass, [0, .19, -1.04], [.07, .025, .32]);
   } else if (stalker) {
