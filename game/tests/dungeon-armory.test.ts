@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
-import { disposeWeapon, makeBolt, makeWeapon, makeWeaponDrop, type ArmoryPalette, type Plate } from '../app/dungeon-armory.ts';
+import { disposeWeapon, disposeWeaponDrop, makeBolt, makeWeapon, makeWeaponDrop, type ArmoryPalette, type Plate } from '../app/dungeon-armory.ts';
 import { type WeaponId } from '../app/dungeon-weapon.ts';
 
 // The knight's own palette and bevel, restated: the same material kinds and the same extrude settings as
@@ -45,7 +45,7 @@ test('every arm keeps the trail points the slash ribbon samples', () => {
     const arm = makeWeapon(id, m, plate);
     assert.deepEqual(arm.inner.toArray(), TRAIL[id].inner, `${id} inner moved`);
     assert.deepEqual(arm.tip.toArray(), TRAIL[id].tip, `${id} tip moved`);
-    disposeWeapon(arm);
+    disposeWeapon(arm, m);
   }
 });
 
@@ -60,7 +60,7 @@ test('an arm in hand is one mesh per material it uses; the flask adds only its e
     const triangles = trianglesOf(arm.group);
     if (RESHAPED.has(id)) assert.ok(triangles >= TRIANGLES[id] && triangles <= TRIANGLES[id] + 30, `${id} is ${triangles} triangles against ${TRIANGLES[id]}`);
     else assert.equal(triangles, TRIANGLES[id], `${id} changed its triangle count`);
-    disposeWeapon(arm);
+    disposeWeapon(arm, m);
   }
 });
 
@@ -85,6 +85,35 @@ test('a rack is at most eight meshes, keeps its return shape, and stays inside i
     }
     assert.ok(reach <= 1.3, `${id} rack reaches ${reach.toFixed(3)} from its centre, past the ring`);
   }
+});
+
+test('every arm casts and takes shadow as built, not only the one the knight starts with', () => {
+  // makeKnight flags the figure once; an arm built for a later swap gets nothing from that.
+  const m = palette();
+  for (const id of ARMS) {
+    const arm = makeWeapon(id, m, plate);
+    for (const mesh of meshesOf(arm.group)) assert.ok(mesh.castShadow && mesh.receiveShadow, `${id} has a part out of the shadow map`);
+    disposeWeapon(arm, m);
+  }
+});
+
+test('releasing an arm or a rack disposes what it made and never the knight palette', () => {
+  const m = palette(), shared = new Set<THREE.Material>(Object.values(m));
+  let spent = 0;
+  for (const material of shared) material.addEventListener('dispose', () => { spent++; });
+  for (const id of ARMS) {
+    for (const built of [makeWeapon(id, m, plate), makeWeaponDrop(id, m, plate)]) {
+      const own = new Set<THREE.Material>();
+      built.group.traverse(o => { if (o instanceof THREE.Mesh && !shared.has(o.material as THREE.Material)) own.add(o.material as THREE.Material); });
+      let released = 0;
+      for (const material of own) material.addEventListener('dispose', () => { released++; });
+      const parent = new THREE.Group(); parent.add(built.group);
+      if ('ring' in built) disposeWeaponDrop(built, m); else disposeWeapon(built, m);
+      assert.equal(released, own.size, `${id} left a material of its own undisposed`);
+      assert.equal(built.group.parent, null);
+    }
+  }
+  assert.equal(spent, 0, 'a release disposed the knight palette');
 });
 
 test('a pooled bolt is three meshes and hidden until fired', () => {
