@@ -2014,3 +2014,50 @@ torso reads as one armoured mass from pauldron to thigh, and the crown and hamme
 barely registers: in models-cast's three-quarter front the plate's top edge is under the jaw, crown spikes and the
 hammer-side pauldron from the game camera, and the rim shows only as a short brass sliver by the arm; the
 chamber's front-facing warden is mid-tell and wholly red. The rib is not visible at native size in any frame.
+
+### Plan 011, step 7 - merged with main, all gates
+
+Merged `origin/main` twice, no rebase: PR #43 (plan 009 plus its teardown follow-up, `87ccbf4`) and PR #44
+(plan 010, the knight, `49c0718`). Conflicts only where both sides appended (progress.md, models.spec.ts, the
+README rows); both kept. `dungeon-game.tsx` merged clean (010 added the identical `bakeStatic` import). The
+enemies block also asserts `shadowless: 0` per kind, using 009's follow-up diagnostic.
+
+**Separation after 010.** 010 darkened the knight (mask mean L 27.85 -> 25.37), and knight-warden dropped under
+its floor: 16.00 on this branch before the merge, 14.32 after. Measured on the merged tree with main's enemy code
+swapped back in (010's knight, pre-011 enemies): 14.33. So the drop is entirely the knight's; nothing here was
+tuned to compensate. The knight-pair floors are now based on that post-010 "before" (11.48 / 17.73 / 14.33, less
+one); the enemy pairs keep the 5137836 values.
+
+| Pair | Before (5137836) | 011 on the pre-010 knight | Post-010 before (main 7a97dcc) | Final, merged (d3d11 / SwiftShader) |
+| --- | --- | --- | --- | --- |
+| knight-guard | 10.46 | 11.56 | 11.48 | 13.02 / 13.18 |
+| knight-stalker | 16.75 | 18.24 | 17.73 | 19.43 / 19.52 |
+| knight-warden | 16.02 | 16.00 | 14.33 | 14.32 / 14.36 |
+| guard-stalker | 6.50 | 6.92 | 6.52 | 6.93 / 6.86 |
+| guard-warden | 15.77 | 18.06 | 15.78 | 18.05 / 18.22 |
+| stalker-warden | 18.37 | 20.50 | 18.39 | 20.50 / 20.67 |
+
+Final `actorStats()` (merged): guard 18 meshes / 2,549 tris / 1.7106, stalker 11 / 1,998 / 1.61, warden 19 /
+3,154 / 2.339, all `shadowless` 0.
+
+Budget scenes (d3d11, calls / triangles; ceilings unchanged at 439 / 502 / 447 calls):
+
+| Scene | B0 (62cfe64) | After 009 | After 010 (main 7a97dcc) | After 011 alone (on 009) | After 009+010+011 |
+| --- | --- | --- | --- | --- | --- |
+| flooded hall | 428 / 196,500 | 416 / 196,500 | 374 / 194,196 | 350 / 192,228 | 308 / 189,924 |
+| junction | 496 / 326,184 | 486 / 326,192 | 442 / 323,880 | 382 / 320,892 | 339 / 318,584 |
+| strike contact | 371 / 154,500 | 349 / 154,548 | 307 / 152,244 | 327 / 153,124 | 285 / 150,820 |
+
+**Proposed ceilings, not applied** (for the owner): flooded hall 308 calls / 189,924 tris; junction 343 calls /
+318,800 tris (the measured 339 / 318,584 plus the scene's known drift of about four calls and a couple of hundred
+triangles); strike contact 285 calls / 150,820 tris. At the measured values there is no headroom: any later model
+or prop work would have to raise them, so the owner may prefer to keep some margin, or to keep the tripled
+triangle figures and tighten only the calls.
+
+Gates on the merged tree: typecheck, lint, `npm test` (284 pass), full browser suite on d3d11 (145 passed,
+2 skipped, 6.2 min), `npm run build`, `git diff --check` - all pass. `--repeat-each=3` over the whole browser
+suite, run in three spec groups because one run outlasts the tool's ten-minute limit: 435 passed, 3 skipped, no
+failure or flake. Phone capture (390 x 844, the three kinds
+staged below the knight, reviewed and not kept): from behind, the guard's cap covers the back of the skull as it
+should and the pointed blade is a mid-grey iron wedge, clearly darker than the knight's pale blade; the stalker's
+pale fans read at both hands; the warden's faulds make his hips one stepped dark mass.

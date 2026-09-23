@@ -156,9 +156,14 @@ test.describe('knight', () => {
 test.describe('enemies', () => {
   test.use({ isolate: true });
   const KINDS = ['guard', 'stalker', 'warden'] as const;
-  /** Before plan 011 (on 5137836): mean-Lab separation of the masks, actorStats heights, snapshot joints. */
+  /**
+   * Before plan 011: mean-Lab separation of the masks, actorStats heights, snapshot joints. The enemy
+   * pairs are off 5137836 (the lower of d3d11 and SwiftShader). The knight pairs are off main at 7a97dcc -
+   * plan 010's knight with the enemies as they were - because 010 darkened the knight and moved every
+   * knight pair on its own (knight-warden 15.97 -> 14.33 with no enemy changed); d3d11.
+   */
   const B0 = {
-    separation: { 'knight-guard': 10.46, 'knight-stalker': 16.75, 'knight-warden': 15.97, 'guard-stalker': 6.44, 'guard-warden': 15.77, 'stalker-warden': 18.37 },
+    separation: { 'knight-guard': 11.48, 'knight-stalker': 17.73, 'knight-warden': 14.33, 'guard-stalker': 6.44, 'guard-warden': 15.77, 'stalker-warden': 18.37 },
     height: { guard: 1.6744, stalker: 1.61, warden: 2.339 },
     poses: {
       guard: { shieldArm: -0.16, shieldTilt: -Math.PI / 2, pitch: 0, height: 0, weapon: 0.1, weaponYaw: 0 },
@@ -222,7 +227,7 @@ test.describe('enemies', () => {
     expect(noise, 'the frame moved with nothing hidden, so no mask can be trusted').toBeLessThan(50);
     for (const mask of masks) expect(mask.pixels, `${mask.name} left no mask`).toBeGreaterThan(200);
     // Regression guards, not targets: shape carries this plan, not colour. The floor is the before value
-    // (the lower of d3d11 and SwiftShader) less one. The knight's pairs are re-measured when plan 010 lands.
+    // less one.
     for (const [pair, before] of Object.entries(B0.separation)) expect(pairs[pair], `${pair} lost separation`).toBeGreaterThanOrEqual(before - 1);
     for (const kind of KINDS) {
       expect(byName[kind].pixels).toBeGreaterThan(0);
