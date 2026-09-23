@@ -8,6 +8,7 @@ import { planPavingPatches } from './dungeon-paving-layout';
 import { pavingPatchGeometry } from './dungeon-paving-patches';
 import { buildSurfaceIndex, type CellSurface, type SurfaceIndex, type SurfaceTriangle } from './dungeon-surface';
 import { contactShadow, enemyDetails, knightDetails } from './dungeon-characters';
+import { bakeStatic } from './dungeon-bake';
 import { impactEffects } from './dungeon-impact';
 import { footstepEffects } from './dungeon-footsteps';
 import { footfalls, footSupport, type FootstepKind } from './dungeon-footstep-rules';
@@ -126,7 +127,13 @@ function makeKnight() {
   for(const side of [-1,1]){const slit=new THREE.Mesh(new THREE.BoxGeometry(.175,.052,.018),shadow);slit.position.set(side*.116,.02,0);slit.rotation.z=side*.08;visor.add(slit);}
   const nose=plate([[-.025,.11],[.025,.11],[.035,-.18],[0,-.215],[-.035,-.18]],.045,steel);nose.position.z=-.275;
   const mouth=new THREE.Mesh(new THREE.BoxGeometry(.035,.1,.018),shadow);mouth.position.set(0,-.13,-.257);
-  head.add(helmet,crown,face,visor,nose,mouth);
+  // Plan 010: the camera is about 40 degrees down, so a vertical face plate is foreshortened to a line.
+  // The whole face - plate, slits, nose, mouth and the trim knightDetails puts on it - tips back about
+  // the plate's own origin so its dark slits turn up towards the lens. And the helmet grows about the
+  // neck: from above the head and shoulders were one pale block, and a larger helmet over darker plate
+  // is most of what the concept sheet does.
+  const mask=new THREE.Group();mask.position.z=-.215;mask.rotation.x=.2;for(const part of [face,visor,nose,mouth]){part.position.z+=.215;mask.add(part);}
+  head.add(helmet,crown,mask);head.scale.setScalar(1.15);
   const capeGeometry = playerCloakGeometry();
   const cape = new THREE.Mesh(capeGeometry, red);
   cape.position.set(0, 1.2, .22); cape.rotation.x = -.1;
@@ -168,11 +175,21 @@ function makeKnight() {
   arm.add(sleeve,forearm,fist);torso.add(arm);g.userData.arm=arm;
   g.userData.legs = legs; g.userData.cape = cape; g.userData.body = body;
   g.userData.sword = swordPivot;g.userData.torso=torso;
-  knightDetails({torso,head,arm,legs,cape},{steel,iron,brass,red,leather,shadow});
+  knightDetails({torso,head,face:mask,arm,legs,cape},{steel,iron,brass,red,leather,shadow});
   // The palette and the bevel travel with the knight: a weapon picked up later is built from his own.
   g.userData.armoury = {palette: armoryPalette, plate: plate as Plate};g.userData.armed = armed;
   pauldrons.forEach(shoulder=>{shoulder.visible=false;});
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
+  // Plan 010: nothing between two joints moves, so every joint is folded into one mesh per material -
+  // after the details and the hidden pauldrons (which the bake removes), and after the shadow flags,
+  // which the batches carry. The animated joints and the swapped arm are kept out. Footsteps read the
+  // boot's world matrix, and the boot is about to be merged into its knee, so the reference moves first
+  // to a bare node standing exactly where the boot stood.
+  for(const hip of legs){const boot=hip.userData.boot as THREE.Mesh,sole=new THREE.Object3D();sole.name='boot';sole.position.copy(boot.position);sole.quaternion.copy(boot.quaternion);(hip.userData.knee as THREE.Group).add(sole);hip.userData.boot=sole;}
+  bakeStatic(torso,{keep:[cape,swordPivot,arm],cacheKey:'knight:torso'});bakeStatic(swordPivot,{keep:[armed.group],cacheKey:'knight:pivot'});bakeStatic(arm,{cacheKey:'knight:arm'});
+  for(const hip of legs){bakeStatic(hip,{keep:[hip.userData.knee],cacheKey:'knight:hip'});bakeStatic(hip.userData.knee,{cacheKey:'knight:knee'});}
+  // The body cylinder is in the torso's batches now; nothing reads this, but it names the node that owns it.
+  g.userData.body = torso;
   // After the traverse, and deliberately: the pool must not be fed back into the shadow map it imitates.
   g.add(contactShadow(.54,.58));
   return g;

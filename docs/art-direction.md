@@ -323,6 +323,21 @@ world unit) and changes a few dozen pixels per contact at most. It anchors the b
 decorating the frame — and at the ceiling of this table it is close to the threshold of what reads at
 native size. Anything louder is a change to this table, made deliberately.
 
+## The knight from above
+
+Plan 010. At forty degrees down most of the knight's pixels are upward faces, and the helmet and the
+top pauldron plate were the same steel, so from above he was one pale block. The top plate is iron now
+and the helmet is scaled 1.15 about the neck (1.18 put his height 0.09 over where it was), so the
+helmet is the one light mass over dark shoulders with the brass rim between them; the face tips 0.2
+rad up towards the lens, trim and all. `steel` itself is untouched. Measured on the knight's own
+pixels in the eight-facing strip (`tests/browser/figure-mask.ts`: each facing drawn with and without
+him), the head's median L* over the shoulders' went from a median of 12.7 to 21.7 across the facings,
+and clears 8 in five of them. The three facings looking at his back are still led by the cape, whose
+red is brighter than the back of the helmet; that is the cape's value, and the cape was out of reach.
+A red mantle over the shoulders was tried at every size the plan allowed and drew one pixel in eight
+frames, because the pauldrons, the helmet and the cape's top edge cover that whole region, so it was
+taken out. Red was already on him at every facing through the crest.
+
 ## What is still shared
 
 Named rather than hidden. The sea, the foliage, the spray and the motes carry
