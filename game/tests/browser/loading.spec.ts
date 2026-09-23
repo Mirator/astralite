@@ -1,22 +1,79 @@
 import { expect, type GameWindow, test } from './helpers.ts';
 
-// The veil is what a boot looks like from outside, so a page that is already booted has nothing
-// to show. Every scenario here needs its own load.
+// A boot is the thing under test here, so a page that is already booted has nothing to show. Every
+// scenario here needs its own load.
 test.use({ isolate: true });
 
 type VeilWindow = Window & { veilSeen?: string | null };
+type HeldWindow = Window & { releaseFrames?: () => void };
 
 /**
- * The wait this screen covers begins while the bundle is still arriving, so a
- * veil raised by an effect would be raised long after the black rectangle it
- * exists to replace. It has to be in the document the server sends.
+ * The menu is what a visitor sees first, so it has to be in the document the server sends: rendered by
+ * an effect, it would arrive after the whole bundle, and the page would be a black rectangle until then.
+ * The veil is not in it. Nothing is waited on before the menu.
  */
-test('the loading veil ships inside the prerendered page', async ({
+test('the menu ships inside the prerendered page and the veil does not', async ({
   request,
 }) => {
   const html = await (await request.get('/')).text();
-  expect(html).toContain('loading-veil');
-  expect(html).toContain('Waking the keep');
+  expect(html).toContain('intro-card');
+  expect(html).toContain('ENTER THE KEEP');
+  expect(html).toContain('Controls &amp; journey');
+  expect(html).not.toContain('loading-veil');
+});
+
+/**
+ * The keep is built a couple of frames after the page mounts, behind the menu. A press that lands before
+ * then is not lost and does not start a run with no floor: it raises the loading bar and is answered on
+ * the keep. Animation frames are held from before the page's own script runs, so "before the build" is
+ * guaranteed by construction rather than by out-racing it; Playwright's own frame checks run in an isolated
+ * world and are not held.
+ */
+test('a press that beats the build raises the loading bar and enters on the new keep', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const held: FrameRequestCallback[] = [];
+    const native = window.requestAnimationFrame.bind(window);
+    let holding = true;
+    window.requestAnimationFrame = (callback) => {
+      if (!holding) return native(callback);
+      held.push(callback);
+      return 0;
+    };
+    (window as HeldWindow).releaseFrames = () => {
+      holding = false;
+      for (const callback of held.splice(0)) native(callback);
+    };
+  });
+  await page.goto('/');
+  const enter = page.locator('.intro-screen .primary-action');
+  await expect(enter).toBeEnabled();
+  expect(
+    await page.evaluate(() => typeof (window as GameWindow).render_game_to_text),
+    'floor 1 was built before any frame ran',
+  ).toBe('undefined');
+  await expect(page.locator('.loading-veil')).toHaveCount(0);
+
+  await enter.click();
+  const veil = page.locator('.loading-veil');
+  await expect(veil).toBeVisible();
+  await expect(veil).toContainText('Waking the keep');
+  await expect(veil.locator('.veil-bar')).toBeVisible();
+  // Still held: the press is waiting on the keep, not answered without one.
+  await expect(page.locator('.game-shell')).toHaveClass(/pre-start/);
+
+  await page.evaluate(() => (window as HeldWindow).releaseFrames?.());
+  await page.waitForFunction(
+    () => typeof (window as GameWindow).render_game_to_text === 'function',
+  );
+  await expect(veil).toHaveCount(0);
+  await expect(page.locator('.intro-screen')).toBeHidden();
+  const state = await page.evaluate(
+    () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string; floor: { level: number } },
+  );
+  expect(state.mode).toBe('playing');
+  expect(state.floor.level).toBe(1);
 });
 
 /**
@@ -76,4 +133,33 @@ test('a second press while the veil is up does not build a second keep', async (
   await game.act('restart', 'restart');
   await game.built();
   expect((await game.state()).floor.seed).toBe(seeds[1] >>> 0);
+});
+
+/**
+ * LAST KEEP is a menu item that enters the floor 1 a previous visit left, not a button that swaps the
+ * floor behind the menu and waits for a second press. The stored seed is read on mount, before floor 1
+ * overwrites it.
+ */
+test.describe('with a keep remembered from a previous visit', () => {
+  const remembered = 0x2468ace;
+  test.use({
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: `http://127.0.0.1:${process.env.GAME_TEST_PORT ?? 3000}`,
+          localStorage: [{ name: 'drowned-keep:seed', value: String(remembered) }],
+        },
+      ],
+    },
+  });
+
+  test('LAST KEEP enters that keep in one press', async ({ game, page }) => {
+    await page.getByRole('button', { name: 'Last keep' }).click();
+    await game.built();
+    await expect(page.locator('.intro-screen')).toBeHidden();
+    const state = await game.state();
+    expect(state.mode).toBe('playing');
+    expect(state.floor.seed).toBe(remembered);
+  });
 });

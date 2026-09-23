@@ -446,10 +446,11 @@ test.describe('footfalls on a phone', () => {
       await page.keyboard.up(key);
       await game.step(400);
     }
-    // The real settings card: pause, open Settings, choose Reduced, resume.
+    // The real settings card: pause, open Settings, choose Reduced, back to the menu, resume.
     await game.act('pause');
-    await page.locator('.settings-panel > summary').click();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.locator('#set-motion').selectOption('reduce');
+    await page.getByRole('button', { name: 'Back' }).click();
     await page.locator('.intro-screen .primary-action').click();
     await expect(page.locator('.intro-screen')).toBeHidden();
     expect(extra(await game.state()).settings.reduceMotion).toBe(true);

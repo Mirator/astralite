@@ -2163,3 +2163,36 @@ crimson plume, round gold-rimmed pauldrons, a gold-edged chest with a diamond, a
 gold border and point. Short of the sheet: the helm is still the lavender `steel` rather than blackened
 (the head-over-shoulders guard needs it pale), the lames carry no gold (cost facing 6), and the cape has
 no back diamond (a 10x12 vertex-colour grid draws it as a smear).
+
+## 2026-09-23 - Instant menu, loading bar only after ENTER THE KEEP (branch `feat/instant-menu`)
+
+What a visitor saw first was a full-screen "Waking the keep" veil, because the veil was prerendered and
+the mount built floor 1 synchronously before the menu was usable. Now:
+
+- **The menu is the first paint.** It is prerendered; the veil is not. Its buttons are disabled only until
+  hydration (`useSyncExternalStore`), so a click is never swallowed by a button with no handler behind it.
+- **Floor 1 builds behind the menu**, two frames after mount (`scheduleBoot`), with a 200 ms timer fallback
+  for a hidden tab, where no animation frame ever runs. The loop draws nothing and the window hooks are not
+  installed until the floor exists. The canvas fades in (`.world-ready`) once it does.
+- **ENTER THE KEEP pressed before the build** is held (`enterWhenBuilt`), raises the veil with a loading bar,
+  re-arms the boot so the bar paints before the thread blocks, and is answered once the keep has been drawn.
+  The audio is woken inside the click, because Safari will not wake it from a later frame. After the build a
+  press enters at once, with no bar, since there is nothing left to wait for.
+- **The veil is a bar now, not a turning mark**, for descents and restarts too. A floor build is one sync
+  block with nothing to report from inside it, so the fill is a compositor-driven ease toward 94% rather
+  than an unmeasured percentage. Reduced motion holds it still and lets it breathe.
+- **A proper menu:** a list (ENTER THE KEEP / LAST KEEP / Controls & journey / Settings; RESUME / Floor map /
+  ... when paused), with Controls and Settings as pages of the card with a Back button, in place of `<details>`
+  folds that pushed the main button off short screens. Back returns focus to the item that opened the page,
+  and a card that closes on a page reopens on the list.
+- **LAST KEEP enters** the previous keep in one press (`start:<seed>`), rather than swapping the floor behind
+  the menu and waiting for a second press.
+
+Harness impact: none on the pooled path. `Game.open` already waited for `render_game_to_text`, which now
+appears with the floor. `loading.spec.ts` asserts the menu (not the veil) is prerendered and adds a held-frames
+test for the early press plus a LAST KEEP test; `a11y.spec.ts` covers menu navigation; `footsteps.spec.ts`
+opens Settings through the menu item.
+
+Gates: typecheck, lint, `npm test` (292/292), `GAME_TEST_GL=d3d11 npm run test:browser` (150 passed, 2 skipped),
+`npm run build`. Not run: SwiftShader captures / `shots:compare`. The intro card's layout changed, so any
+reference frame of the intro will differ.

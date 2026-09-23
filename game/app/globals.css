@@ -18,7 +18,11 @@
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--ink); color: var(--bone); }
 button, kbd { font: inherit; }
 .game-shell { position: fixed; inset: 0; overflow: hidden; background: radial-gradient(circle at 50% 40%, #19343b, #071119 72%); font-family: var(--font-geist-sans), system-ui, sans-serif; }
-.game-canvas { position: absolute; inset: 0; }
+.game-canvas { position: absolute; inset: 0; opacity: 0; transition: opacity .5s ease; }
+/* The canvas has nothing to show until floor 1 is built behind the menu, and would otherwise pop in under
+   it; it fades up instead. Reduced motion takes the fade away and keeps the arrival. */
+.world-ready .game-canvas { opacity: 1; }
+:root[data-motion="reduce"] .game-canvas { transition: none; }
 .game-canvas canvas { display: block; width: 100%; height: 100%; }
 .game-title { position: absolute; top: 24px; left: 28px; z-index: 4; display: flex; align-items: center; gap: 13px; pointer-events: none; text-shadow: 0 2px 10px #000; }
 .sigil { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #96a6a566; transform: rotate(45deg); color: var(--ember); background: #071119aa; font-size: 18px; }
@@ -148,7 +152,7 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 .intro-card > p.run-log { margin: -16px 0 20px; color: #6f8a88; font: 11px/1.5 var(--font-geist-mono); letter-spacing: .05em; }
 .intro-controls { display: grid; gap: 10px; margin: 27px 0; color: #bac9c3; font-size: 12px; }.intro-controls kbd { display: inline-block; min-width: 110px; font-size: 10px; padding: 6px; }
 .primary-action { display: flex; justify-content: space-between; width: min(325px,100%); padding: 17px 20px; background: linear-gradient(100deg,#9d452c,#702e24); border: 1px solid #d4a26f88; color: #f6e6c9; font-size: 12px; font-weight: 600; letter-spacing: .17em; cursor: pointer; box-shadow: 0 8px 30px #0006; }
-.primary-action span { color: #e4bd82; }.intro-card > small { display: block; margin-top: 20px; color: #7f9a98; font-size: 12px; line-height: 1.8; }
+.primary-action span { color: #e4bd82; }.primary-action:disabled { opacity: .6; cursor: default; }.intro-card > small { display: block; margin-top: 20px; color: #7f9a98; font-size: 12px; line-height: 1.8; }
 .vignette { box-shadow: inset 0 0 120px 8px #0008; }
 @keyframes notice-in { from { opacity: 0; margin-top: 10px; } to { opacity: 1; margin-top: 0; } }
 @media (max-width: 850px) { .controls { gap: 8px; }.controls span:last-child { display: none; } }
@@ -244,16 +248,41 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 .quiver i { width: 13px; height: 5px; border: 1px solid #cf9c5b66; background: transparent; transition: background .12s, border-color .12s; }
 .quiver i.held { background: var(--goal); border-color: var(--goal); }
 
-/* The loading veil. First thing in the prerendered HTML and last thing over everything else, so it
-   outranks the map screen and every card beneath it. The mark animates transform and opacity and nothing
-   else: both run on the compositor, which is the whole point of it — the main thread is blocked building a
-   floor for as long as this is up, and a mark driven from there would freeze in the same breath. */
-.loading-veil { position: absolute; inset: 0; z-index: 14; display: grid; place-content: center; justify-items: center; gap: 22px; padding: 24px; background: radial-gradient(circle at 50% 42%, #102229, var(--ink-deep) 72%); text-align: center; }
-.veil-mark { width: 44px; height: 44px; border: 1px solid #96a6a555; border-top-color: var(--ember); animation: veil-turn 1.1s linear infinite; }
-.loading-veil b { max-width: 24ch; color: var(--bone); font: 400 clamp(19px, 4.4vw, 26px)/1.35 Georgia, serif; }
-@keyframes veil-turn { from { transform: rotate(45deg); } to { transform: rotate(405deg); } }
+/* The loading veil. Last thing over everything else, so it outranks the map screen and every card beneath
+   it. The bar animates transform and nothing else: that runs on the compositor, which is the whole point of
+   it — the main thread is blocked building a floor for as long as this is up, and a bar driven from there
+   would freeze in the same breath. A floor build is one synchronous block with nothing to report from inside
+   it, so the fill eases toward the far end and waits there for the veil to lift, rather than pretending to
+   a percentage nobody measured. */
+.loading-veil { position: absolute; inset: 0; z-index: 14; display: grid; place-content: center; justify-items: center; gap: 20px; padding: 24px; background: radial-gradient(circle at 50% 42%, #102229, var(--ink-deep) 72%); text-align: center; }
+.veil-bar { display: block; width: min(280px, 64vw); height: 3px; overflow: hidden; background: #ffffff1a; }
+.veil-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--brass), var(--ember)); box-shadow: 0 0 10px #ff8a3288; transform-origin: left; transform: scaleX(.04); animation: veil-fill 2.4s cubic-bezier(.12,.7,.2,1) forwards; }
+.loading-veil b { order: -1; max-width: 24ch; color: var(--bone); font: 400 clamp(19px, 4.4vw, 26px)/1.35 Georgia, serif; }
+@keyframes veil-fill { to { transform: scaleX(.94); } }
 @keyframes veil-breathe { 50% { opacity: .32; } }
-/* A turning mark is movement, and a player who asked for less of it still has to be told the keep has not
-   stopped — so this one fades where the drifting prompts above simply hold still. */
-@media (prefers-reduced-motion: reduce) { :root:not([data-motion="full"]) .veil-mark { transform: rotate(45deg); animation: veil-breathe 2.4s ease-in-out infinite; } }
-:root[data-motion="reduce"] .veil-mark { transform: rotate(45deg); animation: veil-breathe 2.4s ease-in-out infinite; }
+/* A filling bar is movement, and a player who asked for less of it still has to be told the keep has not
+   stopped — so this one holds its length and fades where the drifting prompts above simply hold still. */
+@media (prefers-reduced-motion: reduce) { :root:not([data-motion="full"]) .veil-bar i { transform: scaleX(.6); animation: veil-breathe 2.4s ease-in-out infinite; } }
+:root[data-motion="reduce"] .veil-bar i { transform: scaleX(.6); animation: veil-breathe 2.4s ease-in-out infinite; }
+
+/* The menu. One column of items under the title, the way the start of a game reads, with ENTER THE KEEP
+   first and heaviest. Controls and Settings open as pages of the same card, each with a way back, instead of
+   unfolding under the list and pushing the one button that matters off a short screen. */
+.menu-list { display: grid; gap: 6px; width: min(325px, 100%); margin-top: 26px; }
+.menu-list .primary-action { margin-bottom: 8px; }
+.menu-list > button:not(.primary-action) { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; border: 1px solid #96b1ab2e; background: #0a181dcc; color: #d3e0da; font-size: 11px; font-weight: 600; letter-spacing: .17em; text-transform: uppercase; text-align: left; cursor: pointer; transition: border-color .15s, color .15s, background .15s; }
+.menu-list > button:not(.primary-action):hover:not(:disabled), .menu-list > button:not(.primary-action):focus-visible { border-color: var(--edge-warm); background: #10222acc; color: var(--goal); }
+.menu-list > button:disabled { opacity: .5; cursor: default; }
+.menu-list > button.opens span { color: var(--bone-mute); font-size: 16px; line-height: 0; }
+.primary-action:hover:not(:disabled), .primary-action:focus-visible { filter: brightness(1.12); }
+.intro-card .menu-settings { margin-top: 18px; }.intro-card .menu-settings button { padding: 7px 12px; font-size: 12px; background: transparent; color: #a9bfbb; }
+/* A page of the card keeps the title, smaller, so the dialog still names itself and the player can see
+   where they are; the page's own heading sits under the way back. */
+.intro-card.sub-view h1 { margin: 12px 0 18px; font-size: clamp(34px, 4vw, 46px); }
+.menu-panel .menu-details { margin: 0; }
+.menu-panel h2 { margin: 14px 0 0; color: var(--bone); font: 400 24px/1.2 Georgia, serif; }
+.menu-panel .intro-controls { margin: 18px 0; }
+.menu-panel .settings-panel { margin-top: 6px; }
+.menu-back { display: inline-flex; gap: 8px; padding: 7px 12px 7px 10px; border: 1px solid #96b1ab44; background: #0a181dcc; color: #c7d6d0; font: 600 10px/1.2 var(--font-geist-mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+.menu-back:hover, .menu-back:focus-visible { border-color: var(--edge-warm); color: var(--goal); }
+@media (max-height: 620px) { .menu-list { margin-top: 16px; gap: 4px; }.menu-list > button:not(.primary-action) { padding: 9px 17px; } }

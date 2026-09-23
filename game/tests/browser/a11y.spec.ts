@@ -54,6 +54,48 @@ test('cards are dialogs that take focus, and the background stays out of reach w
   await expect(vitality).toHaveAttribute('aria-valuemax', String((await game.state()).maxHealth));
 });
 
+/**
+ * The menu is a list, and Controls and Settings are pages of the same card rather than folds beneath it.
+ * A page takes focus on its way back, the way back returns focus to the item that opened it, and a card
+ * that closes on a page reopens on the list.
+ */
+test('the menu opens its pages in place and always comes back to the list', async ({ game, page }) => {
+  const menu = page.getByRole('navigation', { name: 'Main menu' });
+  await expect(menu.getByRole('button')).toHaveText([/^ENTER THE KEEP/, /^Controls & journey/, /^Settings/]);
+
+  await menu.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await expect(page.locator('#set-volume')).toBeVisible();
+  const back = page.getByRole('button', { name: 'Back' });
+  await expect(back).toBeFocused();
+  await back.click();
+  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeFocused();
+
+  await page.getByRole('button', { name: 'Controls & journey' }).click();
+  await expect(page.getByRole('heading', { name: 'Controls & journey' })).toBeVisible();
+  await expect(page.locator('.intro-controls').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Back' }).click();
+
+  await game.enter();
+  await game.step(120);
+  // Paused on the Settings page, resumed from it by Escape: the next pause opens on the list.
+  await page.keyboard.press('Escape');
+  await game.step(16);
+  const pauseMenu = page.getByRole('navigation', { name: 'Pause menu' });
+  await expect(pauseMenu.getByRole('button')).toHaveText([/^RESUME/, 'Floor map', /^Controls & journey/, /^Settings/]);
+  await pauseMenu.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Back' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await game.step(16);
+  expect((await game.state()).mode).toBe('playing');
+  await page.keyboard.press('Escape');
+  await game.step(16);
+  await expect(pauseMenu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await game.step(16);
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
