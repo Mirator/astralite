@@ -34,9 +34,14 @@ export type ArmedWeapon = {
  * call, twice over once it cast a shadow, and none of them moves on its own. No cache: a swap is rare,
  * and the merged geometry is the knight's to release through `disposeWeapon`. The flask's ember is
  * unlit and translucent, so it stays a mesh of its own.
+ *
+ * Every arm is born casting and taking shadow. The knight's own traverse flags only the figure he is
+ * built as, so an arm built for a later swap was drawn by the moon as an empty hand. Flagged before the
+ * bake, so every part of a material still lands in the one batch.
  */
 export function makeWeapon(id: WeaponId, m: ArmoryPalette, plate: Plate): ArmedWeapon {
   const arm = shapeWeapon(id, m, plate);
+  arm.group.traverse(object => { if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true; } });
   bakeStatic(arm.group);
   return arm;
 }
@@ -195,11 +200,29 @@ function shapeWeapon(id: WeaponId, m: ArmoryPalette, plate: Plate): ArmedWeapon 
   return { group, inner: new THREE.Vector3(0, 0, -.32), tip: new THREE.Vector3(0, 0, -1.17) };
 }
 
-/** Release a weapon's geometry. Materials belong to the knight and outlive every swap. */
-export function disposeWeapon(weapon: ArmedWeapon) {
-  weapon.group.traverse(object => { if (object instanceof THREE.Mesh) object.geometry.dispose(); });
-  weapon.group.removeFromParent();
+/**
+ * Release everything under `root` except the palette: all of its geometry, and the few materials an arm
+ * or a rack makes for itself (the flask's ember, the rack's glow and ring). The palette is the knight's,
+ * shared with whatever he holds and every rack he is offered, and outlives every swap and every floor.
+ */
+function release(root: THREE.Object3D, m: ArmoryPalette) {
+  const palette = new Set<THREE.Material>(Object.values(m));
+  root.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return;
+    object.geometry.dispose();
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) if (!palette.has(material)) material.dispose();
+  });
+  root.removeFromParent();
 }
+
+/** Release an arm taken out of the knight's hand. */
+export function disposeWeapon(weapon: ArmedWeapon, m: ArmoryPalette) { release(weapon.group, m); }
+
+/**
+ * Release a rack, on a swap and when its floor is torn down. A floor's teardown disposes every material
+ * it finds, so the rack is taken out of the floor before that runs rather than left for it to find.
+ */
+export function disposeWeaponDrop(drop: { group: THREE.Group }, m: ArmoryPalette) { release(drop.group, m); }
 
 /**
  * What lies on the ground before it is picked up: the arm planted point-down in a stone block, leaning,
