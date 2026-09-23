@@ -2140,7 +2140,7 @@ gained the `npm run figures` row.
 Nothing left uncommitted-but-broken: every figure reached Stage B (no figure had to stay in Stage A
 imperative form), so the stop rule for a resistant figure was never invoked.
 
-## Plan 013 - the knight, closer to the turnaround sheet (2026-09-23, on main `51d25b5`, uncommitted)
+## Plan 013 - the knight, closer to the turnaround sheet (2026-09-23, branch `feat/knight-turnaround` from `51d25b5`)
 
 Reference: `docs/reference/knight-turnaround.webp`. Record: `plans/013-knight-turnaround.md`. Changed
 `app/dungeon-knight.ts` (helm, plume, domed pauldrons, breastplate trim and diamond, mail, tabard joint,
