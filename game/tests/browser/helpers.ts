@@ -275,7 +275,7 @@ export type Snapshot = {
     };
     swordAngle: number;
     legs: number[];
-    locomotion: { speed:number; phase:number; sprint:number; pitch:number; height:number; arm:number; knees:number[] };
+    locomotion: { speed:number; phase:number; sprint:number; pitch:number; height:number; arm:number; tabard:number; knees:number[] };
   };
   enemies: {
     x: number;
