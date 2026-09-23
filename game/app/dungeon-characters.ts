@@ -111,15 +111,26 @@ function dressing(preset: string) {
   return { add, finish };
 }
 
-export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; arm: THREE.Group; legs: THREE.Group[]; cape: THREE.Mesh }, m: Palette) {
-  const { add, finish } = dressing('knight');
+export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; face: THREE.Group; arm: THREE.Group; legs: THREE.Group[]; cape: THREE.Mesh }, m: Palette) {
+  const { add: place, finish } = dressing('knight');
+  // Plan 010: a 0.08 bevel on a piece a few hundredths across is under a pixel and costs 108 triangles
+  // against a plain box's 12. Pieces under 0.06 on their smallest side take the plain box; the broad
+  // plates (pauldrons, knee plates, the forearm guard) keep the rounded edge, which can catch a line of light.
+  const plain = new THREE.BoxGeometry(1, 1, 1);
+  const add = (parent: THREE.Object3D, geometry: THREE.BufferGeometry, material: THREE.Material, at: number[], size: number[], rotate?: number[]) =>
+    place(parent, geometry === box && Math.min(...size) < .06 ? plain : geometry, material, at, size, rotate);
+  // The face tips with its plate (plan 010), so its trim is placed in head space and carried into the
+  // face's own, unrotated frame.
+  const onFace = (at: number[]) => [at[0] - rig.face.position.x, at[1] - rig.face.position.y, at[2] - rig.face.position.z];
   // Warm metal edges, a deep visor, and a red split surcoat keep the hero distinct from bone.
   for (const side of [-1, 1]) {
-    add(rig.head, box, m.brass, [side * .22, -.025, -.263], [.023, .19, .027], [0, 0, side * -.16]);
-    for (let i = 0; i < 3; i++) add(rig.head, joint, m.shadow, [side * (.085 + i * .046), -.095, -.257], [.017, .022, .012]);
+    add(rig.face, box, m.brass, onFace([side * .22, -.025, -.263]), [.023, .19, .027], [0, 0, side * -.16]);
+    for (let i = 0; i < 3; i++) add(rig.face, joint, m.shadow, onFace([side * (.085 + i * .046), -.095, -.257]), [.017, .022, .012]);
     add(rig.torso, cloth, m.red, [side * .145, -.2, -.235], [.31, .64, 1], [0, 0, side * -.06]);
+    // All three plates iron (plan 010; the top one was steel, the helmet's value): the shoulders go dark
+    // and the brass rim below becomes the edge that parts them from the head.
     for (let i = 0; i < 3; i++) {
-      add(rig.torso, box, i === 0 ? m.steel : m.iron, [side * (.4 + i * .02), .5 - i * .08, -.01], [.4 - i * .025, .1, .43], [0, 0, side * -.16]);
+      add(rig.torso, box, m.iron, [side * (.4 + i * .02), .5 - i * .08, -.01], [.4 - i * .025, .1, .43], [0, 0, side * -.16]);
       add(rig.torso, joint, m.brass, [side * (.39 + i * .022), .505 - i * .08, -.24], [.028, .028, .016]);
     }
     // A gold rim along the top edge of the top pauldron. The camera is isometric and spends most of its
@@ -159,7 +170,7 @@ export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; arm:
   }
   rig.cape.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
   rig.cape.material = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .95, emissive: 0x330c09, side: THREE.DoubleSide });
-  finish();
+  finish(); plain.dispose();
 }
 
 // Plan 011: at .03-.06 units an .08 bevel is under a pixel from the game camera and costs nine times the
