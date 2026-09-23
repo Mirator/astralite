@@ -16,7 +16,8 @@
     "format": "oxfmt",
     "balance": "node --experimental-strip-types scripts/balance/main.ts",
     "balance:check": "node --experimental-strip-types scripts/balance/check.ts",
-    "shots:compare": "node --experimental-strip-types scripts/shots/compare.ts"
+    "shots:compare": "node --experimental-strip-types scripts/shots/compare.ts",
+    "figures": "node --experimental-strip-types scripts/figures.ts"
   },
   "dependencies": {
     "@types/three": "^0.185.4",

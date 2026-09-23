@@ -258,6 +258,47 @@ moves along the top walls and in the HUD bars; and the gauntlet (38,310 px, 5.5%
 its embers are, because they draw real entropy. Read a change in those scenes against that, and a d3d11 sheet
 only against another d3d11 sheet.
 
+## Figures
+
+The knight (`dungeon-knight.ts`) and the three skeleton kinds (`dungeon-skeleton.ts`) are part lists (plan
+012): every plate, joint and strap is a named entry in a spec tree built by `dungeon-figure-spec.ts`'s
+`buildSpec`, not a `new THREE.Mesh(...)` a few statements away from the code that positions it. Finding
+"the knee" or "the visor" is a text search for its name in the spec, not a read of the whole builder.
+
+`app/bench/page.tsx` (dev-only - `npm run build` drops it; a production request 404s) renders every figure
+from eight facings on one sheet with `npm run figures`, which is fast enough to run after every edit:
+
+```bash
+npm run figures                                      # every figure, every facing, Tideblade
+npm run figures -- --figures knight --weapon all      # the knight alone, once per arm
+npm run figures -- --zoom 1.3 --bg grey
+```
+
+It writes `outputs/figures/latest.png` (after moving the previous one to `previous.png`) and a timestamped
+copy, reusing a dev server already on `GAME_TEST_PORT` (default 3200) or starting one. `GAME_TEST_GL=d3d11`
+applies the same as everywhere else in this file.
+
+The iteration loop:
+
+1. Find the part by name in `dungeon-knight.ts` or `dungeon-skeleton.ts` and edit it.
+2. `npm run figures`, then compare `previous.png` with `latest.png` (they sit beside each other in
+   `outputs/figures/`).
+3. `npm test` - the fingerprint test (`tests/dungeon-figures.test.ts`) fails on purpose, since it holds
+   every figure to `tests/fixtures/figure-fingerprints.json` byte for byte and a change was just made.
+4. Once the change is the one you meant: `UPDATE_FIGURE_FINGERPRINTS=1 npm test` to write the new fixture,
+   then `npm test` again to confirm it now passes.
+5. Judge the change the way it will actually be judged, in the game: `npm run shots:compare -- --grep
+   models`.
+
+`tests/browser/bench.spec.ts` is the regression guard behind `npm run figures` itself: it opens `/bench`
+directly (not the pooled game page - there is no floor or reset to hold a snapshot against on that route)
+and asserts every cell in the grid has enough changed pixels against its own background to be a figure, not
+a blank cell. It writes no PNG unless `GAME_TEST_CAPTURE=1`.
+
+The bench's ground, lights and camera approximate the game's own closely enough to judge a change by, but
+it is not the renderer the game ships with - no fog, no torchlight, no room mood, no paving texture. It is
+an approximation for fast iteration; `shots:compare` stays the judge of what actually ships.
+
 ## The palette, measured
 
 `tests/browser/art-direction.spec.ts` holds `docs/art-direction.md` to its own rules, off the rendered

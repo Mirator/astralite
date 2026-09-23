@@ -211,6 +211,10 @@ test.describe('enemies', () => {
   };
 
   test('the cast: masks, separation, cost and joints per kind', async ({ page }, info) => {
+    // It ran 2.0m on SwiftShader CI against the 2m default and timed out on a slower runner. measureMasks
+    // now draws seven scissored frames instead of eleven whole ones (34s -> 21s locally on SwiftShader);
+    // the longer limit stays as headroom for a runner shared with the eight-facings test.
+    test.slow();
     const { game, staged } = await stageCast(page, info);
     const state = await game.state();
     const { noise, masks } = await measureMasks(page, [{ name: 'knight', knight: true }, ...staged.map(({ kind, x, z }) => ({ name: kind, x, z }))]);
