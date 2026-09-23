@@ -95,10 +95,10 @@ test.describe('knight', () => {
     // Every animated joint rests exactly where it did before the bake, the snapshot's own readings.
     const player = (await game.state()).player as unknown as {
       swordAngle: number; legs: number[]; cloak: { anchor: number[]; pitch: number }; pose: { bodyYaw: number };
-      locomotion: { pitch: number; arm: number; knees: number[] };
+      locomotion: { pitch: number; arm: number; tabard: number; knees: number[] };
     };
-    expect({ sword: player.swordAngle, cloak: player.cloak, bodyYaw: player.pose.bodyYaw, pitch: player.locomotion.pitch, arm: player.locomotion.arm, knees: player.locomotion.knees, legs: player.legs })
-      .toEqual({ sword: 0, cloak: { anchor: [0, 0.5, 0.22], pitch: -0.1 }, bodyYaw: 0, pitch: 0, arm: 0, knees: [0, 0], legs: [0, 0] });
+    expect({ sword: player.swordAngle, cloak: player.cloak, bodyYaw: player.pose.bodyYaw, pitch: player.locomotion.pitch, arm: player.locomotion.arm, tabard: player.locomotion.tabard, knees: player.locomotion.knees, legs: player.legs })
+      .toEqual({ sword: 0, cloak: { anchor: [0, 0.5, 0.22], pitch: -0.1 }, bodyYaw: 0, pitch: 0, arm: 0, tabard: 0, knees: [0, 0], legs: [0, 0] });
   });
 
   test.describe('from above, at eight facings', () => {

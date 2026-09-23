@@ -28,6 +28,7 @@
         "cape",
         "legs",
         "sword",
+        "tabard",
         "torso"
       ]
     },
@@ -36,7 +37,7 @@
       "type": "Group",
       "position": [
         0,
-        0.7,
+        0.76,
         0
       ],
       "quaternion": [
@@ -68,9 +69,9 @@
         1
       ],
       "scale": [
-        1.15,
-        1.15,
-        1.15
+        1.05,
+        1.05,
+        1.05
       ],
       "visible": true,
       "userDataKeys": []
@@ -153,7 +154,7 @@
         "boundingBox": {
           "min": [
             -0.52,
-            -0.98,
+            -1.02,
             0
           ],
           "max": [
@@ -164,13 +165,135 @@
         },
         "positionSum": [
           0,
-          -69.86,
+          -72.3,
           16.731
         ]
       }
     },
     {
       "path": "root/0/2",
+      "type": "Group",
+      "position": [
+        0,
+        -0.075,
+        -0.345
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true,
+      "userDataKeys": []
+    },
+    {
+      "path": "root/0/2/0:baked:0",
+      "type": "Mesh",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true,
+      "userDataKeys": [],
+      "mesh": {
+        "material": {
+          "type": "MeshStandardMaterial",
+          "color": 16762986,
+          "emissive": 4860935,
+          "side": 0,
+          "flatShading": false
+        },
+        "vertexCount": 192,
+        "indexCount": null,
+        "boundingBox": {
+          "min": [
+            -0.2102,
+            -0.478,
+            -0.042
+          ],
+          "max": [
+            0.2102,
+            0.035,
+            0.025
+          ]
+        },
+        "positionSum": [
+          -0.35,
+          -46.665,
+          -1.584
+        ]
+      }
+    },
+    {
+      "path": "root/0/2/1:baked:1",
+      "type": "Mesh",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true,
+      "userDataKeys": [],
+      "mesh": {
+        "material": {
+          "type": "MeshStandardMaterial",
+          "color": 10362675,
+          "emissive": 4392464,
+          "side": 2,
+          "flatShading": false
+        },
+        "vertexCount": 108,
+        "indexCount": null,
+        "boundingBox": {
+          "min": [
+            -0.1853,
+            -0.4484,
+            -0.031
+          ],
+          "max": [
+            0.1853,
+            0.015,
+            0.011
+          ]
+        },
+        "positionSum": [
+          -0.3,
+          -22.523,
+          -1.08
+        ]
+      }
+    },
+    {
+      "path": "root/0/3",
       "type": "Group",
       "position": [
         0.44,
@@ -192,7 +315,7 @@
       "userDataKeys": []
     },
     {
-      "path": "root/0/2/0",
+      "path": "root/0/3/0",
       "type": "Group",
       "position": [
         0,
@@ -214,7 +337,7 @@
       "userDataKeys": []
     },
     {
-      "path": "root/0/2/0/0:baked:0",
+      "path": "root/0/3/0/0:baked:0",
       "type": "Mesh",
       "position": [
         0,
@@ -264,7 +387,7 @@
       }
     },
     {
-      "path": "root/0/2/0/1:baked:1",
+      "path": "root/0/3/0/1:baked:1",
       "type": "Mesh",
       "position": [
         0,
@@ -314,7 +437,7 @@
       }
     },
     {
-      "path": "root/0/2/0/2:baked:2",
+      "path": "root/0/3/0/2:baked:2",
       "type": "Mesh",
       "position": [
         0,
@@ -364,7 +487,7 @@
       }
     },
     {
-      "path": "root/0/2/0/3:baked:3",
+      "path": "root/0/3/0/3:baked:3",
       "type": "Mesh",
       "position": [
         0,
@@ -414,7 +537,7 @@
       }
     },
     {
-      "path": "root/0/2/1:baked:0",
+      "path": "root/0/3/1:baked:0",
       "type": "Mesh",
       "position": [
         0,
@@ -464,7 +587,7 @@
       }
     },
     {
-      "path": "root/0/2/2:baked:1",
+      "path": "root/0/3/2:baked:1",
       "type": "Mesh",
       "position": [
         0,
@@ -514,7 +637,7 @@
       }
     },
     {
-      "path": "root/0/3",
+      "path": "root/0/4",
       "type": "Group",
       "position": [
         -0.4,
@@ -536,7 +659,7 @@
       "userDataKeys": []
     },
     {
-      "path": "root/0/3/0:baked:0",
+      "path": "root/0/4/0:baked:0",
       "type": "Mesh",
       "position": [
         0,
@@ -586,7 +709,7 @@
       }
     },
     {
-      "path": "root/0/3/1:baked:1",
+      "path": "root/0/4/1:baked:1",
       "type": "Mesh",
       "position": [
         0,
@@ -636,57 +759,7 @@
       }
     },
     {
-      "path": "root/0/3/2:baked:2",
-      "type": "Mesh",
-      "position": [
-        0,
-        0,
-        0
-      ],
-      "quaternion": [
-        0,
-        0,
-        0,
-        1
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "visible": true,
-      "userDataKeys": [],
-      "mesh": {
-        "material": {
-          "type": "MeshStandardMaterial",
-          "color": 2890260,
-          "emissive": 0,
-          "side": 0,
-          "flatShading": false
-        },
-        "vertexCount": 108,
-        "indexCount": null,
-        "boundingBox": {
-          "min": [
-            -0.1121,
-            -0.3921,
-            -0.3521
-          ],
-          "max": [
-            0.1121,
-            -0.1679,
-            -0.1279
-          ]
-        },
-        "positionSum": [
-          0.016,
-          -30.214,
-          -25.93
-        ]
-      }
-    },
-    {
-      "path": "root/0/3/3:baked:3",
+      "path": "root/0/4/2:baked:2",
       "type": "Mesh",
       "position": [
         0,
@@ -714,13 +787,13 @@
           "side": 0,
           "flatShading": true
         },
-        "vertexCount": 324,
+        "vertexCount": 432,
         "indexCount": null,
         "boundingBox": {
           "min": [
             -0.115,
-            -0.3734,
-            -0.269
+            -0.3921,
+            -0.3521
           ],
           "max": [
             0.115,
@@ -729,14 +802,14 @@
           ]
         },
         "positionSum": [
-          0,
-          -84.24,
-          -38.88
+          0.016,
+          -114.454,
+          -64.81
         ]
       }
     },
     {
-      "path": "root/0/3/4:baked:4",
+      "path": "root/0/4/3:baked:3",
       "type": "Mesh",
       "position": [
         0,
@@ -786,7 +859,7 @@
       }
     },
     {
-      "path": "root/0/4:baked:0",
+      "path": "root/0/5:baked:0",
       "type": "Mesh",
       "position": [
         0,
@@ -814,29 +887,29 @@
           "side": 0,
           "flatShading": true
         },
-        "vertexCount": 2100,
+        "vertexCount": 2052,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.6195,
-            -0.0654,
+            -0.6418,
+            -0.3992,
             -0.327
           ],
           "max": [
-            0.6195,
-            0.5774,
-            0.205
+            0.6418,
+            0.585,
+            0.315
           ]
         },
         "positionSum": [
-          -1.02,
-          848.183,
-          -58.44
+          0.5,
+          658.503,
+          -65.096
         ]
       }
     },
     {
-      "path": "root/0/5:baked:1",
+      "path": "root/0/6:baked:1",
       "type": "Mesh",
       "position": [
         0,
@@ -864,29 +937,79 @@
           "side": 0,
           "flatShading": true
         },
-        "vertexCount": 552,
+        "vertexCount": 456,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.322,
+            -0.2683,
             -0.0312,
-            -0.4029
+            -0.357
           ],
           "max": [
-            0.322,
-            1.0808,
-            0.2789
+            0.2683,
+            1.027,
+            0.2522
           ]
         },
         "positionSum": [
-          -2.017,
-          327.546,
-          -106.342
+          -0.492,
+          281.482,
+          -68.323
         ]
       }
     },
     {
-      "path": "root/0/6:baked:2",
+      "path": "root/0/7:baked:2",
+      "type": "Mesh",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true,
+      "userDataKeys": [],
+      "mesh": {
+        "material": {
+          "type": "MeshStandardMaterial",
+          "color": 16762986,
+          "emissive": 4860935,
+          "side": 0,
+          "flatShading": false
+        },
+        "vertexCount": 1236,
+        "indexCount": null,
+        "boundingBox": {
+          "min": [
+            -0.6064,
+            -0.1248,
+            -0.402
+          ],
+          "max": [
+            0.6064,
+            1.0375,
+            0.2376
+          ]
+        },
+        "positionSum": [
+          -1.148,
+          532.759,
+          -234.5
+        ]
+      }
+    },
+    {
+      "path": "root/0/8:baked:3",
       "type": "Mesh",
       "position": [
         0,
@@ -936,7 +1059,7 @@
       }
     },
     {
-      "path": "root/0/7:baked:3",
+      "path": "root/0/9:baked:4",
       "type": "Mesh",
       "position": [
         0,
@@ -968,25 +1091,25 @@
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.2361,
-            0.4747,
-            -0.3459
+            -0.2156,
+            0.4917,
+            -0.3158
           ],
           "max": [
-            0.2361,
-            0.7429,
-            -0.2802
+            0.2156,
+            0.7365,
+            -0.2559
           ]
         },
         "positionSum": [
           0,
-          275.968,
-          -146.989
+          279.237,
+          -134.207
         ]
       }
     },
     {
-      "path": "root/0/8:baked:4",
+      "path": "root/0/10:baked:5",
       "type": "Mesh",
       "position": [
         0,
@@ -1009,84 +1132,34 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 16762986,
-          "emissive": 4860935,
+          "color": 13904438,
+          "emissive": 5900818,
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 972,
+        "vertexCount": 120,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.6004,
-            -0.105,
-            -0.3763
+            -0.1778,
+            0.8197,
+            -0.1891
           ],
           "max": [
-            0.6004,
-            1.0407,
-            0.2408
+            0.1778,
+            1.1926,
+            0.4264
           ]
         },
         "positionSum": [
-          0.013,
-          402.252,
-          -243.556
+          0,
+          114.439,
+          2.193
         ]
       }
     },
     {
-      "path": "root/0/9:baked:5",
-      "type": "Mesh",
-      "position": [
-        0,
-        0,
-        0
-      ],
-      "quaternion": [
-        0,
-        0,
-        0,
-        1
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "visible": true,
-      "userDataKeys": [],
-      "mesh": {
-        "material": {
-          "type": "MeshStandardMaterial",
-          "color": 10362675,
-          "emissive": 4392464,
-          "side": 2,
-          "flatShading": false
-        },
-        "vertexCount": 294,
-        "indexCount": null,
-        "boundingBox": {
-          "min": [
-            -0.3189,
-            -0.5194,
-            -0.315
-          ],
-          "max": [
-            0.3189,
-            1.2615,
-            0.4864
-          ]
-        },
-        "positionSum": [
-          0.644,
-          161.967,
-          0.96
-        ]
-      }
-    },
-    {
-      "path": "root/0/10:baked:6",
+      "path": "root/0/11:baked:6",
       "type": "Mesh",
       "position": [
         0,
@@ -1114,24 +1187,74 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 468,
+        "vertexCount": 228,
         "indexCount": null,
         "boundingBox": {
           "min": [
             -0.332,
-            -0.3992,
-            -0.348
+            -0.19,
+            -0.332
           ],
           "max": [
             0.385,
-            0.3365,
+            0.01,
             0.332
           ]
         },
         "positionSum": [
-          12.488,
-          -31.873,
-          -44.184
+          10.8,
+          -10.92,
+          3.6
+        ]
+      }
+    },
+    {
+      "path": "root/0/12:baked:7",
+      "type": "Mesh",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true,
+      "userDataKeys": [],
+      "mesh": {
+        "material": {
+          "type": "MeshStandardMaterial",
+          "color": 3817038,
+          "emissive": 0,
+          "side": 0,
+          "flatShading": true
+        },
+        "vertexCount": 96,
+        "indexCount": null,
+        "boundingBox": {
+          "min": [
+            -0.3141,
+            -0.28,
+            -0.3141
+          ],
+          "max": [
+            0.3141,
+            -0.06,
+            0.3141
+          ]
+        },
+        "positionSum": [
+          0,
+          -16.32,
+          0
         ]
       }
     },
@@ -1140,7 +1263,7 @@
       "type": "Group",
       "position": [
         -0.2,
-        0.48,
+        0.54,
         0
       ],
       "quaternion": [
@@ -1165,7 +1288,7 @@
       "type": "Group",
       "position": [
         0,
-        -0.22,
+        -0.25,
         0
       ],
       "quaternion": [
@@ -1187,7 +1310,7 @@
       "type": "Object3D",
       "position": [
         0,
-        -0.12,
+        -0.15,
         -0.06
       ],
       "quaternion": [
@@ -1228,134 +1351,34 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 658965,
-          "emissive": 0,
-          "side": 0,
-          "flatShading": false
-        },
-        "vertexCount": 36,
-        "indexCount": null,
-        "boundingBox": {
-          "min": [
-            -0.085,
-            -0.14,
-            -0.09
-          ],
-          "max": [
-            0.085,
-            0.02,
-            0.09
-          ]
-        },
-        "positionSum": [
-          0,
-          -2.16,
-          0
-        ]
-      }
-    },
-    {
-      "path": "root/1/0/2:baked:1",
-      "type": "Mesh",
-      "position": [
-        0,
-        0,
-        0
-      ],
-      "quaternion": [
-        0,
-        0,
-        0,
-        1
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "visible": true,
-      "userDataKeys": [],
-      "mesh": {
-        "material": {
-          "type": "MeshStandardMaterial",
-          "color": 2890260,
-          "emissive": 0,
-          "side": 0,
-          "flatShading": false
-        },
-        "vertexCount": 36,
-        "indexCount": null,
-        "boundingBox": {
-          "min": [
-            -0.11,
-            -0.2,
-            -0.23
-          ],
-          "max": [
-            0.11,
-            -0.04,
-            0.11
-          ]
-        },
-        "positionSum": [
-          0,
-          -4.32,
-          -2.16
-        ]
-      }
-    },
-    {
-      "path": "root/1/0/3:baked:2",
-      "type": "Mesh",
-      "position": [
-        0,
-        0,
-        0
-      ],
-      "quaternion": [
-        0,
-        0,
-        0,
-        1
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "visible": true,
-      "userDataKeys": [],
-      "mesh": {
-        "material": {
-          "type": "MeshStandardMaterial",
           "color": 2171958,
           "emissive": 0,
           "side": 0,
           "flatShading": true
         },
-        "vertexCount": 108,
+        "vertexCount": 180,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.1106,
-            -0.181,
-            -0.142
+            -0.1105,
+            -0.23,
+            -0.23
           ],
           "max": [
-            0.1106,
-            0.0694,
-            -0.068
+            0.1105,
+            0.0545,
+            0.11
           ]
         },
         "positionSum": [
           -0.22,
-          -6.983,
-          -11.34
+          -18.161,
+          -13.5
         ]
       }
     },
     {
-      "path": "root/1/0/4:baked:3",
+      "path": "root/1/0/2:baked:1",
       "type": "Mesh",
       "position": [
         0,
@@ -1388,7 +1411,7 @@
         "boundingBox": {
           "min": [
             -0.1021,
-            -0.1475,
+            -0.1775,
             -0.25
           ],
           "max": [
@@ -1399,13 +1422,13 @@
         },
         "positionSum": [
           0.015,
-          -35.62,
+          -45.34,
           -63.726
         ]
       }
     },
     {
-      "path": "root/1/0/5:baked:4",
+      "path": "root/1/0/3:baked:2",
       "type": "Mesh",
       "position": [
         0,
@@ -1433,24 +1456,24 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 36,
+        "vertexCount": 72,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.065,
-            0,
-            -0.1525
+            -0.1,
+            -0.112,
+            -0.25
           ],
           "max": [
-            0.065,
+            0.1,
             0.024,
             -0.1275
           ]
         },
         "positionSum": [
           0,
-          0.432,
-          -5.04
+          -3.168,
+          -13.68
         ]
       }
     },
@@ -1488,7 +1511,7 @@
         "boundingBox": {
           "min": [
             -0.095,
-            -0.215,
+            -0.255,
             -0.1
           ],
           "max": [
@@ -1499,7 +1522,7 @@
         },
         "positionSum": [
           0,
-          -3.6,
+          -4.32,
           0
         ]
       }
@@ -1509,7 +1532,7 @@
       "type": "Group",
       "position": [
         0.2,
-        0.48,
+        0.54,
         0
       ],
       "quaternion": [
@@ -1534,7 +1557,7 @@
       "type": "Group",
       "position": [
         0,
-        -0.22,
+        -0.25,
         0
       ],
       "quaternion": [
@@ -1556,7 +1579,7 @@
       "type": "Object3D",
       "position": [
         0,
-        -0.12,
+        -0.15,
         -0.06
       ],
       "quaternion": [
@@ -1597,134 +1620,34 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 658965,
-          "emissive": 0,
-          "side": 0,
-          "flatShading": false
-        },
-        "vertexCount": 36,
-        "indexCount": null,
-        "boundingBox": {
-          "min": [
-            -0.085,
-            -0.14,
-            -0.09
-          ],
-          "max": [
-            0.085,
-            0.02,
-            0.09
-          ]
-        },
-        "positionSum": [
-          0,
-          -2.16,
-          0
-        ]
-      }
-    },
-    {
-      "path": "root/2/0/2:baked:1",
-      "type": "Mesh",
-      "position": [
-        0,
-        0,
-        0
-      ],
-      "quaternion": [
-        0,
-        0,
-        0,
-        1
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "visible": true,
-      "userDataKeys": [],
-      "mesh": {
-        "material": {
-          "type": "MeshStandardMaterial",
-          "color": 2890260,
-          "emissive": 0,
-          "side": 0,
-          "flatShading": false
-        },
-        "vertexCount": 36,
-        "indexCount": null,
-        "boundingBox": {
-          "min": [
-            -0.11,
-            -0.2,
-            -0.23
-          ],
-          "max": [
-            0.11,
-            -0.04,
-            0.11
-          ]
-        },
-        "positionSum": [
-          0,
-          -4.32,
-          -2.16
-        ]
-      }
-    },
-    {
-      "path": "root/2/0/3:baked:2",
-      "type": "Mesh",
-      "position": [
-        0,
-        0,
-        0
-      ],
-      "quaternion": [
-        0,
-        0,
-        0,
-        1
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "visible": true,
-      "userDataKeys": [],
-      "mesh": {
-        "material": {
-          "type": "MeshStandardMaterial",
           "color": 2171958,
           "emissive": 0,
           "side": 0,
           "flatShading": true
         },
-        "vertexCount": 108,
+        "vertexCount": 180,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.1106,
-            -0.181,
-            -0.142
+            -0.1105,
+            -0.23,
+            -0.23
           ],
           "max": [
-            0.1106,
-            0.0694,
-            -0.068
+            0.1105,
+            0.0545,
+            0.11
           ]
         },
         "positionSum": [
           -0.22,
-          -6.983,
-          -11.34
+          -18.161,
+          -13.5
         ]
       }
     },
     {
-      "path": "root/2/0/4:baked:3",
+      "path": "root/2/0/2:baked:1",
       "type": "Mesh",
       "position": [
         0,
@@ -1757,7 +1680,7 @@
         "boundingBox": {
           "min": [
             -0.1021,
-            -0.1475,
+            -0.1775,
             -0.25
           ],
           "max": [
@@ -1768,13 +1691,13 @@
         },
         "positionSum": [
           0.015,
-          -35.62,
+          -45.34,
           -63.726
         ]
       }
     },
     {
-      "path": "root/2/0/5:baked:4",
+      "path": "root/2/0/3:baked:2",
       "type": "Mesh",
       "position": [
         0,
@@ -1802,24 +1725,24 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 36,
+        "vertexCount": 72,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.065,
-            0,
-            -0.1525
+            -0.1,
+            -0.112,
+            -0.25
           ],
           "max": [
-            0.065,
+            0.1,
             0.024,
             -0.1275
           ]
         },
         "positionSum": [
           0,
-          0.432,
-          -5.04
+          -3.168,
+          -13.68
         ]
       }
     },
@@ -1857,7 +1780,7 @@
         "boundingBox": {
           "min": [
             -0.095,
-            -0.215,
+            -0.255,
             -0.1
           ],
           "max": [
@@ -1868,7 +1791,7 @@
         },
         "positionSum": [
           0,
-          -3.6,
+          -4.32,
           0
         ]
       }

@@ -1,10 +1,18 @@
-// The knight, as a part list (plan 012 Stage B). Every plate, joint and strap the reference code built by
-// hand is a named entry here, findable and editable without reading a builder function.
+// The knight, as a part list (plan 012 Stage B). Every plate, joint and strap is a named entry here,
+// findable and editable without reading a builder function.
 //
-// Two things do NOT fit the spec's narrow shape model and stay imperative, same as before: the cape (its
-// cloth pattern is per-vertex colour, not a material) and the sword pivot's weapon (built by makeWeapon()
-// from the equipped WeaponId, not fixed data). Both are built here exactly as the reference code built
-// them and spliced into the tree after buildSpec runs.
+// Plan 013 redrew him from the eight-facing turnaround sheet (blackened plate, gold edging, crimson cloth):
+// a bucket great helm with a gold slit frame under a swept-back plume, domed pauldrons over two lames, a
+// gold-rimmed breastplate with a diamond, a mail skirt behind a gold-bordered tabard, and longer armoured
+// legs. He stands the same height as before - the helm and plume shrank by what the legs gained - and is
+// drawn in 31 meshes of the 32 allowed: the knees and the free arm lost a material each to pay for the
+// tabard, the mail and the plume's own crimson. The helm stays the palest thing on him on purpose (models.spec.ts holds head over shoulders),
+// so the shoulders are dark iron and carry their gold only as thin edges.
+//
+// Three things do NOT fit the spec's narrow shape model and stay imperative: the cape (its cloth pattern
+// is per-vertex colour, not a material), the sword pivot's weapon (built by makeWeapon() from the equipped
+// WeaponId, not fixed data) and the tabard's swing joint, which is spec data but has to be spliced in as a
+// kept subtree so it can turn with the legs. All three are spliced into the tree after buildSpec runs.
 //
 // Ordering note for anyone editing this file: bakeStatic merges every plain, opaque, visible mesh under a
 // bake root into one mesh per material, in the order that material is FIRST met walking the tree
@@ -22,42 +30,44 @@ import { makeWeapon, type ArmoryPalette, type Plate } from './dungeon-armory.ts'
 import { STARTING_WEAPON } from './dungeon-weapon.ts';
 import { buildSpec, type Node } from './dungeon-figure-spec.ts';
 
-// Unit primitives the trim is built from, each scaled per instance via the part's own `scale` - the same
-// thing dressing() used to do by baking a pose matrix into a merged geometry. A plain THREE.BoxGeometry
-// bevels to nothing under about a pixel and costs nine times the triangles of the box it rounds (plan
-// 010/011), so the thinnest trim stays plain and the broad plates keep the rounded edge.
+// Unit primitives the trim is built from, each scaled per instance via the part's own `scale`. A plain
+// THREE.BoxGeometry bevels to nothing under about a pixel and costs nine times the triangles of the box it
+// rounds (plan 010/011), so the thinnest trim stays plain and the broad plates keep the rounded edge.
 const roundedUnitBox = () => new RoundedBoxGeometry(1, 1, 1, 1, .08);
 const plainUnitBox = () => new THREE.BoxGeometry(1, 1, 1);
 const unitJoint = () => new THREE.IcosahedronGeometry(1, 0);
 const unitSpike = () => new THREE.ConeGeometry(1, 1, 4);
-// The torso's cloth trim (plan 010's red bib under the pauldrons): the same outline as the reference code,
-// rebuilt fresh per figure rather than shared, since nothing here needs the sharing dungeon-characters.ts
-// used to do for its own cache.
-function clothGeometry() {
-  const shape = new THREE.Shape();
-  shape.moveTo(-.5, .5); shape.lineTo(.5, .5); shape.lineTo(.43, -.42); shape.lineTo(.15, -.33); shape.lineTo(0, -.5); shape.lineTo(-.18, -.36); shape.lineTo(-.4, -.45); shape.closePath();
-  return new THREE.ShapeGeometry(shape);
-}
+// A pauldron is a dome, not a gem: eight facets round and three down read as one rounded shell from the
+// isometric camera, where the old dodecahedron read as a boulder. Open underneath - nothing sees it there.
+const unitDome = () => new THREE.SphereGeometry(1, 8, 3, 0, Math.PI * 2, 0, Math.PI / 2);
+// The ring that edges a dome, lying flat in the dome's own base plane.
+const unitRim = () => new THREE.TorusGeometry(1, .08, 3, 8).rotateX(Math.PI / 2);
+// Diamonds (the chest gem, the buckle, the tabard's point) share one outline, scaled per use.
+const diamond = (w: number, h: number): [number, number][] => [[0, h], [w, 0], [0, -h], [-w, 0]];
 
 /**
- * The knight's part tree. Base parts (breastplate, pauldrons, body, head, belt, collar, buckle, skirts,
- * clasps, pouch) are listed first, in the order makeKnight() built them; each part's own trim (from the
- * old knightDetails()) is listed right after it, in the order knightDetails() called add() for it - this
- * is what keeps bakeStatic's batch order identical to the frozen fixture. `cape`, `sword-pivot` and `arm`
- * are deliberately NOT here: they are spliced onto `torso` after buildSpec runs (see makeKnight below),
- * because bakeStatic always skips a kept subtree regardless of where it sits among its siblings, so their
- * position among the parts below cannot affect the merge - only their position relative to EACH OTHER
- * (cape before sword-pivot before arm) and to `head` (after) does, and splicing preserves that.
+ * The knight's part tree. `cape`, `tabard`, `sword-pivot` and `arm` are deliberately NOT here: they are
+ * spliced onto `torso` after buildSpec runs (see makeKnight below), because bakeStatic always skips a kept
+ * subtree regardless of where it sits among its siblings, so their position among the parts below cannot
+ * affect the merge - only their position relative to EACH OTHER and to `head` (after) does.
  */
 const KNIGHT_SPEC: Node = {
   name: 'knight',
   parts: [
     {
-      name: 'torso', at: [0, .7, 0], parts: [
+      // Plan 013: up .06 on the longer legs (the hips below rise with it), so the sword pivot, cape anchor
+      // and arm, all torso-local, keep the numbers the game and the rest-pose test read.
+      name: 'torso', at: [0, .76, 0], parts: [
         {
           name: 'breastplate', shape: { plate: { outline: [[-.27, .22], [.27, .22], [.3, .08], [.22, -.22], [0, -.27], [-.22, -.22], [-.3, .08]], depth: .13 } }, material: 'iron', at: [0, .22, -.25],
           parts: [{ name: 'chest-ridge', shape: { plate: { outline: [[-.025, .18], [.025, .18], [.035, -.19], [0, -.23], [-.035, -.19]], depth: .02 } }, material: 'steel', at: [0, 0, -.085] }],
         },
+        // The same outline a size up in brass, set just behind the iron: it shows only as a gold edge
+        // around the plate, which is how the sheet draws every plate on him.
+        { name: 'breastplate-trim', shape: { plate: { outline: [[-.3, .245], [.3, .245], [.335, .085], [.245, -.245], [0, -.3], [-.245, -.245], [-.335, .085]], depth: .09 } }, material: 'brass', at: [0, .22, -.235] },
+        { name: 'chest-gem', shape: { plate: { outline: diamond(.06, .085), depth: .03 } }, material: 'brass', at: [0, .27, -.345] },
+        // Hidden on purpose since plan 010 (the old pale shoulders): bakeStatic removes them, and the bake
+        // tests lean on the knight carrying an invisible part. The domes below are what he wears.
         {
           name: 'pauldron-l', shape: { dodeca: [.23] }, material: 'iron', at: [-.37, .4, 0], scale: [1, .66, 1.12], hidden: true,
           parts: [{ name: 'pauldron-rim-l', shape: { dodeca: [.23] }, material: 'steel', at: [0, -.06, 0], scale: [1.08, .3, 1.04] }],
@@ -68,14 +78,13 @@ const KNIGHT_SPEC: Node = {
         },
         { name: 'body', shape: { cylinder: [.32, .28, .63, 8] }, material: 'dark', at: [0, .11, 0] },
         {
-          name: 'head', at: [0, .67, 0], scale: 1.15, parts: [
-            { name: 'helmet', shape: { cylinder: [.16, .28, .39, 6] }, material: 'steel', at: [0, .045, 0], rot: [0, Math.PI / 6, 0] },
-            { name: 'crown', shape: { plate: { outline: [[-.23, .16], [-.1, .29], [.035, .34], [.23, .16], [.22, .06], [-.22, .06]], depth: .23 } }, material: 'steel', at: [0, 0, .005] },
+          // Plan 013: a smaller helm (1.15 to 1.05) is what pays for the longer legs.
+          name: 'head', at: [0, .67, 0], scale: 1.05, parts: [
+            // A bucket, not a cone: near-straight sides and a low dome, the sheet's great helm.
+            { name: 'helmet', shape: { cylinder: [.24, .26, .4, 8] }, material: 'steel', at: [0, .04, 0], rot: [0, Math.PI / 8, 0] },
+            { name: 'crown', shape: { geometry: unitDome() }, material: 'steel', at: [0, .24, 0], rot: [0, Math.PI / 8, 0], scale: [.247, .1, .247] },
             {
-              // Plan 010: the whole face tips back about the mask's own origin, so `onFace` in the old
-              // knightDetails() re-based trim positions into mask-local space by subtracting the mask's
-              // position. That subtraction is done once here, in the numbers below, instead of at
-              // runtime: the mask sits at z=-.215, so a world z of -.263 becomes -.048 (-.263 - (-.215)).
+              // The whole face tips back about the mask's own origin (plan 010); trim below is mask-local.
               name: 'mask', at: [0, 0, -.215], rot: [.2, 0, 0], parts: [
                 { name: 'face', shape: { plate: { outline: [[-.24, .14], [.24, .14], [.22, -.16], [.09, -.23], [-.09, -.23], [-.22, -.16]], depth: .065 } }, material: 'steel', at: [0, 0, 0] },
                 {
@@ -84,10 +93,11 @@ const KNIGHT_SPEC: Node = {
                     { name: 'slit-r', shape: { box: [.175, .052, .018] }, material: 'shadow', at: [.116, .02, 0], rot: [0, 0, .08] },
                   ],
                 },
-                { name: 'nose', shape: { plate: { outline: [[-.025, .11], [.025, .11], [.035, -.18], [0, -.215], [-.035, -.18]], depth: .045 } }, material: 'steel', at: [0, 0, -.06] },
+                // Gold above and below the slit, and down the middle: the cross the sheet puts on the face.
+                { name: 'slit-brow', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, .07, -.05], scale: [.43, .028, .02] },
+                { name: 'slit-cheek', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, -.026, -.05], scale: [.4, .022, .02] },
+                { name: 'nose', shape: { plate: { outline: [[-.025, .11], [.025, .11], [.035, -.18], [0, -.215], [-.035, -.18]], depth: .045 } }, material: 'brass', at: [0, 0, -.06] },
                 { name: 'mouth', shape: { box: [.035, .1, .018] }, material: 'shadow', at: [0, -.13, -.042] },
-                // Mask trim from knightDetails(): one brass hinge and three shadow rivets per side, added
-                // side=-1 then side=1 - the exact order the dressing() Map used to register them in.
                 { name: 'mask-hinge-l', shape: { geometry: plainUnitBox() }, material: 'brass', at: [-.22, -.025, -.048], rot: [0, 0, .16], scale: [.023, .19, .027] },
                 { name: 'mask-rivet-l0', shape: { geometry: unitJoint() }, material: 'shadow', at: [-.085, -.095, -.042], scale: [.017, .022, .012] },
                 { name: 'mask-rivet-l1', shape: { geometry: unitJoint() }, material: 'shadow', at: [-.131, -.095, -.042], scale: [.017, .022, .012] },
@@ -98,73 +108,78 @@ const KNIGHT_SPEC: Node = {
                 { name: 'mask-rivet-r2', shape: { geometry: unitJoint() }, material: 'shadow', at: [.177, -.095, -.042], scale: [.017, .022, .012] },
               ],
             },
-            // Head's own trim: a brass browband, then the three-cone crest (plan 010: scaled up rather
-            // than multiplied, since an isometric camera spends most of its pixels on the top of the head).
-            { name: 'browband', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, .19, .015], rot: [.16, 0, 0], scale: [.045, .21, .36] },
-            { name: 'crest-0', shape: { geometry: unitSpike() }, material: 'red', at: [0, .375, .09], rot: [.8, 0, 0], scale: [.088, .40, .105] },
-            { name: 'crest-1', shape: { geometry: unitSpike() }, material: 'red', at: [0, .35, .19], rot: [.98, 0, 0], scale: [.088, .345, .105] },
-            { name: 'crest-2', shape: { geometry: unitSpike() }, material: 'red', at: [0, .325, .29], rot: [1.16, 0, 0], scale: [.088, .29, .105] },
+            // The plume's socket: a brass ridge over the crown, front to back.
+            { name: 'browband', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, .3, .03], scale: [.05, .1, .36] },
+            // Plan 013: a plume, not a mohawk. Three feathers down the ridge, each laid further back than the
+            // one before it, and one a side splayed outward so it has width from the front. Nothing trails
+            // further back: from behind it would cover the helm's steel, which is what lifts his head off
+            // the cape (models.spec.ts, facings 3 to 5). The front
+            // feather's tip is the knight's highest point and sits where the old crest's did.
+            { name: 'crest-0', shape: { geometry: unitSpike() }, material: 'plume', at: [0, .36, .02], rot: [.7, 0, 0], scale: [.1, .36, .11] },
+            { name: 'crest-1', shape: { geometry: unitSpike() }, material: 'plume', at: [0, .36, .12], rot: [.95, 0, 0], scale: [.11, .44, .11] },
+            { name: 'crest-2', shape: { geometry: unitSpike() }, material: 'plume', at: [0, .34, .21], rot: [1.1, 0, 0], scale: [.1, .44, .1] },
+            { name: 'crest-side-l0', shape: { geometry: unitSpike() }, material: 'plume', at: [-.07, .33, .12], rot: [.95, 0, .55], scale: [.08, .38, .09] },
+            { name: 'crest-side-r0', shape: { geometry: unitSpike() }, material: 'plume', at: [.07, .33, .12], rot: [.95, 0, -.55], scale: [.08, .38, .09] },
           ],
         },
         { name: 'belt', shape: { torus: [.285, .047, 4, 8] }, material: 'leather', at: [0, -.04, 0], rot: [Math.PI / 2, 0, 0] },
-        { name: 'collar', shape: { torus: [.24, .075, 4, 8] }, material: 'red', at: [0, .51, 0], rot: [Math.PI / 2, 0, 0] },
-        { name: 'buckle', shape: { plate: { outline: [[-.065, .055], [.065, .055], [.065, -.055], [-.065, -.055]], depth: .045 } }, material: 'brass', at: [0, -.035, -.32] },
-        { name: 'skirt-l', shape: { plate: { outline: [[-.12, .12], [.12, .12], [.14, -.17], [-.1, -.2]], depth: .055 } }, material: 'leather', at: [-.19, -.17, -.14], rot: [0, 0, -.13] },
+        // Blackened, not red: the sheet's gorget is dark, and a dark ring is what lifts the helm off the
+        // shoulders from above.
+        { name: 'collar', shape: { torus: [.24, .075, 4, 8] }, material: 'iron', at: [0, .51, 0], rot: [Math.PI / 2, 0, 0] },
+        // In front of the tabard's hanging edge, so the belt reads as holding it up.
+        { name: 'buckle', shape: { plate: { outline: diamond(.075, .065), depth: .04 } }, material: 'brass', at: [0, -.04, -.37] },
+        // Mail from the belt to mid-thigh, flat face forward so the tabard hangs clear of it.
+        { name: 'mail', shape: { cylinder: [.3, .34, .22, 8] }, material: 'mail', at: [0, -.17, 0], rot: [0, Math.PI / 8, 0] },
+        { name: 'skirt-l', shape: { plate: { outline: [[-.12, .12], [.12, .12], [.14, -.17], [-.1, -.2]], depth: .055 } }, material: 'iron', at: [-.24, -.17, -.08], rot: [0, .45, -.13] },
         { name: 'clasp-l', shape: { dodeca: [.048] }, material: 'brass', at: [-.2, .44, -.23] },
-        { name: 'skirt-r', shape: { plate: { outline: [[-.12, .12], [.12, .12], [.14, -.17], [-.1, -.2]], depth: .055 } }, material: 'leather', at: [.19, -.17, -.14], rot: [0, 0, .13] },
+        { name: 'skirt-r', shape: { plate: { outline: [[-.12, .12], [.12, .12], [.14, -.17], [-.1, -.2]], depth: .055 } }, material: 'iron', at: [.24, -.17, -.08], rot: [0, -.45, .13] },
         { name: 'clasp-r', shape: { dodeca: [.048] }, material: 'brass', at: [.2, .44, -.23] },
         { name: 'pouch', shape: { box: [.17, .2, .13] }, material: 'leather', at: [.3, -.09, .1] },
-        // Torso's own trim from knightDetails(): a cloth bib, three iron/brass plate pairs, a gold rim, a
-        // second brass strip and a leather strap, per side (side=-1 then side=1), then one brass sun clasp.
-        { name: 'bib-l', shape: { geometry: clothGeometry() }, material: 'red', at: [-.145, -.2, -.235], rot: [0, 0, .06], scale: [.31, .64, 1] },
-        { name: 'plate-l0', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [-.4, .5, -.01], rot: [0, 0, .16], scale: [.4, .1, .43] },
-        { name: 'rivet-l0', shape: { geometry: unitJoint() }, material: 'brass', at: [-.39, .505, -.24], scale: [.028, .028, .016] },
-        { name: 'plate-l1', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [-.42, .42, -.01], rot: [0, 0, .16], scale: [.375, .1, .43] },
-        { name: 'rivet-l1', shape: { geometry: unitJoint() }, material: 'brass', at: [-.412, .425, -.24], scale: [.028, .028, .016] },
-        { name: 'plate-l2', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [-.44, .34, -.01], rot: [0, 0, .16], scale: [.35, .1, .43] },
-        { name: 'rivet-l2', shape: { geometry: unitJoint() }, material: 'brass', at: [-.434, .345, -.24], scale: [.028, .028, .016] },
-        { name: 'gold-rim-l', shape: { geometry: plainUnitBox() }, material: 'brass', at: [-.405, .552, -.196], rot: [0, 0, .16], scale: [.39, .036, .075] },
-        { name: 'gold-strip-l', shape: { geometry: plainUnitBox() }, material: 'brass', at: [-.19, .3, -.329], rot: [0, 0, .42], scale: [.17, .024, .018] },
-        { name: 'strap-l', shape: { geometry: plainUnitBox() }, material: 'leather', at: [-.22, .18, -.337], rot: [0, 0, -.22], scale: [.048, .31, .022] },
-        { name: 'bib-r', shape: { geometry: clothGeometry() }, material: 'red', at: [.145, -.2, -.235], rot: [0, 0, -.06], scale: [.31, .64, 1] },
-        { name: 'plate-r0', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [.4, .5, -.01], rot: [0, 0, -.16], scale: [.4, .1, .43] },
-        { name: 'rivet-r0', shape: { geometry: unitJoint() }, material: 'brass', at: [.39, .505, -.24], scale: [.028, .028, .016] },
-        { name: 'plate-r1', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [.42, .42, -.01], rot: [0, 0, -.16], scale: [.375, .1, .43] },
-        { name: 'rivet-r1', shape: { geometry: unitJoint() }, material: 'brass', at: [.412, .425, -.24], scale: [.028, .028, .016] },
-        { name: 'plate-r2', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [.44, .34, -.01], rot: [0, 0, -.16], scale: [.35, .1, .43] },
-        { name: 'rivet-r2', shape: { geometry: unitJoint() }, material: 'brass', at: [.434, .345, -.24], scale: [.028, .028, .016] },
-        { name: 'gold-rim-r', shape: { geometry: plainUnitBox() }, material: 'brass', at: [.405, .552, -.196], rot: [0, 0, -.16], scale: [.39, .036, .075] },
-        { name: 'gold-strip-r', shape: { geometry: plainUnitBox() }, material: 'brass', at: [.19, .3, -.329], rot: [0, 0, -.42], scale: [.17, .024, .018] },
-        { name: 'strap-r', shape: { geometry: plainUnitBox() }, material: 'leather', at: [.22, .18, -.337], rot: [0, 0, .22], scale: [.048, .31, .022] },
-        { name: 'sun-clasp', shape: { geometry: unitJoint() }, material: 'brass', at: [0, .28, -.355], scale: [.066, .08, .025] },
+        // Shoulders, per side (side=-1 then side=1): an iron dome tipped outward, its gold rim and front
+        // boss, and two plain iron lames stepping down over the upper arm. Gold
+        // edges on the lames were tried and cost head-over-shoulders from the side (facing 6).
+        { name: 'dome-l', shape: { geometry: unitDome() }, material: 'iron', at: [-.4, .44, 0], rot: [0, 0, .3], scale: [.195, .13, .215] },
+        { name: 'dome-rim-l', shape: { geometry: unitRim() }, material: 'brass', at: [-.4, .44, 0], rot: [0, 0, .3], scale: [.2, .16, .22] },
+        { name: 'boss-l', shape: { geometry: unitJoint() }, material: 'brass', at: [-.44, .51, -.14], scale: [.042, .042, .03] },
+        { name: 'lame-l0', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [-.45, .38, -.01], rot: [0, 0, .32], scale: [.34, .08, .42] },
+        { name: 'lame-l1', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [-.49, .3, -.01], rot: [0, 0, .38], scale: [.3, .08, .4] },
+        { name: 'dome-r', shape: { geometry: unitDome() }, material: 'iron', at: [.4, .44, 0], rot: [0, 0, -.3], scale: [.195, .13, .215] },
+        { name: 'dome-rim-r', shape: { geometry: unitRim() }, material: 'brass', at: [.4, .44, 0], rot: [0, 0, -.3], scale: [.2, .16, .22] },
+        { name: 'boss-r', shape: { geometry: unitJoint() }, material: 'brass', at: [.44, .51, -.14], scale: [.042, .042, .03] },
+        { name: 'lame-r0', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [.45, .38, -.01], rot: [0, 0, -.32], scale: [.34, .08, .42] },
+        { name: 'lame-r1', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [.49, .3, -.01], rot: [0, 0, -.38], scale: [.3, .08, .4] },
       ],
     },
+    // Plan 013: the legs are .06 longer (thigh .03, shin .03) and armoured to the toe - iron shin and
+    // sabaton, steel knee and toe caps, gold bands - which also drops the knee from five materials to three.
     {
-      name: 'hip-l', at: [-.2, .48, 0], parts: [
-        { name: 'leg-l', shape: { box: [.19, .23, .2] }, material: 'dark', at: [0, -.1, 0] },
+      name: 'hip-l', at: [-.2, .54, 0], parts: [
+        { name: 'leg-l', shape: { box: [.19, .27, .2] }, material: 'dark', at: [0, -.12, 0] },
         {
-          name: 'knee-l', at: [0, -.22, 0], parts: [
-            { name: 'shin-l', shape: { box: [.17, .16, .18] }, material: 'dark', at: [0, -.06, 0] },
-            { name: 'boot-shape-l', shape: { box: [.22, .16, .34] }, material: 'leather', at: [0, -.12, -.06] },
-            { name: 'greave-l', shape: { plate: { outline: [[-.095, .08], [.095, .08], [.08, -.11], [0, -.14], [-.08, -.11]], depth: .05 } }, material: 'iron', at: [0, -.025, -.105] },
+          name: 'knee-l', at: [0, -.25, 0], parts: [
+            { name: 'shin-l', shape: { box: [.17, .2, .18] }, material: 'iron', at: [0, -.08, 0] },
+            { name: 'boot-shape-l', shape: { box: [.22, .16, .34] }, material: 'iron', at: [0, -.15, -.06] },
+            { name: 'greave-l', shape: { plate: { outline: [[-.095, .08], [.095, .08], [.08, -.13], [0, -.16], [-.08, -.13]], depth: .05 } }, material: 'iron', at: [0, -.04, -.105] },
             { name: 'kneecap-l', shape: { dodeca: [.115] }, material: 'steel', at: [0, 0, -.11], scale: [.95, .8, .6] },
-            { name: 'knee-plate-l', shape: { geometry: roundedUnitBox() }, material: 'steel', at: [0, -.11, -.16], scale: [.2, .075, .18] },
+            { name: 'knee-plate-l', shape: { geometry: roundedUnitBox() }, material: 'steel', at: [0, -.14, -.16], scale: [.2, .075, .18] },
             { name: 'knee-rivet-l', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, .012, -.14], scale: [.13, .024, .025] },
+            { name: 'toe-trim-l', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, -.1, -.24], scale: [.2, .024, .02] },
           ],
         },
       ],
     },
     {
-      name: 'hip-r', at: [.2, .48, 0], parts: [
-        { name: 'leg-r', shape: { box: [.19, .23, .2] }, material: 'dark', at: [0, -.1, 0] },
+      name: 'hip-r', at: [.2, .54, 0], parts: [
+        { name: 'leg-r', shape: { box: [.19, .27, .2] }, material: 'dark', at: [0, -.12, 0] },
         {
-          name: 'knee-r', at: [0, -.22, 0], parts: [
-            { name: 'shin-r', shape: { box: [.17, .16, .18] }, material: 'dark', at: [0, -.06, 0] },
-            { name: 'boot-shape-r', shape: { box: [.22, .16, .34] }, material: 'leather', at: [0, -.12, -.06] },
-            { name: 'greave-r', shape: { plate: { outline: [[-.095, .08], [.095, .08], [.08, -.11], [0, -.14], [-.08, -.11]], depth: .05 } }, material: 'iron', at: [0, -.025, -.105] },
+          name: 'knee-r', at: [0, -.25, 0], parts: [
+            { name: 'shin-r', shape: { box: [.17, .2, .18] }, material: 'iron', at: [0, -.08, 0] },
+            { name: 'boot-shape-r', shape: { box: [.22, .16, .34] }, material: 'iron', at: [0, -.15, -.06] },
+            { name: 'greave-r', shape: { plate: { outline: [[-.095, .08], [.095, .08], [.08, -.13], [0, -.16], [-.08, -.13]], depth: .05 } }, material: 'iron', at: [0, -.04, -.105] },
             { name: 'kneecap-r', shape: { dodeca: [.115] }, material: 'steel', at: [0, 0, -.11], scale: [.95, .8, .6] },
-            { name: 'knee-plate-r', shape: { geometry: roundedUnitBox() }, material: 'steel', at: [0, -.11, -.16], scale: [.2, .075, .18] },
+            { name: 'knee-plate-r', shape: { geometry: roundedUnitBox() }, material: 'steel', at: [0, -.14, -.16], scale: [.2, .075, .18] },
             { name: 'knee-rivet-r', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, .012, -.14], scale: [.13, .024, .025] },
+            { name: 'toe-trim-r', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, -.1, -.24], scale: [.2, .024, .02] },
           ],
         },
       ],
@@ -172,19 +187,20 @@ const KNIGHT_SPEC: Node = {
   ],
 };
 
-/** The sword arm, kept as its own spec so `arm`'s bakeStatic call (below) sees the same part order. */
+/** The free arm, kept as its own spec so `arm`'s bakeStatic call (below) sees the same part order. Plan
+ *  013: an iron gauntlet where the leather fist was - four materials, not five. */
 const ARM_SPEC: Node = {
   name: 'arm', at: [-.4, .34, 0], parts: [
     { name: 'sleeve', shape: { box: [.17, .28, .18] }, material: 'dark', at: [0, -.14, 0] },
     { name: 'forearm', shape: { box: [.16, .17, .28] }, material: 'steel', at: [0, -.28, -.09] },
-    { name: 'fist', shape: { dodeca: [.12] }, material: 'leather', at: [0, -.28, -.24] },
+    { name: 'fist', shape: { dodeca: [.12] }, material: 'iron', at: [0, -.28, -.24] },
     { name: 'arm-plate', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [0, -.26, -.12], rot: [.12, 0, 0], scale: [.23, .2, .28] },
     { name: 'arm-rivet', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, -.19, -.22], scale: [.235, .025, .025] },
   ],
 };
 
 /** The sword pivot's own trim; `armed.group` (the equipped weapon) is spliced in by makeKnight() below.
- *  Position is the reference's [0.44, 1.0, -0.02] with the same -.7 torso-loop shift cape needs (above). */
+ *  dungeon-game.tsx sets this position back every frame (`sword.position.set(.44,.3,...)`): keep the two in step. */
 const SWORD_PIVOT_SPEC: Node = {
   name: 'sword-pivot', at: [.44, .3, -.02], parts: [
     { name: 'glove', shape: { dodeca: [.14] }, material: 'leather', at: [0, -.02, .03] },
@@ -192,30 +208,41 @@ const SWORD_PIVOT_SPEC: Node = {
   ],
 };
 
-/** The cape's cloth pattern is per-vertex colour (a sewn gold seam and border), not a material choice, so
- *  it stays outside the spec format and is built exactly as the reference code built it. */
+/** Plan 013: the tabard, hung from the belt on its own joint. It is rigid plate, not cloth - gold behind,
+ *  crimson in front, a gold diamond at the point - and the game swings it forward with whichever leg leads,
+ *  which is what keeps a running thigh from coming through it. */
+const TABARD_SPEC: Node = {
+  name: 'tabard', at: [0, -.075, -.345], parts: [
+    { name: 'tabard-trim', shape: { plate: { outline: [[-.185, .02], [.185, .02], [.195, -.33], [0, -.46], [-.195, -.33]], depth: .018 } }, material: 'brass', at: [0, 0, .004] },
+    { name: 'tabard-cloth', shape: { plate: { outline: [[-.16, 0], [.16, 0], [.17, -.31], [0, -.43], [-.17, -.31]], depth: .018 } }, material: 'red', at: [0, 0, -.01] },
+    { name: 'tabard-gem', shape: { plate: { outline: diamond(.04, .05), depth: .012 } }, material: 'brass', at: [0, -.28, -.024] },
+  ],
+};
+
+/** The cape's cloth pattern is per-vertex colour (a gold border), not a
+ *  material choice, so it stays outside the spec format. */
 function buildCape() {
-  // Ten by twelve, folded towards the hem (plan 009): see dungeon-cloak.ts's own comment for why.
+  // Ten by twelve, folded towards the hem (plan 009). Plan 013: a little longer, and cut ragged - every other hem vertex is pulled up, so the bottom edge zigzags.
   const geometry = new THREE.PlaneGeometry(1, 1, 10, 12), positions = geometry.getAttribute('position');
+  const width = (free: number) => .37 + free * .15;
   for (let i = 0; i < positions.count; i++) {
-    const u = positions.getX(i) * 2, free = .5 - positions.getY(i);
-    positions.setXYZ(i, u * (.37 + free * .15), -free * .98 + (free > .99 ? .035 * Math.abs(u) : 0),
+    const u = positions.getX(i) * 2, free = .5 - positions.getY(i), hem = free > .99;
+    const rag = hem && Math.round(u * 5) % 2 !== 0 ? .07 : 0;
+    positions.setXYZ(i, u * width(free), -free * 1.02 + rag + (hem ? .035 * Math.abs(u) : 0),
       .07 * (1 - u * u) + free * .15 + Math.sin(u * 9) * .046 * free * (1 - free * .3));
   }
   geometry.computeVertexNormals(); geometry.computeBoundingBox();
   const colours: number[] = [];
+  // By grid index rather than position: the hem's rag has moved rows off their even spacing.
   for (let i = 0; i < positions.count; i++) {
-    const x = positions.getX(i), y = positions.getY(i);
-    const free = -y / .98, border = Math.abs(x) > (.37 + free * .15) * .9 || free > .94;
-    const seam = Math.abs(x) < (.37 + free * .15) * .12 && free > .14 && free < .9;
-    const color = new THREE.Color(border || seam ? 0xf3c46d : 0xcb2130); colours.push(color.r, color.g, color.b);
+    const u = (i % 11) / 5 - 1, row = Math.floor(i / 11);
+    const border = Math.abs(u) > .9 || row === 12;
+    const color = new THREE.Color(border ? 0xf3c46d : 0xcb2130); colours.push(color.r, color.g, color.b);
   }
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
   const cape = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .95, emissive: 0x330c09, side: THREE.DoubleSide }));
-  // makeKnight()'s torso-relative parts all shift up .7 to compensate for the torso group's own +.7 (see
-  // KNIGHT_SPEC's `torso` node); cape and sword-pivot are spliced in after buildSpec, so that shift is
-  // applied here by hand instead of by the loop the reference code used.
-  cape.position.set(0, 1.2 - .7, .22); cape.rotation.x = -.1;
+  // Torso-local, like every part above: the torso group's own height is added by the tree.
+  cape.position.set(0, .5, .22); cape.rotation.x = -.1;
   return cape;
 }
 
@@ -227,6 +254,12 @@ export function makeKnight() {
   const shadow = new THREE.MeshStandardMaterial({ color: 0x05090c, roughness: 1 });
   const red = new THREE.MeshStandardMaterial({ color: 0x9e1f33, roughness: 0.85, emissive: 0x430610, side: THREE.DoubleSide });
   const leather = new THREE.MeshStandardMaterial({ color: 0x2c1a14, roughness: 1 });
+  // Plan 013: the plume in the sheet's own crimson, a step brighter than the cloth. The helm's top third is
+  // half plume from most facings, and the tabard's darker red would pull the head down to the shoulders.
+  const plume = new THREE.MeshStandardMaterial({ color: 0xd42a36, roughness: .8, emissive: 0x5a0a12 });
+  // Plan 013: between the iron and the steel, and rougher than either, so the skirt reads as woven rings
+  // rather than one more plate.
+  const mail = new THREE.MeshStandardMaterial({ color: 0x3a3e4e, roughness: .72, metalness: .45, flatShading: true });
   // The one pale thing left on the knight: a long bright blade, since no skeleton carries one. Bound to
   // the armoury's "steel" slot so the weapon keeps the old plate value while the body drops away under it.
   const blade = new THREE.MeshStandardMaterial({ color: 0xdcded9, roughness: 0.32, metalness: 0.5, flatShading: true });
@@ -235,25 +268,27 @@ export function makeKnight() {
     const geometry = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelSize: .015, bevelThickness: .012, bevelSegments: 1, steps: 1, curveSegments: 1 });
     geometry.translate(0, 0, -depth / 2); return new THREE.Mesh(geometry, material);
   };
+  const palette = { dark, steel, iron, brass, shadow, red, leather, mail, plume };
 
-  const { root: g, byName } = buildSpec(KNIGHT_SPEC, { dark, steel, iron, brass, shadow, red, leather });
+  const { root: g, byName } = buildSpec(KNIGHT_SPEC, palette);
   const torso = byName['torso'] as THREE.Group;
 
   const cape = buildCape();
+  const { root: tabard } = buildSpec(TABARD_SPEC, palette);
   const armoryPalette: ArmoryPalette = { steel: blade, iron, brass, leather, dark, shadow };
   const armed = makeWeapon(STARTING_WEAPON, armoryPalette, plate);
-  const { root: swordPivot } = buildSpec(SWORD_PIVOT_SPEC, { dark, steel, iron, brass, shadow, red, leather });
+  const { root: swordPivot } = buildSpec(SWORD_PIVOT_SPEC, palette);
   swordPivot.add(armed.group);
-  const { root: arm } = buildSpec(ARM_SPEC, { dark, steel, iron, brass, shadow, red, leather });
-  // Order matters here only relative to `head` (already built, so already before these three) and to each
+  const { root: arm } = buildSpec(ARM_SPEC, palette);
+  // Order matters here only relative to `head` (already built, so already before these) and to each
   // other: bakeStatic always skips a kept subtree wherever it sits among torso's other children, but the
-  // three kept subtrees themselves end up in the tree in the order they were added, and the fingerprint's
+  // kept subtrees themselves end up in the tree in the order they were added, and the fingerprint's
   // paths follow that order.
-  torso.add(cape); torso.add(swordPivot); torso.add(arm);
+  torso.add(cape); torso.add(tabard); torso.add(swordPivot); torso.add(arm);
 
   const legs = [byName['hip-l'] as THREE.Group, byName['hip-r'] as THREE.Group];
   for (const hip of legs) { hip.userData.knee = byName[`knee-${hip === legs[0] ? 'l' : 'r'}`]; hip.userData.boot = byName[`boot-shape-${hip === legs[0] ? 'l' : 'r'}`]; }
-  g.userData.arm = arm; g.userData.legs = legs; g.userData.cape = cape; g.userData.body = torso;
+  g.userData.arm = arm; g.userData.legs = legs; g.userData.cape = cape; g.userData.tabard = tabard; g.userData.body = torso;
   g.userData.sword = swordPivot; g.userData.torso = torso;
   g.userData.armoury = { palette: armoryPalette, plate }; g.userData.armed = armed;
 
@@ -267,7 +302,8 @@ export function makeKnight() {
     const boot = hip.userData.boot as THREE.Mesh, knee = hip.userData.knee as THREE.Group, sole = new THREE.Object3D();
     sole.name = 'boot'; sole.position.copy(boot.position); sole.quaternion.copy(boot.quaternion); knee.add(sole); hip.userData.boot = sole;
   }
-  bakeStatic(torso, { keep: [cape, swordPivot, arm], cacheKey: 'knight:torso' });
+  bakeStatic(torso, { keep: [cape, tabard, swordPivot, arm], cacheKey: 'knight:torso' });
+  bakeStatic(tabard, { cacheKey: 'knight:tabard' });
   bakeStatic(swordPivot, { keep: [armed.group], cacheKey: 'knight:pivot' });
   bakeStatic(arm, { cacheKey: 'knight:arm' });
   for (const hip of legs) { bakeStatic(hip, { keep: [hip.userData.knee as THREE.Group], cacheKey: 'knight:hip' }); bakeStatic(hip.userData.knee as THREE.Group, { cacheKey: 'knight:knee' }); }

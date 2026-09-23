@@ -362,6 +362,16 @@ A red mantle over the shoulders was tried at every size the plan allowed and dre
 frames, because the pauldrons, the helmet and the cape's top edge cover that whole region, so it was
 taken out. Red was already on him at every facing through the crest.
 
+Plan 013 moved him towards the turnaround sheet in `docs/reference/knight-turnaround.webp` without
+moving any of those numbers the wrong way. The sheet's knight is black plate with gold at every edge,
+and taken literally that is exactly the one dark block plan 010 fixed, so the translation keeps the
+helm as the palest mass and spends gold only where it does not sit in the shoulders' third of the
+frame from above: a gold cross on the face, a gold rim behind the breastplate, a gold-bordered tabard,
+thin rims on dark domed pauldrons. Gold edges on the shoulder lames and a steel elbow were tried and
+each cost head-over-shoulders from the side. The plume is its own, brighter crimson so the top third
+stays light, and it lies back rather than standing up, because the height is held and the legs needed
+what it gave up.
+
 ## What is still shared
 
 Named rather than hidden. The sea, the foliage, the spray and the motes carry

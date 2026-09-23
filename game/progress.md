@@ -2139,3 +2139,27 @@ gained the `npm run figures` row.
 
 Nothing left uncommitted-but-broken: every figure reached Stage B (no figure had to stay in Stage A
 imperative form), so the stop rule for a resistant figure was never invoked.
+
+## Plan 013 - the knight, closer to the turnaround sheet (2026-09-23, on main `51d25b5`, uncommitted)
+
+Reference: `docs/reference/knight-turnaround.webp`. Record: `plans/013-knight-turnaround.md`. Changed
+`app/dungeon-knight.ts` (helm, plume, domed pauldrons, breastplate trim and diamond, mail, tabard joint,
+armoured legs, cape hem), `app/dungeon-game.tsx` (tabard swings with the leading hip; `tabard` in the
+state's `locomotion`), `tests/browser/sprint.spec.ts` (tabard out at a sprint, back at rest),
+`tests/browser/models.spec.ts` (tabard in the rest pose), `tests/fixtures/figure-fingerprints.json`
+(regenerated - every knight node moved on purpose).
+
+Counters: `KNIGHT {"meshes":30,"triangles":2896,"shadowless":0,"height":1.8926}` (was 32 / 2838 / 1.9015).
+Head over shoulders per facing, SwiftShader: 26.0 28.4 25.9 5.3 -11.6 -20.1 13.8 24.6, median 19.2
+(d3d11: median 18.4; floor 17.7). Facing 4's darkest quarter 25.4 over a 24.4 surround (limit +2).
+Separation, SwiftShader: knight-guard 10.89 (floor 10.48), knight-stalker 17.11, knight-warden 14.40.
+
+Gates: typecheck, lint, `npm test` 292 pass; `models.spec.ts` 8/8 on SwiftShader and on d3d11; full
+browser suite on d3d11 147 passed, 2 pre-existing skips. `shots:compare --grep models`:
+`game/outputs/shots-compare/2026-09-23_16-44-07/` (29 scenes, triangles +116, draw calls -4 per scene).
+
+Visual verdict: from the game camera he now carries the sheet's main reads - gold-framed visor, a
+crimson plume, round gold-rimmed pauldrons, a gold-edged chest with a diamond, and a crimson tabard with a
+gold border and point. Short of the sheet: the helm is still the lavender `steel` rather than blackened
+(the head-over-shoulders guard needs it pale), the lames carry no gold (cost facing 6), and the cape has
+no back diamond (a 10x12 vertex-colour grid draws it as a smear).
