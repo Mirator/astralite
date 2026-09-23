@@ -110,6 +110,30 @@ of colour and they stay, with the stalker's moved off red: three hex units from
 the telegraph meant a body standing still wore the colour that means a blow is
 landing.
 
+## Enemy silhouettes
+
+Colour names the family of a body; shape names its kind. From a camera forty
+degrees up, a figure's shape is mostly its upward faces, so each kind puts its
+archetype there (plan 011).
+
+**Guard.** The one thing that says "skeleton" is the face, and a full helmet
+covered it. The guard wears an open cap on the crown and back of the skull, so
+brow, sockets and jaw show from any three-quarter view. His sword is a flat iron
+blade with its broad face up, which reads by width rather than value; it stays
+dark, because a long pale blade is the knight's. A brass rim makes the shield a
+ring rather than eight dots.
+
+**Stalker.** Its whole threat is the long lane, so its hands are the silhouette:
+three bone claws per hand, longer and fanned, in front of the body. They stay
+within five hundredths of their old reach, because the lane was sized to the
+old arm. What makes it low is its pose, which these shapes do not change.
+
+**Warden.** Heavy and crowned, and armoured as one mass: stepped iron faulds
+carry the plate down over the hips, where a pale pelvis box used to show under
+a black slab, and a gold edge runs along the breastplate's top. Bone shows at
+the limbs and the skull only. His bone value and plate hue stay where the
+separation measurements put them (see `makeSkeleton`).
+
 ## What is measured
 
 `tests/browser/art-direction.spec.ts` settles the claims above off the rendered
