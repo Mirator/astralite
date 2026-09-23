@@ -41,6 +41,37 @@ test('swapping through every arm and back to the Tideblade leaks no geometry', a
   expect(after.render.geometries, 'a swap left merged geometry behind').toBe(before.render.geometries);
 });
 
+test('tearing a floor down leaves the knight his own materials', async ({ game }) => {
+  // The rack is built from the knight's palette, so a teardown that disposes everything on the floor
+  // releases the steel, iron and brass he is still wearing. three.js recompiles a disposed material on
+  // its next draw, which hides the fault from the eye and turns every descent into a shader stall.
+  await game.enter();
+  await game.step(0, true);
+  const before = await game.actorStats();
+  expect(before.drop, 'the fixture needs a rack on the floor being torn down').not.toBeNull();
+  // Once with the rack as the floor laid it, once holding another arm so the rack is the Tideblade.
+  await game.buildFloor(2);
+  await game.step(0, true);
+  await game.equip('maul');
+  await game.buildFloor(3);
+  await game.step(0, true);
+  const after = await game.actorStats();
+  expect(after.knight.disposedMaterials - before.knight.disposedMaterials, 'floor teardown disposed a material the knight still wears').toBe(0);
+  expect(after.drop, 'the new floor laid no rack').not.toBeNull();
+});
+
+test('an arm taken up after the start casts a shadow like the one he started with', async ({ game }) => {
+  // The knight's shadow flags are set once, over the figure he is built as; an arm built later has
+  // to carry its own or the moon draws him empty-handed.
+  await game.enter();
+  const start = await game.actorStats();
+  expect(start.knight.shadowless, 'the knight as built has a part that casts no shadow').toBe(0);
+  for (const id of [...ARMS.slice(1), 'tideblade']) {
+    await game.equip(id);
+    expect((await game.actorStats()).knight.shadowless, `the ${id} casts no shadow`).toBe(0);
+  }
+});
+
 /**
  * Plan 011: the three enemy kinds, on the `models-cast` staging (shots.spec.ts) - the knight at the left
  * of a row in seed 0x86 floor 2's gate, facing the lens, and one guard, stalker and warden to his right,
@@ -121,6 +152,8 @@ test.describe('enemies', () => {
     for (const kind of KINDS) {
       expect(byName[kind].pixels).toBeGreaterThan(0);
       expect(perKind[kind].meshes, `the ${kind} draws more meshes than plan 011 left it`).toBeLessThanOrEqual(MESHES[kind]);
+      // The bake keys batches on the shadow flags, so every baked body part still casts.
+      expect(perKind[kind].shadowless, `the ${kind} has body parts that cast no shadow`).toBe(0);
       expect(Math.abs(perKind[kind].height - B0.height[kind]), `the ${kind} changed height`).toBeLessThanOrEqual(0.1);
       for (const [joint, value] of Object.entries(B0.poses[kind])) expect(poses[kind][joint], `the ${kind}'s ${joint} moved`).toBeCloseTo(value, 6);
     }

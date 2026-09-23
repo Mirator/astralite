@@ -349,11 +349,13 @@ export type GameWindow = Window & {
 
 /**
  * Plan 009's shared diagnostic for the model round. Counts are visible meshes under the actor, contact
- * pool included; `height` is the world-space bounding-box height of those meshes, pool excluded.
+ * pool included; `height` is the world-space bounding-box height of those meshes, pool excluded, and
+ * `shadowless` counts those meshes that cast no shadow. `disposedMaterials` is every dispose that has
+ * reached one of the knight's run-scoped materials since the mount; it only ever grows.
  */
 export type ActorStats = {
-  knight: { meshes: number; triangles: number; height: number };
-  enemies: { kind: 'guard' | 'stalker' | 'warden'; meshes: number; triangles: number; height: number }[];
+  knight: { meshes: number; triangles: number; shadowless: number; height: number; disposedMaterials: number };
+  enemies: { kind: 'guard' | 'stalker' | 'warden'; meshes: number; triangles: number; shadowless: number; height: number }[];
   drop: { kind: string; meshes: number; triangles: number } | null;
 };
 

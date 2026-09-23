@@ -1742,6 +1742,28 @@ Seen, not touched (out of scope): `equip` never sets shadow flags on a swapped-i
 traverse does), so every arm but the starting one casts no shadow; and the floor teardown disposes the rack's
 materials, which are the knight's palette (they recompile on next use).
 
+## 2026-09-23 - Plan 009 follow-up: rack teardown and swapped-arm shadows
+
+Both reported at the end of the 009 entry above; confirmed by reading and by failing tests first.
+
+- Floor teardown disposed the knight's palette. `clearFloor` disposes every material under `floorGroup`, and the
+  rack (`makeWeaponDrop`) is built from the knight's `ArmoryPalette`, so each descent released every palette material
+  the rack used (8 disposals over two floors in the new spec) and three.js recompiled them on the next draw.
+  `clearFloor` now takes the rack out through `disposeWeaponDrop` before the traversal. Both `disposeWeapon` and
+  `disposeWeaponDrop` now release geometry plus every material that is not the palette - the flask's ember and
+  the rack's glow and ring used to leak on each swap, since only geometry was released there.
+- A swapped-in arm cast no shadow. Only `makeKnight`'s one-off traverse set the flags, so every arm from `equip`
+  (including the Tideblade re-armed by `restart`/`reset` after any swap) had 3-4 shadowless meshes. `makeWeapon`
+  now flags every part before the bake; batches and triangle counts are unchanged.
+- Diagnostics (dev only): `actorStats` gains `shadowless` per figure and `knight.disposedMaterials`, a count of
+  dispose events on the knight's own materials since mount.
+- Regressions: `models.spec.ts` (two floors built with a swap between, zero knight disposals; every arm swapped
+  in has zero shadowless meshes) and `tests/dungeon-armory.test.ts` (every arm casts as built; releasing an arm or
+  rack disposes its own materials and never the palette).
+
+Gates: typecheck, lint, `npm test` (279 pass), full browser suite on d3d11 port 3400 (141 passed, 2 skipped -
+the seed-dependent occlusion skips - 6.6 min), `npm run build` - all pass.
+
 ## 2026-09-23 - Plan 011: the guard, stalker and warden models
 
 Branch `feat/enemy-models` from `5137836` (plans + plan 009 cherry-picked onto `9fd9a47`, the integration
