@@ -342,7 +342,21 @@ export type GameWindow = Window & {
     footstepParticles?: () => FootstepParticle[];
     /** Plan 008: same-frame A/B draw toggle for the footstep batch; never touches a particle. */
     setFootstepsEnabled?: (enabled: boolean) => void;
+    /** Plan 009: meshes, triangles and height per figure, off the live scene; absent from a production build. */
+    actorStats?: () => ActorStats;
   };
+};
+
+/**
+ * Plan 009's shared diagnostic for the model round. Counts are visible meshes under the actor, contact
+ * pool included; `height` is the world-space bounding-box height of those meshes, pool excluded, and
+ * `shadowless` counts those meshes that cast no shadow. `disposedMaterials` is every dispose that has
+ * reached one of the knight's run-scoped materials since the mount; it only ever grows.
+ */
+export type ActorStats = {
+  knight: { meshes: number; triangles: number; shadowless: number; height: number; disposedMaterials: number };
+  enemies: { kind: 'guard' | 'stalker' | 'warden'; meshes: number; triangles: number; shadowless: number; height: number }[];
+  drop: { kind: string; meshes: number; triangles: number } | null;
 };
 
 // Screen-relative movement basis, mirrored from dungeon-game.tsx so a fixture
@@ -756,6 +770,15 @@ export class Game {
       return { width: copy.width, height: copy.height, off, on };
     });
     return { width: result.width, height: result.height, off: Uint8ClampedArray.from(result.off), on: Uint8ClampedArray.from(result.on) };
+  }
+
+  /** Plan 009, development-only: what each figure costs to draw, off the live meshes. */
+  async actorStats(): Promise<ActorStats> {
+    return this.page.evaluate(() => {
+      const hook = (window as GameWindow).dungeonTest?.actorStats;
+      if (!hook) throw new Error('dungeonTest.actorStats is gone');
+      return hook();
+    });
   }
 
   /**

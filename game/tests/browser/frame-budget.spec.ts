@@ -70,15 +70,22 @@ import {
 // across the same six repeats: 439 / 198,818 and 385 / 162,059. The three
 // figures below are the highest this round actually measured for each scene,
 // not headroom stacked on top of that.
+//
+// Triangles tripled on 2026-09-22, by the owner, for the model round (plans
+// 009-011: weapons, knight, enemies). The old ceilings were 198,818 / 343,716 /
+// 236,196 and the flooded hall sat exactly on its figure, which left the
+// characters no room to gain shape. Draw calls are unchanged and remain the
+// binding constraint on how many separate parts a figure may be drawn as. This
+// is headroom for the characters, not a target for the architecture.
 const BUDGET = {
-  'flooded-hall': { calls: 439, triangles: 198_818 },
-  junction: { calls: 502, triangles: 343_716 },
+  'flooded-hall': { calls: 439, triangles: 596_454 },
+  junction: { calls: 502, triangles: 1_031_148 },
   // Not one of the two heaviest frames, and here for a different reason: it is
   // the only scene that draws the blade trail, the impact accents and a hit
   // flash at once. Without it, work on how a blow lands is bounded by two
   // frames that contain no blow, and a change can spend draw calls freely in
   // the one place it actually touches.
-  'strike-contact': { calls: 447, triangles: 236_196 },
+  'strike-contact': { calls: 447, triangles: 708_588 },
 } as const;
 
 /** Draws the staged frame, then holds its counters against the ceiling. */

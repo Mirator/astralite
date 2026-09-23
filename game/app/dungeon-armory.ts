@@ -7,6 +7,7 @@
 // where its blade starts and ends, because the slash ribbon samples the weapon's world-space path
 // between those two points and a spear sampled at a sword's tip would trail from the middle of the haft.
 import * as THREE from 'three';
+import { bakeStatic } from './dungeon-bake.ts';
 import { type WeaponId } from './dungeon-weapon.ts';
 
 /** The knight's own materials, passed in rather than rebuilt so a weapon shares his palette exactly. */
@@ -26,8 +27,26 @@ export type ArmedWeapon = {
   tip: THREE.Vector3;
 };
 
-/** Build one arm. `plate` comes from the knight so both use the same bevel. */
+/**
+ * Build one arm. `plate` comes from the knight so both use the same bevel.
+ *
+ * Written part by part and then baked to one mesh per material (plan 009): every part was its own draw
+ * call, twice over once it cast a shadow, and none of them moves on its own. No cache: a swap is rare,
+ * and the merged geometry is the knight's to release through `disposeWeapon`. The flask's ember is
+ * unlit and translucent, so it stays a mesh of its own.
+ *
+ * Every arm is born casting and taking shadow. The knight's own traverse flags only the figure he is
+ * built as, so an arm built for a later swap was drawn by the moon as an empty hand. Flagged before the
+ * bake, so every part of a material still lands in the one batch.
+ */
 export function makeWeapon(id: WeaponId, m: ArmoryPalette, plate: Plate): ArmedWeapon {
+  const arm = shapeWeapon(id, m, plate);
+  arm.group.traverse(object => { if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true; } });
+  bakeStatic(arm.group);
+  return arm;
+}
+
+function shapeWeapon(id: WeaponId, m: ArmoryPalette, plate: Plate): ArmedWeapon {
   const group = new THREE.Group();
   const add = (mesh: THREE.Mesh, position: [number, number, number], rotation: [number, number, number] = [0, 0, 0]) => {
     mesh.position.set(...position); mesh.rotation.set(...rotation); group.add(mesh); return mesh;
@@ -36,12 +55,17 @@ export function makeWeapon(id: WeaponId, m: ArmoryPalette, plate: Plate): ArmedW
   if (id === 'fangs') {
     // Two short blades, one to each side of the fist. Nothing here reaches: the whole arm is built to
     // be used from inside a guard's own swing, and it looks like it.
+    // From above, two 0.10-wide blades with nothing between them read as two slivers rather than one
+    // weapon (plan 009): the blades are a third wider on their broad face, and a brass knuckle bar runs
+    // across both guards so the pair reads as one paired arm.
     for (const side of [-1, 1]) {
-      const fang = plate([[-.05, 0], [.05, 0], [.055, .42], [0, .6], [-.055, .42]], .034, m.steel);
+      const fang = plate([[-.065, 0], [.065, 0], [.07, .42], [0, .6], [-.07, .42]], .034, m.steel);
       add(fang, [side * .085, .036, 0], [-Math.PI / 2, 0, side * .07]);
       const guard = new THREE.Mesh(new THREE.BoxGeometry(.13, .035, .05), m.brass);
       add(guard, [side * .085, .036, .06]);
     }
+    const knuckle = new THREE.Mesh(new THREE.BoxGeometry(.2, .035, .05), m.brass);
+    add(knuckle, [0, .036, .06]);
     const wrap = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, .17, 6), m.leather);
     add(wrap, [0, .03, .13], [Math.PI / 2, 0, 0]);
     return { group, inner: new THREE.Vector3(0, 0, -.16), tip: new THREE.Vector3(0, 0, -.66) };
@@ -50,13 +74,20 @@ export function makeWeapon(id: WeaponId, m: ArmoryPalette, plate: Plate): ArmedW
   if (id === 'spear') {
     const haft = new THREE.Mesh(new THREE.CylinderGeometry(.036, .04, 2.1, 6), m.leather);
     add(haft, [0, .036, -.72], [Math.PI / 2, 0, 0]);
-    const head = plate([[-.07, 0], [.07, 0], [.085, .3], [0, .62], [-.085, .3]], .03, m.steel);
+    // A 0.17-wide head was a few pixels at gameplay scale (plan 009): a quarter wider, with a brass lug
+    // either side of the socket so the head has a base the eye can find.
+    const head = plate([[-.09, 0], [.09, 0], [.11, .3], [0, .62], [-.11, .3]], .03, m.steel);
     add(head, [0, .036, -1.35], [-Math.PI / 2, 0, 0]);
     const socket = new THREE.Mesh(new THREE.CylinderGeometry(.055, .045, .2, 6), m.brass);
     add(socket, [0, .036, -1.29], [Math.PI / 2, 0, 0]);
-    // Three bindings up the haft, so the length reads at a glance from an isometric camera.
+    for (const side of [-1, 1]) {
+      const lug = new THREE.Mesh(new THREE.BoxGeometry(.18, .03, .05), m.brass);
+      add(lug, [side * .12, .036, -1.22]);
+    }
+    // Three bindings up the haft, so the length reads at a glance from an isometric camera. Brass rather
+    // than iron: iron on dark leather vanished, and the bindings are what says how long the haft is.
     for (let i = 0; i < 3; i++) {
-      const band = new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, .05, 6), m.iron);
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(.045, .045, .05, 6), m.brass);
       add(band, [0, .036, -.5 - i * .32], [Math.PI / 2, 0, 0]);
     }
     const butt = new THREE.Mesh(new THREE.DodecahedronGeometry(.055, 0), m.brass);
@@ -126,7 +157,9 @@ export function makeWeapon(id: WeaponId, m: ArmoryPalette, plate: Plate): ArmedW
     add(stock, [0, .04, -.3]);
     const rail = new THREE.Mesh(new THREE.BoxGeometry(.06, .05, .78), m.dark);
     add(rail, [0, .1, -.36]);
-    const bow = new THREE.Mesh(new THREE.BoxGeometry(.96, .06, .09), m.iron);
+    // The prod is the T that says "crossbow" from above, and in iron, the darkest material, it was lost
+    // against the floor (plan 009). Pale steel, like the limbs it carries.
+    const bow = new THREE.Mesh(new THREE.BoxGeometry(.96, .06, .09), m.steel);
     add(bow, [0, .06, -.66]);
     for (const side of [-1, 1]) {
       const limb = new THREE.Mesh(new THREE.BoxGeometry(.3, .05, .07), m.steel);
@@ -167,11 +200,29 @@ export function makeWeapon(id: WeaponId, m: ArmoryPalette, plate: Plate): ArmedW
   return { group, inner: new THREE.Vector3(0, 0, -.32), tip: new THREE.Vector3(0, 0, -1.17) };
 }
 
-/** Release a weapon's geometry. Materials belong to the knight and outlive every swap. */
-export function disposeWeapon(weapon: ArmedWeapon) {
-  weapon.group.traverse(object => { if (object instanceof THREE.Mesh) object.geometry.dispose(); });
-  weapon.group.removeFromParent();
+/**
+ * Release everything under `root` except the palette: all of its geometry, and the few materials an arm
+ * or a rack makes for itself (the flask's ember, the rack's glow and ring). The palette is the knight's,
+ * shared with whatever he holds and every rack he is offered, and outlives every swap and every floor.
+ */
+function release(root: THREE.Object3D, m: ArmoryPalette) {
+  const palette = new Set<THREE.Material>(Object.values(m));
+  root.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return;
+    object.geometry.dispose();
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) if (!palette.has(material)) material.dispose();
+  });
+  root.removeFromParent();
 }
+
+/** Release an arm taken out of the knight's hand. */
+export function disposeWeapon(weapon: ArmedWeapon, m: ArmoryPalette) { release(weapon.group, m); }
+
+/**
+ * Release a rack, on a swap and when its floor is torn down. A floor's teardown disposes every material
+ * it finds, so the rack is taken out of the floor before that runs rather than left for it to find.
+ */
+export function disposeWeaponDrop(drop: { group: THREE.Group }, m: ArmoryPalette) { release(drop.group, m); }
 
 /**
  * What lies on the ground before it is picked up: the arm planted point-down in a stone block, leaning,
@@ -201,6 +252,10 @@ export function makeWeaponDrop(id: WeaponId, m: ArmoryPalette, plate: Plate) {
   const ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> = new THREE.Mesh(new THREE.RingGeometry(1.02, 1.3, 40), new THREE.MeshBasicMaterial({ color: 0xfbc956, transparent: true, opacity: .5, side: THREE.DoubleSide, depthWrite: false }));
   ring.rotation.x = -Math.PI / 2; ring.position.y = .05; group.add(ring);
   group.traverse(object => { if (object instanceof THREE.Mesh) { object.castShadow = object !== ring; object.receiveShadow = object !== ring; } });
+  // Once, after the arm is scaled and posed and every part has its shadow flags: the plinth and collar
+  // fold into the arm's own iron and brass. The glow and the ring are translucent and stay as they are.
+  // `blade.group` is still the arm's group, now empty; nothing reads its children.
+  bakeStatic(group);
   return { group, ring, blade: arm };
 }
 
@@ -215,6 +270,10 @@ export function makeBolt(m: ArmoryPalette) {
     const fletch = new THREE.Mesh(new THREE.BoxGeometry(.01, .11, .16), m.dark);
     fletch.position.set(side * .03, 0, .24); group.add(fletch);
   }
+  // Brass shaft, steel head, one batch for both fletches. Eight bolts are pooled per knight, so the
+  // merged geometry is cached and shared; each bolt still draws with its own knight's materials. Baked
+  // before it is hidden, since the bake leaves an invisible root alone.
+  bakeStatic(group, { cacheKey: 'armory:bolt' });
   group.position.y = .95; group.visible = false;
   return group;
 }
