@@ -1741,3 +1741,75 @@ untouched tree 128 passed, 2 skipped), `npm run build`, `git diff --check` - all
 Seen, not touched (out of scope): `equip` never sets shadow flags on a swapped-in arm (only `makeKnight`'s
 traverse does), so every arm but the starting one casts no shadow; and the floor teardown disposes the rack's
 materials, which are the knight's palette (they recompile on next use).
+
+## 2026-09-23 - Plan 011: the guard, stalker and warden models
+
+Branch `feat/enemy-models` from `5137836` (plans + plan 009 cherry-picked onto `9fd9a47`, the integration
+branch `feat/model-round`); committed locally per stage, not pushed. Plan 010 (the knight) ran in parallel from
+the same commit, so every knight-vs-enemy figure here is against the **pre-010 knight** and has to be
+re-measured after the two merge.
+
+Step 1, untouched tree (d3d11): typecheck, lint, `npm test` (282 pass), full browser suite (139 passed,
+2 skipped, 6.9 min), `npm run build`, `git diff --check` - all pass. Drift check since `c45664f`: only plan 009's
+`actorStats` block in `dungeon-game.tsx`. `actorStats()`: guard 29 meshes / 3,261 tris / height 1.6744, stalker
+25 / 2,670 / 1.61, warden 42 / 3,862 / 2.339 (identical to 009's figures on the older base). Budget scenes:
+flooded hall 416 calls / 196,500 tris, junction 486 / 326,192, strike contact 349 / 154,548.
+
+Step 2, separation on the unchanged enemies (`models.spec.ts`, describe `enemies`, the `models-cast` staging).
+NEW `tests/browser/enemy-mask.ts` (010 owns `figure-mask.ts`): three announces every `Scene` it builds to
+`__THREE_DEVTOOLS__`, so an init script installed before boot is handed the live scene with no game hook; the
+describe runs on its own page for that reason (`isolate: true`). One figure per pair of frames is hidden, in one
+`page.evaluate`; that figure casts no shadow and its contact pool is hidden in both frames, so the mask is the body
+and not the moon shadow most of a tile away. Two frames with nothing hidden differ by 0 px. Mean CIE Lab per mask,
+CIE76 between masks:
+
+| Pair | d3d11 | SwiftShader |
+| --- | --- | --- |
+| knight-guard | 10.46 | 10.58 |
+| knight-stalker | 16.75 | 16.80 |
+| knight-warden | 16.02 | 15.97 |
+| guard-stalker | 6.50 | 6.44 |
+| guard-warden | 15.77 | 15.87 |
+| stalker-warden | 18.37 | 18.43 |
+
+The spec asserts each pair at or above the lower of the two, less one. Masks: knight 3,186 px, guard 2,123,
+stalker 1,518 (51 x 72 px box), warden 5,393.
+
+### Stage A - bake and plain trim boxes (no visible change)
+
+- `makeSkeleton`: after the shadow-flag traverse, `bakeStatic(rig, { keep: [skull, limbs, weapon, eyes],
+  cacheKey: '<kind>:rig' })`, then each joint with the shield kept (`'<kind>:joint<i>'`), then the shield itself
+  (`'<kind>:shield'`; hidden on stalker and warden, so skipped). The skull is now a `Group` joint at the same
+  position/scale carrying the skull mesh as its first child, so the skull folds into its own bone batch rather
+  than staying apart as a mesh root (the one type change; `userData.skull` is only ever rotated). The shield stays
+  a Mesh and a joint. 009's node test already holds that a cached bake binds each instance's own materials
+  (`dungeon-bake.test.ts`, "a cached bake shares geometry..."), so the helper was not touched.
+- `enemyDetails`: a `box` piece whose smallest dimension is under .06 uses a plain unit `BoxGeometry` (brow
+  ridges, teeth, the guard's shield cross, the warden's strap and hammer bands). No pauldron plate is under .06.
+- `models.spec.ts` `enemies`: mesh ceilings per kind, height within .10 of before, snapshot joints unchanged,
+  separation floors, and a windup test reading `emissive` off the rig's baked batch, the skull and the shield arm
+  (all `0xff4529`) for each kind.
+
+| Kind | Before | After A |
+| --- | --- | --- |
+| guard | 29 meshes / 3,261 tris | 18 / 2,397 |
+| stalker | 25 / 2,670 | 13 / 1,998 |
+| warden | 42 / 3,862 | 19 / 2,806 |
+
+Heights unchanged. **Targets missed for guard (14) and warden (16)**, met for the stalker. What is left is one
+mesh per material per joint plus eyes and pool: guard rig bone/iron/cloth, skull bone/shadow, 2 eyes, arms
+bone+iron x2, legs 1 x2, shield iron+brass, sword iron+brass, pool. Lower needs a material shared across bodies
+(forbidden: the flash) or a part recoloured; neither done. Guard triangles -864 (plan asked -1,200; the owner
+relaxed triangles).
+
+Budget after A: flooded hall 350 calls / 191,316 tris, junction 396 / 320,888, strike contact 327 / 152,820.
+Specs: character-life, combat, polish (holds `render.geometries` across rebuilds), occlusion, art-direction,
+frame-budget - 27 passed, 1 skipped.
+
+Sheets (d3d11, under this worktree's `game/`): against B0 `outputs/shots-compare/2026-09-23_05-51-47/index.html`
+(B0 predates 009, so rack and knight-arm rows carry 009's own changes); stage A alone, `--base HEAD`,
+`outputs/shots-compare/2026-09-23_05-53-16/index.html`. Reviewed in 2-3x crops: the enemies differ only by
+edge specks where bevels went (models-cast worst step 66 on a few pixels per body; flooded hall 91 px). The
+strong-looking rows are not the models: the warden chamber (6,849 px, worst 223) and junction (4,547 px) are the
+floating room label ("wardens bar the stair", "ambush") landing ~2 px off, and the models-cast/dark-corridor
+full-frame counts are the known worst-2 band along the top walls.

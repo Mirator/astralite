@@ -162,8 +162,12 @@ export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; arm:
   finish();
 }
 
-export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Group, skull: THREE.Mesh, limbs: THREE.Group[], weapon: THREE.Group, shield: THREE.Mesh, bone: THREE.Material, iron: THREE.Material, brass: THREE.Material) {
-  const { add, finish } = dressing(kind), stalker = kind === 'stalker', warden = kind === 'warden';
+// Plan 011: at .03-.06 units an .08 bevel is under a pixel from the game camera and costs nine times the
+// triangles of the box it rounds, so the thinnest enemy trim is a plain box.
+const plainBox = new THREE.BoxGeometry(1, 1, 1);
+export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Group, skull: THREE.Object3D, limbs: THREE.Group[], weapon: THREE.Group, shield: THREE.Mesh, bone: THREE.Material, iron: THREE.Material, brass: THREE.Material) {
+  const { add: put, finish } = dressing(kind), stalker = kind === 'stalker', warden = kind === 'warden';
+  const add: typeof put = (parent, geometry, material, at, size, rotate) => put(parent, geometry === box && Math.min(...size) < .06 ? plainBox : geometry, material, at, size, rotate);
   const shadow = new THREE.MeshStandardMaterial({ color: 0x101b1c, roughness: 1 });
   // The guard's tabard was brown and the warden's a muted wine, which put both of them in the knight's own
   // hue family. Everything the enemies wear is cold now; the warm half of the wheel belongs to him alone.

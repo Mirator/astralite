@@ -8,6 +8,7 @@ import { planPavingPatches } from './dungeon-paving-layout';
 import { pavingPatchGeometry } from './dungeon-paving-patches';
 import { buildSurfaceIndex, type CellSurface, type SurfaceIndex, type SurfaceTriangle } from './dungeon-surface';
 import { contactShadow, enemyDetails, knightDetails } from './dungeon-characters';
+import { bakeStatic } from './dungeon-bake';
 import { impactEffects } from './dungeon-impact';
 import { footstepEffects } from './dungeon-footsteps';
 import { footfalls, footSupport, type FootstepKind } from './dungeon-footstep-rules';
@@ -274,7 +275,9 @@ function makeSkeleton(kind: Enemy['kind']) {
   const spine = new THREE.Mesh(BONES.spine, bone); spine.position.y = 0.91;
   const ribs = new THREE.Mesh(BONES.ribs, bone);
   ribs.position.set(0, 1.03, -0.02); ribs.rotation.set(Math.PI / 2, 0, -Math.PI * 0.78);
-  const skull = new THREE.Mesh(BONES.skull, bone);
+  // A joint rather than a mesh, carrying the skull as its first child: the bake keeps a mesh root's own
+  // geometry apart, and a bare joint lets the skull fold into the bone batch its trim is already drawn in.
+  const skull = new THREE.Group(); skull.add(new THREE.Mesh(BONES.skull, bone));
   skull.position.y = 1.42; skull.scale.set(0.88, 1, 0.78);
   const sockets = [-1, 1].map((s) => { const e = new THREE.Mesh(BONES.socket, eye); e.position.set(s * 0.085, 1.45, -0.21); return e; });
   const arms=[-1,1].map(s=>{const pivot=new THREE.Group();pivot.position.set(s*(warden?.48:.33),1.14,0);pivot.rotation.z=s*(stalker?.25:.12);const arm=new THREE.Mesh(BONES.limb,bone);arm.position.y=stalker?-.4:-.27;arm.scale.y=stalker?1.35:.85;pivot.add(arm);return pivot;});
@@ -309,6 +312,14 @@ function makeSkeleton(kind: Enemy['kind']) {
   enemyDetails(kind,rig,skull,limbs,weapon,shield,bone,iron,brass);
   sockets.forEach(socket=>{socket.position.z=stalker?-.445:-.223;socket.scale.setScalar(1.2);});
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
+  // Plan 011: nothing below a joint moves on its own, so each joint draws one mesh per material. The rig
+  // keeps every animated joint and the eyes (Basic, never merged); each joint keeps the shield, which
+  // hangs off the shield arm and is a joint death poses, and the shield bakes its own brass. Keyed per
+  // kind, so a floor of guards merges once; geometry is shared, every body binds its own materials.
+  const joints:THREE.Object3D[]=[skull,...limbs,weapon];
+  bakeStatic(rig,{keep:[...joints,...sockets],cacheKey:`${kind}:rig`});
+  joints.forEach((joint,i)=>bakeStatic(joint,{keep:[shield],cacheKey:`${kind}:joint${i}`}));
+  bakeStatic(shield,{cacheKey:`${kind}:shield`});
   // Weaker than the knight's, and sized to the actor: the reference grounds the enemies too, but the
   // player's own pool has to stay the darkest thing at his feet.
   g.add(contactShadow(warden?.68:stalker?.56:.52,.44));
