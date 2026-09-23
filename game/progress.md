@@ -2061,3 +2061,81 @@ failure or flake. Phone capture (390 x 844, the three kinds
 staged below the knight, reviewed and not kept): from behind, the guard's cap covers the back of the skull as it
 should and the pointed blade is a mid-grey iron wedge, clearly darker than the knight's pale blade; the stalker's
 pale fans read at both hands; the warden's faulds make his hips one stepped dark mass.
+
+## 2026-09-23 - Plan 012: figures as part lists, and a bench that shows them in seconds
+
+Worktree `figure-bench` from `main` at `6fb6644`, branch `feat/figure-bench`; nothing committed, per the
+plan's own instruction to leave the work for the operator to review.
+
+Stage 0 (read-only baseline, `shots:compare --base main --port 3200 --base-port 3201 --grep models` on an
+identical tree): every `models-*` scene's changed-pixel count is renderer dithering, not geometry - the
+biggest reads (~28,500 px, worst step 2) are diffuse across nearly the whole frame at 6x amplification and
+still barely visible; several scenes read `identical`. Re-running individual scenes shows the SAME scene
+swinging between 0 px and thousands px run to run (`models-drop-flask` and `models-drop-crossbow` both did
+this), confirming it is frame-to-frame noise rather than anything about a specific scene.
+
+Stage A - `makeKnight()` and `makeSkeleton()` moved verbatim into `dungeon-knight.ts` and
+`dungeon-skeleton.ts` (`BONES` exported, since `dungeon-game.tsx`'s attack telegraph reuses `BONES.cue` and
+`BONES.bar` outside any figure). `tests/dungeon-figures.test.ts` added: a fingerprint of the built THREE
+tree (path, type, transform, visibility, userData keys, and per-mesh material/vertex-count/bounding-box/
+position-sum) compared against `tests/fixtures/figure-fingerprints.json`, generated from this stage and
+frozen for Stage B. Gates: typecheck, lint, `npm test` (292 pass, up from 284), `models.spec.ts` (8/8),
+pixel check held to the Stage 0 bar (byte-identical calls/triangles on every scene; the one elevated reading
+that run, `models-armoury-cleaver`, did not reproduce when re-run alone).
+
+Stage B - `dungeon-figure-spec.ts` adds `buildSpec`, exactly the type the plan specifies (`box`/`cylinder`/
+`cone`/`dodeca`/`sphere`/`torus`/`plate`/`geometry` shapes, `Part`/`Node`, duplicate-name throw). Both
+builders rewritten as spec + thin builder: `KNIGHT_SPEC` plus `ARM_SPEC`/`SWORD_PIVOT_SPEC` (the cape's
+vertex-coloured cloth and the equipped weapon stay imperative, spliced in after `buildSpec`, since neither
+fits the spec's material-by-name model), and `skeletonSpec(kind)` with plain conditionals for guard/stalker/
+warden. `knightDetails`/`enemyDetails` and everything only they used (`dressing`, the shared unit
+primitives, the trim cache) deleted from `dungeon-characters.ts`; `contactShadow` stays.
+
+The hard part was that `bakeStatic` merges by first-material-encounter in a depth-first walk, so a spec
+whose parts are individually named (rather than pre-merged the way `dressing()` did) has to list them in the
+same order the reference code did or a later part ends up in `baked:1` instead of `baked:0` - same geometry,
+wrong slot, and the fingerprint calls that a mismatch. This was verified against the frozen fixture before
+writing any spec data (the fixture's actual `baked:N` sequence, decoded by material color, matched a
+hand-traced depth-first walk of the reference code exactly), then every spec file was written to preserve
+that order. All four figures reached a byte-identical fingerprint on the first structurally-correct attempt;
+the only real mismatches found were two missing position offsets (the cape and the sword pivot both need the
+torso group's own `-0.7` compensation, which the reference code applied in a loop these two are spliced past)
+and one test-design issue: `buildSpec` names every part on purpose (the whole point of the format), but the
+reference code never named a pure structural container, so the fingerprint's path-and-name comparison was
+narrowed to the two name shapes the reference pipeline itself produces (`baked:N`, `boot`) rather than every
+name Stage B now assigns - documented at length in the test file, since loosening what the fingerprint
+checks is exactly what the plan says not to do.
+
+Gates: typecheck, lint, `npm test` (292 pass, fingerprint included, twice per figure to cover the cached
+bake path), `models.spec.ts` (8/8, `ACTORS`/`KNIGHT`/`ENEMY-STATS` byte-identical to Stage A), pixel check
+held to the Stage 0 bar (same noise character, calls/triangles byte-identical everywhere).
+
+Stage C - `app/dungeon-bench.tsx` (client component) plus `app/bench/page.tsx` (server component, `notFound()`
+when `NODE_ENV==='production'`, the same pattern as the existing dev-only console hooks in
+`dungeon-game.tsx`). One `WebGLRenderer` (`preserveDrawingBuffer: true`, since the bench and its tests read
+the canvas back after the fact rather than in the same task that drew it), the game's ACES/1.15 output
+settings, the game's hemisphere and moon light values, an orthographic camera along `CAMERA_OFFSET`. Rows =
+requested figures (default all four); columns = the same eight facings `models-knight-strip` reads, computed
+from `SCREEN_RIGHT`/`SCREEN_DOWN` the same way the game turns held arrow keys into a world yaw. `figures=`,
+`weapon=` (including `all`, which draws the knight once per arm as extra rows), `zoom=` and `bg=paving|grey`
+read from the URL; `window.__bench='ready'` once every cell is drawn. Verified with `npm run build`: the
+production server (`vinext start`) answers `/bench` with a genuine 404 page and `/` with 200.
+
+`npm run figures` (`scripts/figures.ts`) reuses a dev server already on `GAME_TEST_PORT` (default 3200) or
+starts one, drives Chromium via `@playwright/test`'s library API, screenshots the canvas to
+`outputs/figures/latest.png` (rotating the previous one to `previous.png`) and a timestamped copy. Measured
+on d3d11: 11.1s cold (dev server included), 5.2s warm - both inside the plan's 40s/15s targets.
+`tests/browser/bench.spec.ts` (plain `@playwright/test`, not the pooled `game` fixture - `/bench` is a
+different route with nothing to reset) reads the canvas back per cell and asserts every cell has enough
+changed pixels against its own corner to be a figure; both its tests together take about 2s, well inside the
+5s budget.
+
+Final gates on the whole branch: typecheck, lint, `npm test` (292 pass), `npm run build` (`/bench` 404s in
+production, confirmed against a running `vinext start`), full browser suite once on d3d11 (147 passed, 2
+pre-existing skips, 6.9 min, exit 0 - `bench.spec.ts` included). `game/tests/README.md` gained a Figures
+section (the iteration loop: edit, `npm run figures`, compare PNGs, `npm test` fails on purpose,
+`UPDATE_FIGURE_FINGERPRINTS=1 npm test`, judge in game with `shots:compare --grep models`); `AGENTS.md`
+gained the `npm run figures` row.
+
+Nothing left uncommitted-but-broken: every figure reached Stage B (no figure had to stay in Stage A
+imperative form), so the stop rule for a resistant figure was never invoked.
