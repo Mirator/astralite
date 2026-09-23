@@ -221,6 +221,9 @@ const BONES = {
   limb: shared(new THREE.CylinderGeometry(.055,.075,.65,6)),
   shield: shared(new THREE.CylinderGeometry(0.38, 0.38, 0.1, 8)),
   weapon: shared(new THREE.BoxGeometry(0.09, 0.09, 0.92)),
+  // Plan 011: the guard's sword, flat and broad-face up, so it reads by its width from above rather than
+  // as a few dark pixels. Its last quarter pinches to the point the trim's spike rides along.
+  blade: shared((()=>{const blade=new THREE.BoxGeometry(.16,.035,.92,1,1,4),at=blade.getAttribute('position');for(let i=0;i<at.count;i++)if(at.getZ(i)<-.45)at.setX(i,0);blade.computeVertexNormals();return blade;})()),
   crown: shared(new THREE.CylinderGeometry(.29,.28,.11,8,1,true)),
   crownTooth: shared(new THREE.ConeGeometry(.065,.2,4)),
   armor: shared(new THREE.DodecahedronGeometry(.32,0)),
@@ -300,8 +303,10 @@ function makeSkeleton(kind: Enemy['kind']) {
     const head=new THREE.Mesh(BONES.hammer,iron);head.position.z=-1.04;weapon.add(haft,head);
     const band=new THREE.Mesh(BONES.hammer,brass);band.scale.set(.18,1.04,1.04);head.add(band);
   }else{
-    const blade=new THREE.Mesh(BONES.weapon,iron);blade.position.z=-.4;weapon.add(blade);
-    const helmet=new THREE.Mesh(BONES.armor,iron);helmet.position.set(0,1.53,.04);helmet.scale.set(.94,.6,.94);rig.add(helmet);
+    const blade=new THREE.Mesh(BONES.blade,iron);blade.position.z=-.4;weapon.add(blade);
+    // An open cap on the crown and the back of the skull, not a helmet over the face: the brow, sockets and
+    // jaw are what say skeleton from the game camera, and the old .6-tall shell covered them (plan 011).
+    const helmet=new THREE.Mesh(BONES.armor,iron);helmet.position.set(0,1.62,.13);helmet.scale.set(.90,.42,.95);rig.add(helmet);
   }
   rig.add(pelvis, spine, ribs, skull, ...sockets, ...limbs, weapon);
   rig.position.y=stalker?-.18:0;rig.rotation.x=stalker?-.38:0;

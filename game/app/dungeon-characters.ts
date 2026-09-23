@@ -165,6 +165,8 @@ export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; arm:
 // Plan 011: at .03-.06 units an .08 bevel is under a pixel from the game camera and costs nine times the
 // triangles of the box it rounds, so the thinnest enemy trim is a plain box.
 const plainBox = new THREE.BoxGeometry(1, 1, 1);
+// The guard's shield rim (plan 011): iron on a dark floor read only through its studs.
+const shieldRim = new THREE.TorusGeometry(.36, .025, 4, 16).rotateX(Math.PI / 2);
 export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Group, skull: THREE.Object3D, limbs: THREE.Group[], weapon: THREE.Group, shield: THREE.Mesh, bone: THREE.Material, iron: THREE.Material, brass: THREE.Material) {
   const { add: put, finish } = dressing(kind), stalker = kind === 'stalker', warden = kind === 'warden';
   const add: typeof put = (parent, geometry, material, at, size, rotate) => put(parent, geometry === box && Math.min(...size) < .06 ? plainBox : geometry, material, at, size, rotate);
@@ -219,6 +221,7 @@ export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Gr
     for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; add(shield, joint, brass, [Math.sin(a) * .31, .069, Math.cos(a) * .31], [.031, .025, .031]); }
     add(shield, box, brass, [0, .065, 0], [.055, .026, .64]);
     add(shield, box, brass, [0, .065, 0], [.64, .026, .055]);
+    add(shield, shieldRim, brass, [0, .055, 0], [1, 1, 1]);
     add(weapon, box, brass, [0, 0, .025], [.32, .07, .08]);
     add(weapon, spike, iron, [0, 0, -.69], [.095, .34, .035], [-Math.PI / 2, 0, 0]);
     add(rig, box, iron, [.32, 1.17, 0], [.3, .16, .34], [0, 0, -.2]);

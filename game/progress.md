@@ -1813,3 +1813,31 @@ edge specks where bevels went (models-cast worst step 66 on a few pixels per bod
 strong-looking rows are not the models: the warden chamber (6,849 px, worst 223) and junction (4,547 px) are the
 floating room label ("wardens bar the stair", "ambush") landing ~2 px off, and the models-cast/dark-corridor
 full-frame counts are the known worst-2 band along the top walls.
+
+### Stage B - the guard: open cap, flat blade, brass rim
+
+- Helmet: same `BONES.armor`, scale (.90, .42, .95), position (0, 1.62, .13) - tuned inside the plan's range from
+  the (1.60, .10) start after one side-by-side; the higher, further-back cap shows a little more bone round the
+  sockets and still sits on the skull (no gap in any frame).
+- Sword: NEW shared `BONES.blade`, a flat box .16 x .035 x .92, broad face up at the idle pose (weapon rotation
+  x .1, rig unrotated). Deviation: its last quarter pinches to a point (box with 4 depth segments, the tip ring's x
+  set to 0), because a square-ended .16 blade swallowed the trim's .095 spike and read as a bar; the spike stays
+  and now reads as a ridge down the point. Iron, unchanged value.
+- Shield rim: brass torus r .36, tube .025, 4 x 16, on the face at y .055, merged into the shield's brass batch.
+
+`actorStats()` guard: 18 meshes / 2,397 tris / 1.6744 -> 18 / 2,549 / 1.7106 (+152 tris; the cap's top is the
+new highest point, +.036). Separation: knight-guard 10.45 -> 11.54, guard-stalker 6.54 -> 6.04 (floor 5.44),
+guard-warden 15.78 -> 18.13. Budget: flooded hall 350 calls / 192,228 tris (step 1: 416 / 196,500), junction
+397 / 320,892, strike contact 327 / 153,124. Same spec set plus models.spec: 31 passed, 1 skipped.
+
+Sheets: vs B0 `outputs/shots-compare/2026-09-23_06-05-28/index.html`; stage B alone (A's captures vs B's, no
+recapture) `outputs/shots-compare/2026-09-23_06-06-39/index.html`. Changes sit on guards only (models-cast,
+flooded hall, strike contact); the warden chamber and junction rows are the floating label again.
+
+Verdict (guard acceptance): met in the three-quarter views. In models-cast and both front-facing flooded-hall
+guards the brow, both sockets and the jaw now show as bone under the cap, where before the helmet came down to
+the eyes; seen from behind (the flooded hall's left guard) it is still mostly cap, as it should be. The sword
+reads as a blade at native size - a broad dark wedge with a point - rather than a line. The rim is the most
+visible change: the shield is now a gold ring with a cross rather than eight dots. Caveat: under the struck
+flash (strike-contact) the whole body goes pale, and the broader blade makes that a larger pale area for those
+frames; at rest it is dark iron and nothing like the knight's pale sword.
