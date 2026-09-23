@@ -1650,3 +1650,94 @@ junction 343,716 -> 1,031,148, strike contact 236,196 -> 708,588. Draw-call ceil
 447). What it buys: room for plans 009-011 (weapons, knight, enemies) to add shape; the flooded hall sat exactly on
 its old figure. Draw calls stay the binding constraint on part count. Not re-measured here; no scene's actual
 cost changed with this edit.
+
+## 2026-09-23 - Plan 009: the armoury baked, three arms reshaped, the model round's shared tools
+
+Worktree branch from `62cfe64` (`feat/shot-compare`); committed locally, not pushed.
+
+What changed:
+- NEW `app/dungeon-bake.ts`: `bakeStatic(root, { keep?, cacheKey? }) -> { meshes, merged }`. Folds every
+  visible plain Mesh with one opaque `MeshStandardMaterial` under `root` into one mesh per (material,
+  castShadow, receiveShadow, renderOrder), in root-local space, appended to `root` as `baked:<i>`. Kept
+  subtrees are untouched; hidden mergeable meshes are removed; a removed part whose children stay becomes a
+  bare `Object3D` in its place (name, transform, userData carried; references to the old mesh are not
+  rewritten). Invisible root untouched; a Mesh root keeps its own geometry. With `cacheKey` the merged
+  geometry is built once per key, flagged `userData.shared`, and every call binds its own materials; a call
+  whose batch structure differs from the cached one throws before touching anything. Mirrored parts get their
+  winding flipped. Shared sources, and sources still drawn by a remaining mesh, are never disposed.
+  `tests/dungeon-bake.test.ts` (9) holds all of that.
+- `app/dungeon-armory.ts`: `makeWeapon` builds the arm and bakes it (no cache; `disposeWeapon` still releases
+  it). `makeWeaponDrop` bakes the whole rack once after posing and shadow flags, so plinth and collar fold into
+  the arm's iron and brass; `{ group, ring, blade }` unchanged (`blade.group` is the arm's now-empty group;
+  nothing reads its children). `makeBolt` bakes with `cacheKey: 'armory:bolt'` before it is hidden.
+- Silhouettes: fangs blade half-width .05/.055 -> .065/.07 plus a brass knuckle bar .20x.035x.05 at (0,.036,.06);
+  spear head .07/.085 -> .09/.11, two brass lugs .18x.03x.05 at (+-.12, .036, -1.22) (the plan gave no x; .12
+  puts each lug's inner end inside the socket), bindings iron -> brass; crossbow prod iron -> steel.
+  Every `inner`/`tip` unchanged and pinned in `tests/dungeon-armory.test.ts`.
+- `dungeonTest.actorStats()` (dev-only block, typed in `helpers.ts` as `ActorStats`, plus a `Game.actorStats()`
+  wrapper): `{ knight: {meshes, triangles, height}, enemies: [{kind, meshes, triangles, height}] (living,
+  snapshot order), drop: {kind, meshes, triangles} | null }`. Visible meshes walking down through visible nodes
+  (the root's own flag ignored), contact pool counted, pool excluded from height.
+- `tests/browser/shots.spec.ts`: a `models` describe block. Gate scenes on seed 0x86 floor 2 (seeds
+  `[0x86, 0x86]`, `buildFloor(2)`): its Tide Gate holds no rack, shrine or body and its nearest spawn is 18
+  tiles off. `models-armoury-<id>` / `models-armoury-profile-<id>` (one test, 14 frames),
+  `models-knight-strip-00..07` (clockwise from facing the lens, 45 degrees apart), `models-cast` (knight at the
+  left of a row facing the lens, then guard, stalker, warden borrowed via `configureCombat` with cooldown 999 and
+  no `windup` field - any windup marks a body as having noticed and it walks at once - captured 100 ms in, inside
+  the 320 ms notice beat). `models-drop-<kind>` on level-1 seeds fangs 0x2, spear 0x1, cleaver 0xb, maul 0x4,
+  crossbow 0x10, flask 0x3, knight 2.6 units screen-left of the rack. `settle()` now also takes two keys.
+- NEW `tests/browser/models.spec.ts`: rack <= 8 meshes via `actorStats`; equipping every arm and back to the
+  Tideblade (drawing after each) leaves `render.geometries` where it started.
+
+Counters (d3d11, `frame-budget.spec.ts`; ceilings unchanged):
+
+| Scene | Untouched tree | After 009 |
+| --- | --- | --- |
+| flooded hall | 428 calls / 196,500 tris | 416 / 196,500 |
+| junction | 496 / 326,184 | 485 / 326,188 (its known drift band) |
+| strike contact | 371 / 154,500 | 349 / 154,548 (+48: the reshaped spear rack of seed 0x1 is in frame, drawn twice) |
+
+`actorStats()` on seed 0x1: knight 59 meshes / 3,990 tris / height 1.8243 -> 53 / 3,990 / 1.8243; spear rack
+11 / 440 -> 6 / 464. (The before figures were taken by temporarily restoring `62cfe64`'s armoury after the
+fact; step 2 itself missed recording them.) Enemies, unchanged, for 010/011: guard 29 / 3,261 / 1.6744,
+stalker 25 / 2,670 / 1.61, warden 42 / 3,862 / 2.339.
+
+Per arm, meshes / triangles (node, `makeWeapon` and `makeWeaponDrop`):
+
+| Arm | In hand before -> after | Rack before -> after |
+| --- | --- | --- |
+| tideblade | 10 / 228 -> 4 / 228 | 14 / 476 -> 6 / 476 |
+| fangs | 5 / 120 -> 3 / 132 | 9 / 368 -> 6 / 380 |
+| spear | 7 / 192 -> 3 / 216 | 11 / 440 -> 6 / 464 |
+| cleaver | 5 / 136 -> 4 / 136 | 9 / 384 -> 6 / 384 |
+| maul | 8 / 112 -> 4 / 112 | 12 / 360 -> 6 / 360 |
+| crossbow | 10 / 124 -> 4 / 124 | 14 / 372 -> 7 / 372 |
+| flask | 7 / 328 -> 4 / 328 (ember separate) | 11 / 576 -> 6 / 576 |
+| bolt (pooled) | 4 / 52 -> 3 / 52 | |
+
+Captures: B0 = `outputs/shots-compare/2026-09-22_21-20-24/after` (from `--base HEAD` with only `actorStats` and
+the scenes added). After-sheet = `outputs/shots-compare/2026-09-23_05-12-18/index.html` (`--before <B0>`), both
+under the worktree's `game/`, d3d11. Reviewed at native size and in 3x crops.
+
+Visual verdict per arm:
+- tideblade - same. Front frame identical; profile 28,532 px changed but worst step 2, spread over the whole
+  frame (the same sub-perceptual band moves in knight-strip 01/03/04/06, which hold the same arm, while 00/02/05/07
+  are near-identical: scene noise, not the bake). The strike and dash strips' changes (<= 564 px) sit entirely
+  on the spear rack in frame; the knight's blade is unchanged in every frame.
+- cleaver, maul, flask - same. 10-19 px where not under that band; racks 4 px (cleaver), 450 px worst 1 (maul),
+  1,659 px worst 3 (flask). No normal, shading or shadow change visible.
+- crossbow - better. The pale prod makes the T read from above in hand and on the rack; before, the prod was a
+  black bar lost on the floor.
+- spear - better. Brass bindings now mark the haft's length at native size and the head is visibly broader.
+  Caveat: the two lugs read as a cross-guard, so at a glance the head can look a little like a short sword on a
+  pole; the bindings are what still say spear.
+- fangs - slightly better on the rack, same in hand. On the rack the wider blades nearly touch under one brass
+  bar and read as a pair rather than two slivers. In hand the fist and arm hide most of it and the knuckle bar is
+  not visible at native size in either facing. That part of the acceptance is only partly met.
+
+Gates: typecheck, lint, `npm test` (277 pass), full browser suite on d3d11 (139 passed, 2 skipped, 6.1 min;
+untouched tree 128 passed, 2 skipped), `npm run build`, `git diff --check` - all pass.
+
+Seen, not touched (out of scope): `equip` never sets shadow flags on a swapped-in arm (only `makeKnight`'s
+traverse does), so every arm but the starting one casts no shadow; and the floor teardown disposes the rack's
+materials, which are the knight's palette (they recompile on next use).

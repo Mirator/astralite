@@ -15,7 +15,7 @@ the operator asks.
 | [006 — Macro-scale paving variation](006-macro-paving-variation.md) | P2 | Done, merged via PR #38 2026-09-22 | See the plan's Evidence section, and `game/progress.md` |
 | [007 — Local cutaway for occluded actors](007-local-actor-cutaway.md) | P2 | Done, merged via PR #39 2026-09-22 | See the plan's Evidence section, and `game/progress.md` |
 | [008 — Surface feedback at foot contacts](008-surface-footstep-feedback.md) | P3 | Done, merged via PR #40 2026-09-22 | See `game/progress.md` (plan 008 entry: gates, capture paths, visual verdict and its limitation) |
-| [009 — Bake the armoury and sharpen what each arm says from above](009-weapon-and-pickup-models.md) | P2 | TODO | — |
+| [009 — Bake the armoury and sharpen what each arm says from above](009-weapon-and-pickup-models.md) | P2 | Done, committed locally 2026-09-23 on the plan-009 worktree branch (not pushed); fangs only partly meet the visual acceptance (better on the rack, unchanged in hand) | See `game/progress.md` (plan 009 entry: counters, per-arm meshes, B0 and sheet paths, per-arm verdict) |
 | [010 — Make the knight read from above](010-knight-model.md) | P2 | TODO | — |
 | [011 — Three enemies, three silhouettes](011-enemy-models.md) | P2 | TODO | — |
 

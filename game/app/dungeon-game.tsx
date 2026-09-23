@@ -179,6 +179,25 @@ function makeKnight() {
 }
 
 const shared = <T extends THREE.BufferGeometry>(geometry: T) => { geometry.userData.shared = true; return geometry; };
+// Plan 009: what one figure costs to draw and how tall it stands, off its live meshes rather than off the
+// source. Visible meshes only, walking down through visible nodes; the root's own flag is ignored so an
+// ambush body still reports its model. The contact pool is counted, since it draws, and left out of the
+// height, since it lies on the floor and writes its own world matrix at draw time (it is the one
+// multiply-blended mesh on any actor). Two scratch boxes, so a call allocates nothing but its answer.
+const statBox = new THREE.Box3(), partBox = new THREE.Box3();
+const actorStat = (root: THREE.Object3D) => {
+  let meshes = 0, triangles = 0; statBox.makeEmpty(); root.updateWorldMatrix(true, true);
+  const walk = (o: THREE.Object3D) => {
+    if (o instanceof THREE.Mesh) {
+      const g = o.geometry as THREE.BufferGeometry, n = g.index ? g.index.count : g.getAttribute('position').count;
+      meshes++; triangles += Math.floor(Math.min(n, g.drawRange.count) / 3);
+      if ((o.material as THREE.Material).blending !== THREE.MultiplyBlending) { if (!g.boundingBox) g.computeBoundingBox(); statBox.union(partBox.copy(g.boundingBox!).applyMatrix4(o.matrixWorld)); }
+    }
+    for (const child of o.children) if (child.visible) walk(child);
+  };
+  walk(root);
+  return { meshes, triangles, height: statBox.isEmpty() ? 0 : +(statBox.max.y - statBox.min.y).toFixed(4) };
+};
 /**
  * The two colours a blow is told in, and the only two in the keep no chamber is allowed to take.
  *
@@ -1969,7 +1988,7 @@ export default function DungeonGame() {
     const hooks = window as Window & {
       advanceTime?: (ms: number, draw?: boolean) => void;
       render_game_to_text?: () => string;
-      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void; footstepParticles?: () => ReturnType<typeof footsteps.particles>; setFootstepsEnabled?: (enabled: boolean) => void };
+      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void; footstepParticles?: () => ReturnType<typeof footsteps.particles>; setFootstepsEnabled?: (enabled: boolean) => void; actorStats?: () => { knight: ReturnType<typeof actorStat>; enemies: ({ kind: Enemy['kind'] } & ReturnType<typeof actorStat>)[]; drop: { kind: WeaponId; meshes: number; triangles: number } | null } };
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     hooks.dungeonTest = {
@@ -2021,6 +2040,13 @@ export default function DungeonGame() {
       // touches a particle - both dropped from a production build with the rest of this block.
       hooks.dungeonTest.footstepParticles = () => footsteps.particles();
       hooks.dungeonTest.setFootstepsEnabled = (enabled) => footsteps.setEnabled(enabled);
+      // Plan 009: the model round's shared diagnostic (009 arms, 010 knight, 011 enemies) - meshes,
+      // triangles and height per figure, read off the live scene. Read-only; changes nothing a reset
+      // would have to restore, and is dropped from a production build with the rest of this block.
+      hooks.dungeonTest.actorStats = () => {
+        const held = drop ? actorStat(drop.group) : null;
+        return { knight: actorStat(player), enemies: enemyData.filter(e => !e.dead).map(e => ({ kind: e.kind, ...actorStat(e.group) })), drop: drop && held ? { kind: drop.kind, meshes: held.meshes, triangles: held.triangles } : null };
+      };
       hooks.dungeonTest.configureCombatFixture = (fixture) => {
         if (!hasStarted) throw new Error('start the run before staging a combat fixture');
         if (!isPaused && !manualTime) throw new Error('pause or take manual time before staging a combat fixture');
