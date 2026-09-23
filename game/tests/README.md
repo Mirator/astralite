@@ -49,7 +49,9 @@ the flare: each ring carries its own `burned` flag, cleared the moment it stops 
 
 ## Browser hooks
 
-The game installs these on `window` while it is mounted. They are meant for the console and for
+The game installs these on `window` once floor 1 has been built, which happens behind the menu a couple of
+frames after the page mounts (every hook reads the floor, so none is up before it exists). Wait for
+`render_game_to_text` to be a function before using any of them. They are meant for the console and for
 automated drivers; nothing in the game itself calls them.
 
 | Hook | What it does |
@@ -86,6 +88,10 @@ same basis the four `move:` directions build, so `stick:0.707,-0.707` is up-and-
 planted thumb holding still. `stick:off` releases it, as does any value that does not parse. A live stick
 outranks `move:`, and only for as long as it is live — releasing it hands steering straight back to whatever
 `move:` keys are still held, and neither path ever clears the other's state.
+
+`start` is ENTER THE KEEP: pressed before floor 1 exists it is held behind the loading bar and answered
+the frame the keep is drawn. `start:<seed>` is the menu's LAST KEEP, entering the floor 1 a previous
+visit left.
 
 `restart` resets the whole run in place — health, rank, boons, XP, kills, input — and rebuilds floor 1
 from a fresh seed; no page reload, so the `AudioContext`, the GPU context and the `window` hooks all

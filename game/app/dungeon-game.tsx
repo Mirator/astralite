@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { pavingGeometry, pavingKind, ROOM_MOOD, tileHash, vaultEnvironment } from './dungeon-art';
@@ -76,6 +76,8 @@ const keyLabel = (code: string) => code.startsWith('Key') || code.startsWith('Di
 // Deduplicated after labelling, not before: the two shift keys are distinct codes and one legend, and
 // "Shift / Shift" tells a player nothing except that the card is not thinking.
 const bindLabel = (codes: string[], join = ' / ') => [...new Set(codes.map(keyLabel))].join(join);
+// Hydration never changes back, so there is nothing to subscribe to.
+const noSubscription = () => () => {};
 
 // Plan 009: what one figure costs to draw and how tall it stands, off its live meshes rather than off the
 // source. Visible meshes only, walking down through visible nodes; the root's own flag is ignored so an
@@ -154,6 +156,17 @@ export default function DungeonGame() {
   // What the keep is busy doing while the player waits on it, or null when it is not busy. Only ever set
   // for work that blocks the main thread long enough to be felt — which in this game is a floor build.
   const [loading, setLoading] = useState<string | null>(null);
+  // ENTER THE KEEP pressed before floor 1 exists. The closure holds the press and clears this when it
+  // answers it; until then the loading bar is up.
+  const [entering, setEntering] = useState(false);
+  // False in the prerendered page and on the render that hydrates it, true from then on. The menu is in the
+  // server's HTML so it is on screen before the bundle arrives, and its buttons stay disabled until there is
+  // a handler behind them rather than swallowing a click.
+  const hydrated = useSyncExternalStore(noSubscription, () => true, () => false);
+  // Which page of the menu card is showing. Controls and Settings open in place of the menu list, with a
+  // way back, rather than unfolding beneath it and pushing ENTER THE KEEP off a short screen.
+  const [menuView, setMenuView] = useState<'main' | 'controls' | 'settings'>('main');
+  const returnTo = useRef<string | null>(null);
   const dashMeter = useRef<HTMLProgressElement>(null);
   const [displayLost, setDisplayLost] = useState(false), [floorBuild, setFloorBuild] = useState(0);
   // Deliberately not the same flag as displayLost: that is a context taken away mid-descent and handed
@@ -659,7 +672,8 @@ export default function DungeonGame() {
     // it lifts, or a descent would flash the floor it just left. The mark spins on the compositor, which is
     // what keeps it turning through a block the main thread cannot answer.
     let building = false;
-    const veiled = (line: string, work: () => void) => {
+    // `then` runs as the veil lifts, on the frame the new floor is first on screen.
+    const veiled = (line: string, work: () => void, then?: () => void) => {
       // A second press while a build is pending would queue a second build: the status that guards each
       // caller does not change until the work this one is holding actually runs.
       if (building) return;
@@ -667,7 +681,7 @@ export default function DungeonGame() {
       requestAnimationFrame(() => requestAnimationFrame(() => {
         if (stopped) return;
         work();
-        requestAnimationFrame(() => { if (stopped) return; building = false; setLoading(null); });
+        requestAnimationFrame(() => { if (stopped) return; building = false; setLoading(null); then?.(); });
       }));
     };
     // An explicit seed replays a floor verbatim; without one the keep is new every descent.
@@ -1015,7 +1029,7 @@ export default function DungeonGame() {
     // Everything buildFloor(1) already rebuilds (floor, level, rooms, enemies, map, status) is left to it,
     // but the run must be fresh first because it snapshots kills and XP as the floor's baseline. A whole
     // new `run` is the point of createRun(): a field added to the sim can never be forgotten here.
-    const restart = (seed?: number) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', () => {
+    const restart = (seed?: number, then?: () => void) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', () => {
       run = createRun(); boonsTaken = [];
       attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; dashBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; clearShots();
       walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
@@ -1031,11 +1045,15 @@ export default function DungeonGame() {
       buildFloor(1, seed);
       player.rotation.set(0, Math.atan2(-facing.x, -facing.z), 0); player.userData.sword.rotation.y = 0;
       audio.pause(false);
-    });
+    }, then);
     // Read before floor 1 overwrites the stored seed, so "Last keep" still offers the previous visit's.
     const restoreSave = () => { setBest(readBest()); setPriorSeed(readSeed()); setRunLog(readRuns()); };
     restoreSave();
-    buildFloor(1);
+    // Floor 1 is not built here. The menu is in the prerendered page and is what a visitor sees first, so
+    // the build waits until the end of this mount and then runs behind that menu (see `boot`). Until it
+    // has run there is no floor, and nothing below may touch one: the loop draws nothing, the window
+    // hooks are not installed, and a press of ENTER THE KEEP is held until the keep exists.
+    let built = false, enterWhenBuilt = false, bootSeed: number | undefined;
     // The thumbstick's screen-space direction while a thumb is planted, null the rest of the time. It is a
     // unit vector on the very basis the keys below build on, so analog steering is a second source of the
     // same quantity rather than a second input system.
@@ -1191,6 +1209,7 @@ export default function DungeonGame() {
       keys.clear(); stick = null; padStick = null; padLook = null; padPressed.clear();
       attackBuffer = 0; dashBuffer = 0; bufferedFacing = null;
     };
+    const enter = () => { enterWhenBuilt = false; setEntering(false); if (hasStarted) return; floorStart = elapsed; runStart = elapsed; hasStarted = true; setStarted(true); setCapturing(null); };
     const trigger = (e: Event) => {
       const detail = (e as CustomEvent<string>).detail;
       if (detail === 'continue') { continueDescent(); return; }
@@ -1198,7 +1217,18 @@ export default function DungeonGame() {
       if (detail === 'restart' || detail.startsWith('restart:')) { const seed = Number.parseInt(detail.slice(8), 10); restart(Number.isNaN(seed) ? undefined : seed >>> 0); return; }
       // `elapsed` runs from mount, so both clocks restart here or a logged run would bill the time spent
       // reading the menu. A restart mid-run has `hasStarted` already true and gets its reset in buildFloor.
-      if (detail === 'start') { if (hasStarted) return; floorStart = elapsed; runStart = elapsed; hasStarted = true; setStarted(true); setCapturing(null); audio.start(); return; }
+      // `start:<seed>` enters the keep a previous visit left, which is what the menu's LAST KEEP asks for.
+      // Pressed before floor 1 exists, the press is held behind the loading bar and answered the frame the
+      // keep is on screen - and the seed, if any, becomes the one that floor is built from. The audio is
+      // woken here either way, inside the gesture, because Safari will not wake it from a later frame.
+      if (detail === 'start' || detail.startsWith('start:')) {
+        if (hasStarted || enterWhenBuilt || building) return;
+        const seed = Number.parseInt(detail.slice(6), 10), pinned = Number.isNaN(seed) ? undefined : seed >>> 0;
+        audio.start();
+        if (!built) { enterWhenBuilt = true; bootSeed = pinned; setEntering(true); scheduleBoot(); return; }
+        if (pinned === undefined) enter(); else restart(pinned, enter);
+        return;
+      }
       if (detail === 'map') { if (!hasStarted || run.choosing || gameStatus !== 'playing') return; if (!isPaused) togglePause(); setMapOpen(true); return; }
       if (detail === 'pause') { togglePause(); return; }
       if (detail === 'mute') { toggleMute(); return; }
@@ -1791,7 +1821,7 @@ export default function DungeonGame() {
       dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void; footstepParticles?: () => ReturnType<typeof footsteps.particles>; setFootstepsEnabled?: (enabled: boolean) => void; actorStats?: () => { knight: ReturnType<typeof actorStat> & { disposedMaterials: number }; enemies: ({ kind: Enemy['kind'] } & ReturnType<typeof actorStat>)[]; drop: { kind: WeaponId; meshes: number; triangles: number } | null } };
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
-    hooks.dungeonTest = {
+    const testHooks: NonNullable<typeof hooks.dungeonTest> = {
       // The mood snaps rather than sliding. Crossing a threshold on foot is worth a third of a second
       // of cross-fade; arriving somewhere by fixture is not a walk, and a driver that teleports into a
       // chamber to photograph it would otherwise catch the lights still on their way there.
@@ -1811,7 +1841,7 @@ export default function DungeonGame() {
       // by field name rather than letting it leak. `manualTime` is not cleared on purpose - the driver
       // owns the clock from its first `advanceTime` and must keep owning it across a reset.
       reset: (seed) => {
-        hasStarted = false; setStarted(false); setCapturing(null);
+        hasStarted = false; setStarted(false); setCapturing(null); enterWhenBuilt = false; setEntering(false);
         elapsed = 0; runStart = 0; floorStart = 0; activeRoom = 0;
         // Before restart, which places the knight on the new floor's start tile: this puts the rig
         // back, not the body.
@@ -1834,12 +1864,12 @@ export default function DungeonGame() {
       // Plan 007: read-only target/material state for a browser spec, and a same-frame A/B toggle
       // that never touches a target's own state (see `uCutawayEnabled` in dungeon-occlusion.ts) - both
       // dropped from a production build along with the rest of this block.
-      hooks.dungeonTest.cutawayDiagnostics = () => cutaway.diagnostics();
-      hooks.dungeonTest.setCutawayEnabled = (enabled) => cutaway.setEnabled(enabled);
+      testHooks.cutawayDiagnostics = () => cutaway.diagnostics();
+      testHooks.setCutawayEnabled = (enabled) => cutaway.setEnabled(enabled);
       // Plan 008: every live footstep particle's world state, and a same-frame A/B draw toggle that never
       // touches a particle - both dropped from a production build with the rest of this block.
-      hooks.dungeonTest.footstepParticles = () => footsteps.particles();
-      hooks.dungeonTest.setFootstepsEnabled = (enabled) => footsteps.setEnabled(enabled);
+      testHooks.footstepParticles = () => footsteps.particles();
+      testHooks.setFootstepsEnabled = (enabled) => footsteps.setEnabled(enabled);
       // Plan 009: the model round's shared diagnostic (009 arms, 010 knight, 011 enemies) - meshes,
       // triangles and height per figure, read off the live scene. Read-only; changes nothing a reset
       // would have to restore, and is dropped from a production build with the rest of this block.
@@ -1849,11 +1879,11 @@ export default function DungeonGame() {
       const knightMaterials = new Set<THREE.Material>();
       player.traverse(o => { if (o instanceof THREE.Mesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => knightMaterials.add(m)); });
       knightMaterials.forEach(m => m.addEventListener('dispose', () => { knightDisposals++; }));
-      hooks.dungeonTest.actorStats = () => {
+      testHooks.actorStats = () => {
         const held = drop ? actorStat(drop.group) : null;
         return { knight: { ...actorStat(player), disposedMaterials: knightDisposals }, enemies: enemyData.filter(e => !e.dead).map(e => ({ kind: e.kind, ...actorStat(e.group) })), drop: drop && held ? { kind: drop.kind, meshes: held.meshes, triangles: held.triangles } : null };
       };
-      hooks.dungeonTest.configureCombatFixture = (fixture) => {
+      testHooks.configureCombatFixture = (fixture) => {
         if (!hasStarted) throw new Error('start the run before staging a combat fixture');
         if (!isPaused && !manualTime) throw new Error('pause or take manual time before staging a combat fixture');
         if (fixture.health !== undefined) {
@@ -1899,13 +1929,13 @@ export default function DungeonGame() {
         }
       };
     }
-    hooks.advanceTime = (ms, draw = true) => {
+    const advanceTime = (ms: number, draw = true) => {
       manualTime = true;
       const steps = Math.max(1, Math.ceil(ms / (1000 / 60)));
       for (let i = 0; i < steps; i++) update(ms / steps / 1000);
       if (draw) renderer.render(scene, camera);
     };
-    hooks.render_game_to_text = () => JSON.stringify({
+    const renderText = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
       health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: weapon.id, name: weapon.name, damage: weapon.damage, reach: weapon.reach, duration: weapon.duration, strikeDamage: weapon.damage + run.strike, ranged: !!weapon.ranged, quiver: weapon.ranged ? quiver : null, capacity: weapon.ranged ? weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, stairDwell, deadEndsPlundered: loot },
@@ -1940,13 +1970,33 @@ export default function DungeonGame() {
       if (stopped) return; raf = requestAnimationFrame(animate);
       // rAF timestamps describe the frame start, which can precede effect setup.
       // Establish the clock on the first callback so startup cannot run time backwards.
-      if (!manualTime && !document.hidden) { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); renderer.render(scene, camera); }
+      if (built && !manualTime && !document.hidden) { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); renderer.render(scene, camera); }
       last = now;
     };
     raf = requestAnimationFrame(animate);
     const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 6.3 : 7.2; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); };
-    window.addEventListener('resize', resize); resize(); setReady(true);
-    return () => { stopped = true; cancelAnimationFrame(raf); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); atmosphere?.dispose(); texture.dispose(); environment.dispose(); impacts.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
+    window.addEventListener('resize', resize); resize();
+    // The keep is raised two frames after the mount rather than inside it, so the hydrated menu gets a frame
+    // on screen first: its button is live, and a press that lands while the build is still ahead of it
+    // raises the loading bar instead of vanishing into a blocked thread. The hooks go up with the floor,
+    // because every one of them reads it. A held press is answered one frame later still, once the floor
+    // has actually been drawn, so the bar lifts onto the keep rather than onto an empty canvas.
+    // A background tab runs no animation frames at all, and a keep that waited on them would sit unbuilt
+    // until the tab came forward; a hidden page has nothing to paint first, so a timer stands in.
+    let bootFrame = 0, bootTimer = 0;
+    const scheduleBoot = () => {
+      cancelAnimationFrame(bootFrame); clearTimeout(bootTimer);
+      bootFrame = requestAnimationFrame(() => { bootFrame = requestAnimationFrame(boot); });
+      if (document.hidden) bootTimer = window.setTimeout(boot, 200);
+    };
+    const boot = () => {
+      if (stopped || built) return;
+      buildFloor(1, bootSeed); built = true; setReady(true);
+      hooks.dungeonTest = testHooks; hooks.advanceTime = advanceTime; hooks.render_game_to_text = renderText;
+      requestAnimationFrame(() => { if (!stopped && enterWhenBuilt) enter(); });
+    };
+    scheduleBoot();
+    return () => { stopped = true; cancelAnimationFrame(raf); cancelAnimationFrame(bootFrame); clearTimeout(bootTimer); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); atmosphere?.dispose(); texture.dispose(); environment.dispose(); impacts.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
   }, []);
 
   const roomCount = floorMap?.rooms.length ?? 0;
@@ -1968,11 +2018,22 @@ export default function DungeonGame() {
   // a name announces itself; Tab then reaches the card's own controls first.
   const focusCard = useCallback((card: HTMLElement | null) => { card?.focus({ preventScroll: true }); }, []);
   const cardOpen = !started || (paused && !mapOpen) || (boonChoice.length > 0 && status === 'playing') || status === 'complete' || status === 'won' || status === 'lost';
-  // A display that was never granted has its own screen and nothing left to wait for. Everything else waits
-  // on the mount that builds the world, and then on whatever floor build the player has asked for since.
-  const veil = displayFailed ? null : ready ? loading : 'Waking the keep';
+  const menuOpen = !displayFailed && (!started || (paused && !mapOpen));
+  // Every time the card closes it reopens on the menu list, not on whichever page it was left at. Adjusted
+  // during render rather than in an effect, so a reopened card never paints the stale page for a frame.
+  const [menuWasOpen, setMenuWasOpen] = useState(menuOpen);
+  if (menuWasOpen !== menuOpen) { setMenuWasOpen(menuOpen); setMenuView('main'); }
+  const openView = (view: 'controls' | 'settings') => { returnTo.current = view; setMenuView(view); };
+  const closeView = () => { setCapturing(null); setBindNote(''); setMenuView('main'); };
+  // Focus goes back to the item that opened the page, so a keyboard player lands where they left. A stable
+  // callback ref runs once, when the menu list mounts again, which is exactly the moment to do it.
+  const returnFocus = useCallback((item: HTMLButtonElement | null) => { if (item && item.dataset.view === returnTo.current) { item.focus({ preventScroll: true }); returnTo.current = null; } }, []);
+  // A display that was never granted has its own screen and nothing left to wait for. Nothing is waited on
+  // before the menu: the keep builds behind it, and the bar goes up only for a press that beat the build,
+  // or for a floor build the player has asked for since.
+  const veil = displayFailed ? null : loading ?? (entering ? 'Waking the keep' : null);
   return (
-    <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}`}>
+    <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}${ready ? ' world-ready' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
       <header className="game-title"><span>{floorLevel} / {FLOORS} · {roomName}</span></header>
       <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || paused || status !== 'playing' || boonChoice.length > 0} aria-label="Pause game">☰</button></nav>
@@ -1998,18 +2059,27 @@ export default function DungeonGame() {
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      {!displayFailed && (!started || (paused && !mapOpen)) && <div className="intro-screen"><section className="intro-card" role="dialog" aria-modal="true" aria-labelledby="intro-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : 'THE DROWNED KEEP'}</span><h1 id="intro-title">{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
+      {menuOpen && <div className="intro-screen"><section className={`intro-card${menuView === 'main' ? '' : ' sub-view'}`} role="dialog" aria-modal="true" aria-labelledby="intro-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : 'THE DROWNED KEEP'}</span><h1 id="intro-title">{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
+        {menuView === 'main' ? <>
         {paused && <p>{advance} / {goalDepth} halls · {visitedCount} / {roomCount} explored · {plundered} / {deadEnds} plundered<br />Rank {rank} · {experience} XP · {rankXp} / {rankNeed} to next boon{xpReward > 0 ? ` · +${xpReward} XP` : ''}</p>}
         {!paused && best && <p className="best-run">Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</p>}
         {!paused && tally.runs > 0 && <p className="run-log">{tally.runs} {tally.runs === 1 ? 'descent' : 'descents'} logged · {tally.wins} escaped{tally.worstFalls > 0 ? ` · floor ${tally.worstFloor} has taken ${tally.worstFalls}` : ''}</p>}
-        <button className="primary-action" disabled={!ready} onClick={() => action(paused ? 'pause' : 'start')}>{!ready ? 'LOADING…' : paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
-        {/* Read off the bindings rather than written out, or this card would go on promising WASD to a player
+        <nav className="menu-list" aria-label={paused ? 'Pause menu' : 'Main menu'}>
+          <button className="primary-action" disabled={!hydrated} onClick={() => action(paused ? 'pause' : 'start')}>{paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
+          {paused && <button onClick={() => action('map')}>Floor map</button>}
+          {!started && priorSeed !== null && <button disabled={!hydrated} onClick={() => action(`start:${priorSeed}`)}>Last keep</button>}
+          <button data-view="controls" ref={returnFocus} className="opens" onClick={() => openView('controls')}>Controls &amp; journey<span aria-hidden="true">›</span></button>
+          <button data-view="settings" ref={returnFocus} className="opens" onClick={() => openView('settings')}>Settings<span aria-hidden="true">›</span></button>
+        </nav>
+        <div className="menu-settings"><button onClick={() => action('mute')}>{settings.muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button></div>
+        </> : <div className="menu-panel">
+        <button className="menu-back" ref={focusCard} onClick={closeView}><span aria-hidden="true">←</span> Back</button>
+        <h2>{menuView === 'controls' ? 'Controls & journey' : 'Settings'}</h2>
+        {/* Read off the bindings rather than written out, or this page would go on promising WASD to a player
             who rebound it ten seconds ago — which is the exact moment they would come here to check. */}
-        <details className="menu-details"><summary>Controls & journey</summary><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.swap)}</kbd> Take the arm you stand over</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><div className="intro-controls"><span><kbd>Mouse</kbd> Point where to cut</span><span><kbd>Left</kbd> Strike, held to keep striking</span><span><kbd>Right</kbd> Dodge</span><span><kbd>Gamepad</kbd> Left stick moves, right stick aims, A strikes, B dodges</span></div><p className="control-note">A cursor over the keep aims every swing, so the knight can retreat and cut behind him. Striking from the keyboard or the pad hands the aim back, and those are helped onto whatever body is nearly in front of him. Only the keys above can be rebound.</p><p>Reach {goalName}. Defeat the stair wardens, then step onto the stair they guarded to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality. An arm laid out on the floor is offered, never taken: stand in its ring and answer the prompt to trade for it.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</details>
-        {/* Folded away beside the journey, not added to the HUD: this card is where detail belongs, and the
-            world stays bare. Everything here persists, and everything here has a default that is the game
-            exactly as it shipped, so a player who never opens this changes nothing by not opening it. */}
-        <details className="menu-details settings-panel"><summary>Settings</summary>
+        {menuView === 'controls' ? <div className="menu-details"><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.swap)}</kbd> Take the arm you stand over</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><div className="intro-controls"><span><kbd>Mouse</kbd> Point where to cut</span><span><kbd>Left</kbd> Strike, held to keep striking</span><span><kbd>Right</kbd> Dodge</span><span><kbd>Gamepad</kbd> Left stick moves, right stick aims, A strikes, B dodges</span></div><p className="control-note">A cursor over the keep aims every swing, so the knight can retreat and cut behind him. Striking from the keyboard or the pad hands the aim back, and those are helped onto whatever body is nearly in front of him. Only the keys above can be rebound.</p><p>Reach {goalName}. Defeat the stair wardens, then step onto the stair they guarded to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality. An arm laid out on the floor is offered, never taken: stand in its ring and answer the prompt to trade for it.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</div> : <div className="menu-details settings-panel">
+          {/* Everything here persists, and everything here has a default that is the game exactly as it
+              shipped, so a player who never opens this changes nothing by not opening it. */}
           <div className="setting-row"><label htmlFor="set-volume">Volume</label><input id="set-volume" type="range" min="0" max="100" step="5" value={Math.round(settings.volume * 100)} onChange={(e) => change({ volume: Number(e.target.value) / 100 })} /><small>{settings.muted ? 'muted' : `${Math.round(settings.volume * 100)}%`}</small></div>
           <div className="setting-row"><label htmlFor="set-motion">Motion</label><select id="set-motion" value={settings.reducedMotion === null ? 'system' : settings.reducedMotion ? 'reduce' : 'full'} onChange={(e) => change({ reducedMotion: e.target.value === 'system' ? null : e.target.value === 'reduce' })}><option value="system">System · {osReduce ? 'reduced' : 'full'}</option><option value="reduce">Reduced</option><option value="full">Full</option></select><small>{reduceMotion ? 'no camera shake; the hurt tint holds still' : 'camera shake and a hurt flash'}</small></div>
           <div className="setting-row"><label htmlFor="set-touch">Touch</label><select id="set-touch" value={settings.touchLayout} onChange={(e) => change({ touchLayout: e.target.value === 'pad' ? 'pad' : 'stick' })}><option value="stick">Thumbstick</option><option value="pad">Direction buttons</option></select><small>buttons are labelled; the stick is not</small></div>
@@ -2021,8 +2091,8 @@ export default function DungeonGame() {
             <output className="bind-note">{bindNote || (capturing ? 'Press any key. Escape cancels.' : 'Escape always opens this menu, so it cannot be rebound.')}</output>
             <button className="reset-binds" onClick={() => { setCapturing(null); setBindNote(''); change({ binds: defaultSettings().binds }); }}>Reset keys</button>
           </details>
-        </details>
-        <div className="menu-settings">{started && <button onClick={() => action('map')}>Map</button>}<button onClick={() => action('mute')}>{settings.muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button>{!started && priorSeed !== null && <button onClick={() => action(`restart:${priorSeed}`)}>Last keep</button>}</div>
+        </div>}
+        </div>}
       </section></div>}
       {mapOpen && <div className="map-screen"><h1>Floor {floorLevel}</h1><p>Gold ring: stair · Bright rooms: explored</p><button className="primary-action" onClick={() => action('pause')}>RESUME</button></div>}
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
@@ -2040,12 +2110,10 @@ export default function DungeonGame() {
       {/* Plain markup on purpose: the canvas was never mounted, so this is the only thing left to look at. */}
       {displayFailed && <div className="end-screen display-failed"><div className="end-card" role="alertdialog" aria-modal="true" aria-labelledby="display-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">THE GATE STAYS SHUT</span><h1 id="display-title">No light to see by.</h1><p>This browser could not open a 3D display, so the keep cannot be drawn. That most often means hardware acceleration is switched off in the browser&rsquo;s settings.</p></div></div>}
       {displayLost && <output className="display-notice">Display interrupted · the descent is paused</output>}
-      {/* The one screen that has to exist before the page can run, so it is written into the prerendered
-          HTML rather than raised by an effect: it is up while the bundle is still arriving and stays up
-          through the mount that builds the world, which is the longest wait in the game and was a black
-          rectangle. After that it belongs to the two moments that build a floor from nothing — a descent
-          and a fresh run — and to nothing else, because nothing else here makes the player wait. */}
-      {veil && <output className="loading-veil"><i className="veil-mark" aria-hidden="true" /><b>{veil}</b></output>}
+      {/* Not in the prerendered page: the menu is, and nothing stands between a visitor and it. The veil
+          belongs to the moments that make the player wait on a floor built from nothing — ENTER THE KEEP
+          pressed before the first one is ready, a descent, and a fresh run — and to nothing else. */}
+      {veil && <output className="loading-veil"><span className="veil-bar" aria-hidden="true"><i /></span><b>{veil}</b></output>}
       {/* The alternative layout, not a fallback bolted onto the stick: four buttons a screen reader can name
           and reach, each speaking the same discrete move:/stop: protocol every automated driver uses. It is
           the worse way to play — one direction at a time, no diagonals — and the only way to play at all if
