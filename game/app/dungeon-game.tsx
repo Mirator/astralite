@@ -237,13 +237,16 @@ const BONES = {
   limb: shared(new THREE.CylinderGeometry(.055,.075,.65,6)),
   shield: shared(new THREE.CylinderGeometry(0.38, 0.38, 0.1, 8)),
   weapon: shared(new THREE.BoxGeometry(0.09, 0.09, 0.92)),
+  // Plan 011: the guard's sword, flat and broad-face up, so it reads by its width from above rather than
+  // as a few dark pixels. Its last quarter pinches to the point the trim's spike rides along.
+  blade: shared((()=>{const blade=new THREE.BoxGeometry(.16,.035,.92,1,1,4),at=blade.getAttribute('position');for(let i=0;i<at.count;i++)if(at.getZ(i)<-.45)at.setX(i,0);blade.computeVertexNormals();return blade;})()),
   crown: shared(new THREE.CylinderGeometry(.29,.28,.11,8,1,true)),
   crownTooth: shared(new THREE.ConeGeometry(.065,.2,4)),
   armor: shared(new THREE.DodecahedronGeometry(.32,0)),
   plate: shared(new THREE.BoxGeometry(.72,.48,.34)),
   haft: shared(new THREE.CylinderGeometry(.055,.075,1.3,6)),
   hammer: shared(new THREE.BoxGeometry(.72,.36,.38)),
-  claw: shared(new THREE.ConeGeometry(.055,.48,4)),
+  claw: shared(new THREE.ConeGeometry(.065,.62,4)),
   cue: shared(new THREE.RingGeometry(0.85, 1.5, 40, 1, -1.05, 2.1)),
   bar: shared(new THREE.PlaneGeometry(0.8, 0.07)),
 };
@@ -291,7 +294,9 @@ function makeSkeleton(kind: Enemy['kind']) {
   const spine = new THREE.Mesh(BONES.spine, bone); spine.position.y = 0.91;
   const ribs = new THREE.Mesh(BONES.ribs, bone);
   ribs.position.set(0, 1.03, -0.02); ribs.rotation.set(Math.PI / 2, 0, -Math.PI * 0.78);
-  const skull = new THREE.Mesh(BONES.skull, bone);
+  // A joint rather than a mesh, carrying the skull as its first child: the bake keeps a mesh root's own
+  // geometry apart, and a bare joint lets the skull fold into the bone batch its trim is already drawn in.
+  const skull = new THREE.Group(); skull.add(new THREE.Mesh(BONES.skull, bone));
   skull.position.y = 1.42; skull.scale.set(0.88, 1, 0.78);
   const sockets = [-1, 1].map((s) => { const e = new THREE.Mesh(BONES.socket, eye); e.position.set(s * 0.085, 1.45, -0.21); return e; });
   const arms=[-1,1].map(s=>{const pivot=new THREE.Group();pivot.position.set(s*(warden?.48:.33),1.14,0);pivot.rotation.z=s*(stalker?.25:.12);const arm=new THREE.Mesh(BONES.limb,bone);arm.position.y=stalker?-.4:-.27;arm.scale.y=stalker?1.35:.85;pivot.add(arm);return pivot;});
@@ -303,7 +308,10 @@ function makeSkeleton(kind: Enemy['kind']) {
   const weapon = new THREE.Group();weapon.position.set(warden?.5:.42,.97,-.12);weapon.rotation.x=warden?.45:.1;
   if(stalker){
     skull.scale.set(.85,.82,1.15);skull.position.z=-.16;ribs.scale.set(.85,1,1);sockets.forEach(eye=>{eye.position.z-=.16;});
-    arms.forEach(arm=>{for(let i=0;i<3;i++){const claw=new THREE.Mesh(BONES.claw,iron);claw.rotation.x=-Math.PI/2;claw.position.set((i-1)*.11,-.83,-.16);arm.add(claw);}});
+    // Plan 011: the claws are the stalker's archetype, so they are its silhouette - bone rather than a dark
+    // rake, longer, and fanned with the outer two turned out. The outer tip ends .05 further from the arm
+    // pivot than before (.93 -> .98), inside the .15 the lane was sized to allow.
+    arms.forEach(arm=>{for(let i=0;i<3;i++){const claw=new THREE.Mesh(BONES.claw,bone);claw.rotation.set(-Math.PI/2,(1-i)*.25,0,'YXZ');claw.position.set((i-1)*.15,-.83,-.16);arm.add(claw);}});
   }else if(warden){
     const plate=new THREE.Mesh(BONES.plate,iron);plate.position.set(0,1.0,-.05);rig.add(plate);
     for(const s of [-1,1]){const shoulder=new THREE.Mesh(BONES.armor,iron);shoulder.position.set(s*.49,1.21,0);shoulder.scale.set(1.18,.72,1);rig.add(shoulder);}
@@ -314,8 +322,10 @@ function makeSkeleton(kind: Enemy['kind']) {
     const head=new THREE.Mesh(BONES.hammer,iron);head.position.z=-1.04;weapon.add(haft,head);
     const band=new THREE.Mesh(BONES.hammer,brass);band.scale.set(.18,1.04,1.04);head.add(band);
   }else{
-    const blade=new THREE.Mesh(BONES.weapon,iron);blade.position.z=-.4;weapon.add(blade);
-    const helmet=new THREE.Mesh(BONES.armor,iron);helmet.position.set(0,1.53,.04);helmet.scale.set(.94,.6,.94);rig.add(helmet);
+    const blade=new THREE.Mesh(BONES.blade,iron);blade.position.z=-.4;weapon.add(blade);
+    // An open cap on the crown and the back of the skull, not a helmet over the face: the brow, sockets and
+    // jaw are what say skeleton from the game camera, and the old .6-tall shell covered them (plan 011).
+    const helmet=new THREE.Mesh(BONES.armor,iron);helmet.position.set(0,1.62,.13);helmet.scale.set(.90,.42,.95);rig.add(helmet);
   }
   rig.add(pelvis, spine, ribs, skull, ...sockets, ...limbs, weapon);
   rig.position.y=stalker?-.18:0;rig.rotation.x=stalker?-.38:0;
@@ -326,6 +336,14 @@ function makeSkeleton(kind: Enemy['kind']) {
   enemyDetails(kind,rig,skull,limbs,weapon,shield,bone,iron,brass);
   sockets.forEach(socket=>{socket.position.z=stalker?-.445:-.223;socket.scale.setScalar(1.2);});
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
+  // Plan 011: nothing below a joint moves on its own, so each joint draws one mesh per material. The rig
+  // keeps every animated joint and the eyes (Basic, never merged); each joint keeps the shield, which
+  // hangs off the shield arm and is a joint death poses, and the shield bakes its own brass. Keyed per
+  // kind, so a floor of guards merges once; geometry is shared, every body binds its own materials.
+  const joints:THREE.Object3D[]=[skull,...limbs,weapon];
+  bakeStatic(rig,{keep:[...joints,...sockets],cacheKey:`${kind}:rig`});
+  joints.forEach((joint,i)=>bakeStatic(joint,{keep:[shield],cacheKey:`${kind}:joint${i}`}));
+  bakeStatic(shield,{cacheKey:`${kind}:shield`});
   // Weaker than the knight's, and sized to the actor: the reference grounds the enemies too, but the
   // player's own pool has to stay the darkest thing at his feet.
   g.add(contactShadow(warden?.68:stalker?.56:.52,.44));

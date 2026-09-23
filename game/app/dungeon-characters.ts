@@ -173,8 +173,14 @@ export function knightDetails(rig: { torso: THREE.Group; head: THREE.Group; face
   finish(); plain.dispose();
 }
 
-export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Group, skull: THREE.Mesh, limbs: THREE.Group[], weapon: THREE.Group, shield: THREE.Mesh, bone: THREE.Material, iron: THREE.Material, brass: THREE.Material) {
-  const { add, finish } = dressing(kind), stalker = kind === 'stalker', warden = kind === 'warden';
+// Plan 011: at .03-.06 units an .08 bevel is under a pixel from the game camera and costs nine times the
+// triangles of the box it rounds, so the thinnest enemy trim is a plain box.
+const plainBox = new THREE.BoxGeometry(1, 1, 1);
+// The guard's shield rim (plan 011): iron on a dark floor read only through its studs.
+const shieldRim = new THREE.TorusGeometry(.36, .025, 4, 16).rotateX(Math.PI / 2);
+export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Group, skull: THREE.Object3D, limbs: THREE.Group[], weapon: THREE.Group, shield: THREE.Mesh, bone: THREE.Material, iron: THREE.Material, brass: THREE.Material) {
+  const { add: put, finish } = dressing(kind), stalker = kind === 'stalker', warden = kind === 'warden';
+  const add: typeof put = (parent, geometry, material, at, size, rotate) => put(parent, geometry === box && Math.min(...size) < .06 ? plainBox : geometry, material, at, size, rotate);
   const shadow = new THREE.MeshStandardMaterial({ color: 0x101b1c, roughness: 1 });
   // The guard's tabard was brown and the warden's a muted wine, which put both of them in the knight's own
   // hue family. Everything the enemies wear is cold now; the warm half of the wheel belongs to him alone.
@@ -212,10 +218,16 @@ export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Gr
       add(weapon, spike, iron, [s * .46, 0, -1.04], [.13, .23, .13], [0, 0, s * -Math.PI / 2]);
     }
     add(rig, joint, brass, [0, 1.12, -.255], [.1, .13, .035]);
+    // Plan 011: the breastplate was one black slab over a pale pelvis box. A gold edge along its top-front
+    // and an iron rib down its face give it relief, and three stepped faulds carry the armour down over the
+    // hips, so the torso reads as one armoured mass from shoulder to thigh and bone shows at limbs and skull.
+    add(rig, box, brass, [0, 1.235, -.2], [.7, .03, .06]);
+    add(rig, box, iron, [0, 1.0, -.235], [.05, .4, .03]);
+    for (let i = 0; i < 3; i++) add(rig, box, iron, [0, .71 - i * .08, 0], [.5 + i * .02, .1, .3 + i * .02]);
     add(weapon, box, brass, [0, .19, -1.04], [.32, .025, .1]);
     add(weapon, box, brass, [0, .19, -1.04], [.07, .025, .32]);
   } else if (stalker) {
-    for (let i = 0; i < 5; i++) add(rig, spike, bone, [0, .8 + i * .135, .13], [.065, .23 + i * .04, .065], [.8, 0, 0]);
+    for (let i = 0; i < 5; i++) add(rig, spike, bone, [0, .8 + i * .135, .13], [.065, (.23 + i * .04) * 1.25, .065], [.8, 0, 0]);
     for (const s of [-1, 1]) {
       add(rig, cloth, clothMaterial, [s * .2, .67, .12], [.32, .69, 1], [-.3, s * .5, s * -.25]);
       add(skull, spike, bone, [s * .18, -.2, -.19], [.045, .19, .045], [Math.PI, 0, s * -.12]);
@@ -226,6 +238,7 @@ export function enemyDetails(kind: 'guard' | 'stalker' | 'warden', rig: THREE.Gr
     for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; add(shield, joint, brass, [Math.sin(a) * .31, .069, Math.cos(a) * .31], [.031, .025, .031]); }
     add(shield, box, brass, [0, .065, 0], [.055, .026, .64]);
     add(shield, box, brass, [0, .065, 0], [.64, .026, .055]);
+    add(shield, shieldRim, brass, [0, .055, 0], [1, 1, 1]);
     add(weapon, box, brass, [0, 0, .025], [.32, .07, .08]);
     add(weapon, spike, iron, [0, 0, -.69], [.095, .34, .035], [-Math.PI / 2, 0, 0]);
     add(rig, box, iron, [.32, 1.17, 0], [.3, .16, .34], [0, 0, -.2]);

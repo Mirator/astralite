@@ -1860,3 +1860,204 @@ No clipping of head, crest or cape in the dash or strike frames reviewed.
 Gates (merged tree): typecheck, lint, `npm test` (284 pass), full browser suite on d3d11 port 3200 (143 passed, 2
 skipped, 6.5 min; untouched tree 139 passed, 2 skipped, 6.9 min), `npm run build`, `git diff --check` - all pass.
 `models.spec.ts` and `footsteps.spec.ts` at `--repeat-each=3`: 45 passed.
+
+## 2026-09-23 - Plan 011: the guard, stalker and warden models
+
+Branch `feat/enemy-models` from `5137836` (plans + plan 009 cherry-picked onto `9fd9a47`, the integration
+branch `feat/model-round`); committed locally per stage, not pushed. Plan 010 (the knight) ran in parallel from
+the same commit, so every knight-vs-enemy figure here is against the **pre-010 knight** and has to be
+re-measured after the two merge.
+
+Step 1, untouched tree (d3d11): typecheck, lint, `npm test` (282 pass), full browser suite (139 passed,
+2 skipped, 6.9 min), `npm run build`, `git diff --check` - all pass. Drift check since `c45664f`: only plan 009's
+`actorStats` block in `dungeon-game.tsx`. `actorStats()`: guard 29 meshes / 3,261 tris / height 1.6744, stalker
+25 / 2,670 / 1.61, warden 42 / 3,862 / 2.339 (identical to 009's figures on the older base). Budget scenes:
+flooded hall 416 calls / 196,500 tris, junction 486 / 326,192, strike contact 349 / 154,548.
+
+Step 2, separation on the unchanged enemies (`models.spec.ts`, describe `enemies`, the `models-cast` staging).
+NEW `tests/browser/enemy-mask.ts` (010 owns `figure-mask.ts`): three announces every `Scene` it builds to
+`__THREE_DEVTOOLS__`, so an init script installed before boot is handed the live scene with no game hook; the
+describe runs on its own page for that reason (`isolate: true`). One figure per pair of frames is hidden, in one
+`page.evaluate`; that figure casts no shadow and its contact pool is hidden in both frames, so the mask is the body
+and not the moon shadow most of a tile away. Two frames with nothing hidden differ by 0 px. Mean CIE Lab per mask,
+CIE76 between masks:
+
+| Pair | d3d11 | SwiftShader |
+| --- | --- | --- |
+| knight-guard | 10.46 | 10.58 |
+| knight-stalker | 16.75 | 16.80 |
+| knight-warden | 16.02 | 15.97 |
+| guard-stalker | 6.50 | 6.44 |
+| guard-warden | 15.77 | 15.87 |
+| stalker-warden | 18.37 | 18.43 |
+
+The spec asserts each pair at or above the lower of the two, less one. Masks: knight 3,186 px, guard 2,123,
+stalker 1,518 (51 x 72 px box), warden 5,393.
+
+### Stage A - bake and plain trim boxes (no visible change)
+
+- `makeSkeleton`: after the shadow-flag traverse, `bakeStatic(rig, { keep: [skull, limbs, weapon, eyes],
+  cacheKey: '<kind>:rig' })`, then each joint with the shield kept (`'<kind>:joint<i>'`), then the shield itself
+  (`'<kind>:shield'`; hidden on stalker and warden, so skipped). The skull is now a `Group` joint at the same
+  position/scale carrying the skull mesh as its first child, so the skull folds into its own bone batch rather
+  than staying apart as a mesh root (the one type change; `userData.skull` is only ever rotated). The shield stays
+  a Mesh and a joint. 009's node test already holds that a cached bake binds each instance's own materials
+  (`dungeon-bake.test.ts`, "a cached bake shares geometry..."), so the helper was not touched.
+- `enemyDetails`: a `box` piece whose smallest dimension is under .06 uses a plain unit `BoxGeometry` (brow
+  ridges, teeth, the guard's shield cross, the warden's strap and hammer bands). No pauldron plate is under .06.
+- `models.spec.ts` `enemies`: mesh ceilings per kind, height within .10 of before, snapshot joints unchanged,
+  separation floors, and a windup test reading `emissive` off the rig's baked batch, the skull and the shield arm
+  (all `0xff4529`) for each kind.
+
+| Kind | Before | After A |
+| --- | --- | --- |
+| guard | 29 meshes / 3,261 tris | 18 / 2,397 |
+| stalker | 25 / 2,670 | 13 / 1,998 |
+| warden | 42 / 3,862 | 19 / 2,806 |
+
+Heights unchanged. **Targets missed for guard (14) and warden (16)**, met for the stalker. What is left is one
+mesh per material per joint plus eyes and pool: guard rig bone/iron/cloth, skull bone/shadow, 2 eyes, arms
+bone+iron x2, legs 1 x2, shield iron+brass, sword iron+brass, pool. Lower needs a material shared across bodies
+(forbidden: the flash) or a part recoloured; neither done. Guard triangles -864 (plan asked -1,200; the owner
+relaxed triangles).
+
+Budget after A: flooded hall 350 calls / 191,316 tris, junction 396 / 320,888, strike contact 327 / 152,820.
+Specs: character-life, combat, polish (holds `render.geometries` across rebuilds), occlusion, art-direction,
+frame-budget - 27 passed, 1 skipped.
+
+Sheets (d3d11, under this worktree's `game/`): against B0 `outputs/shots-compare/2026-09-23_05-51-47/index.html`
+(B0 predates 009, so rack and knight-arm rows carry 009's own changes); stage A alone, `--base HEAD`,
+`outputs/shots-compare/2026-09-23_05-53-16/index.html`. Reviewed in 2-3x crops: the enemies differ only by
+edge specks where bevels went (models-cast worst step 66 on a few pixels per body; flooded hall 91 px). The
+strong-looking rows are not the models: the warden chamber (6,849 px, worst 223) and junction (4,547 px) are the
+floating room label ("wardens bar the stair", "ambush") landing ~2 px off, and the models-cast/dark-corridor
+full-frame counts are the known worst-2 band along the top walls.
+
+### Stage B - the guard: open cap, flat blade, brass rim
+
+- Helmet: same `BONES.armor`, scale (.90, .42, .95), position (0, 1.62, .13) - tuned inside the plan's range from
+  the (1.60, .10) start after one side-by-side; the higher, further-back cap shows a little more bone round the
+  sockets and still sits on the skull (no gap in any frame).
+- Sword: NEW shared `BONES.blade`, a flat box .16 x .035 x .92, broad face up at the idle pose (weapon rotation
+  x .1, rig unrotated). Deviation: its last quarter pinches to a point (box with 4 depth segments, the tip ring's x
+  set to 0), because a square-ended .16 blade swallowed the trim's .095 spike and read as a bar; the spike stays
+  and now reads as a ridge down the point. Iron, unchanged value.
+- Shield rim: brass torus r .36, tube .025, 4 x 16, on the face at y .055, merged into the shield's brass batch.
+
+`actorStats()` guard: 18 meshes / 2,397 tris / 1.6744 -> 18 / 2,549 / 1.7106 (+152 tris; the cap's top is the
+new highest point, +.036). Separation: knight-guard 10.45 -> 11.54, guard-stalker 6.54 -> 6.04 (floor 5.44),
+guard-warden 15.78 -> 18.13. Budget: flooded hall 350 calls / 192,228 tris (step 1: 416 / 196,500), junction
+397 / 320,892, strike contact 327 / 153,124. Same spec set plus models.spec: 31 passed, 1 skipped.
+
+Sheets: vs B0 `outputs/shots-compare/2026-09-23_06-05-28/index.html`; stage B alone (A's captures vs B's, no
+recapture) `outputs/shots-compare/2026-09-23_06-06-39/index.html`. Changes sit on guards only (models-cast,
+flooded hall, strike contact); the warden chamber and junction rows are the floating label again.
+
+Verdict (guard acceptance): met in the three-quarter views. In models-cast and both front-facing flooded-hall
+guards the brow, both sockets and the jaw now show as bone under the cap, where before the helmet came down to
+the eyes; seen from behind (the flooded hall's left guard) it is still mostly cap, as it should be. The sword
+reads as a blade at native size - a broad dark wedge with a point - rather than a line. The rim is the most
+visible change: the shield is now a gold ring with a cross rather than eight dots. Caveat: under the struck
+flash (strike-contact) the whole body goes pale, and the broader blade makes that a larger pale area for those
+frames; at rest it is dark iron and nothing like the knight's pale sword.
+
+### Stage C - the stalker: bone claws, longer, fanned
+
+- `BONES.claw` .055 x .48 -> .065 x .62; claws `iron` -> `bone`; fan x (i-1)*.11 -> (i-1)*.15 with the outer two
+  yawed out .25 rad (Euler `YXZ`, so the yaw is about the arm's own vertical after the cone is laid forward).
+  Reach, measured in node off the claw transforms: outer tip .928 -> .976 from the arm pivot, centre .921 -> .954,
+  both inside the plan's +.15. Nothing in the rules reads the claws; `combat.spec.ts` (the lane) passes unchanged.
+- Spine spikes (`enemyDetails`, five bone cones): height x1.25.
+
+`actorStats()` stalker: 13 meshes / 1,998 tris / 1.61 -> 11 / 1,998 / 1.61 (the claws joined each arm's bone
+batch; claw and spike triangle counts are unchanged). Separation: knight-stalker 16.78 -> 18.26, guard-stalker
+6.04 -> 6.92, stalker-warden 18.44 -> 20.61. Stalker mask 1,518 -> 1,579 px, box 51 x 72 -> 53 x 75. Budget:
+flooded hall 350 / 192,228 (no stalker in it), junction 383 / 320,896, strike contact 327 / 153,124. Spec set
+plus models.spec: 31 passed, 1 skipped.
+
+Sheets: vs B0 `outputs/shots-compare/2026-09-23_06-13-56/index.html`; stage C alone (B's captures vs C's)
+`outputs/shots-compare/2026-09-23_06-15-14/index.html`. Changes sit on stalkers only; the flooded hall and the
+bridge are identical; the warden chamber, gauntlet and shrine rows are the floating label, HUD text and the
+gauntlet's entropy-driven embers.
+
+Verdict (stalker acceptance): half met. The claws now read at native size - in the junction's ambush stalker,
+facing the lens, both hands are pale three-pronged fans in front of the body where before they were a dark rake
+you had to look for, and in models-cast the lowered hand shows a pale fan below the forearm. They read as claws,
+not hooks: the cones are straight, and hooking them would mean new geometry the plan did not ask for. The
+silhouette half is not met: in models-cast's three-quarter view the stalker is still a hunched but upright
+figure with a big head (mask 53 x 75 px against the guard's 70 x 81), because what makes it low is the pose
+(`rig.rotation.x = -.38`), which is out of scope here.
+
+### Stage D - the warden: breastplate relief and faulds
+
+All in `enemyDetails`, merged into the rig's existing brass and iron batches (no new meshes):
+- a brass rim .70 x .03 x .06 at the plate's top-front edge, (0, 1.235, -.20); an iron rib .05 x .40 x .03 down
+  the plate's face, (0, 1.0, -.235);
+- three iron faulds, .50 x .10 x .30 stepped down .08 from y .71, each .02 wider and deeper than the one above.
+  Deviation in reading "out .02": a first cut stepped each plate .02 forward from the breastplate's own z (-.05),
+  and the sheet showed the pelvis's back (z +.125) still pale behind them in the warden chamber's rear view; the
+  faulds are now centred on the pelvis (z 0) and "out" is taken as the flare of a skirt.
+- Warden bone 0x776e5d, iron 0x27302d and brass 0x7a6c43 unchanged.
+
+`actorStats()` warden: 19 meshes / 2,806 tris / 2.339 -> 19 / 3,154 / 2.339 (+348). Separation: knight-warden
+16.02 -> 16.00, guard-warden 18.13 -> 18.06, stalker-warden 20.61 -> 20.50 (the mask's mean moves by 0.3 of b:
+the warden is a dark mass either way). Budget: flooded hall 350 / 192,228, junction 382 / 320,892, strike contact
+327 / 153,124. Spec set plus models.spec: 31 passed, 1 skipped.
+
+Sheets: vs B0 `outputs/shots-compare/2026-09-23_06-23-38/index.html` (the whole round against B0); stage D alone
+(C's captures vs D's) `outputs/shots-compare/2026-09-23_06-24-48/index.html`. Changes sit on wardens only
+(models-cast, the chamber, a warden at the shrine frame's edge); the flooded hall and strike contact are identical.
+
+Verdict (warden acceptance): mostly met, gold edge not. The hips are fixed: in the warden chamber's lower warden,
+seen from behind, the pale pelvis box that sat under the black slab is now three stepped dark plates, so the
+torso reads as one armoured mass from pauldron to thigh, and the crown and hammer still dominate. The gold edge
+barely registers: in models-cast's three-quarter front the plate's top edge is under the jaw, crown spikes and the
+hammer-side pauldron from the game camera, and the rim shows only as a short brass sliver by the arm; the
+chamber's front-facing warden is mid-tell and wholly red. The rib is not visible at native size in any frame.
+
+### Plan 011, step 7 - merged with main, all gates
+
+Merged `origin/main` twice, no rebase: PR #43 (plan 009 plus its teardown follow-up, `87ccbf4`) and PR #44
+(plan 010, the knight, `49c0718`). Conflicts only where both sides appended (progress.md, models.spec.ts, the
+README rows); both kept. `dungeon-game.tsx` merged clean (010 added the identical `bakeStatic` import). The
+enemies block also asserts `shadowless: 0` per kind, using 009's follow-up diagnostic.
+
+**Separation after 010.** 010 darkened the knight (mask mean L 27.85 -> 25.37), and knight-warden dropped under
+its floor: 16.00 on this branch before the merge, 14.32 after. Measured on the merged tree with main's enemy code
+swapped back in (010's knight, pre-011 enemies): 14.33. So the drop is entirely the knight's; nothing here was
+tuned to compensate. The knight-pair floors are now based on that post-010 "before" (11.48 / 17.73 / 14.33, less
+one); the enemy pairs keep the 5137836 values.
+
+| Pair | Before (5137836) | 011 on the pre-010 knight | Post-010 before (main 7a97dcc) | Final, merged (d3d11 / SwiftShader) |
+| --- | --- | --- | --- | --- |
+| knight-guard | 10.46 | 11.56 | 11.48 | 13.02 / 13.18 |
+| knight-stalker | 16.75 | 18.24 | 17.73 | 19.43 / 19.52 |
+| knight-warden | 16.02 | 16.00 | 14.33 | 14.32 / 14.36 |
+| guard-stalker | 6.50 | 6.92 | 6.52 | 6.93 / 6.86 |
+| guard-warden | 15.77 | 18.06 | 15.78 | 18.05 / 18.22 |
+| stalker-warden | 18.37 | 20.50 | 18.39 | 20.50 / 20.67 |
+
+Final `actorStats()` (merged): guard 18 meshes / 2,549 tris / 1.7106, stalker 11 / 1,998 / 1.61, warden 19 /
+3,154 / 2.339, all `shadowless` 0.
+
+Budget scenes (d3d11, calls / triangles; ceilings unchanged at 439 / 502 / 447 calls):
+
+| Scene | B0 (62cfe64) | After 009 | After 010 (main 7a97dcc) | After 011 alone (on 009) | After 009+010+011 |
+| --- | --- | --- | --- | --- | --- |
+| flooded hall | 428 / 196,500 | 416 / 196,500 | 374 / 194,196 | 350 / 192,228 | 308 / 189,924 |
+| junction | 496 / 326,184 | 486 / 326,192 | 442 / 323,880 | 382 / 320,892 | 339 / 318,584 |
+| strike contact | 371 / 154,500 | 349 / 154,548 | 307 / 152,244 | 327 / 153,124 | 285 / 150,820 |
+
+**Proposed ceilings, not applied** (for the owner): flooded hall 308 calls / 189,924 tris; junction 343 calls /
+318,800 tris (the measured 339 / 318,584 plus the scene's known drift of about four calls and a couple of hundred
+triangles); strike contact 285 calls / 150,820 tris. At the measured values there is no headroom: any later model
+or prop work would have to raise them, so the owner may prefer to keep some margin, or to keep the tripled
+triangle figures and tighten only the calls.
+
+Gates on the merged tree: typecheck, lint, `npm test` (284 pass), full browser suite on d3d11 (145 passed,
+2 skipped, 6.2 min), `npm run build`, `git diff --check` - all pass. `--repeat-each=3` over the whole browser
+suite, run in three spec groups because one run outlasts the tool's ten-minute limit: 435 passed, 3 skipped, no
+failure or flake. Phone capture (390 x 844, the three kinds
+staged below the knight, reviewed and not kept): from behind, the guard's cap covers the back of the skull as it
+should and the pointed blade is a mid-grey iron wedge, clearly darker than the knight's pale blade; the stalker's
+pale fans read at both hands; the warden's faulds make his hips one stepped dark mass.
