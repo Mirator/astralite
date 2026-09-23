@@ -1763,3 +1763,100 @@ Both reported at the end of the 009 entry above; confirmed by reading and by fai
 
 Gates: typecheck, lint, `npm test` (279 pass), full browser suite on d3d11 port 3400 (141 passed, 2 skipped -
 the seed-dependent occlusion skips - 6.6 min), `npm run build` - all pass.
+
+## 2026-09-23 - Plan 010: the knight baked, his helmet set over dark shoulders
+
+Branch `feat/knight-model` from `5137836` (plan 009 on main's #41/#42), committed locally, merged with
+`origin/main` at `0bec29b` (PR #43, which brought d934a7e) before the final gates; not pushed.
+
+What changed:
+- `makeKnight`: each joint is baked with `bakeStatic` after the details, the hidden pauldrons and the shadow flags -
+  torso (keeping cape, sword pivot, arm), pivot (keeping the held arm), arm, both hips (keeping the knee), both knees,
+  each with a `knight:*` cache key. Before the bake `hip.userData.boot` is moved to a bare `Object3D` at the boot's
+  position and rotation under the knee, since footsteps call `boot.localToWorld` and the boot mesh is merged away;
+  `g.userData.body` (read by nothing) now names the torso. The head group is scaled 1.15; the face plate, visor slits,
+  nose and mouth move into one group at the plate's origin tipped +0.2 rad (top edge back, so the slits turn up to the
+  lens). One import line (`bakeStatic`) sits outside `makeKnight`.
+- `knightDetails`: a plain `BoxGeometry` for every box piece under 0.06 on its smallest side (12 pieces; pauldron
+  plates, knee plates and the arm guard keep the bevel); all three pauldron plates iron (the top one was steel); the
+  face's cheek strips and rivets move onto the tipped face group.
+- NEW `tests/browser/figure-mask.ts`: the knight's own pixels, by drawing a facing three times in one task - whole,
+  held arm only, nothing - with the hidden parts on clones of their materials that write neither colour nor depth,
+  so the shadow map and the contact pool are the same in every draw and only his own pixels differ. The scene comes
+  from three's `__THREE_DEVTOOLS__` observe hook (init script plus reload), so the game grows no hook for it.
+- `tests/browser/models.spec.ts`, a `knight` describe: <= 32 meshes, triangles <= 1.25 x 3,990, height within 0.08
+  of 1.8243, every joint's rest values as recorded; and the eight-facing separation below.
+
+Counters (d3d11, `frame-budget.spec.ts`; ceilings unchanged):
+
+| Scene | Untouched tree | After 010 (merged) |
+| --- | --- | --- |
+| flooded hall | 416 calls / 196,500 tris | 374 / 194,196 |
+| junction | 484 / 326,184 | 442 / 323,880 |
+| strike contact | 349 / 154,548 | 307 / 152,244 |
+
+`actorStats().knight`: 53 meshes / 3,990 tris / height 1.8243 -> after the bake 32 / 3,990 / 1.8243 -> after the
+bevels 32 / 2,838 -> final 32 / 2,838 / 1.9015 (shadowless 0, disposedMaterials 0). The bevels saved 1,152, not the
+1,500-2,000 the plan estimated: only 12 of its "about 21" pieces are under 0.06.
+
+Separation, per facing 0-7 (clockwise from facing the lens), d3d11, seed 0x86 floor 2 gate. "Delta" is the median L*
+of the top third of the body's mask (held arm excluded) minus the middle third's:
+
+| Facing | Before (after bake + bevels) p25 / p75 / surround / delta | After p25 / p75 / surround / delta |
+| --- | --- | --- |
+| 0 | 7.2 / 43.9 / 24.4 / 17.5 | 5.3 / 36.2 / 24.1 / 19.5 |
+| 1 | 7.1 / 43.2 / 25.7 / 17.3 | 5.9 / 37.0 / 25.9 / 23.5 |
+| 2 | 9.1 / 49.8 / 25.4 / 17.8 | 9.1 / 42.2 / 25.5 / 25.7 |
+| 3 | 18.1 / 39.9 / 24.7 / 8.1 | 12.4 / 33.3 / 24.7 / 6.3 |
+| 4 | 32.0 / 50.5 / 24.4 / -3.6 | 24.6 / 50.1 / 24.4 / -10.9 |
+| 5 | 28.6 / 50.7 / 25.1 / -12.0 | 12.7 / 50.2 / 25.1 / -16.6 |
+| 6 | 8.1 / 52.3 / 24.8 / -7.5 | 9.0 / 51.6 / 24.7 / 25.6 |
+| 7 | 4.0 / 50.1 / 24.4 / 28.6 | 5.7 / 40.1 / 24.6 / 28.8 |
+
+The bake alone left every figure identical to the untouched tree's to 0.1. Median delta 12.7 -> 21.7 (+9.0; the plan
+asks +5). Facings clearing 8: 5 -> 5 (the plan asks 6). The before code did not pass the 6-of-8 threshold, so it was
+not raised.
+
+Deviations, each needing the owner's eye:
+- **Head over shoulders is asserted as 5 of 8, not 6.** Facings 4 and 5 look at the cape, whose red fills the
+  shoulders' third brighter than the back of the helmet; at facing 3 the top third used to hold the steel top plate
+  the plan itself turns iron (8.1 -> 6.3). No knob in the plan's ranges reaches the back facings; the cape is out of
+  scope. The median-plus-5 acceptance is asserted as written (>= 17.7).
+- **The darkest-quarter property fails at facing 4 on the untouched code** (p25 32.0 over 24.4) and at facing 5 (28.6
+  over 25.1): from behind the cape covers his dark plate. After the plan facing 5 passes and facing 4 is 24.6 over
+  24.4. The stop rule (back out the pauldrons, then the scale) assumes section 3 broke it; the before figures are
+  that backed-out state and are worse, so nothing was backed out. Facing 4 is asserted at surround + 2 and every other
+  facing as the plan says.
+- **The mantle was removed.** Drawn in a flag colour it covered 0 px in all eight facings at the plan's values and 1 px
+  at the far end of its +/-20% (0.744 wide, y .516, z .168, pitch .6): the pauldrons, the helmet and the cape's top
+  edge cover that region.
+- **The collar was left where it was (raise 0, inside the 0-0.05 range).** In a flag colour at the 1.15 head it shows
+  3 px across eight facings; raising it only puts it further inside the helmet.
+- **Head scale 1.15, not 1.18**: 1.18 put the height at 1.9169, 0.093 over. **Visor sign +0.2, not -0.2**: in three a
+  positive `rotation.x` moves +Y toward +Z, so the plate's top goes back and the face tips up to a camera above; -0.2
+  would tip it down. The whole face unit tips, not the plate and visor alone, or the plate swallows the mouth and rivets.
+- `figure-mask.ts` separates the held arm from the head/shoulder split (not in the plan): the blade is the palest thing
+  on him and lies across the middle third in five facings; at facings 5 and 6 it alone flipped the sign.
+
+Captures, d3d11, against B0 (`.claude/worktrees/agent-aacab5b1b5a30a5d0/game/outputs/shots-compare/2026-09-22_21-20-24/after`):
+step-3 sheet `outputs/shots-compare/2026-09-23_05-50-01/index.html` (bake + bevels: only the brass rims and chest
+straps move, a few px, invisible at native size; dash/strike diffs are 009's spear rack and the sparks' entropy);
+final sheet `outputs/shots-compare/2026-09-23_06-09-32/index.html` (merged tree), both under this worktree's `game/`.
+Reviewed at native size and 2-4x crops: the knight strip, `models-cast`, `models-armoury-*`, dash 00-20 and strike
+02-26 in steps of four, and the isolated phone capture `mobile-materials-and-strike` at 390x844.
+
+Visual verdict per claim:
+1. Head and shoulders merge - better in five facings, not in three. At 0, 1, 2, 6 and 7 the helmet is a larger, lighter
+   mass over near-black shoulders with the brass rim as the edge; it reads as a helmeted head on shoulders at native
+   size and on the phone. At 3, 4 and 5 the shoulders are darker too, but the back of the helmet is in shade and the cape
+   is still the brightest thing. The slits at facing 0 show a little more; a small change.
+2. Red only from behind - the premise did not hold: red was on him in every facing before (red pixels per facing
+   80/247/109/708/1307/984/331/76 in B0, 83/189/119/687/1264/969/339/96 after, from the crest, surcoat and cape). The plan's
+   two levers for it (mantle, collar) are invisible and were not kept; the small red flick under the visor at facing 0
+   (the collar) is now under the larger helmet.
+3. Invisible bevels - met: 3,990 -> 2,838 triangles and 53 -> 32 meshes, with no visible change in the step-3 sheet.
+No clipping of head, crest or cape in the dash or strike frames reviewed.
+
+Gates (merged tree): typecheck, lint, `npm test` (284 pass), full browser suite on d3d11 port 3200 (143 passed, 2
+skipped, 6.5 min; untouched tree 139 passed, 2 skipped, 6.9 min), `npm run build`, `git diff --check` - all pass.
+`models.spec.ts` and `footsteps.spec.ts` at `--repeat-each=3`: 45 passed.
