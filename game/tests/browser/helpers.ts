@@ -214,6 +214,8 @@ export type Snapshot = {
     triangles: number;
     /** Frames the post chain has drawn since the mount. Under manual time only `step(ms, true)` moves it. */
     frames: number;
+    /** The post chain's passes in order, by class name. */
+    passes: string[];
     /** Point lights in the scene. Fixed by design: the count is compiled into every lit shader. */
     pointLights: number;
     programs: number;

@@ -94,12 +94,6 @@ const keyLabel = (code: string) => code.startsWith('Key') || code.startsWith('Di
 // Deduplicated after labelling, not before: the two shift keys are distinct codes and one legend, and
 // "Shift / Shift" tells a player nothing except that the card is not thinking.
 const bindLabel = (codes: string[], join = ' / ') => [...new Set(codes.map(keyLabel))].join(join);
-// Plan 014 round 8 (lever 5): the ability row's own keycap reads a full key name ("Space", "Shift")
-// at 9px under a 32px diamond - the "unstyled dev placeholder" the critic named. A real keycap is
-// engraved with an abbreviation, not the key's full name, so this shortens the same label `bindLabel`
-// already produces rather than replacing it - settings and the controls legend keep the full word.
-const KEYCAP_GLYPH: Record<string, string> = { Space: 'SPC', Shift: '⇧', Control: '⌃', Alt: '⌥', Enter: '⏎', Escape: 'ESC', Tab: '⇥' };
-const keycapLabel = (codes: string[]) => [...new Set(codes.map(keyLabel))].map((l) => KEYCAP_GLYPH[l] ?? (l.length > 4 ? l.slice(0, 3).toUpperCase() : l.toUpperCase())).join('/');
 // Hydration never changes back, so there is nothing to subscribe to.
 const noSubscription = () => () => {};
 
@@ -203,10 +197,6 @@ export default function DungeonGame() {
   const [menuView, setMenuView] = useState<'main' | 'controls' | 'settings'>('main');
   const returnTo = useRef<string | null>(null);
   const dashMeter = useRef<HTMLProgressElement>(null);
-  // Plan 014 round 5 (lever C8): the dash icon's own radial sweep, driven the same imperative way the
-  // old `<progress>` was - one DOM write a frame from the render loop, no React state and no re-render
-  // for something that changes sixty times a second.
-  const dashSweep = useRef<HTMLDivElement>(null);
   const [displayLost, setDisplayLost] = useState(false), [floorBuild, setFloorBuild] = useState(0);
   // Deliberately not the same flag as displayLost: that is a context taken away mid-descent and handed
   // back, this is one never granted, so there is no run to pause and nothing that could restore it.
@@ -430,14 +420,12 @@ export default function DungeonGame() {
     mount.appendChild(renderer.domElement);
     const camera = new THREE.OrthographicCamera(-8, 8, 5, -5, 0.1, 70);
     camera.position.set(10, 13, 13); camera.lookAt(0, 0, 0);
-    // Plan 014, lever 3: bloom (flames, eyes, the THREAT/COMMIT marks, the water's own glow), dark
-    // outlines on every living figure, a teal-shadow/orange-highlight grade, a tilt-shift blur and a
+    // Plan 014, lever 3: bloom (flames, eyes, the THREAT/COMMIT marks, the water's own glow), a
+    // teal-shadow/orange-highlight grade, a tilt-shift blur and a
     // vignette - see dungeon-post.ts for why no OutputPass follows it.
     const post = createPostChain(renderer, scene, camera, mount.clientWidth || 1, mount.clientHeight || 1, postQuality(renderer, window.location.search));
     setPlainVeil(post.quality === 'reduced');
     const flameKeeper = flameShaderKeeper(); scene.add(flameKeeper);
-    const outlineTargets: THREE.Object3D[] = [];
-    const updateOutline = () => { outlineTargets.length = 0; outlineTargets.push(player); for (const enemy of enemyData) if (!enemy.dead) outlineTargets.push(enemy.group); post.setOutline(outlineTargets); };
     // Ambient is the enemy of a lit pool: it paid for every unlit corner, so a brazier could only ever
     // read as a decal on an already-bright floor. Half of it moves into the moon, which models form
     // instead of flattening it, and the rest is bought back by the torches below.
@@ -849,10 +837,10 @@ export default function DungeonGame() {
       // behind the veil, the second is the floor that is on screen when it lifts. A driver that owns the
       // clock draws when it asks to and sees nothing until then, so under manual time neither is drawn -
       // a full scene pass twice per reset was the largest single cost of a pooled test on software GL.
-      if (!manualTime) { updateOutline(); post.render(elapsed); }
+      if (!manualTime) { post.render(elapsed); }
       setVeilStage(4);
       await painted(); if (stopped) return false;
-      if (!manualTime) { updateOutline(); post.render(elapsed); }
+      if (!manualTime) { post.render(elapsed); }
       setVeilStage(5);
       await painted();
       return !stopped;
@@ -2080,7 +2068,6 @@ export default function DungeonGame() {
       moon.position.copy(player.position).setY(0).add(MOONRISE); moon.target.position.set(player.position.x,0,player.position.z); moon.target.updateMatrixWorld();
       mapPlayer.current?.setAttribute('cx', String(player.position.x / TILE)); mapPlayer.current?.setAttribute('cy', String(player.position.z / TILE));
       if (dashMeter.current) dashMeter.current.value = Math.max(0,1-dashCooldown/run.dashSpan);
-      if (dashSweep.current) dashSweep.current.style.setProperty('--ready', String(Math.max(0,Math.min(1,1-dashCooldown/run.dashSpan))));
       const target = player.position.clone().addScaledVector(velocity,0.12); cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
       camera.position.set(cameraFocus.x + 9.2,12.5,cameraFocus.z + 11.5);
       // Reduced motion drops the shake outright: it is ~90 Hz camera translation that carries nothing the
@@ -2287,7 +2274,7 @@ export default function DungeonGame() {
       manualTime = true;
       const steps = Math.max(1, Math.ceil(ms / (1000 / 60)));
       for (let i = 0; i < steps; i++) update(ms / steps / 1000);
-      if (draw) { updateOutline(); post.render(elapsed); }
+      if (draw) { post.render(elapsed); }
     };
     const renderText = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
@@ -2296,7 +2283,7 @@ export default function DungeonGame() {
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
-      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })(), programs: (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0, quality: post.quality },
+      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })(), programs: (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0, quality: post.quality },
       effects: { impacts: impacts.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.
@@ -2324,13 +2311,14 @@ export default function DungeonGame() {
       if (stopped) return; raf = requestAnimationFrame(animate);
       // rAF timestamps describe the frame start, which can precede effect setup.
       // Establish the clock on the first callback so startup cannot run time backwards.
-      if (built && warmed && !manualTime && !document.hidden) { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); updateOutline(); post.render(elapsed); }
+      if (built && warmed && !manualTime && !document.hidden) { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); post.render(elapsed); }
       last = now;
     };
     raf = requestAnimationFrame(animate);
     // Plan 014: zoomed in close to the reference's framing - the knight fills much more of the
     // frame than the old 7.2/6.3 span left him. Ratio kept the same between the two breakpoints.
-    const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 3.76 : 4.3; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); };
+    // Then eased back out by a fifth (4.3/3.76 -> 5.16/4.51): the tight frame hid too much of the room.
+    const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 4.51 : 5.16; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); };
     window.addEventListener('resize', resize); resize();
     // The keep is raised two frames after the mount rather than inside it, so the hydrated menu gets a frame
     // on screen first: its button is live, and a press that lands while the build is still ahead of it
@@ -2418,22 +2406,9 @@ export default function DungeonGame() {
           element here would bring user-agent layout and a modal API this loop does not use. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
       <section className="hud" aria-label="Player status"><div className="health-row"><span aria-hidden="true" /><b>{health}<small>/{maxHealth}</small></b><span className="rank-badge" aria-label={`Rank ${rank}`}>{rank}</span></div><div className="health-track" role="progressbar" aria-label="Vitality" aria-valuemin={0} aria-valuemax={maxHealth} aria-valuenow={health}><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div>
-        {/* Plan 014 round 5 (lever C8): the two abilities the knight actually has, each named by its
-            real bound key rather than a fixed legend - a rebind shows up here the same frame it shows
-            up on the settings card. The dash icon's own conic-gradient sweep is what used to be the
-            plain `<progress>` bar; `dashMeter` stays too, off-screen, so nothing that reads the
-            accessible value tree loses the plain 0-1 progressbar semantics a sweep can't carry alone. */}
-        <div className="ability-row">
-          <div className="ability"><div className="ability-icon strike-icon" aria-hidden="true"><span className="ability-glyph">⚔</span></div><kbd className="keycap"><span className="visually-hidden">{bindLabel(settings.binds.attack)}</span><span aria-hidden="true">{keycapLabel(settings.binds.attack)}</span></kbd></div>
-          <div className="ability">
-            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-            <div className="ability-icon dash-icon" role="progressbar" aria-label="Dash readiness" aria-valuemin={0} aria-valuemax={1}>
-              <div className="dash-sweep" ref={dashSweep} /><span className="ability-glyph">»</span>
-            </div>
-            <kbd className="keycap"><span className="visually-hidden">{bindLabel(settings.binds.dash)}</span><span aria-hidden="true">{keycapLabel(settings.binds.dash)}</span></kbd>
-          </div>
-          <progress ref={dashMeter} max="1" value="1" className="visually-hidden" aria-hidden="true" tabIndex={-1} />
-        </div>
+        {/* The strike/dash icon row and its keycaps are gone: they read as a UI overlay on the painted
+            scene. The dash meter stays, off-screen, so a driver reading the value tree still has it. */}
+        <progress ref={dashMeter} max="1" value="1" className="visually-hidden" aria-hidden="true" tabIndex={-1} />
         {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
         {ammo && <div className="quiver" role="progressbar" aria-label="Bolts in hand" aria-valuemin={0} aria-valuemax={ammo.of} aria-valuenow={ammo.held}>{Array.from({ length: ammo.of }, (_, i) => <i key={i} className={i < ammo.held ? 'held' : ''} />)}</div>}<progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} /></section>
       {floorMap && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action(mapOpen ? 'pause' : 'map')} aria-label={mapOpen ? 'Close floor map' : 'Open floor map'}><svg key={floorBuild} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g transform={`rotate(${mapAngle*180/Math.PI})`}>
