@@ -482,6 +482,10 @@ export default function DungeonGame() {
     // any other sprite) so it reads as a hot little glyph without needing to bloom to be seen.
     const alertTex = alertTexture();
     const alertMaterial = new THREE.SpriteMaterial({map:alertTex,depthTest:false,transparent:true,fog:false});
+    // Uploaded now rather than on first use: these only ever draw once a guard notices or winds up, so a
+    // lazy upload made the renderer's texture count grow mid-floor, which reads as a leak to every check
+    // that compares resource counts across rebuilds - and it was a hitch on the first windup besides.
+    for (const shared of [telegraphTex, laneTex, alertTex]) renderer.initTexture(shared);
     const torchLights: THREE.PointLight[] = [];
     // Cutoff distance is what was drawing the hard-edged ellipse. Three windows a point light's falloff
     // by `(1 - (d/distance)^4)^2`, which collapses to zero over the last few units, and at distance 15 in
@@ -1217,6 +1221,21 @@ export default function DungeonGame() {
         return { group, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush, anchor:{x:spawn.x*TILE,z:spawn.z*TILE}, notice:0, alertIn:Infinity };
       });
       phase('enemies');
+      // Every texture the new floor uses goes to the GPU now. three.js otherwise uploads a texture the
+      // first frame something using it is on screen, so which ones were resident depended on where the
+      // camera happened to look: walking into a new room hitched on the upload, and the renderer's texture
+      // count wandered by what was in view, which every leak check across rebuilds reads as a leak.
+      const uploaded = new Set<THREE.Texture>();
+      const upload = (value: unknown) => { if (value instanceof THREE.Texture && !uploaded.has(value)) { uploaded.add(value); renderer.initTexture(value); } };
+      world.traverse((object) => {
+        const material = (object as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+        for (const m of material ? (Array.isArray(material) ? material : [material]) : []) {
+          for (const value of Object.values(m)) upload(value);
+          const uniforms = (m as THREE.ShaderMaterial).uniforms;
+          if (uniforms) for (const key in uniforms) upload(uniforms[key]?.value);
+        }
+      });
+      phase('upload');
       player.position.set(floor.rooms[0].x * TILE, 0.03, floor.rooms[0].z * TILE);
       cameraFocus.copy(player.position);
       // The knight is on his mark, so the chamber he is standing in is known and its lights can be hung
@@ -2259,7 +2278,7 @@ export default function DungeonGame() {
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
-      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })() },
+      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })() },
       effects: { impacts: impacts.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.

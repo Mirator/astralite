@@ -2291,3 +2291,28 @@ spec runs in 23 s locally (was 3.5 min). Its durations entry is an estimate (90 
 Planned load: 402 / 377 / 376 s of tests across the shards, two workers each. Gates: typecheck, lint,
 `npm test` (172/172), `occlusion.spec.ts` under `GAME_TEST_GL=d3d11` (3 passed, 1 skipped as on main), and
 `--list` per planned shard: 32 + 33 + 38 = the gate's 103 scenarios, each exactly once.
+
+## Light cap, loading screen, and the art pass made gate-clean
+
+- **Point lights capped.** The art pass gave every sconce, lantern and water bounce its own light: 134 on
+  floor 1. three.js unrolls its point-light loop into every lit shader, so a cold boot blocked the main
+  thread for 133.8 s compiling, every lit pixel paid for 134 lights, and a floor with a different count
+  recompiled everything. The atmosphere now lays out `LightAnchor`s and a fixed pool of four lights is lent
+  to the nearest each frame (spares sit at zero intensity, never hidden, since hiding changes the count).
+  Floor 1: 9 point lights, 10.2 s cold. `frame-budget.spec.ts` pins the count across floors.
+- **Loading screen.** Staged builds with real progress; hooks go up when the floor exists, the veil lifts
+  once shaders are linked and a frame presented. The warm-up compiles synchronously: `compileAsync`
+  crashed inside three.js when a floor was torn down mid-poll. `WARM_UP` budgets the waits that span it.
+- **Render counters read the scene pass.** Behind the post chain `renderer.info.render` described only the
+  last full-screen quad (1 triangle), so the frame budget, the footstep "one extra draw" check and the
+  carved-chamber triangle floor were measuring nothing; `post.sceneCost` is captured after the scene pass.
+- **A GPU leak per floor.** The water's floor-sized shore mask lived only in a shader uniform, which
+  `material.dispose()` does not reach; it now goes with the material (57, 57, 57 textures across rebuilds).
+- **Textures uploaded at build.** Every texture a floor uses (and the telegraph and alert textures at
+  mount) goes to the GPU up front, so the texture count no longer depends on what the camera saw first,
+  and walking into a room no longer hitches on an upload.
+- Tests: the flames snapshot type matches the billboards; the footsteps repeat-run check asserts no growth
+  rather than equality with a run that inherits the pooled page's earlier uploads.
+
+Gates: typecheck, lint, `npm test` (176/176), the PR-gate browser subset under `GAME_TEST_GL=d3d11`
+(102 passed, 2 skipped as on main).

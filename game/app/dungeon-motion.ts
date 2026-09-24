@@ -233,6 +233,9 @@ export function tidalMaterial(shallows = new THREE.Vector4(0, 0, 12, 12), cells:
       `);
   };
   material.customProgramCacheKey = () => 'tidal-currents-v12';
+  // The shore mask is sized to this floor and lives only in a shader uniform, which `material.dispose()`
+  // does not reach - so every floor used to leave its mask behind on the GPU. It goes with the material.
+  material.addEventListener('dispose', () => mask.texture?.dispose());
   return { material, time, shoal, torches };
 }
 

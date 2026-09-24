@@ -131,6 +131,16 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
   const composer = new EffectComposer(renderer);
   composer.setSize(width, height);
   const renderPass = new RenderPass(scene, camera);
+  // `renderer.info.render` resets on every `renderer.render`, and the composer makes one per pass - so
+  // after a frame it describes only the last full-screen quad (one triangle, one call), not the scene.
+  // The frame budget, the footstep "one extra draw" check and the carved-chamber triangle count all
+  // mean the scene's own cost, so it is captured right after the scene pass itself draws.
+  const sceneCost = { calls: 0, triangles: 0 };
+  const drawScene = renderPass.render.bind(renderPass);
+  renderPass.render = (...args: Parameters<RenderPass['render']>) => {
+    drawScene(...args);
+    sceneCost.calls = renderer.info.render.calls; sceneCost.triangles = renderer.info.render.triangles;
+  };
   composer.addPass(renderPass);
   // Plan 014 round 6 (lever 2): grout lines, wall bases, pillar/floor contact and the paving under a
   // parapet were all reading one flat lit value - nothing in the render pipeline darkened a surface
@@ -237,6 +247,9 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
       uniforms.uResolution.value.set(w, h);
     },
     setOutline(objects: THREE.Object3D[]) { outlinePass.selectedObjects = objects; rimPass.selectedObjects = objects; },
+    /** Draw calls and triangles of the last frame's scene pass - what the frame actually submitted for
+     * the world, without the post chain's own full-screen passes. */
+    sceneCost,
     /** `t` is the world's own running clock (seconds), the same one every animated shader in the
      * keep reads, so grain and the game's other time-driven motion never drift apart. */
     render(t: number) {
