@@ -2196,3 +2196,27 @@ opens Settings through the menu item.
 Gates: typecheck, lint, `npm test` (292/292), `GAME_TEST_GL=d3d11 npm run test:browser` (150 passed, 2 skipped),
 `npm run build`. Not run: SwiftShader captures / `shots:compare`. The intro card's layout changed, so any
 reference frame of the intro will differ.
+
+## Unit-test pruning, and what it turned up
+
+The unit suite was audited test by test against one bar: keep a test only if it would catch a real bug
+the browser suite misses. 293 tests became 166 (`npm test` ~13 s). Kept: generator invariants across many
+seeds, collision edge cases, enemy decision logic, projectile/fire/boon/draft rules, persistence
+corruption and rebinding, off-origin and vertical aim maths, bake correctness and disposal, cutaway slot
+allocation, death and cloak geometry, the balance comparator. Gone: restated constants, snapshots,
+unreachable inputs, tests of code written inside the test, the figure fingerprint fixture, and cases a
+browser spec already covers. `tests/README.md` and the spec headers that pointed at deleted tests are
+corrected.
+
+The audit found three real problems, fixed in their own commits:
+- **Decor ignored the weapon rack.** `weaponDrop` is in world units; the decor planner treated it as
+  tiles, so motifs and paving could land under the rack. Its guarding test had the same unit error.
+- **The cutaway shader maths lived twice.** The TypeScript copy was never called and the GLSL hardcoded
+  its numbers. The copy is gone; the named constants are now interpolated into the GLSL.
+- **`bench.spec.ts` captured on every PR.** It tested `GAME_TEST_CAPTURE` for truthiness, and CI sets
+  `'0'`. It now uses `CAPTURING` from `helpers.ts`.
+
+Gates: typecheck, lint, `npm test` (166/166); `GAME_TEST_GL=d3d11` browser runs of `floor-motifs`,
+`macro-paving`, `weapon` (25 passed), `occlusion` (3 passed, 1 conditional skip that also skips on main)
+and `bench` (2 passed; no PNG at `GAME_TEST_CAPTURE=0`, one written at `=1`). Not run: the full browser
+suite.
