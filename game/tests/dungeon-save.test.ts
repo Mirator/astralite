@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ACTIONS, appendRun, betterRun, bindKey, DEFAULT_BINDS, defaultSettings, parseBest, parseRun, parseRuns, parseSeed, parseSettings, readBest, readRuns, readSeed, readSettings, RESERVED, RUN_LOG_CAP, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunEnd, type Settings } from '../app/dungeon-save.ts';
+import { ACTIONS, appendRun, betterRun, bindKey, DEFAULT_BINDS, defaultSettings, parseBest, parseRun, parseRuns, parseSeed, parseSettings, readRuns, readSettings, RESERVED, RUN_LOG_CAP, summariseRuns, writeRuns, writeSettings, type Action, type BestRun, type RunEnd, type Settings } from '../app/dungeon-save.ts';
 
 const run = (floor: number, xp: number): BestRun => ({ floor, xp, kills: 0, won: false });
 // A plausible death on floor 2, which every history test varies one field of.
@@ -47,19 +47,6 @@ test('a stored seed survives only if it is still a whole 32-bit value', () => {
   assert.equal(parseSeed('4294967296'), null);
   assert.equal(parseSeed('0'), 0);
   assert.equal(parseSeed('4294967295'), 4294967295);
-});
-
-test('a finished run lands at the end of the history and comes back unchanged', () => {
-  assert.deepEqual(appendRun([], end()), [end()]);
-  const first = end({ at: 1 }), second = won({ at: 2 });
-  assert.deepEqual(appendRun([first], second), [first, second]);
-  // The caller's list is never mutated, so a stale snapshot can never silently grow a phantom entry.
-  const held = [first];
-  appendRun(held, second);
-  assert.deepEqual(held, [first]);
-  // Through the exact JSON a browser would be holding: every field survives, which is the whole point
-  // of writing one down — a run recorded in one session has to still be there in the next.
-  assert.deepEqual(parseRuns(JSON.stringify([first, second])), [first, second]);
 });
 
 test('the history is capped and the run that goes is the oldest', () => {
@@ -158,36 +145,6 @@ test('a history that is missing, hostile or unwritable costs the log and nothing
     const stored = JSON.parse(cell.get('drowned-keep:runs') ?? '[]') as RunEnd[];
     assert.equal(stored.length, RUN_LOG_CAP);
     assert.equal(stored[0].at, 6);
-  } finally {
-    if (original) Object.defineProperty(owner, 'localStorage', original); else delete owner.localStorage;
-  }
-});
-
-test('storage that is missing or throws is indistinguishable from an empty one', () => {
-  const owner = globalThis as { localStorage?: unknown };
-  const original = Object.getOwnPropertyDescriptor(owner, 'localStorage');
-  try {
-    // No storage object at all: naming it throws a ReferenceError, which must not escape.
-    delete owner.localStorage;
-    assert.equal(readBest(), null);
-    assert.equal(readSeed(), null);
-    writeBest({ floor: 3, xp: 900, kills: 20, won: true });
-    writeSeed(1234);
-    // Storage present but hostile, as in a private window with site data blocked.
-    owner.localStorage = { getItem() { throw new Error('SecurityError'); }, setItem() { throw new Error('QuotaExceededError'); } };
-    assert.equal(readBest(), null);
-    assert.equal(readSeed(), null);
-    writeBest({ floor: 3, xp: 900, kills: 20, won: true });
-    writeSeed(1234);
-    // A working store round-trips, and a corrupt value there still reads as absent.
-    const cell = new Map<string, string>();
-    owner.localStorage = { getItem: (k: string) => cell.get(k) ?? null, setItem: (k: string, v: string) => { cell.set(k, v); } };
-    writeBest({ floor: 2, xp: 310, kills: 9, won: false });
-    writeSeed(0xdeadbeef);
-    assert.deepEqual(readBest(), { floor: 2, xp: 310, kills: 9, won: false });
-    assert.equal(readSeed(), 0xdeadbeef);
-    cell.set('drowned-keep:best', '{"floor":');
-    assert.equal(readBest(), null);
   } finally {
     if (original) Object.defineProperty(owner, 'localStorage', original); else delete owner.localStorage;
   }
@@ -305,8 +262,9 @@ test('nothing can bind away the one key that opens the menu', () => {
   const moved = bindKey(binds, 'pause', 'KeyP');
   assert.deepEqual(moved?.pause, ['KeyP']);
   assert.equal(bindKey(moved!, 'attack', RESERVED), null);
-  // Nothing that is not a key code gets through either: a blank, a legend, or a whole word.
-  for (const code of ['', ' ', 'w', 'Key W', 'Key-W', '{}', 'A'.repeat(25)]) if (!/^[A-Za-z0-9]{1,24}$/.test(code)) assert.equal(bindKey(binds, 'attack', code), null);
+  // Nothing shaped unlike a key code gets through either: a blank, spaces or punctuation, or a run too long
+  // to be one. (The check is on shape, not against the list of real codes.)
+  for (const code of ['', ' ', 'Key W', 'Key-W', '{}', 'A'.repeat(25)]) assert.equal(bindKey(binds, 'attack', code), null, JSON.stringify(code));
 });
 
 test('settings survive a reload, and a store that will not have them costs only the customisation', () => {

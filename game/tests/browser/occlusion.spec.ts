@@ -4,8 +4,8 @@ import { canStand, countChangedPixels, expect, type Floor, type Game, roomCentre
  * Plan 007: a small camera-facing dithered cutaway in the actual opaque architecture around an actor
  * the fixed isometric camera cannot otherwise see behind.
  *
- * `dungeon-occlusion.test.ts` already proves the view/depth math, the ellipse limits, the overlap
- * bound and the slot-assignment logic in isolation, off plain numbers. None of that is proof the
+ * `dungeon-occlusion.test.ts` covers the slot-assignment logic (allocation, fading, clearing) and
+ * material registration in isolation. None of that is proof the
  * shader compiles, installs on the real materials, or does anything visible - only an actual WebGL
  * draw and a before/after pixel comparison is, which is what this file is for.
  *

@@ -51,7 +51,8 @@ export function decorReservations(floor: Floor): Rect[] {
     rects.push(rectAt(cx, cz, baseRadius(room) + .2));
   }
   const drop = floor.weaponDrop;
-  rects.push(rectAt(drop.x * TILE, drop.z * TILE, 1.5));
+  // `weaponDrop` is already in world units (generateFloor builds it as tile * TILE).
+  rects.push(rectAt(drop.x, drop.z, 1.5));
   return rects;
 }
 
@@ -109,7 +110,7 @@ export function planRoomMotif(floor: Floor, room: Room): MotifLayout | null {
   // Chebyshev distance, to match the axis-aligned square `decorReservations` gives the drop: a
   // circular distance would let a diagonal motif creep closer than the reservation actually allows.
   const dropDistance = dropHere
-    ? Math.max(Math.abs(drop.x - room.x), Math.abs(drop.z - room.z)) * TILE
+    ? Math.max(Math.abs(drop.x - room.x * TILE), Math.abs(drop.z - room.z * TILE)) // drop is world units, room is tiles
     : Infinity;
   const owner = new Set(
     floor.tiles.filter((t) => t.room === room.id && !t.wood).map((t) => `${t.x},${t.z}`),

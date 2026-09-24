@@ -4,7 +4,7 @@ import { type Floor, expect, Game, roomCentre, test } from './helpers.ts';
 /**
  * The three theme motifs replace a compass carved into almost every room the same way. This checks
  * the real scene rather than the pure planner a second time - `dungeon-decor-layout.test.ts` and
- * `dungeon-floor-motifs.test.ts` already cover `planFloorMotifs`/`buildFloorMotifs` in isolation, so
+ * `dungeon-floor-motifs.test.ts` already cover `planRoomMotif`/`buildFloorMotifs` in isolation, so
  * what is worth asking here is whether `dungeon-art.ts` actually wired the two together: the live
  * `graphics.motifs` the running game reports has to be exactly what an independent call to
  * `planFloorMotifs` on the same floor says it should be, not a second recomputation standing in for

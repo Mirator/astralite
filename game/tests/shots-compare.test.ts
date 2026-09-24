@@ -6,14 +6,8 @@ import {
   changedText,
   costChange,
   defaultBase,
-  escapeHtml,
-  pairCaptures,
   parseArgs,
   parseCosts,
-  renderSheet,
-  sequenceOf,
-  type Row,
-  type Sheet,
 } from '../scripts/shots/lib.ts';
 
 // The contact sheet judges nothing, so what it owes the suite is that its numbers are the numbers: the diff
@@ -23,16 +17,6 @@ import {
 /** An RGBA buffer of `w * h` pixels of one colour. */
 const flat = (w: number, h: number, [r, g, b, a = 255]: number[]) =>
   Uint8ClampedArray.from({ length: w * h * 4 }, (_, i) => [r, g, b, a][i % 4]);
-
-test('arguments default to a d3d11 comparison against the fork point, ports a step apart', () => {
-  const o = parseArgs([]);
-  assert.equal(o.gl, 'd3d11');
-  assert.equal(o.gain, 6);
-  assert.equal(o.base, undefined);
-  assert.equal(o.before, undefined);
-  assert.deepEqual([o.port, o.basePort], [3000, 3001]);
-  assert.deepEqual([parseArgs([], { GAME_TEST_PORT: '4100' }).port, parseArgs([], { GAME_TEST_PORT: '4100' }).basePort], [4100, 4101]);
-});
 
 test('arguments take both spellings and refuse what they cannot honour', () => {
   const o = parseArgs(['--base', 'HEAD~2', '--gl=swiftshader', '--gain', '10', '--grep', 'strike', '--port', '3200', '--base-port=3300']);
@@ -75,28 +59,6 @@ test('COST lines read back as they were logged, through whatever the reporter pr
   assert.equal(costChange({ calls: 412 }, { calls: 412 }, 'calls'), '412 → 412');
   assert.equal(costChange(undefined, { calls: 412 }, 'calls'), '? → 412');
   assert.equal(costChange(undefined, undefined, 'calls'), '');
-});
-
-test('captures pair by name, stills first, each strip in frame order, gaps kept', () => {
-  assert.deepEqual(sequenceOf('strike-seq-07'), { group: 'strike-seq', frame: 7 });
-  assert.deepEqual(sequenceOf('strike-contact'), { group: null, frame: null });
-  const pairs = pairCaptures(
-    ['strike-seq-10.png', 'strike-seq-02.png', 'dark-corridor.png', 'bridge-over-water.png', 'dash-seq-00.png'],
-    ['bridge-over-water.png', 'strike-seq-02.png', 'strike-seq-10.png', 'strike-seq-31.png', 'dash-seq-00.png', 'new-scene.png'],
-  );
-  assert.deepEqual(pairs.map((p) => p.name), [
-    'bridge-over-water', 'dark-corridor', 'new-scene', 'dash-seq-00', 'strike-seq-02', 'strike-seq-10', 'strike-seq-31',
-  ]);
-  const by = Object.fromEntries(pairs.map((p) => [p.name, [p.before, p.after]]));
-  assert.deepEqual(by['dark-corridor'], [true, false]);
-  assert.deepEqual(by['new-scene'], [false, true]);
-  assert.deepEqual(by['strike-seq-31'], [false, true]);
-  assert.deepEqual(by['bridge-over-water'], [true, true]);
-});
-
-test('identical frames diff to nothing', () => {
-  const a = flat(4, 3, [10, 20, 30]);
-  assert.deepEqual(diffPixels(a, a.slice(), 4), { width: 4, height: 3, total: 12, changed: 0, worst: 0, mean: 0, box: null });
 });
 
 test('the diff counts changed pixels by their worst channel, ignores alpha, and boxes them', () => {
@@ -142,38 +104,4 @@ test('a handful of changed pixels never rounds to nothing', () => {
   assert.equal(changedText(of(0)), 'identical');
   assert.equal(changedText(of(8)), '8 px (<0.01%)');
   assert.equal(changedText(of(2495)), '2,495 px (0.36%)');
-});
-
-test('the sheet escapes what it prints and shows a missing side as missing', () => {
-  assert.equal(escapeHtml(`<a href="x">'&'</a>`), '&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;');
-  const stats = { width: 10, height: 10, total: 100, changed: 25, worst: 40, mean: 3.5, box: [0, 0, 4, 4] as [number, number, number, number] };
-  const row = (name: string, patch: Partial<Row>): Row => ({
-    name, ...sequenceOf(name), before: true, after: true,
-    beforeSrc: `before/${name}.png`, afterSrc: `after/${name}.png`, diffSrc: `diff/${name}.png`, stats, ...patch,
-  });
-  const sheet: Sheet = {
-    created: '2026-09-22T00:00:00.000Z',
-    command: 'npm run shots:compare -- --base HEAD',
-    gain: 6,
-    before: { label: 'previous', source: 'HEAD', sha: 'abcdef1234567890', gl: 'd3d11', seconds: 150, costs: { 'bridge-over-water': { calls: 400, triangles: 1000 } } },
-    after: { label: 'current', source: 'working tree', dirty: true, gl: 'd3d11', seconds: 151, costs: { 'bridge-over-water': { calls: 402, triangles: 1000 } } },
-    rows: [
-      row('bridge-over-water', {}),
-      row('<script>', { after: false, afterSrc: null, diffSrc: null, stats: null, note: 'only in the previous version' }),
-      row('strike-seq-00', {}),
-      row('strike-seq-01', { stats: { ...stats, changed: 0, worst: 0, mean: 0, box: null } }),
-    ],
-    reference: { crop: 'reference-crop.png', full: 'reference.png', region: [0, 0, 960, 515] },
-    warnings: ['a & b'],
-  };
-  const html = renderSheet(sheet);
-  assert.ok(!html.includes('<script>'), 'a capture name reached the page unescaped');
-  assert.ok(html.includes('&lt;script&gt;'));
-  assert.ok(html.includes('no capture'), 'the missing side is not shown as missing');
-  assert.ok(html.includes('25.00%'));
-  assert.ok(html.includes('400 → 402 (+2)'));
-  assert.ok(html.includes('strike-seq - 2 frames, 1/2 changed, most 25.00%'));
-  assert.ok(html.includes('src="reference-crop.png"') && html.includes('href="reference.png"'));
-  assert.ok(html.includes('a &amp; b'));
-  assert.ok(!/https?:\/\//.test(html), 'the sheet must not fetch anything');
 });

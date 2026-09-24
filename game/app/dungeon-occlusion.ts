@@ -6,12 +6,11 @@ import type { WebGLProgramParametersWithUniforms } from 'three/src/renderers/web
  * the fixed isometric camera cannot otherwise see behind. Everything here is one controller, held for
  * the life of the mount; only its registration table is floor-scoped (`releaseFloor`).
  *
- * The shader math lives twice on purpose. `installCutawayShaderHooks` writes the GLSL that actually
- * runs on the GPU; `ellipseEdge` / `depthGap` / `cutStrengthAt` are the same arithmetic in plain
- * TypeScript, kept in lockstep with the GLSL string by sharing the same named constants below, so the
- * node suite can pin down the view/depth math, the behind-target rejection and the overlap bound
- * without a WebGL context. Passing those unit tests is not proof the shader compiles or does anything
- * visible — see `tests/browser/occlusion.spec.ts` for the actual pixel evidence this plan requires.
+ * `installCutawayShaderHooks` writes the GLSL that does the cutting. Its tunables (the depth-gap window,
+ * the world-y floor, the ellipse falloff, the strength cap, the slot count) are the named constants below,
+ * interpolated into the GLSL source, so there is one copy of each number and no TypeScript re-statement
+ * of the shader arithmetic to drift from it. The evidence the cutaway works is
+ * `tests/browser/occlusion.spec.ts`: a real WebGL draw and a before/after pixel comparison.
  */
 
 export type EnemyKind = 'guard' | 'stalker' | 'warden';
@@ -21,12 +20,16 @@ type SlotOwner = 'player' | EnemyKind;
 export const CUTAWAY_SLOTS = 3;
 export const CUTAWAY_FADE_IN = 0.10;
 export const CUTAWAY_FADE_OUT = 0.16;
-export const CUTAWAY_MIN_GAP = 0.10;
-export const CUTAWAY_MAX_GAP = 6.0;
-export const CUTAWAY_MIN_WORLD_Y = 0.18;
-export const CUTAWAY_INNER_RADIUS = 0.65;
-export const CUTAWAY_OUTER_RADIUS = 1.0;
-export const CUTAWAY_MAX_STRENGTH = 0.9;
+/** Only a fragment between these depths in front of its target (view-space world units) is an obstruction. */
+const CUTAWAY_MIN_GAP = 0.10;
+const CUTAWAY_MAX_GAP = 6.0;
+/** Nothing at or below this world height is ever cut, so the floor under an actor always stays. */
+const CUTAWAY_MIN_WORLD_Y = 0.18;
+/** Normalized ellipse radius where the cut starts to fall off, and where it reaches zero. */
+const CUTAWAY_INNER_RADIUS = 0.65;
+const CUTAWAY_OUTER_RADIUS = 1.0;
+/** The most any one target can remove; overlapping targets take the max, never the sum. */
+const CUTAWAY_MAX_STRENGTH = 0.9;
 /** Enemies farther than this from the player in world units never open a window. */
 export const CUTAWAY_ENEMY_RANGE = 4.0;
 /** Fixed slot count aside, only two of the three may ever be an enemy. */
@@ -40,49 +43,11 @@ export const CUTAWAY_ELLIPSE: Record<SlotOwner, { radii: [number, number]; yOffs
   warden: { radii: [0.92, 1.35], yOffset: 1.25 },
 };
 
-// ---------------------------------------------------------------------- pure math (unit-testable)
-
-/**
- * The fragment shader's elliptical falloff, mirrored in TypeScript. 1 at the ellipse centre, a smooth
- * fall to 0 between normalized radius 0.65 and 1.0, 0 beyond it. `dx`/`dy` are the view-space offset
- * of the fragment from the target centre; `rx`/`ry` are the ellipse's own two radii.
- */
-export function ellipseEdge(dx: number, dy: number, rx: number, ry: number): number {
-  const ex = dx / rx, ey = dy / ry;
-  const dist = Math.hypot(ex, ey);
-  if (dist >= CUTAWAY_OUTER_RADIUS) return 0;
-  if (dist <= CUTAWAY_INNER_RADIUS) return 1;
-  const t = (dist - CUTAWAY_INNER_RADIUS) / (CUTAWAY_OUTER_RADIUS - CUTAWAY_INNER_RADIUS);
-  return 1 - t * t * (3 - 2 * t);
-}
-
-/**
- * View z is negative in front of the camera, so depth is `-z` and grows with distance. A positive gap
- * means the fragment sits nearer the camera than the target — an obstruction in front of it.
- */
-export function depthGap(targetViewZ: number, fragmentViewZ: number): number {
-  return -targetViewZ - -fragmentViewZ;
-}
-
-export type CutawayFragment = { x: number; y: number; z: number };
-export type CutawayTargetView = { center: CutawayFragment; radii: [number, number]; strength: number };
-
-/** The whole per-target cut amount, world-y guard and depth-gap guard included. Mirrors the GLSL block. */
-export function cutStrengthAt(fragment: CutawayFragment, worldY: number, target: CutawayTargetView): number {
-  if (worldY <= CUTAWAY_MIN_WORLD_Y) return 0;
-  const edge = ellipseEdge(fragment.x - target.center.x, fragment.y - target.center.y, target.radii[0], target.radii[1]);
-  if (edge <= 0) return 0;
-  const gap = depthGap(target.center.z, fragment.z);
-  if (gap < CUTAWAY_MIN_GAP || gap > CUTAWAY_MAX_GAP) return 0;
-  return edge * target.strength * CUTAWAY_MAX_STRENGTH;
-}
-
-/** Overlapping targets combine with max, never sum, so overlap can never remove more than the single-target cap. */
-export function combineCutStrength(amounts: number[]): number {
-  return amounts.reduce((peak, a) => Math.max(peak, a), 0);
-}
-
 // ------------------------------------------------------------------------------- shader injection
+
+/** A number as a GLSL float literal. GLSL ES 3.00 has no implicit int-to-float conversion, so `6.0`
+ * interpolated as JavaScript's `6` would fail to compile wherever it meets a float. */
+const glslFloat = (n: number) => (Number.isInteger(n) ? n.toFixed(1) : String(n));
 
 const CUTAWAY_VERTEX_VARYINGS = `varying vec3 cutawayViewPosition;\nvarying float cutawayWorldY;\nuniform mat4 uCutawayCameraWorld;`;
 const CUTAWAY_VERTEX_ASSIGN = `cutawayViewPosition = mvPosition.xyz;\ncutawayWorldY = (uCutawayCameraWorld * mvPosition).y;`;
@@ -90,9 +55,9 @@ const CUTAWAY_VERTEX_ASSIGN = `cutawayViewPosition = mvPosition.xyz;\ncutawayWor
 const CUTAWAY_FRAGMENT_HEADER = `
 varying vec3 cutawayViewPosition;
 varying float cutawayWorldY;
-uniform vec3 uCutawayCenters[3];
-uniform vec2 uCutawayRadii[3];
-uniform float uCutawayStrengths[3];
+uniform vec3 uCutawayCenters[${CUTAWAY_SLOTS}];
+uniform vec2 uCutawayRadii[${CUTAWAY_SLOTS}];
+uniform float uCutawayStrengths[${CUTAWAY_SLOTS}];
 // Development-only same-frame A/B: zero disables every cut without touching a single target's own
 // state, so a test can draw the identical instant twice and diff the two framebuffers. Always 1 in a
 // production build; nothing here ever writes it outside the dev fixture in the controller below.
@@ -114,17 +79,17 @@ float cutawayBayerThreshold(vec2 fragCoord) {
 const CUTAWAY_FRAGMENT_DISCARD = `
 {
   float cutAmount = 0.0;
-  if (cutawayWorldY > 0.18) {
-    for (int cutawayI = 0; cutawayI < 3; cutawayI++) {
+  if (cutawayWorldY > ${glslFloat(CUTAWAY_MIN_WORLD_Y)}) {
+    for (int cutawayI = 0; cutawayI < ${CUTAWAY_SLOTS}; cutawayI++) {
       vec2 cutawayE = (cutawayViewPosition.xy - uCutawayCenters[cutawayI].xy) / uCutawayRadii[cutawayI];
       float cutawayDist = length(cutawayE);
-      if (cutawayDist < 1.0) {
-        float cutawayEdge = 1.0 - smoothstep(0.65, 1.0, cutawayDist);
+      if (cutawayDist < ${glslFloat(CUTAWAY_OUTER_RADIUS)}) {
+        float cutawayEdge = 1.0 - smoothstep(${glslFloat(CUTAWAY_INNER_RADIUS)}, ${glslFloat(CUTAWAY_OUTER_RADIUS)}, cutawayDist);
         float cutawayTargetDepth = -uCutawayCenters[cutawayI].z;
         float cutawayFragDepth = -cutawayViewPosition.z;
         float cutawayGap = cutawayTargetDepth - cutawayFragDepth;
-        if (cutawayGap >= 0.10 && cutawayGap <= 6.0) {
-          float cutawayAmount = cutawayEdge * uCutawayStrengths[cutawayI] * 0.9;
+        if (cutawayGap >= ${glslFloat(CUTAWAY_MIN_GAP)} && cutawayGap <= ${glslFloat(CUTAWAY_MAX_GAP)}) {
+          float cutawayAmount = cutawayEdge * uCutawayStrengths[cutawayI] * ${glslFloat(CUTAWAY_MAX_STRENGTH)};
           cutAmount = max(cutAmount, cutawayAmount);
         }
       }

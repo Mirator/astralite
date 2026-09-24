@@ -10,8 +10,8 @@ import {
 // fight was fought standing on the same tile. These are the tests for the two halves of the fix —
 // distance that actually moves the knight, and a tail that can be punished for spending it early.
 //
-// The arithmetic behind the numbers lives in `tests/dungeon-combat.test.ts`, where it can be asserted
-// exactly. What these prove is that the running game is wired to it.
+// The immune head and exposed tail are asserted exactly in `tests/dungeon-combat.test.ts`. What these
+// prove is that the running game is wired to the same numbers.
 
 /**
  * The longest straight run of floor anywhere on this level, as a place to stand and a way to face.
