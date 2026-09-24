@@ -82,17 +82,6 @@ test.describe('the floor realizes exactly the motifs the planner plans', () => {
     }
   });
 
-  test('a pinned-seed reset realizes the same motifs the first build did', async ({ game }) => {
-    await game.enter();
-    await game.step(SETTLE);
-    const before = (await game.state()).graphics.motifs.map(realizedKey).sort();
-    await game.reset([0x1]);
-    await game.step(SETTLE);
-    const after = (await game.state()).graphics.motifs.map(realizedKey).sort();
-    expect(after, 'the same seed realized different motifs after a reset').toEqual(before);
-    expect(before.length, 'seed 0x1 never realized any motif to compare').toBeGreaterThan(0);
-  });
-
   test('repeated rebuilds of the same floor settle at stable geometry and texture counts', async ({ game }) => {
     await game.enter();
     await game.step(SETTLE);
@@ -110,7 +99,7 @@ test.describe('the floor realizes exactly the motifs the planner plans', () => {
   });
 });
 
-test.describe('the three motifs read as different constructions', () => {
+test.describe('the three motifs read as different constructions', { tag: '@capture' }, () => {
   test.use({ seeds: [0x1] });
   for (const theme of ['keep', 'ruins', 'flooded'] as const) {
     test(`a ${theme} chamber's motif is captured for review`, async ({ game }) => {
@@ -129,7 +118,7 @@ test.describe('the three motifs read as different constructions', () => {
   }
 });
 
-test.describe('the three motifs on a phone', () => {
+test.describe('the three motifs on a phone', { tag: '@capture' }, () => {
   test.use({ seeds: [0x1], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   /**
    * One isolated mobile context, not three: `isMobile`/`hasTouch`/`viewport` all force a scenario off

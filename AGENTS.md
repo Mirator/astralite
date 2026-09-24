@@ -15,6 +15,7 @@ past sessions and `plans/` holds implementation plans. Node 22.13 or newer.
 | Node suite (generator, combat rules) | `npm test` |
 | Browser suite (real game, Playwright) | `npm run test:browser` — on Windows prefix `GAME_TEST_GL=d3d11` and it is ten times quicker |
 | Browser stability | `npm run test:browser -- --repeat-each=3` |
+| Browser suite as the PR gate runs it | `npm run test:browser -- --grep-invert "@capture\|@nightly"` — tags explained in `game/tests/README.md` |
 | Before/after contact sheet (art changes) | `npm run shots:compare` — `game/tests/README.md` has the options |
 | Figure bench (every figure, every facing, one sheet) | `npm run figures` — dev-only `/bench` route, `game/tests/README.md` has the iteration loop |
 | Production build | `npm run build` |

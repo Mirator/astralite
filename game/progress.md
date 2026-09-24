@@ -2220,3 +2220,23 @@ Gates: typecheck, lint, `npm test` (166/166); `GAME_TEST_GL=d3d11` browser runs 
 `macro-paving`, `weapon` (25 passed), `occlusion` (3 passed, 1 conditional skip that also skips on main)
 and `bench` (2 passed; no PNG at `GAME_TEST_CAPTURE=0`, one written at `=1`). Not run: the full browser
 suite.
+
+## A lighter pull-request gate for the browser suite
+
+The browser suite was reviewed spec by spec for what a PR actually needs. Two tags now take scenarios off
+the gate without deleting them (`--grep-invert "@capture|@nightly"` in `deploy-pages.yml`; the nightly
+isolated run keeps everything, and a capture run draws everything):
+- `@capture`: all of `shots.spec.ts`, and the per-theme and phone review frames in `macro-paving`,
+  `floor-motifs` and `theme-flames`. On a PR they staged a scene and asserted almost nothing.
+- `@nightly`: art-tuning checks that pin the current look (theme colours, two of three telegraph themes,
+  the models eight-facing and cast checks) and the keep and ruins footstep pixel checks.
+
+Deleted as duplicates: the dash immune-window check (the unit test asserts the same thing), the
+pinned-seed reset scenarios in `macro-paving` and `floor-motifs` (every pooled scenario already ends by
+resetting and comparing the whole snapshot), the macro-paving rebuild-count and walk/strike-on-a-slab
+scenarios (collision is `canStand` over cells, which paving never touches) and the theme-flames rebuild
+count. Kept on purpose: scenarios that are now the only coverage for unit tests removed as duplicates
+(listed in `tests/README.md`).
+
+144 scenarios, 103 on the gate. Gates: typecheck, lint, and the gate subset under `GAME_TEST_GL=d3d11`
+(101 passed, 2 skipped as on main).

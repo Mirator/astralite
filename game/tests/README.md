@@ -47,6 +47,25 @@ bought more immunity than a 20-damage warden swing. The hazard's once-per-flare 
 the flare: each ring carries its own `burned` flag, cleared the moment it stops firing. Dash cover
 (`dashTime > 0`) is separate and unchanged.
 
+## What the pull-request gate runs
+
+Two tags take scenarios off the PR gate without deleting them. `.github/workflows/deploy-pages.yml` passes
+`--grep-invert "@capture|@nightly"` unless a capture run was asked for, and the nightly isolated run
+(`isolated.yml`) runs everything.
+
+- **`@capture`**: the scenario only stages a frame for review. `game.capture()` writes nothing unless
+  `GAME_TEST_CAPTURE=1`, so on a PR it would boot, stage and assert only that the seed still produces the
+  scene. All of `shots.spec.ts` and the per-theme and phone captures in `macro-paving`, `floor-motifs` and
+  `theme-flames` carry it.
+- **`@nightly`**: a real check that is too expensive for every PR or pins art tuning a look change is
+  expected to move: the theme-colour and two of three telegraph-legibility cases in `art-direction`, the
+  eight-facing and cast checks in `models`, and the keep and ruins footstep pixel checks (flooded, whose
+  room is far from the origin, stays on the gate).
+
+Some gate scenarios are the only coverage left for behaviour whose unit tests were removed as duplicates
+(the footstep hit-stop, subdivision and reduced-motion checks, the motif rebuild, the flame redraw, the
+enemy silhouettes, the arm-swap leak): trim those only together with a unit test that takes their place.
+
 ## Browser hooks
 
 The game installs these on `window` once floor 1 has been built, which happens behind the menu a couple of

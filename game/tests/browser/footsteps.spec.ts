@@ -393,7 +393,9 @@ test.describe('the surface decides the feedback', () => {
   });
 
   // One scenario per theme on the pooled page, so no single test carries every theme's draws.
-  for (const kind of ['keep', 'ruins', 'flooded'] as const) test(`a ${kind} contact is on screen at the boot, and its stride is captured for review`, async ({ game, page }) => {
+  // Flooded is the one on the PR gate: its room is far from the origin, so a stale bounding sphere on the
+  // particle batch (culled off screen) fails here. The keep and ruins cases repeat the check nightly.
+  for (const kind of ['keep', 'ruins', 'flooded'] as const) test(`a ${kind} contact is on screen at the boot, and its stride is captured for review`, { tag: kind === 'flooded' ? [] : ['@nightly'] }, async ({ game, page }) => {
     await game.enter();
     const floor = await game.floor();
     {
