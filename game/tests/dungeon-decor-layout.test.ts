@@ -88,7 +88,8 @@ test('a motif never overlaps the weapon drop it shares a room with', () => {
     const room = floor.rooms[drop.room];
     const layout = planRoomMotif(floor, room);
     if (!layout) continue;
-    const distance = Math.max(Math.abs(drop.x * TILE - layout.x), Math.abs(drop.z * TILE - layout.z));
+    // `weaponDrop` is already in world units (generateFloor builds it as tile * TILE), like the layout.
+    const distance = Math.max(Math.abs(drop.x - layout.x), Math.abs(drop.z - layout.z));
     assert.ok(
       distance >= layout.radius + 1.5 - 1e-9,
       `seed ${floor.seed} room ${room.id} motif (radius ${layout.radius}) sits ${distance.toFixed(2)} from the drop`,
