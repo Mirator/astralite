@@ -58,6 +58,20 @@ type GameToolContext = {
   }, options: { signal: AbortSignal }) => void | Promise<void>;
 };
 const FLOORS = 3;
+/** Plan 014 round C: what the veil says is happening, one label per stage of `stagedBuild`. The label
+ *  shown is the stage now running, so index 0 names the first one before it has finished. */
+const VEIL_STAGES = ['Charting the halls', 'Cutting the stone', 'Raising the walls', 'Lighting the braziers', 'Flooding the halls'] as const;
+/** Short in-world lines, crossfaded one at a time under the bar (CSS only). */
+const VEIL_LORE = [
+  'Braziers mark the rooms the warden still watches.',
+  'A skeleton that crouches low is about to lunge.',
+  'The tide keeps what the keep forgets.',
+  'Red on the stone means a blow is already falling.',
+  'Dash through a swing, not away from it.',
+  'The stair only opens when its hall is quiet.',
+  'The deeper the floor, the older the stone.',
+  'Steel remembers every hand that held it.',
+] as const;
 // Keys the browser acts on itself — scrolling, quick-find, back-navigation. Only ever swallowed while one
 // of them is actually bound to something, so the list follows a rebind instead of being frozen at the
 // defaults: an arrow freed by a rebind goes back to scrolling the page, and a newly bound PageDown stops.
@@ -169,6 +183,9 @@ export default function DungeonGame() {
   // What the keep is busy doing while the player waits on it, or null when it is not busy. Only ever set
   // for work that blocks the main thread long enough to be felt — which in this game is a floor build.
   const [loading, setLoading] = useState<string | null>(null);
+  // Plan 014 round C: what the veil reports while a keep is raised - the stage reached (an index into
+  // VEIL_STAGES; 0 is "not started"), the floor being built and, once the layout is charted, its name.
+  const [veilStage, setVeilStage] = useState(0), [veilFloor, setVeilFloor] = useState(1), [veilPlace, setVeilPlace] = useState<string | null>(null);
   // ENTER THE KEEP pressed before floor 1 exists. The closure holds the press and clears this when it
   // answers it; until then the loading bar is up.
   const [entering, setEntering] = useState(false);
@@ -766,17 +783,68 @@ export default function DungeonGame() {
     // it lifts, or a descent would flash the floor it just left. The mark spins on the compositor, which is
     // what keeps it turning through a block the main thread cannot answer.
     let building = false;
+    // Plan 014 round C: the build is split into stages that each yield to the browser before the next,
+    // so the veil can paint an honest step and a label between them rather than easing a bar toward a
+    // number nobody measured. Each stage is still one synchronous block - the emblem and the fog run on
+    // the compositor for exactly that reason - but the bar now moves when real work finishes:
+    //   1 chart the layout (the pure generator, and the one seed draw a build makes)
+    //   2 cut the stone (first-use texture generation, `dungeon-textures.ts`; cached after that)
+    //   3 raise the floor (the caller's own work: `buildFloor` and whatever resets ride with it)
+    //   4 warm the shaders (`renderer.compile` plus one post-chain draw, so the first visible frame does
+    //     not stall on program compiles - the cold-start hitch)
+    //   5 draw the first frame, and lift the veil only on the frame after it has been presented.
+    // `afterWork` runs the moment stage 3 is done, before the warm-up: the floor exists and is playable from
+    // then on, which is when the boot installs the window hooks. The warm-up can take ~10 s on a cold shader
+    // cache (see the compile below), and nothing that only reads or steps the floor should wait
+    // on it - only what shows the floor (the frame loop, the canvas fade-in, a waiting press) does.
+    // `dungeonTest.buildFloor`/`reset` never come through here: they stay synchronous and deterministic.
+    let pendingFloor: { level: number; floor: ReturnType<typeof generateFloor> } | null = null;
+    // A frame boundary the browser has painted: a rAF callback runs before its own frame's paint, so
+    // it takes two. A hidden tab runs no animation frames, and a build must not wait on it.
+    const painted = () => new Promise<void>((done) => {
+      if (document.hidden) { setTimeout(done, 0); return; }
+      requestAnimationFrame(() => requestAnimationFrame(() => done()));
+    });
+    const stagedBuild = async (nextLevel: number, seed: number | undefined, work: () => void, afterWork?: () => void) => {
+      setVeilFloor(nextLevel); setVeilPlace(null); setVeilStage(0);
+      await painted(); if (stopped) return false;
+      const charted = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
+      pendingFloor = { level: nextLevel, floor: charted };
+      setVeilPlace(charted.rooms[charted.goal]?.name ?? null); setVeilStage(1);
+      await painted(); if (stopped) return false;
+      getFlagstoneTextures(); getMasonryTextures();
+      setVeilStage(2);
+      await painted(); if (stopped) return false;
+      work(); pendingFloor = null; afterWork?.();
+      setVeilStage(3);
+      await painted(); if (stopped) return false;
+      // Compiled against the composer's own offscreen target, not the canvas: a material's program
+      // differs by render target (tone mapping and output encoding are only baked in when drawing
+      // straight to the canvas), and compiling for the canvas built variants the post chain never uses.
+      // Synchronous on purpose. `compileAsync` polls the materials it collected across later frames,
+      // and a floor torn down meanwhile (a restart, or the test pool's reset) crashed three.js inside
+      // that poll on a disposed material, leaving the promise - and the veil - hanging forever. With
+      // the point lights capped (see `ANCHOR_LIGHTS`) a cold compile is ~10 s rather than minutes, one
+      // task the veil's compositor-driven animation runs straight through.
+      world.updateMatrixWorld(true);
+      const drawingTo = renderer.getRenderTarget(); renderer.setRenderTarget(post.composer.readBuffer);
+      renderer.compile(scene, camera); renderer.setRenderTarget(drawingTo);
+      if (stopped) return false;
+      updateOutline(); post.render(elapsed);
+      setVeilStage(4);
+      await painted(); if (stopped) return false;
+      updateOutline(); post.render(elapsed);
+      setVeilStage(5);
+      await painted();
+      return !stopped;
+    };
     // `then` runs as the veil lifts, on the frame the new floor is first on screen.
-    const veiled = (line: string, work: () => void, then?: () => void) => {
+    const veiled = (line: string, plan: { level: number; seed?: number }, work: () => void, then?: () => void) => {
       // A second press while a build is pending would queue a second build: the status that guards each
       // caller does not change until the work this one is holding actually runs.
       if (building) return;
       building = true; setLoading(line);
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (stopped) return;
-        work();
-        requestAnimationFrame(() => { if (stopped) return; building = false; setLoading(null); then?.(); });
-      }));
+      void stagedBuild(plan.level, plan.seed, work).then((ok) => { if (!ok) return; building = false; setLoading(null); setVeilStage(0); then?.(); });
     };
     // An explicit seed replays a floor verbatim; without one the keep is new every descent.
     const buildFloor = (nextLevel: number, seed?: number) => {
@@ -787,7 +855,12 @@ export default function DungeonGame() {
       phase('dispose');
       level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; features = []; stairOpen = false; stairDwell = 0; drop = null; overDrop = false; showOffer(null);
       gameStatus = 'playing'; setStatus('playing');
-      floor = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], level);
+      // A staged build (see `stagedBuild`) charts the layout a stage early so the veil can name it; the
+      // floor it drew is taken here instead of drawing a second seed. Only a match is taken - the same
+      // level, and the same seed if one was asked for - so a synchronous build never sees a stale one.
+      const charted = pendingFloor && pendingFloor.level === level && (seed === undefined || pendingFloor.floor.seed === seed >>> 0) ? pendingFloor.floor : null;
+      pendingFloor = null;
+      floor = charted ?? generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], level);
       // Pure and deterministic off this floor alone: which stone cells merge into a long slab or
       // settle as a staggered strip, kept away from every 004 reservation before a single mesh exists.
       const pavingPlan = planPavingPatches(floor);
@@ -1166,7 +1239,7 @@ export default function DungeonGame() {
     const continueDescent = () => {
       if (gameStatus !== 'complete') return;
       if (level >= FLOORS) { endRun(null); return; }
-      veiled(`Descending to floor ${level + 1}`, () => {
+      veiled(`Descending to floor ${level + 1}`, { level: level + 1 }, () => {
         buildFloor(level + 1);
         heal(run, Math.round(run.maxHp * .25)); setHealth(run.hp);
         keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; dashBuffer = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; audio.pause(false);
@@ -1178,7 +1251,7 @@ export default function DungeonGame() {
     // Everything buildFloor(1) already rebuilds (floor, level, rooms, enemies, map, status) is left to it,
     // but the run must be fresh first because it snapshots kills and XP as the floor's baseline. A whole
     // new `run` is the point of createRun(): a field added to the sim can never be forgotten here.
-    const restart = (seed?: number, then?: () => void) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', () => {
+    const restart = (seed?: number, then?: () => void) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', { level: 1, seed }, () => {
       run = createRun(); boonsTaken = [];
       attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; dashBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; clearShots();
       walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
@@ -1202,7 +1275,7 @@ export default function DungeonGame() {
     // the build waits until the end of this mount and then runs behind that menu (see `boot`). Until it
     // has run there is no floor, and nothing below may touch one: the loop draws nothing, the window
     // hooks are not installed, and a press of ENTER THE KEEP is held until the keep exists.
-    let built = false, enterWhenBuilt = false, bootSeed: number | undefined;
+    let built = false, warmed = false, enterWhenBuilt = false, bootSeed: number | undefined, enterSeed: number | undefined;
     // The thumbstick's screen-space direction while a thumb is planted, null the rest of the time. It is a
     // unit vector on the very basis the keys below build on, so analog steering is a second source of the
     // same quantity rather than a second input system.
@@ -1374,7 +1447,9 @@ export default function DungeonGame() {
         if (hasStarted || enterWhenBuilt || building) return;
         const seed = Number.parseInt(detail.slice(6), 10), pinned = Number.isNaN(seed) ? undefined : seed >>> 0;
         audio.start();
-        if (!built) { enterWhenBuilt = true; bootSeed = pinned; setEntering(true); scheduleBoot(); return; }
+        // Not yet on screen: either floor 1 is still ahead (the seed becomes the one it is built from) or it
+        // is built and its shaders are still warming (the seed, if it differs, is taken once they are).
+        if (!warmed) { enterWhenBuilt = true; setEntering(true); if (built) enterSeed = pinned; else { bootSeed = pinned; scheduleBoot(); } return; }
         if (pinned === undefined) enter(); else restart(pinned, enter);
         return;
       }
@@ -2212,7 +2287,7 @@ export default function DungeonGame() {
       if (stopped) return; raf = requestAnimationFrame(animate);
       // rAF timestamps describe the frame start, which can precede effect setup.
       // Establish the clock on the first callback so startup cannot run time backwards.
-      if (built && !manualTime && !document.hidden) { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); updateOutline(); post.render(elapsed); }
+      if (built && warmed && !manualTime && !document.hidden) { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); updateOutline(); post.render(elapsed); }
       last = now;
     };
     raf = requestAnimationFrame(animate);
@@ -2233,11 +2308,27 @@ export default function DungeonGame() {
       bootFrame = requestAnimationFrame(() => { bootFrame = requestAnimationFrame(boot); });
       if (document.hidden) bootTimer = window.setTimeout(boot, 200);
     };
+    // Plan 014 round C: floor 1 is raised in the same stages as any other build (see `stagedBuild`),
+    // behind the menu when nobody is waiting and behind the veil when a press beat it there. `booting`
+    // keeps a press that reschedules the boot from starting a second one mid-way. The floor counts as
+    // built - and the hooks go up, since every one of them reads it - as soon as it exists; it counts as
+    // warmed once the shaders are linked and a frame of it has been presented, which is when the frame
+    // loop starts drawing, the canvas fades in and a waiting press is answered.
+    let booting = false;
     const boot = () => {
-      if (stopped || built) return;
-      buildFloor(1, bootSeed); built = true; setReady(true);
-      hooks.dungeonTest = testHooks; hooks.advanceTime = advanceTime; hooks.render_game_to_text = renderText;
-      requestAnimationFrame(() => { if (!stopped && enterWhenBuilt) enter(); });
+      if (stopped || built || booting) return;
+      booting = true;
+      void stagedBuild(1, bootSeed, () => buildFloor(1, bootSeed), () => {
+        built = true;
+        hooks.dungeonTest = testHooks; hooks.advanceTime = advanceTime; hooks.render_game_to_text = renderText;
+      }).then((ok) => {
+        booting = false; setVeilStage(0);
+        if (!ok) return;
+        warmed = true; setReady(true);
+        if (!enterWhenBuilt) return;
+        const seed = enterSeed; enterSeed = undefined;
+        if (seed === undefined || seed === floor.seed) enter(); else restart(seed, enter);
+      });
     };
     scheduleBoot();
     return () => { stopped = true; cancelAnimationFrame(raf); cancelAnimationFrame(bootFrame); clearTimeout(bootTimer); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); atmosphere?.dispose(); texture.dispose(); telegraphTex.dispose(); laneTex.dispose(); alertTex.dispose(); alertMaterial.dispose(); environment.dispose(); impacts.dispose(); blood.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); post.dispose(); renderer.dispose(); mount.removeChild(renderer.domElement); };
@@ -2383,7 +2474,18 @@ export default function DungeonGame() {
       {/* Not in the prerendered page: the menu is, and nothing stands between a visitor and it. The veil
           belongs to the moments that make the player wait on a floor built from nothing — ENTER THE KEEP
           pressed before the first one is ready, a descent, and a fresh run — and to nothing else. */}
-      {veil && <output className="loading-veil"><span className="veil-bar" aria-hidden="true"><i /></span><b>{veil}</b></output>}
+      {veil && <output className="loading-veil">
+        {/* Plan 014 round C: drifting fog, a vignette, the brass sigil with its ember, the line and the
+            floor it is raising, a staged bar and one rotating line of keep-lore. Everything that moves
+            here moves by transform or opacity only, so it keeps moving while a stage blocks the thread. */}
+        <span className="veil-fog" aria-hidden="true"><i /><i /><i /></span>
+        <span className="veil-emblem" aria-hidden="true"><i className="veil-ring" /><i className="veil-diamond" /><i className="veil-glow" /><i className="veil-flame" /><i className="veil-flame veil-flame-core" /></span>
+        <b>{veil}</b>
+        <em className="veil-sub">Floor {veilFloor} of {FLOORS}{veilPlace ? ` · toward ${veilPlace}` : ''}</em>
+        <span className="veil-bar" aria-hidden="true"><i style={{ transform: `scaleX(${Math.max(.04, veilStage / VEIL_STAGES.length)})` }} /></span>
+        <span className="veil-stage">{VEIL_STAGES[Math.min(veilStage, VEIL_STAGES.length - 1)]}<small>{Math.min(veilStage + 1, VEIL_STAGES.length)} / {VEIL_STAGES.length}</small></span>
+        <span className="veil-lore" aria-hidden="true">{VEIL_LORE.map((line) => <i key={line}>{line}</i>)}</span>
+      </output>}
       {/* The alternative layout, not a fallback bolted onto the stick: four buttons a screen reader can name
           and reach, each speaking the same discrete move:/stop: protocol every automated driver uses. It is
           the worse way to play — one direction at a time, no diagonals — and the only way to play at all if

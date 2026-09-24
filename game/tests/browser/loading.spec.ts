@@ -1,8 +1,10 @@
-import { expect, type GameWindow, test } from './helpers.ts';
+import { expect, type GameWindow, test, WARM_UP } from './helpers.ts';
 
 // A boot is the thing under test here, so a page that is already booted has nothing to show. Every
-// scenario here needs its own load.
+// scenario here needs its own load. Each fresh load also pays a cold shader warm-up behind the veil
+// (see WARM_UP in helpers.ts), so the scenarios get room for it on top of the usual ceiling.
 test.use({ isolate: true });
+test.describe.configure({ timeout: 120_000 + WARM_UP });
 
 type VeilWindow = Window & { veilSeen?: string | null };
 type HeldWindow = Window & { releaseFrames?: () => void };
@@ -67,7 +69,8 @@ test('a press that beats the build raises the loading bar and enters on the new 
   await page.waitForFunction(
     () => typeof (window as GameWindow).render_game_to_text === 'function',
   );
-  await expect(veil).toHaveCount(0);
+  // The hooks go up with the floor; the veil stays through the shader warm-up and lifts on the keep.
+  await expect(veil).toHaveCount(0, { timeout: WARM_UP });
   await expect(page.locator('.intro-screen')).toBeHidden();
   const state = await page.evaluate(
     () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string; floor: { level: number } },

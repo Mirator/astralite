@@ -47,6 +47,16 @@ export const countChangedPixels = (a: Uint8ClampedArray, b: Uint8ClampedArray, t
 export const CAPTURING = process.env.GAME_TEST_CAPTURE === '1';
 
 /**
+ * How long anything that waits for the keep to be *on screen* may take, as opposed to merely built.
+ * The window hooks go up the moment floor 1 exists, but the loading veil stays until every shader is
+ * linked and a frame has been presented. On a cold shader cache (a fresh profile, which every isolated
+ * scenario is) that warm-up measured ~10 s under d3d11 once the point lights were capped, and software
+ * rendering on CI is slower still. The veil covering it is the point of the loading screen, so waits
+ * that span it get this budget rather than the 25 s default.
+ */
+export const WARM_UP = 90_000;
+
+/**
  * Boot a page per test the way this suite did before pooling, rather than resetting one the worker
  * already has. Twelve of the fifteen seconds a scenario used to cost were that boot - module load, a
  * WebGL context and a first floor - paid eighty-five times for a page every test threw away.
@@ -809,7 +819,8 @@ export class Game {
     const enterButton = this.page.locator('.intro-screen .primary-action');
     await expect(enterButton).toBeEnabled();
     await enterButton.click();
-    await expect(this.page.locator('.intro-screen')).toBeHidden();
+    // A page whose floor 1 is built but still warming answers the press behind the veil.
+    await expect(this.page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
   }
 
   /**
@@ -822,6 +833,7 @@ export class Game {
     await expect
       .poll(() => this.state().then((state) => state.building), {
         message: 'the floor build behind the loading veil never finished',
+        timeout: WARM_UP,
       })
       .toBe(false);
   }
