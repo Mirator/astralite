@@ -187,3 +187,24 @@ test.describe('the moment of contact', () => {
     await spend(game, 'strike-contact');
   });
 });
+
+/**
+ * three.js compiles the number of point lights into every lit shader and unrolls its light loop once per
+ * light. When the art pass gave every sconce and lantern its own light, each program grew dozens of times
+ * over (a 44 s cold compile for 57 programs under d3d11), every lit pixel paid for all of them, and a floor
+ * with a different sconce count recompiled everything on the way down. The atmosphere now lays out light
+ * anchors and a fixed pool is lent to the nearest: the count is the same small number on every floor.
+ */
+test.describe('the light budget', () => {
+  test.use({ seeds: [0x60] });
+  test('every floor draws with the same small, fixed set of point lights', async ({ game }) => {
+    const counts: number[] = [];
+    for (const level of [1, 2, 3]) {
+      await game.buildFloor(level);
+      await game.step(16, true);
+      counts.push((await game.state()).render.pointLights);
+    }
+    expect(counts[0], 'more point lights than the torches, the fill and the anchor pool').toBeLessThanOrEqual(9);
+    expect(counts, 'a floor changed the point-light count, which recompiles every lit shader').toEqual([counts[0], counts[0], counts[0]]);
+  });
+});

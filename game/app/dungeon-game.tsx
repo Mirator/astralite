@@ -472,6 +472,13 @@ export default function DungeonGame() {
     // decal. No cutoff and a physical inverse square instead: the same brightness where it matters and a
     // tail that simply runs out. The intensity here is dead code, overwritten by the flicker each frame.
     for (let i = 0; i < 4; i++) { const light = new THREE.PointLight(0xff9440,22,0,2); torchLights.push(light); scene.add(light); }
+    // The sconces, lanterns and water bounces the atmosphere pass lays out are anchors, not lights (see
+    // `LightAnchor`): this fixed pool is lent to the ones nearest the knight each frame. A spare one sits
+    // at zero intensity rather than hidden, because an invisible light drops out of the count and a new
+    // count recompiles every lit shader - the very stall the pool exists to prevent.
+    const ANCHOR_LIGHTS = 4;
+    const anchorLights: THREE.PointLight[] = [];
+    for (let i = 0; i < ANCHOR_LIGHTS; i++) { const light = new THREE.PointLight(0xff9c52,0,6.5,2); anchorLights.push(light); scene.add(light); }
     // No fifth torch. The review's complaint was that an effect throws no light,
     // and the honest fix is a real one — but the renderer's light budget is spent
     // (a moon, a hemisphere, four torches and the knight's lantern) and a sixth
@@ -1955,6 +1962,9 @@ export default function DungeonGame() {
       // Three of the four go to their sconces. The fourth is settled below, once
       // the accents have had their chance to ask for it.
       for (let i = 0; i < torchLights.length - 1; i++) if (nearest[i]) torchLights[i].position.copy(nearest[i]);
+      const anchors = atmosphere?.lightAnchors ?? [];
+      const lent = anchors.length <= ANCHOR_LIGHTS ? anchors : [...anchors].sort((a,b)=>((a.x-player.position.x)**2+(a.z-player.position.z)**2)-((b.x-player.position.x)**2+(b.z-player.position.z)**2));
+      anchorLights.forEach((light, i) => { const a = lent[i]; if (!a) { light.intensity = 0; return; } light.position.set(a.x, a.y, a.z); light.color.setHex(a.color); light.intensity = a.intensity; light.distance = a.distance; });
       fill.position.copy(player.position).add(new THREE.Vector3(1.4,3.2,2.2));
       moveMood(1 - Math.exp(-6 * frameDt));
       playerRing.position.set(player.position.x,0.04,player.position.z); (playerRing.material as THREE.MeshBasicMaterial).opacity = dashTime > 0 ? 0.85 : 0.14; ringTime.value = t;
@@ -2174,7 +2184,7 @@ export default function DungeonGame() {
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
-      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
+      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })() },
       effects: { impacts: impacts.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.

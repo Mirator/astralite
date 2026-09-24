@@ -193,6 +193,8 @@ export type Snapshot = {
     textures: number;
     calls: number;
     triangles: number;
+    /** Point lights in the scene. Fixed by design: the count is compiled into every lit shader. */
+    pointLights: number;
   };
   /** Live effect pools. `footsteps` is plan 008's contact feedback: particles alive, whether the batch
    * is drawn, contacts emitted, phase crossings seen, crossings skipped for want of stone support, per
