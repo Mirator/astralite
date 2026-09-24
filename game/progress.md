@@ -2330,3 +2330,12 @@ Gates: typecheck, lint, `npm test` (176/176), the PR-gate browser subset under `
   dips across rebuilds and that the renderer picks the expected chain.
 - Not run locally (by request); CI is the check. Pixel-reading specs (models, art-direction) were tuned on
   the full chain and may need their CI figures revisited if the reduced chain moves them.
+- Follow-up, profiled locally on SwiftShader: the first frame after a rebuild was 100% shader compile
+  (`getProgramInfoLog` in `onFirstUse`), from two keys that changed on every build. `applyStoneTextures`
+  put the albedo texture's uuid in `customProgramCacheKey` (the maps are per-material uniforms; the uuid
+  never changed the source), and the flame billboard's `ShaderMaterial` got new shader-stage ids once
+  every flame was disposed with the old floor. The key is constant now, and `flameShaderKeeper()` - one
+  hidden card in the scene, shown only for the warm-up compile - holds the flame source registered.
+  Rebuilds of floors 1, 2, 3, 1, 1: 64 programs throughout, first frame 36-239 ms (was 0.5-7 s).
+  `frame-budget.spec.ts` asserts a revisited floor compiles nothing; `enter()` gives its click the
+  warm-up budget, since a fresh page cannot take a click until the cold compile returns.

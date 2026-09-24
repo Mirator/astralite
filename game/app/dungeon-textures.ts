@@ -268,8 +268,12 @@ export function applyStoneTextures(material: THREE.MeshStandardMaterial, set: St
   // unbound-method warning here is the false positive its own message allows for.
   // oxlint-disable-next-line typescript/unbound-method
   const previousKey = material.customProgramCacheKey;
+  // Never the texture's uuid: the maps are uniforms, bound per material (three.js runs `onBeforeCompile`
+  // for every material, cached program or not), so they do not change the shader. A uuid did, because
+  // every floor build makes new textures - a fresh key, and a full recompile of this, the heaviest
+  // program in the keep, on every rebuild: seconds of first frame under software GL.
   // oxlint-disable-next-line typescript/unbound-method
-  material.customProgramCacheKey = () => `stone-textures-${set.albedo.uuid}-${previousKey ? previousKey() : ''}`;
+  material.customProgramCacheKey = () => `stone-textures-v2-${previousKey ? previousKey() : ''}`;
   material.needsUpdate = true;
 }
 

@@ -40,6 +40,76 @@ export type FlameHandle = {
   dispose(): void;
 };
 
+function flameMaterial(seed: number, width: number) {
+  const material = new THREE.ShaderMaterial({
+    // depthTest was briefly off (plan 014 round 6) because the bowl and rim, at the same (x, z),
+    // could read closer to the camera than the crossed cards and swallow the flame. That fixed the
+    // bowl but let every flame draw through walls too - a sconce behind a wall or just off the
+    // frame edge still painted, and at these HDR values bloom spread it into a frame-corner wash.
+    // Depth test is back on; instead the vertex shader nudges the cards `NUDGE` world units toward
+    // the camera in view space. Under this game's fixed orthographic camera that moves nothing on
+    // screen, but it clears the flame's own bowl while a wall between flame and camera still wins.
+    transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending, toneMapped: false,
+    uniforms: {
+      uTime: { value: 0 },
+      uColour: { value: new THREE.Color(0xffffff) },
+      uSeed: { value: seed },
+      // A touch narrower and hotter on the pass facing the camera dead-on than the two crossed
+      // behind it, so the silhouette does not look like three identical cards fanned open.
+      uWidth: { value: width },
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        mv.z += ${NUDGE.toFixed(2)};
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying vec2 vUv;
+      uniform float uTime; uniform vec3 uColour; uniform float uSeed; uniform float uWidth;
+      ${FLAME_NOISE}
+      void main() {
+        // Plan 014 round A: rebuilt so it reads as fire rather than a smooth glowing cone. The body
+        // sways (a height-weighted noise offset on x), and a climbing noise field erodes it against
+        // a threshold that rises with height, so the upper half tears into separate tongues and
+        // licks. Three cards overlap additively, so each one is dim on its own: a saturated body
+        // in the theme's own colour, a hotter core only low and central, darker tips.
+        float sway = (fxNoise(vec2(vUv.y * 2.2 - uTime * 1.7, uSeed)) - 0.5) * 0.34 * vUv.y;
+        float dx = abs(vUv.x - 0.5 - sway) / uWidth;
+        float taper = mix(0.44, 0.05, pow(vUv.y, 0.85));
+        float body = smoothstep(taper, taper * 0.35, dx) * smoothstep(0.0, 0.08, vUv.y);
+        vec2 nuv = vec2(vUv.x * 4.2, vUv.y * 3.2 - uTime * 3.1 + uSeed * 9.0);
+        float n = fxNoise(nuv) * 0.6 + fxNoise(nuv * 2.1 + 11.0) * 0.4;
+        float erode = smoothstep(vUv.y * 0.9 - 0.12, vUv.y * 0.9 + 0.1, n * body + (1.0 - vUv.y) * 0.32);
+        float alpha = clamp(body * erode * 1.3, 0.0, 1.0);
+        float coreAmt = smoothstep(0.24, 0.0, dx) * smoothstep(0.55, 0.04, vUv.y);
+        vec3 core = mix(uColour, vec3(1.0, .9, .7), .5) * 1.7;
+        vec3 colour = mix(uColour * 1.05, core, coreAmt) * mix(1.0, 0.6, smoothstep(0.45, 1.0, vUv.y));
+        gl_FragColor = vec4(colour * (0.24 + alpha * 0.32), alpha);
+      }
+    `,
+  });
+  material.customProgramCacheKey = () => 'flame-billboard-v4';
+  return material;
+}
+
+/**
+ * A flame card that never belongs to a floor. three.js keys a `ShaderMaterial`'s program by ids it hands
+ * each distinct shader source, and frees an id when the last material using it is disposed - so a
+ * rebuild, which disposes every flame with the old floor, gave the same source new ids, a new program
+ * key, and a fresh compile on every floor. The game keeps this one in its scene, hidden, and shows it
+ * only for the warm-up compile, which registers the source for as long as the scene lives.
+ */
+export function flameShaderKeeper() {
+  const mesh = new THREE.Mesh(flameQuad(), flameMaterial(0, 1));
+  mesh.visible = false; mesh.renderOrder = 4;
+  return mesh;
+}
+
 /**
  * `width`/`height` are the flame's own rest footprint (the geometry solids in `dungeon-flame.ts`
  * carried per-theme envelopes; this keeps the same idea in two numbers instead of six vertices).
@@ -57,59 +127,7 @@ export function makeFlameBillboard(width: number, height: number, seed: number):
   const materials: THREE.ShaderMaterial[] = [];
   const angles = [0, 55, -55];
   for (let i = 0; i < angles.length; i++) {
-    const material = new THREE.ShaderMaterial({
-      // depthTest was briefly off (plan 014 round 6) because the bowl and rim, at the same (x, z),
-      // could read closer to the camera than the crossed cards and swallow the flame. That fixed the
-      // bowl but let every flame draw through walls too - a sconce behind a wall or just off the
-      // frame edge still painted, and at these HDR values bloom spread it into a frame-corner wash.
-      // Depth test is back on; instead the vertex shader nudges the cards `NUDGE` world units toward
-      // the camera in view space. Under this game's fixed orthographic camera that moves nothing on
-      // screen, but it clears the flame's own bowl while a wall between flame and camera still wins.
-      transparent: true, depthWrite: false, depthTest: true, side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending, toneMapped: false,
-      uniforms: {
-        uTime: { value: 0 },
-        uColour: { value: new THREE.Color(0xffffff) },
-        uSeed: { value: seed + i * 13.7 },
-        // A touch narrower and hotter on the pass facing the camera dead-on than the two crossed
-        // behind it, so the silhouette does not look like three identical cards fanned open.
-        uWidth: { value: i === 0 ? 1 : 0.86 },
-      },
-      vertexShader: /* glsl */ `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          mv.z += ${NUDGE.toFixed(2)};
-          gl_Position = projectionMatrix * mv;
-        }
-      `,
-      fragmentShader: /* glsl */ `
-        varying vec2 vUv;
-        uniform float uTime; uniform vec3 uColour; uniform float uSeed; uniform float uWidth;
-        ${FLAME_NOISE}
-        void main() {
-          // Plan 014 round A: rebuilt so it reads as fire rather than a smooth glowing cone. The body
-          // sways (a height-weighted noise offset on x), and a climbing noise field erodes it against
-          // a threshold that rises with height, so the upper half tears into separate tongues and
-          // licks. Three cards overlap additively, so each one is dim on its own: a saturated body
-          // in the theme's own colour, a hotter core only low and central, darker tips.
-          float sway = (fxNoise(vec2(vUv.y * 2.2 - uTime * 1.7, uSeed)) - 0.5) * 0.34 * vUv.y;
-          float dx = abs(vUv.x - 0.5 - sway) / uWidth;
-          float taper = mix(0.44, 0.05, pow(vUv.y, 0.85));
-          float body = smoothstep(taper, taper * 0.35, dx) * smoothstep(0.0, 0.08, vUv.y);
-          vec2 nuv = vec2(vUv.x * 4.2, vUv.y * 3.2 - uTime * 3.1 + uSeed * 9.0);
-          float n = fxNoise(nuv) * 0.6 + fxNoise(nuv * 2.1 + 11.0) * 0.4;
-          float erode = smoothstep(vUv.y * 0.9 - 0.12, vUv.y * 0.9 + 0.1, n * body + (1.0 - vUv.y) * 0.32);
-          float alpha = clamp(body * erode * 1.3, 0.0, 1.0);
-          float coreAmt = smoothstep(0.24, 0.0, dx) * smoothstep(0.55, 0.04, vUv.y);
-          vec3 core = mix(uColour, vec3(1.0, .9, .7), .5) * 1.7;
-          vec3 colour = mix(uColour * 1.05, core, coreAmt) * mix(1.0, 0.6, smoothstep(0.45, 1.0, vUv.y));
-          gl_FragColor = vec4(colour * (0.24 + alpha * 0.32), alpha);
-        }
-      `,
-    });
-    material.customProgramCacheKey = () => 'flame-billboard-v4';
+    const material = flameMaterial(seed + i * 13.7, i === 0 ? 1 : 0.86);
     const mesh = new THREE.Mesh(quad, material);
     mesh.rotation.y = angles[i] * Math.PI / 180;
     mesh.scale.set(width, height, 1);

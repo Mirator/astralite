@@ -14,6 +14,7 @@ import { footstepEffects } from './dungeon-footsteps';
 import { footfalls, footSupport, type FootstepKind } from './dungeon-footstep-rules';
 import { advanceDeath, startDeath, type DeathAnimation } from './dungeon-death';
 import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
+import { flameShaderKeeper } from './dungeon-flame-fx';
 import { createPostChain, postQuality } from './dungeon-post';
 import { bloodDecals } from './dungeon-blood';
 import { applyFloorDetail, applyStoneTextures, getFlagstoneTextures, getMasonryTextures } from './dungeon-textures';
@@ -429,6 +430,7 @@ export default function DungeonGame() {
     // outlines on every living figure, a teal-shadow/orange-highlight grade, a tilt-shift blur and a
     // vignette - see dungeon-post.ts for why no OutputPass follows it.
     const post = createPostChain(renderer, scene, camera, mount.clientWidth || 1, mount.clientHeight || 1, postQuality(renderer, window.location.search));
+    const flameKeeper = flameShaderKeeper(); scene.add(flameKeeper);
     const outlineTargets: THREE.Object3D[] = [];
     const updateOutline = () => { outlineTargets.length = 0; outlineTargets.push(player); for (const enemy of enemyData) if (!enemy.dead) outlineTargets.push(enemy.group); post.setOutline(outlineTargets); };
     // Ambient is the enemy of a lit pool: it paid for every unlit corner, so a brazier could only ever
@@ -832,7 +834,7 @@ export default function DungeonGame() {
       // task the veil's compositor-driven animation runs straight through.
       world.updateMatrixWorld(true);
       const drawingTo = renderer.getRenderTarget(); renderer.setRenderTarget(post.composer.readBuffer);
-      renderer.compile(scene, camera); renderer.setRenderTarget(drawingTo); post.pinPrograms();
+      flameKeeper.visible = true; renderer.compile(scene, camera); flameKeeper.visible = false; renderer.setRenderTarget(drawingTo); post.pinPrograms();
       if (stopped) return false;
       updateOutline(); post.render(elapsed);
       setVeilStage(4);

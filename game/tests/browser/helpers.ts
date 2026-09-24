@@ -830,7 +830,9 @@ export class Game {
   async enter() {
     const enterButton = this.page.locator('.intro-screen .primary-action');
     await expect(enterButton).toBeEnabled();
-    await enterButton.click();
+    // A freshly booted page may still be inside its one synchronous warm-up compile, and a click cannot land
+    // until the main thread comes back - on SwiftShader that outlasts the default action timeout.
+    await enterButton.click({ timeout: WARM_UP });
     // A page whose floor 1 is built but still warming answers the press behind the veil.
     await expect(this.page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
   }

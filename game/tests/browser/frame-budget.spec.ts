@@ -219,8 +219,10 @@ test.describe('the light budget', () => {
     // three.js destroys a program when its last material is disposed, and every rebuild disposes the old
     // floor's materials - so without pinning the count dips after each rebuild and the same programs compile
     // again, seconds of stall per floor under software GL.
-    // Only the dip is asserted: an effect drawn for the first time on a revisited floor may still add a program.
     for (let i = 1; i < programs.length; i++) expect(programs[i], `rebuild ${i} dropped compiled programs: ${programs.join(' -> ')}`).toBeGreaterThanOrEqual(programs[i - 1]);
+    // And a floor already seen compiles nothing: a cache key that changes per build (a texture uuid in
+    // it, once) makes a new program on every rebuild, and pinning would then keep every one of them.
+    expect(programs[3], `building floor 1 again compiled new programs: ${programs.join(' -> ')}`).toBe(programs[2]);
   });
 
   test('a software rasteriser draws the reduced post chain, a GPU the full one', async ({ game }) => {
