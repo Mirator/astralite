@@ -2196,3 +2196,34 @@ opens Settings through the menu item.
 Gates: typecheck, lint, `npm test` (292/292), `GAME_TEST_GL=d3d11 npm run test:browser` (150 passed, 2 skipped),
 `npm run build`. Not run: SwiftShader captures / `shots:compare`. The intro card's layout changed, so any
 reference frame of the intro will differ.
+
+## Plan 014 — toward the reference image (art pass)
+
+An iterative builder/critic loop against a painted concept-art reference (`plans/014-reference-art.md`).
+Performance budgets and the graphics tests (frame budget, pixel diff, art direction) were explicitly out of
+scope for this pass.
+
+- **Post chain** (`dungeon-post.ts`): RenderPass → GTAO (transparent surfaces excluded) → dark ink outline
+  and warm rim → hue-preserving HDR ceiling → bloom → OutputPass → display-referred grade (teal lift, warm
+  highlights, vignette, grain). The grade must run after OutputPass: the composer's targets are linear HDR
+  because three.js only tone-maps when drawing to the canvas, and grading before it crushed every shadow.
+- **Camera** zoomed in (ortho span 7.2 → 4.3; phone 6.3 → 3.76).
+- **Surfaces** (`dungeon-textures.ts`): seeded canvas flagstone and masonry sets (albedo, Sobel normal,
+  roughness with puddles), triplanar over `weatherStone`; floor detail with wall-base grime and wet slabs;
+  darker grout, matte joint facets.
+- **Water** (`tidalMaterial`): Voronoi caustics that fade with depth, depth absorption, sunken blocks, fish,
+  fresnel sheen, warm torch reflection streaks.
+- **Light and fire**: warm wall sconces in every theme, braziers rebuilt as iron bowls with tall billboard
+  flames (`dungeon-flame-fx.ts`; the flicker no longer overwrites the caller's placement, which had put
+  every flame at floor level), depth-tested with a view-space nudge so walls hide them.
+- **Figures and VFX**: smoother knight and skeletons, guard tabards, a brutish warden, lit blades, blood
+  splats (`dungeon-blood.ts`), a Catmull-Rom slash ribbon with its bright rim on the outer edge, soft
+  telegraph decals, contact shadows.
+- **HUD**: diamond title panel, framed vitality bar, strike/dash diamonds with keycaps and a dash cooldown
+  sweep, rank badge and framed rank bar, framed enemy HP bars, per-theme blurred foreground silhouettes.
+- **Harness**: `scripts/reference-shot.ts <outDir>` films three deterministic scenes (combat on a bridge,
+  a torch room, a corridor) at 1672×941 on its own dev server.
+
+Gates: typecheck, lint, `npm test` (296/296), `GAME_TEST_GL=d3d11` `loading.spec.ts` + `smoke.spec.ts`
+(6/6; the early-press test runs ~110 s of a 120 s budget on a cold shader cache). Not run: the rest of the
+browser suite; frame-budget, pixel-diff and art-direction specs are expected to fail against this look.

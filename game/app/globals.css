@@ -24,19 +24,173 @@ button, kbd { font: inherit; }
 .world-ready .game-canvas { opacity: 1; }
 :root[data-motion="reduce"] .game-canvas { transition: none; }
 .game-canvas canvas { display: block; width: 100%; height: 100%; }
-.game-title { position: absolute; top: 24px; left: 28px; z-index: 4; display: flex; align-items: center; gap: 13px; pointer-events: none; text-shadow: 0 2px 10px #000; }
-.sigil { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #96a6a566; transform: rotate(45deg); color: var(--ember); background: #071119aa; font-size: 18px; }
+/* Plan 014, lever 10 (round 4 rewrite - round 2's version read as a shapeless blob bottom-left and
+   round 3's chain ran the full height of the right edge, wide enough to sit over the brazier in the
+   combat-bridge shot). Three simple, geometrically plain silhouettes instead of free-form paths that
+   never rendered where they were meant to: a hooded statue in profile with a readable head, shoulder
+   and gripping hand braced on a spear (bottom-left); a short run of alternating oval chain links
+   hanging from the top-right corner only, not the whole edge; a small cluster of ivy leaves tucked
+   into the bottom-right corner, separate from the chain so the two never stack into one shape. All
+   three are confined to the outer ~12% of the frame's width and to their own corner - never the
+   centre, never the HUD. A stronger blur than before stands in for being out of focus, and a soft
+   double drop-shadow (cool teal, warm orange) traces each silhouette's own edge, which is what keeps
+   a fully opaque black shape reading as a dark object in front of the scene rather than as a hole cut
+   out of it. Hidden on a touch layout, where those same corners hold real controls. */
+.foreground-frame { position: absolute; inset: 0; z-index: 1; overflow: hidden; pointer-events: none; }
+/* Plan 014 round 6 (lever 4): the critic read these as "a sharp pasted-on cutout" and the coordinator
+   as "a keyhole shape" - both are a focus complaint, not a shape one. 4px of blur on a flat, pure-black
+   fill is still a crisp silhouette at any normal viewing distance; a true out-of-focus foreground
+   object loses most of its edge contrast, not a fifth of it. Blur is up to 12px (the plan's own 10-14px
+   range), and the fill is no longer pure black - a foreground object this close still catches some of
+   the room's own cool ambient light, which is what stops a black shape from reading as a hole cut in
+   the frame rather than a dark thing sitting in front of it. The dark-teal fill instead of black also
+   means the existing warm drop-shadow now reads as a rim light warming one edge of a lit, out-of-focus
+   shape, rather than a glow drawn around a silhouette.
+*/
+/* Plan 014 round 9 (lever 4): the torch-room shot in particular still lost these against a busy,
+   similarly-dark scene - blur alone did not read as "an out-of-focus foreground object" if the object
+   itself was also too small and too dim to leave much of a mark once softened. Blur eased back a touch
+   (12px to 9px, still comfortably inside a believable out-of-focus range) and brightness up meaningfully
+   (.72 to .88) recover some of the definition the heavier blur cost; the per-element sizes below do the
+   rest. */
+/* Plan 014 follow-up: the dark-teal fill, brightness boost, teal glow and 9px blur together read as a
+   translucent teal ghost rather than a dark object in front of the scene. The fill is near-black now,
+   blur is down to 5px, and the only glow left is one thin warm rim on the side facing the torchlight. */
+.foreground-frame i {
+  position: absolute; display: block; background-repeat: no-repeat; background-size: 100% 100%;
+  filter: blur(8px) drop-shadow(4px -2px 6px rgba(255,160,90,.3));
+  opacity: 1;
+}
+/* Plan 014 round B: not flat black cardboard any more - a dark, desaturated teal/brown gradient with a
+   faint warm key on its top-left edge (in the SVG), a heavier depth-of-field blur, and each piece
+   fading slightly toward the frame centre so its inner edge dissolves rather than cuts. */
+.foreground-frame .fg-left, .foreground-frame .fg-column, .foreground-frame .fg-reeds {
+  -webkit-mask-image: linear-gradient(to right, #000 50%, rgba(0,0,0,.78)); mask-image: linear-gradient(to right, #000 50%, rgba(0,0,0,.78));
+}
+.foreground-frame .fg-chain, .foreground-frame .fg-ivy, .foreground-frame .fg-banner, .foreground-frame .fg-arch {
+  -webkit-mask-image: linear-gradient(to left, #000 50%, rgba(0,0,0,.78)); mask-image: linear-gradient(to left, #000 50%, rgba(0,0,0,.78));
+}
+/* Plan 014 round 5 (lever A5): round 4's single tapering polygon read as a tombstone or obelisk - a
+   robe silhouette with no distinct head reads as a slab, whatever its outline. This one is built from
+   separate, legible parts instead of one continuous outline: a rounded hood (an ellipse, so the head
+   itself is unmistakably round) with a small forward-leaning peak at its crown, a trapezoid pair for
+   the shoulders breaking out wider than the head, a tapering robe, a two-tier plinth the figure
+   actually stands on, and a gripping hand holding a spear with a real leaf-shaped (rhombus) head
+   rather than a flat triangle. */
+.foreground-frame .fg-left {
+  left: -1%; bottom: -3%; width: 19%; height: 68%; background-position: bottom left;
+  /* One continuous outline - peaked hood, sloped shoulders, robe - so the head never separates
+     into a floating ellipse, plus the gripping hand, spear and leaf head, and a two-tier plinth. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 150 400'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23221f1b'/%3E%3Cstop offset='.35' stop-color='%23101819'/%3E%3Cstop offset='1' stop-color='%23070b0c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg fill='url(%23g)'%3E%3Crect x='16' y='372' width='104' height='24'/%3E%3Crect x='8' y='362' width='120' height='12'/%3E%3Cpath d='M60,28 Q80,4 100,24 Q112,42 106,84 Q126,98 132,140 L112,364 L30,364 L12,150 Q18,104 42,88 Q38,50 60,28 Z'/%3E%3Cellipse cx='124' cy='200' rx='12' ry='15'/%3E%3Cpath d='M136,2 Q147,22 137,50 Q126,22 136,2 Z'/%3E%3C/g%3E%3Cline x1='122' y1='372' x2='136' y2='44' stroke='url(%23g)' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+.foreground-frame .fg-chain {
+  right: 0; top: -2%; width: 9%; height: 44%; background-position: top right;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 260'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23221f1b'/%3E%3Cstop offset='.35' stop-color='%23101819'/%3E%3Cstop offset='1' stop-color='%23070b0c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg fill='url(%23g)'%3E%3Cellipse cx='30' cy='20' rx='11' ry='20'/%3E%3Cellipse cx='30' cy='55' rx='20' ry='11'/%3E%3Cellipse cx='30' cy='90' rx='11' ry='20'/%3E%3Cellipse cx='30' cy='125' rx='20' ry='11'/%3E%3Cellipse cx='30' cy='160' rx='11' ry='20'/%3E%3Cellipse cx='30' cy='195' rx='20' ry='11'/%3E%3Cellipse cx='30' cy='230' rx='11' ry='20'/%3E%3C/g%3E%3C/svg%3E");
+}
+.foreground-frame .fg-ivy {
+  right: -1%; bottom: -2%; width: 16%; height: 13%; background-position: bottom right;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23221f1b'/%3E%3Cstop offset='.35' stop-color='%23101819'/%3E%3Cstop offset='1' stop-color='%23070b0c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg fill='url(%23g)'%3E%3Cellipse cx='30' cy='60' rx='28' ry='14' transform='rotate(-25 30 60)'/%3E%3Cellipse cx='70' cy='75' rx='34' ry='16' transform='rotate(15 70 75)'/%3E%3Cellipse cx='115' cy='55' rx='26' ry='13' transform='rotate(-40 115 55)'/%3E%3Cellipse cx='140' cy='80' rx='22' ry='12' transform='rotate(20 140 80)'/%3E%3C/g%3E%3C/svg%3E");
+}
+/* Plan 014 round A: the same statue framed every room. The overlay now carries a family per chamber
+   theme (the class follows the lights' own room mood): the keep keeps its hooded statue and chain, a
+   ruined court gets a broken column strangled in ivy, and a flooded hall gets a torn banner on chains,
+   a broken arch and reeds. Every piece is hidden unless its theme names it. */
+.foreground-frame i { display: none; }
+.foreground-frame.fg-keep .fg-left, .foreground-frame.fg-keep .fg-chain, .foreground-frame.fg-keep .fg-ivy,
+.foreground-frame.fg-ruins .fg-column, .foreground-frame.fg-ruins .fg-ivy,
+.foreground-frame.fg-flooded .fg-banner, .foreground-frame.fg-flooded .fg-arch, .foreground-frame.fg-flooded .fg-reeds { display: block; }
+.foreground-frame.fg-ruins .fg-ivy { width: 22%; height: 18%; }
+.foreground-frame .fg-column {
+  left: -1%; bottom: -3%; width: 15%; height: 64%; background-position: bottom left;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 170 420'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23221f1b'/%3E%3Cstop offset='.35' stop-color='%23101819'/%3E%3Cstop offset='1' stop-color='%23070b0c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg fill='url(%23g)'%3E%0A%3Crect x='6' y='384' width='150' height='36'/%3E%3Crect x='16' y='364' width='130' height='24'/%3E%0A%3Cpath d='M34,366 L37,128 L50,112 L57,124 L70,92 L84,118 L97,99 L109,126 L121,113 L127,366 Z'/%3E%0A%3Cpath d='M120,300 L162,318 L158,352 L118,344 Z'/%3E%0A%3Cellipse cx='36' cy='150' rx='14' ry='8' transform='rotate(-30 36 150)'/%3E%3Cellipse cx='28' cy='186' rx='15' ry='8' transform='rotate(25 28 186)'/%3E%0A%3Cellipse cx='40' cy='222' rx='13' ry='7' transform='rotate(-15 40 222)'/%3E%3Cellipse cx='26' cy='262' rx='16' ry='8' transform='rotate(35 26 262)'/%3E%0A%3Cellipse cx='44' cy='300' rx='13' ry='7' transform='rotate(-35 44 300)'/%3E%3Cellipse cx='20' cy='318' rx='12' ry='7' transform='rotate(20 20 318)'/%3E%0A%3Cellipse cx='118' cy='136' rx='12' ry='7' transform='rotate(30 118 136)'/%3E%3Cellipse cx='128' cy='168' rx='13' ry='7' transform='rotate(-25 128 168)'/%3E%0A%3C/g%3E%3Cpath d='M40,120 Q18,170 36,220 Q16,270 30,330' stroke='url(%23g)' stroke-width='4' fill='none'/%3E%3C/svg%3E");
+}
+.foreground-frame .fg-banner {
+  right: 0; top: -2%; width: 13%; height: 46%; background-position: top right;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 320'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23221f1b'/%3E%3Cstop offset='.35' stop-color='%23101819'/%3E%3Cstop offset='1' stop-color='%23070b0c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg fill='url(%23g)'%3E%0A%3Cellipse cx='52' cy='14' rx='8' ry='15'/%3E%3Cellipse cx='52' cy='40' rx='14' ry='8'/%3E%3Cellipse cx='52' cy='66' rx='8' ry='15'/%3E%3Cellipse cx='52' cy='92' rx='14' ry='8'/%3E%0A%3Cellipse cx='160' cy='22' rx='8' ry='15'/%3E%3Cellipse cx='160' cy='48' rx='14' ry='8'/%3E%3Cellipse cx='160' cy='74' rx='8' ry='15'/%3E%3Cellipse cx='160' cy='100' rx='14' ry='8'/%3E%3Cellipse cx='160' cy='126' rx='8' ry='15'/%3E%0A%3Cpath d='M30,106 L184,118 L182,130 L28,118 Z'/%3E%0A%3Cpath d='M44,120 L170,128 L162,206 L146,188 L138,252 L118,212 L104,286 L88,222 L70,246 L58,196 Z'/%3E%0A%3Cellipse cx='176' cy='160' rx='8' ry='15'/%3E%3Cellipse cx='178' cy='186' rx='14' ry='8'/%3E%3Cellipse cx='180' cy='212' rx='8' ry='15'/%3E%0A%3C/g%3E%3C/svg%3E");
+}
+.foreground-frame .fg-arch {
+  right: -1%; bottom: -3%; width: 17%; height: 42%; background-position: bottom right;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 280'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23221f1b'/%3E%3Cstop offset='.35' stop-color='%23101819'/%3E%3Cstop offset='1' stop-color='%23070b0c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg fill='url(%23g)'%3E%0A%3Cpath d='M240,280 L240,30 Q160,18 108,72 L92,58 L70,84 L80,98 Q60,130 58,170 L90,176 Q96,112 150,96 Q190,86 200,104 L200,280 Z'/%3E%0A%3Crect x='22' y='232' width='76' height='48'/%3E%3Crect x='40' y='204' width='44' height='30' transform='rotate(-8 62 219)'/%3E%0A%3Cellipse cx='214' cy='66' rx='16' ry='8' transform='rotate(-20 214 66)'/%3E%3Cellipse cx='188' cy='120' rx='14' ry='7' transform='rotate(30 188 120)'/%3E%0A%3C/g%3E%3C/svg%3E");
+}
+.foreground-frame .fg-reeds {
+  left: -1%; bottom: -2%; width: 19%; height: 26%; background-position: bottom left;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 180'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23221f1b'/%3E%3Cstop offset='.35' stop-color='%23101819'/%3E%3Cstop offset='1' stop-color='%23070b0c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg fill='url(%23g)'%3E%0A%3Cpath d='M8,180 Q20,90 12,10 Q34,90 30,180 Z'/%3E%3Cpath d='M30,180 Q52,80 70,24 Q62,100 50,180 Z'/%3E%0A%3Cpath d='M52,180 Q70,110 110,58 Q84,120 74,180 Z'/%3E%3Cpath d='M76,180 Q96,120 92,40 Q112,120 98,180 Z'/%3E%0A%3Cpath d='M96,180 Q128,130 170,104 Q134,146 120,180 Z'/%3E%3Cpath d='M0,150 Q60,138 120,160 L130,180 L0,180 Z'/%3E%0A%3Cellipse cx='12' cy='8' rx='5' ry='16'/%3E%3Cellipse cx='92' cy='38' rx='5' ry='15'/%3E%0A%3C/g%3E%3C/svg%3E");
+}
+@media (max-width: 720px), (pointer: coarse) { .foreground-frame { display: none; } }
+.game-title { position: absolute; top: 24px; left: 28px; z-index: 4; display: flex; align-items: center; gap: 15px; pointer-events: none; text-shadow: 0 2px 10px #000; }
+.sigil { position: relative; display: grid; place-items: center; width: 30px; height: 30px; border: 2px solid var(--edge-warm); transform: rotate(45deg); color: var(--ember); background: #071119aa; font-size: 18px; flex: none; }
+/* Plan 014 round 4 (lever D9): the title's own diamond is bare inside; a small ornament echoes the
+   vitality mark's own cross so the two read as one heraldic language rather than two different marks. */
+.sigil::after { content: ''; position: absolute; left: 50%; top: 3px; bottom: 3px; width: 1.5px; background: var(--edge-warm); transform: translateX(-50%); }
+.sigil::before { content: ''; position: absolute; top: 50%; left: 3px; right: 3px; height: 1.5px; background: var(--edge-warm); transform: translateY(-50%); }
 .game-title p { margin: 0 0 4px; font-size: 16px; font-weight: 650; line-height: 1; letter-spacing: .19em; }
 .game-title span { font: 500 11px/1 var(--font-geist-mono); letter-spacing: .13em; color: #adb9b8; text-transform: uppercase; }
+/* The reference's diamond-framed heading: a plain uppercase kicker over an italic serif objective,
+   rather than the single mono line this replaces. The sigil beside it echoes the vitality mark. */
+.title-text { display: grid; gap: 3px; }
+.title-text b { font: 600 13px/1.2 var(--font-geist-mono); letter-spacing: .16em; color: var(--bone); text-transform: uppercase; }
+.title-text i { font: 400 italic 13px/1.3 Georgia, serif; color: var(--goal); }
+@media (max-width: 720px), (pointer: coarse) { .title-text i { display: none; } }
 /* The vitality mark. A Unicode heart was the one glyph in the keep borrowed from a web page, and a
    screen reader had to read it out before reaching the bar beneath that already says the same thing.
    This is the rotated square the title sigil is cut from, at the size of a rivet, in the channel the
    bar under it is drawn in. */
 .health-row { display: flex; justify-content: space-between; align-items: center; color: #b9c3c0; font: 600 11px/1 var(--font-geist-mono); letter-spacing: .14em; }
-.health-row > span { width: 9px; height: 9px; border: 1.5px solid var(--threat); transform: rotate(45deg); }
+/* Plan 014 round 2 (lever 11): the diamond emblem itself frames a sigil now, echoed from the title's
+   own mark, rather than being a bare outlined square - a rotated square inside a rotated square,
+   the inner one bright and the gap between them the same ink the frame is cut from. */
+.health-row > span { position: relative; width: 13px; height: 13px; border: 2px solid var(--edge-warm); background: var(--ink-deep); transform: rotate(45deg); box-shadow: 0 0 0 1px #04090d; }
+/* Plan 014 round 4 (lever D9): a sword rather than a plain lit square - a blade (the long bar) through
+   a crossguard (the short one), both in the diamond's own frame colour so it reads as forged metal, and
+   the diamond's own fill picks up the vitality colour behind them instead of a separate red square. */
+.health-row > span::after { content: ''; position: absolute; inset: 2.5px; background: var(--threat); box-shadow: 0 0 4px var(--threat); }
+.health-row > span::before { content: ''; position: absolute; z-index: 1; left: 50%; top: 1px; bottom: 1px; width: 1.5px; background: var(--edge-warm); transform: translateX(-50%); }
 .health-row b { color: #f5e7d0; font-size: 13px; }
-.health-track { height: 7px; margin-top: 8px; padding: 1px; background: var(--ink-deep); border: 1px solid #ffffff1f; box-shadow: inset 0 1px 2px #000a; clip-path: polygon(0 0, 100% 0, 100% 62%, calc(100% - 4px) 100%, 0 100%); }
+/* An ornate frame: a heavier dark ink channel, then a thin gold hairline outside it - the reference's
+   bar sits inside a forged metal housing rather than being a bare gradient rectangle. */
+/* Plan 014 round 5 (lever A1): the round 4 frame set a 2px border and 2px padding on a border-box
+   element whose cascading `height` (see the later, unconditional `.health-track { height: 7px }`
+   this file already carries - this codebase's own pattern of later plain rules overriding earlier
+   ones, not a media query) resolves to 7px. Border-box counts border and padding *inside* that 7px,
+   so 2+2 on each side (8px) left a *negative* content box for the fill to live in - clamped to zero,
+   which is the empty track this round's critic caught. Thinner frame here, and the final height
+   below is taller, so there is real content height left over for the red fill to occupy. */
+.health-track { height: 8px; margin-top: 8px; padding: 1px; background: var(--ink-deep); border: 1px solid #05090dcc; box-shadow: inset 0 1px 2px #000c, 0 0 0 1px #04090d, 0 0 0 2px var(--edge-warm), 0 2px 6px #00000090; }
 .health-track i { display: block; height: 100%; background: linear-gradient(90deg, var(--threat-deep), var(--threat)); box-shadow: 0 0 9px #ff452999; transition: width .2s; }
+/* Plan 014 round 5 (lever D9/C8): a small diamond badge for the rank number, in the health row beside
+   the vitality mark rather than a new corner of its own. */
+.rank-badge { display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 8px; border: 1.5px solid var(--edge-warm); background: var(--ink-deep); transform: rotate(45deg); font: 600 9px/1 var(--font-geist-mono); color: var(--goal); }
+/* Two honest abilities, each a diamond icon over its own real bound key - not a new widget, the same
+   HUD language the vitality mark and the title sigil already speak. The dash icon's sweep is a plain
+   conic-gradient keyed off `--ready` (0-1, written every frame from the render loop, no React state),
+   which is what stands in for the `<progress>` bar this replaces. */
+.ability-row { display: flex; gap: 10px; margin-top: 12px; }
+.ability { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.ability-icon {
+  position: relative; width: 32px; height: 32px; display: grid; place-items: center;
+  border: 1.5px solid var(--edge-warm); background: linear-gradient(155deg, #1c2b30, #071119cc 60%);
+  transform: rotate(45deg); overflow: hidden;
+  /* Stone-and-gold bevel: a bright top-left edge and a dark bottom-right one (the same two-tone
+     bevel the health emblem's own frame uses), plus an inner shadow so the diamond reads as a carved
+     socket the glyph sits inside rather than a flat swatch with a border drawn around it. */
+  box-shadow: 0 0 0 1px #04090d, inset 1px 1px 0 #cf9c5b66, inset -1px -1px 0 #00000080, inset 0 0 6px #00000090;
+}
+.ability-glyph { transform: rotate(-45deg); color: var(--goal); font-size: 14px; line-height: 1; }
+.dash-icon .ability-glyph { color: var(--restore); }
+.dash-sweep { position: absolute; inset: 0; background: conic-gradient(var(--restore) calc(var(--ready, 1) * 360deg), transparent 0); opacity: .38; }
+.ability kbd { font-size: 9px; padding: 2px 5px; }
+/* Plan 014 round 8 (lever 5): a keycap engraved into the plate under the diamond, not dev-console
+   text - a serif capital face (small-caps reads as carved lettering at this size in a way the UI's
+   own sans never will), gold on a sunken dark keywell, with a bright top bevel and a dark underside
+   the same two directions every other bevel in this HUD already commits to. */
+.keycap {
+  font: 600 10px/1 Georgia, 'Times New Roman', serif; letter-spacing: .06em;
+  color: #e8cf9c; padding: 3px 7px; border-radius: 2px;
+  background: linear-gradient(165deg, #2a1c10, #120a06 70%);
+  box-shadow: inset 0 1px 0 #ffffff26, inset 0 -1px 1px #00000090, 0 1px 0 #ffffff14;
+  text-shadow: 0 1px 0 #00000090;
+}
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .xp-panel { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--edge); }
 .xp-row { display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: #b9dbd7; }
 .xp-row b { color: var(--restore); font-size: 18px; }
@@ -181,14 +335,26 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 }
 
 /* The world carries the action; the menu carries the detail. */
-.health-row { font-size: 14px; }.health-track { height: 7px; }.dash-status { margin-top: 8px; }
+/* Plan 014 round 5: bumped from 7px, which is where the empty-track bug above actually bit (the
+   height this rule sets is the one that survives every earlier declaration - see the note there). */
+.health-row { font-size: 14px; }.health-track { height: 11px; }.dash-status { margin-top: 8px; }
 /* An empty rank track is the state the HUD spends most of a run in, and at three pixels on a
    near-black fill with its border taken off it was reading as a dead black bar under the other
    two rather than as a channel waiting to fill. A faint track instead: empty now looks empty. */
 .hud .xp-track { height: 3px; border: 0; background: #ffffff1c; }
 .hud .xp-track::-webkit-progress-bar { background: #ffffff1c; }
-.game-title { top: 28px; }.game-title span { font-size: 12px; color: #c0ceca; }
-.floor-map { width: 130px; background: #09171d66; border: 0; }.floor-map svg { height: 90px; }
+/* Plan 014 round B: a styled rank-progress bar rather than a grey hairline - a gold fill on a dark
+   track inside a thin bronze frame, matching the health bar's ornament. */
+.hud .xp-track { height: 5px; border: 1px solid #6b5530; background: #0b0806; box-shadow: 0 0 0 1px #00000088; }
+.hud .xp-track::-webkit-progress-bar { background: #0b0806; }
+.hud .xp-track::-webkit-progress-value { background: linear-gradient(90deg, #8a5e1c, #f0c060); box-shadow: 0 0 6px #f0c06055; }
+.hud .xp-track::-moz-progress-bar { background: linear-gradient(90deg, #8a5e1c, #f0c060); }
+/* Plan 014 round 2 (lever 11): a dark gradient panel behind the kicker/objective pair so it stays
+   legible over whatever the frame behind it is doing, without drawing a hard-edged card. */
+.game-title { top: 28px; padding: 8px 22px 8px 10px; margin: -8px 0 0 -10px; background: linear-gradient(100deg, #04090dcc 0%, #04090d8c 55%, #04090d00 92%); border-radius: 2px; }.game-title span { font-size: 12px; color: #c0ceca; }
+/* Plan 014 round 2 (lever 11): an ornate frame in place of the bare `border: 0` this used to carry -
+   a dark inner channel and a thin gold rule outside it, matching the vitality bar's own housing. */
+.floor-map { width: 130px; background: #07121799; border: 0; box-shadow: 0 0 0 1px #04090dcc, 0 0 0 2px var(--edge-warm), 0 4px 14px #000000a0; }.floor-map svg { height: 90px; }
 .game-options button { width: 40px; height: 40px; font-size: 20px; }
 .chamber-notice { top: 12%; }.chamber-notice b { font-size: 22px; }
 .control-note { margin-top: 2px; opacity: .72; }

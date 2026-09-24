@@ -80,9 +80,14 @@ const KNIGHT_SPEC: Node = {
         {
           // Plan 013: a smaller helm (1.15 to 1.05) is what pays for the longer legs.
           name: 'head', at: [0, .67, 0], scale: 1.05, parts: [
-            // A bucket, not a cone: near-straight sides and a low dome, the sheet's great helm.
-            { name: 'helmet', shape: { cylinder: [.24, .26, .4, 8] }, material: 'steel', at: [0, .04, 0], rot: [0, Math.PI / 8, 0] },
-            { name: 'crown', shape: { geometry: unitDome() }, material: 'steel', at: [0, .24, 0], rot: [0, Math.PI / 8, 0], scale: [.247, .1, .247] },
+            // Plan 014 round 8 (lever 1): a real taper (.26 at the collar to .205 at the crown, up from
+            // a barely-there .26/.24) and twelve sides rather than eight - this is the one shape on him
+            // that stood for "a great helm" on its own, and eight near-vertical panels at almost no
+            // taper is what read as a flat cylinder no matter how the light hit it. Smooth shading
+            // (removed above, from the material) is what turns those extra sides into a gradient
+            // instead of just more facets.
+            { name: 'helmet', shape: { cylinder: [.205, .26, .4, 12] }, material: 'steel', at: [0, .04, 0], rot: [0, Math.PI / 8, 0] },
+            { name: 'crown', shape: { geometry: unitDome() }, material: 'steel', at: [0, .225, 0], rot: [0, Math.PI / 8, 0], scale: [.212, .11, .212] },
             {
               // The whole face tips back about the mask's own origin (plan 010); trim below is mask-local.
               name: 'mask', at: [0, 0, -.215], rot: [.2, 0, 0], parts: [
@@ -91,6 +96,13 @@ const KNIGHT_SPEC: Node = {
                   name: 'visor', at: [0, 0, -.049], parts: [
                     { name: 'slit-l', shape: { box: [.175, .052, .018] }, material: 'shadow', at: [-.116, .02, 0], rot: [0, 0, -.08] },
                     { name: 'slit-r', shape: { box: [.175, .052, .018] }, material: 'shadow', at: [.116, .02, 0], rot: [0, 0, .08] },
+                    // Plan 014 round 8 (lever 1): a dark slit alone reads as an empty gap; a hairline of
+                    // the same steel the rest of the helm wears, set a shade forward of the slit's own
+                    // dark box and a fraction of its height, is what a real visor's lower rim catches as
+                    // a cold glint. Reuses 'steel' rather than a new material - the spec's own header
+                    // notes the figure sits one mesh under its 32-material ceiling.
+                    { name: 'slit-glint-l', shape: { box: [.15, .01, .012] }, material: 'steel', at: [-.116, -.002, -.006], rot: [0, 0, -.08] },
+                    { name: 'slit-glint-r', shape: { box: [.15, .01, .012] }, material: 'steel', at: [.116, -.002, -.006], rot: [0, 0, .08] },
                   ],
                 },
                 // Gold above and below the slit, and down the middle: the cross the sheet puts on the face.
@@ -240,7 +252,7 @@ function buildCape() {
     const color = new THREE.Color(border ? 0xf3c46d : 0xcb2130); colours.push(color.r, color.g, color.b);
   }
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
-  const cape = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .95, emissive: 0x330c09, side: THREE.DoubleSide }));
+  const cape = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .95, emissive: 0x220805, side: THREE.DoubleSide }));
   // Torso-local, like every part above: the torso group's own height is added by the tree.
   cape.position.set(0, .5, .22); cape.rotation.x = -.1;
   return cape;
@@ -248,21 +260,38 @@ function buildCape() {
 
 export function makeKnight() {
   const dark = new THREE.MeshStandardMaterial({ color: 0x0a0e15, roughness: 0.82 });
-  const steel = new THREE.MeshStandardMaterial({ color: 0x64668c, roughness: 0.4, metalness: 0.5, flatShading: true });
-  const iron = new THREE.MeshStandardMaterial({ color: 0x212436, roughness: .5, metalness: .56, flatShading: true });
+  // Plan 014 round 4 (lever C8): the helmet and plate read as a flat purple cylinder at
+  // metalness .5/roughness .4 - close enough to a dielectric that the now-useful env map
+  // (`vaultEnvironment`, round 3) never got a sharp enough lobe to throw a real torch-lit specular,
+  // and 0x64668c was pale and violet enough to read as painted plastic rather than darkened steel.
+  // Plan 014 round 5 (lever A2): round 4 overcorrected - metalness .82 on a base that dark, lit
+  // mostly by a dim environment, rendered as a near-black silhouette (a metal's own diffuse term
+  // drops out almost entirely as metalness rises, so *all* of its brightness has to come from
+  // specular/env reflection, and there was not enough of either). Backed off to a metalness a real
+  // steel plate still reads as metal at without needing a blazing environment to be visible, a
+  // lighter base, and `envMapIntensity` raised on these materials alone (not the whole scene) so the
+  // knight's own metals catch a real highlight without relighting every stone in the room.
+  // Plan 014 round 8 (lever 1): `flatShading` overrides a geometry's own per-vertex normals with a
+  // face normal derived in the fragment shader, which is what turned every curved steel shape here -
+  // the helmet, the pauldron domes, the greaves - into a set of hard, visible facets no matter how
+  // many segments the geometry underneath actually had. `CylinderGeometry`/`SphereGeometry`/the
+  // lathes below all already carry real smooth vertex normals; removing the override is most of what
+  // "torchlight gives gradients, not facets" asks for, before a single shape below even changes.
+  const steel = new THREE.MeshStandardMaterial({ color: 0x777c90, roughness: 0.35, metalness: 0.6, envMapIntensity: 1.6 });
+  const iron = new THREE.MeshStandardMaterial({ color: 0x3c4056, roughness: .38, metalness: 0.62, envMapIntensity: 1.6 });
   const brass = new THREE.MeshStandardMaterial({ color: 0xffc86a, roughness: .38, metalness: .55, emissive: 0x4a2c07 });
   const shadow = new THREE.MeshStandardMaterial({ color: 0x05090c, roughness: 1 });
-  const red = new THREE.MeshStandardMaterial({ color: 0x9e1f33, roughness: 0.85, emissive: 0x430610, side: THREE.DoubleSide });
+  const red = new THREE.MeshStandardMaterial({ color: 0x9e1f33, roughness: 0.85, emissive: 0x2c0509, side: THREE.DoubleSide });
   const leather = new THREE.MeshStandardMaterial({ color: 0x2c1a14, roughness: 1 });
   // Plan 013: the plume in the sheet's own crimson, a step brighter than the cloth. The helm's top third is
   // half plume from most facings, and the tabard's darker red would pull the head down to the shoulders.
   const plume = new THREE.MeshStandardMaterial({ color: 0xd42a36, roughness: .8, emissive: 0x5a0a12 });
   // Plan 013: between the iron and the steel, and rougher than either, so the skirt reads as woven rings
   // rather than one more plate.
-  const mail = new THREE.MeshStandardMaterial({ color: 0x3a3e4e, roughness: .72, metalness: .45, flatShading: true });
+  const mail = new THREE.MeshStandardMaterial({ color: 0x484c5e, roughness: .55, metalness: .55, envMapIntensity: 1.4 });
   // The one pale thing left on the knight: a long bright blade, since no skeleton carries one. Bound to
   // the armoury's "steel" slot so the weapon keeps the old plate value while the body drops away under it.
-  const blade = new THREE.MeshStandardMaterial({ color: 0xdcded9, roughness: 0.32, metalness: 0.5, flatShading: true });
+  const blade = new THREE.MeshStandardMaterial({ color: 0xdcded9, roughness: 0.2, metalness: 0.6, envMapIntensity: 1.5 });
   const plate: Plate = (outline, depth, material) => {
     const shape = new THREE.Shape(); outline.forEach(([x, y], i) => { if (i) shape.lineTo(x, y); else shape.moveTo(x, y); }); shape.closePath();
     const geometry = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelSize: .015, bevelThickness: .012, bevelSegments: 1, steps: 1, curveSegments: 1 });
@@ -310,6 +339,6 @@ export function makeKnight() {
   // The body cylinder is in the torso's batches now; nothing reads this, but it names the node that owns it.
   g.userData.body = torso;
   // After the traverse, and deliberately: the pool must not be fed back into the shadow map it imitates.
-  g.add(contactShadow(.54, .58));
+  g.add(contactShadow(.62, .74));
   return g;
 }

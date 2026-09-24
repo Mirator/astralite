@@ -113,7 +113,13 @@ const HIT_LIFE = .26, ARC_LIFE = .18, FLASH_LIFE = .11;
  * 413 across this change, and the decay behind it got steeper rather than
  * flatter — 248, 191, 145 against 500, 300, 165.
  */
-const ARC_PEAK = 1.05;
+// Plan 014 round 2: lowered from 1.05. That number was tuned before the post chain's bloom pass
+// existed - a swing that lands on several close bodies now emits several of these on the same
+// frame, and additive-blended overbright quads stack in the framebuffer before bloom ever samples
+// it, so three overlapping hits bloomed into one shapeless white blob big enough to hide the bodies
+// they were supposed to mark. Lower peaks still clear the threshold on a single hit (an already-lit
+// crescent alone still glows) without letting a multi-hit swing paint the whole frame white.
+const ARC_PEAK = 0.45;
 /**
  * And the opposite argument for the bloom, which is emitted on the body rather
  * than beside it. At .8 over an already-lit skeleton it clipped flat and took
@@ -121,7 +127,10 @@ const ARC_PEAK = 1.05;
  * body there is room to put a third of that back, and the blow needs something
  * at the bite point that the crescent no longer covers.
  */
-const FLASH_PEAK = .34;
+// Plan 014 round 2: lowered from .34 for the same reason as ARC_PEAK above - several bodies hit on
+// one swing used to stack several of these bright, additive discs in the same screen region, and
+// the post chain's bloom pass turned the stack into a blown-out blob rather than three legible hits.
+const FLASH_PEAK = .14;
 /**
  * How much wider than the weapon's reach the crescent is drawn.
  *
@@ -221,9 +230,14 @@ export function impactEffects(capacity = 12) {
       // the one part of a skeleton with any detail left to lose at this size.
       slot.flash.position.set(at.x, at.y + .55, at.z); slot.flash.scale.setScalar(heavy ? 1.9 : 1.35);
       slot.flash.material.color.setHex(color); slot.flash.material.opacity = FLASH_PEAK; slot.flash.visible = true;
-      // Fixed scale, and wide enough to be a pool rather than a dot: the ring
-      // inside it is what moves. A heavy blow lights more floor, not brighter.
-      slot.ring.position.set(at.x, .045, at.z); slot.ring.scale.setScalar(heavy ? 2.75 : 2.0);
+      // Plan 014 round 5 (lever A3): this was 2.75/2.0 - a disc wider across than the body that was
+      // just hit, additive and `toneMapped: false`, with a `pool` term (below) that lit a good
+      // fraction of its own area. Under the now-correct linear-HDR bloom (round 3) that read as
+      // exactly the shapeless glow three rounds of guessing tried to fix elsewhere: the diagnostic
+      // hook this round added (`dungeonTest.lightDiagnostics`) found it directly, sitting at
+      // essentially the enemy's own position with an unclamped additive alpha term. Shrunk to a
+      // pool that sits under the body rather than well past its edges.
+      slot.ring.position.set(at.x, .045, at.z); slot.ring.scale.setScalar(heavy ? 1.5 : 1.15);
       slot.ring.material.color.setHex(color);
       slot.glow.edge.value = .08; slot.glow.width.value = .2; slot.glow.band.value = .78; slot.glow.pool.value = 0;
       slot.ring.visible = true;
@@ -256,7 +270,9 @@ export function impactEffects(capacity = 12) {
         slot.glow.band.value = (1 - t) ** 2 * .66;
         // And the light the blow throws: on the same clock as the bloom, because
         // a pool that outlived the flash would read as a fire, not as a hit.
-        slot.glow.pool.value = flash ** 1.7 * (slot.heavy ? .62 : .46);
+        // Plan 014 round 5: was .62/.46 - see the note on `slot.ring.scale` above for why that, on a
+        // disc that size, was most of the blown-out blob three rounds of tuning kept chasing.
+        slot.glow.pool.value = flash ** 1.7 * (slot.heavy ? .22 : .15);
       }
       for (const slot of arcs) {
         slot.age += step;

@@ -145,7 +145,7 @@
         "material": {
           "type": "MeshStandardMaterial",
           "color": 16777215,
-          "emissive": 3345417,
+          "emissive": 2230277,
           "side": 2,
           "flatShading": false
         },
@@ -267,7 +267,7 @@
         "material": {
           "type": "MeshStandardMaterial",
           "color": 10362675,
-          "emissive": 4392464,
+          "emissive": 2884873,
           "side": 2,
           "flatShading": false
         },
@@ -363,7 +363,7 @@
           "color": 14474969,
           "emissive": 0,
           "side": 0,
-          "flatShading": true
+          "flatShading": false
         },
         "vertexCount": 144,
         "indexCount": null,
@@ -410,10 +410,10 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 2171958,
+          "color": 3948630,
           "emissive": 0,
           "side": 0,
-          "flatShading": true
+          "flatShading": false
         },
         "vertexCount": 36,
         "indexCount": null,
@@ -732,10 +732,10 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 6579852,
+          "color": 7830672,
           "emissive": 0,
           "side": 0,
-          "flatShading": true
+          "flatShading": false
         },
         "vertexCount": 36,
         "indexCount": null,
@@ -782,10 +782,10 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 2171958,
+          "color": 3948630,
           "emissive": 0,
           "side": 0,
-          "flatShading": true
+          "flatShading": false
         },
         "vertexCount": 432,
         "indexCount": null,
@@ -882,10 +882,10 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 2171958,
+          "color": 3948630,
           "emissive": 0,
           "side": 0,
-          "flatShading": true
+          "flatShading": false
         },
         "vertexCount": 2052,
         "indexCount": null,
@@ -932,29 +932,29 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 6579852,
+          "color": 7830672,
           "emissive": 0,
           "side": 0,
-          "flatShading": true
+          "flatShading": false
         },
-        "vertexCount": 456,
+        "vertexCount": 576,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.2683,
+            -0.2707,
             -0.0312,
             -0.357
           ],
           "max": [
-            0.2683,
-            1.027,
-            0.2522
+            0.2707,
+            1.0217,
+            0.2707
           ]
         },
         "positionSum": [
           -0.492,
-          281.482,
-          -68.323
+          363.386,
+          -88.682
         ]
       }
     },
@@ -1232,10 +1232,10 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 3817038,
+          "color": 4738142,
           "emissive": 0,
           "side": 0,
-          "flatShading": true
+          "flatShading": false
         },
         "vertexCount": 96,
         "indexCount": null,
@@ -1351,10 +1351,10 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 2171958,
+          "color": 3948630,
           "emissive": 0,
           "side": 0,
-          "flatShading": true
+          "flatShading": false
         },
         "vertexCount": 180,
         "indexCount": null,
@@ -1401,10 +1401,10 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 6579852,
+          "color": 7830672,
           "emissive": 0,
           "side": 0,
-          "flatShading": true
+          "flatShading": false
         },
         "vertexCount": 432,
         "indexCount": null,
@@ -1620,10 +1620,10 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 2171958,
+          "color": 3948630,
           "emissive": 0,
           "side": 0,
-          "flatShading": true
+          "flatShading": false
         },
         "vertexCount": 180,
         "indexCount": null,
@@ -1670,10 +1670,10 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 6579852,
+          "color": 7830672,
           "emissive": 0,
           "side": 0,
-          "flatShading": true
+          "flatShading": false
         },
         "vertexCount": 432,
         "indexCount": null,
@@ -1950,24 +1950,24 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 1332,
+        "vertexCount": 1728,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.2522,
-            -0.2522,
-            -0.2522
+            -0.27,
+            -0.27,
+            -0.27
           ],
           "max": [
-            0.2522,
-            0.2522,
-            0.2522
+            0.27,
+            0.27,
+            0.27
           ]
         },
         "positionSum": [
-          0.037,
-          -128.316,
-          -220.703
+          0,
+          -128.376,
+          -220.68
         ]
       }
     },
@@ -2000,24 +2000,24 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 180,
+        "vertexCount": 720,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.1901,
-            -0.0855,
-            -0.2593
+            -0.205,
+            -0.093,
+            -0.262
           ],
           "max": [
-            0.1901,
-            0.1156,
-            -0.2009
+            0.205,
+            0.128,
+            -0.197
           ]
         },
         "positionSum": [
           0,
-          2.82,
-          -41.4
+          11.28,
+          -165.6
         ]
       }
     },
@@ -2027,7 +2027,7 @@
       "position": [
         -0.085,
         1.45,
-        -0.223
+        -0.235
       ],
       "quaternion": [
         0,
@@ -2045,7 +2045,7 @@
       "mesh": {
         "material": {
           "type": "MeshBasicMaterial",
-          "color": 16747050,
+          "color": 16756792,
           "emissive": null,
           "side": 0,
           "flatShading": false
@@ -2077,7 +2077,7 @@
       "position": [
         0.085,
         1.45,
-        -0.223
+        -0.235
       ],
       "quaternion": [
         0,
@@ -2095,7 +2095,7 @@
       "mesh": {
         "material": {
           "type": "MeshBasicMaterial",
-          "color": 16747050,
+          "color": 16756792,
           "emissive": null,
           "side": 0,
           "flatShading": false
@@ -2222,7 +2222,7 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 1044,
+        "vertexCount": 2484,
         "indexCount": null,
         "boundingBox": {
           "min": [
@@ -2238,7 +2238,7 @@
         },
         "positionSum": [
           0.017,
-          67.031,
+          166.391,
           -0.01
         ]
       }
@@ -2272,23 +2272,23 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 276,
+        "vertexCount": 480,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.0808,
+            -0.095,
             -0.5462,
-            -0.0808
+            -0.095
           ],
           "max": [
-            0.0808,
+            0.095,
             0.0062,
-            0.0808
+            0.095
           ]
         },
         "positionSum": [
           0,
-          -84.96,
+          -134.64,
           -2.592
         ]
       }
@@ -2394,23 +2394,23 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 276,
+        "vertexCount": 480,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.0808,
+            -0.095,
             -0.5462,
-            -0.0808
+            -0.095
           ],
           "max": [
-            0.0808,
+            0.095,
             0.0062,
-            0.0808
+            0.095
           ]
         },
         "positionSum": [
           0,
-          -84.96,
+          -134.64,
           -2.592
         ]
       }
@@ -2516,23 +2516,23 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 600,
+        "vertexCount": 804,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.0808,
+            -0.095,
             -0.495,
             -0.225
           ],
           "max": [
-            0.0808,
+            0.095,
             -0.0063,
-            0.0808
+            0.095
           ]
         },
         "positionSum": [
           0,
-          -226.699,
+          -274.171,
           -28.512
         ]
       }
@@ -2588,23 +2588,23 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 600,
+        "vertexCount": 804,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.0808,
+            -0.095,
             -0.495,
             -0.225
           ],
           "max": [
-            0.0808,
+            0.095,
             -0.0063,
-            0.0808
+            0.095
           ]
         },
         "positionSum": [
           0,
-          -226.699,
+          -274.171,
           -28.512
         ]
       }
@@ -2655,7 +2655,7 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 4147795,
+          "color": 11186870,
           "emissive": 0,
           "side": 0,
           "flatShading": false
@@ -2764,20 +2764,20 @@
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.269,
+            -0.293,
             1.0666,
-            -0.17
+            -0.245
           ],
           "max": [
             0.4804,
-            1.7456,
-            0.414
+            1.8135,
+            0.305
           ]
         },
         "positionSum": [
-          103.719,
-          554.07,
-          14.014
+          103.723,
+          559.474,
+          3.215
         ]
       }
     },
@@ -2810,24 +2810,24 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 1440,
+        "vertexCount": 2832,
         "indexCount": null,
         "boundingBox": {
           "min": [
             -0.2577,
             0.44,
-            -0.3395
+            -0.3436
           ],
           "max": [
-            0.3072,
+            0.325,
             1.2,
-            0.3012
+            0.3024
           ]
         },
         "positionSum": [
-          56.894,
-          1323.6,
-          2.266
+          93.342,
+          2619.36,
+          46.114
         ]
       }
     },
@@ -2855,7 +2855,57 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 4016712,
+          "color": 1055516,
+          "emissive": 0,
+          "side": 0,
+          "flatShading": false
+        },
+        "vertexCount": 180,
+        "indexCount": null,
+        "boundingBox": {
+          "min": [
+            -0.1585,
+            1.3765,
+            -0.2663
+          ],
+          "max": [
+            0.1445,
+            1.5235,
+            -0.1797
+          ]
+        },
+        "positionSum": [
+          0,
+          261,
+          -40.14
+        ]
+      }
+    },
+    {
+      "path": "root/0/11:baked:3",
+      "type": "Mesh",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true,
+      "userDataKeys": [],
+      "mesh": {
+        "material": {
+          "type": "MeshStandardMaterial",
+          "color": 6038576,
           "emissive": 0,
           "side": 2,
           "flatShading": false
@@ -2878,6 +2928,56 @@
           0.541,
           7.213,
           -2.55
+        ]
+      }
+    },
+    {
+      "path": "root/0/12:baked:4",
+      "type": "Mesh",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true,
+      "userDataKeys": [],
+      "mesh": {
+        "material": {
+          "type": "MeshStandardMaterial",
+          "color": 13616040,
+          "emissive": 0,
+          "side": 0,
+          "flatShading": false
+        },
+        "vertexCount": 72,
+        "indexCount": null,
+        "boundingBox": {
+          "min": [
+            -0.135,
+            0.42,
+            -0.1975
+          ],
+          "max": [
+            0.135,
+            0.74,
+            -0.1725
+          ]
+        },
+        "positionSum": [
+          0,
+          43.2,
+          -13.32
         ]
       }
     },
@@ -3035,24 +3135,24 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 1380,
+        "vertexCount": 1776,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.2522,
+            -0.27,
             -0.2943,
-            -0.2522
+            -0.27
           ],
           "max": [
-            0.2522,
-            0.2522,
-            0.2522
+            0.27,
+            0.27,
+            0.27
           ]
         },
         "positionSum": [
-          0.037,
-          -134.898,
-          -229.823
+          0,
+          -134.958,
+          -229.8
         ]
       }
     },
@@ -3085,13 +3185,13 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 228,
+        "vertexCount": 768,
         "indexCount": null,
         "boundingBox": {
           "min": [
             -0.2672,
-            -0.0855,
-            -0.2593
+            -0.093,
+            -0.262
           ],
           "max": [
             0.2672,
@@ -3101,8 +3201,8 @@
         },
         "positionSum": [
           0,
-          7.259,
-          -39.48
+          15.719,
+          -163.68
         ]
       }
     },
@@ -3112,7 +3212,7 @@
       "position": [
         -0.085,
         1.45,
-        -0.445
+        -0.457
       ],
       "quaternion": [
         0,
@@ -3130,7 +3230,7 @@
       "mesh": {
         "material": {
           "type": "MeshBasicMaterial",
-          "color": 14090078,
+          "color": 16777081,
           "emissive": null,
           "side": 0,
           "flatShading": false
@@ -3162,7 +3262,7 @@
       "position": [
         0.085,
         1.45,
-        -0.445
+        -0.457
       ],
       "quaternion": [
         0,
@@ -3180,7 +3280,7 @@
       "mesh": {
         "material": {
           "type": "MeshBasicMaterial",
-          "color": 14090078,
+          "color": 16777081,
           "emissive": null,
           "side": 0,
           "flatShading": false
@@ -3357,7 +3457,7 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 672,
+        "vertexCount": 876,
         "indexCount": null,
         "boundingBox": {
           "min": [
@@ -3373,7 +3473,7 @@
         },
         "positionSum": [
           0,
-          -452.592,
+          -531.312,
           -10.88
         ]
       }
@@ -3429,7 +3529,7 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 672,
+        "vertexCount": 876,
         "indexCount": null,
         "boundingBox": {
           "min": [
@@ -3445,7 +3545,7 @@
         },
         "positionSum": [
           0,
-          -452.592,
+          -531.312,
           -10.88
         ]
       }
@@ -3501,23 +3601,23 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 600,
+        "vertexCount": 804,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.0808,
+            -0.095,
             -0.495,
             -0.225
           ],
           "max": [
-            0.0808,
+            0.095,
             -0.0063,
-            0.0808
+            0.095
           ]
         },
         "positionSum": [
           0,
-          -226.699,
+          -274.171,
           -28.512
         ]
       }
@@ -3573,23 +3673,23 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 600,
+        "vertexCount": 804,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.0808,
+            -0.095,
             -0.495,
             -0.225
           ],
           "max": [
-            0.0808,
+            0.095,
             -0.0063,
-            0.0808
+            0.095
           ]
         },
         "positionSum": [
           0,
-          -226.699,
+          -274.171,
           -28.512
         ]
       }
@@ -3645,29 +3745,79 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 1560,
+        "vertexCount": 2952,
         "indexCount": null,
         "boundingBox": {
           "min": [
             -0.2577,
             0.44,
-            -0.3157
+            -0.3261
           ],
           "max": [
-            0.295,
+            0.2964,
             1.5098,
             0.3049
           ]
         },
         "positionSum": [
-          55.874,
-          1441.201,
-          5.903
+          91.109,
+          2736.961,
+          48.747
         ]
       }
     },
     {
       "path": "root/0/9:baked:1",
+      "type": "Mesh",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true,
+      "userDataKeys": [],
+      "mesh": {
+        "material": {
+          "type": "MeshStandardMaterial",
+          "color": 1055516,
+          "emissive": 0,
+          "side": 0,
+          "flatShading": false
+        },
+        "vertexCount": 180,
+        "indexCount": null,
+        "boundingBox": {
+          "min": [
+            -0.1585,
+            1.3765,
+            -0.4883
+          ],
+          "max": [
+            0.1445,
+            1.5235,
+            -0.4017
+          ]
+        },
+        "positionSum": [
+          0,
+          261,
+          -80.1
+        ]
+      }
+    },
+    {
+      "path": "root/0/10:baked:2",
       "type": "Mesh",
       "position": [
         0,
@@ -3870,24 +4020,24 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 1332,
+        "vertexCount": 1728,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.2522,
-            -0.2522,
-            -0.2522
+            -0.27,
+            -0.27,
+            -0.27
           ],
           "max": [
-            0.2522,
-            0.2522,
-            0.2522
+            0.27,
+            0.27,
+            0.27
           ]
         },
         "positionSum": [
-          0.037,
-          -128.316,
-          -220.703
+          0,
+          -128.376,
+          -220.68
         ]
       }
     },
@@ -3920,24 +4070,24 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 180,
+        "vertexCount": 720,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.1901,
-            -0.0855,
-            -0.2593
+            -0.205,
+            -0.093,
+            -0.262
           ],
           "max": [
-            0.1901,
-            0.1156,
-            -0.2009
+            0.205,
+            0.128,
+            -0.197
           ]
         },
         "positionSum": [
           0,
-          2.82,
-          -41.4
+          11.28,
+          -165.6
         ]
       }
     },
@@ -3947,7 +4097,7 @@
       "position": [
         -0.085,
         1.45,
-        -0.223
+        -0.235
       ],
       "quaternion": [
         0,
@@ -3965,7 +4115,7 @@
       "mesh": {
         "material": {
           "type": "MeshBasicMaterial",
-          "color": 16765498,
+          "color": 16777036,
           "emissive": null,
           "side": 0,
           "flatShading": false
@@ -3997,7 +4147,7 @@
       "position": [
         0.085,
         1.45,
-        -0.223
+        -0.235
       ],
       "quaternion": [
         0,
@@ -4015,7 +4165,7 @@
       "mesh": {
         "material": {
           "type": "MeshBasicMaterial",
-          "color": 16765498,
+          "color": 16777036,
           "emissive": null,
           "side": 0,
           "flatShading": false
@@ -4087,7 +4237,7 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 2568237,
+          "color": 1843231,
           "emissive": 0,
           "side": 0,
           "flatShading": false
@@ -4137,7 +4287,7 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 8023107,
+          "color": 6048300,
           "emissive": 0,
           "side": 0,
           "flatShading": false
@@ -4192,23 +4342,23 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 276,
+        "vertexCount": 480,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.0808,
+            -0.095,
             -0.5462,
-            -0.0808
+            -0.095
           ],
           "max": [
-            0.0808,
+            0.095,
             0.0062,
-            0.0808
+            0.095
           ]
         },
         "positionSum": [
           0,
-          -84.96,
+          -134.64,
           -2.592
         ]
       }
@@ -4237,7 +4387,7 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 2568237,
+          "color": 1843231,
           "emissive": 0,
           "side": 0,
           "flatShading": false
@@ -4314,23 +4464,23 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 276,
+        "vertexCount": 480,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.0808,
+            -0.095,
             -0.5462,
-            -0.0808
+            -0.095
           ],
           "max": [
-            0.0808,
+            0.095,
             0.0062,
-            0.0808
+            0.095
           ]
         },
         "positionSum": [
           0,
-          -84.96,
+          -134.64,
           -2.592
         ]
       }
@@ -4359,7 +4509,7 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 2568237,
+          "color": 1843231,
           "emissive": 0,
           "side": 0,
           "flatShading": false
@@ -4436,23 +4586,23 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 276,
+        "vertexCount": 480,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.0808,
+            -0.095,
             -0.4937,
-            -0.0808
+            -0.095
           ],
           "max": [
-            0.0808,
+            0.095,
             -0.0063,
-            0.0808
+            0.095
           ]
         },
         "positionSum": [
           0,
-          -80.899,
+          -128.371,
           -2.592
         ]
       }
@@ -4481,7 +4631,7 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 2568237,
+          "color": 1843231,
           "emissive": 0,
           "side": 0,
           "flatShading": false
@@ -4558,23 +4708,23 @@
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 276,
+        "vertexCount": 480,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.0808,
+            -0.095,
             -0.4937,
-            -0.0808
+            -0.095
           ],
           "max": [
-            0.0808,
+            0.095,
             -0.0063,
-            0.0808
+            0.095
           ]
         },
         "positionSum": [
           0,
-          -80.899,
+          -128.371,
           -2.592
         ]
       }
@@ -4603,7 +4753,7 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 2568237,
+          "color": 1843231,
           "emissive": 0,
           "side": 0,
           "flatShading": false
@@ -4675,29 +4825,29 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 8023107,
+          "color": 1843231,
           "emissive": 0,
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 828,
+        "vertexCount": 804,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.335,
-            -0.205,
-            -1.25
+            -0.77,
+            -0.27,
+            -1.5
           ],
           "max": [
-            0.335,
-            0.205,
-            0.23
+            0.77,
+            0.27,
+            0.26
           ]
         },
         "positionSum": [
           0,
-          13.68,
-          -816.48
+          0,
+          -929.76
         ]
       }
     },
@@ -4725,29 +4875,29 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 2568237,
+          "color": 6048300,
           "emissive": 0,
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 84,
+        "vertexCount": 108,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.575,
-            -0.18,
-            -1.23
+            -0.22,
+            -0.2284,
+            -1.44
           ],
           "max": [
-            0.575,
-            0.18,
-            -0.85
+            0.22,
+            0.265,
+            -0.9629
           ]
         },
         "positionSum": [
           0,
-          0,
-          -87.36
+          18,
+          -131.04
         ]
       }
     },
@@ -4775,29 +4925,29 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 2568237,
+          "color": 1843231,
           "emissive": 0,
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 2556,
+        "vertexCount": 3444,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.8427,
+            -0.7749,
             0.5,
-            -0.2989
+            -0.3886
           ],
           "max": [
-            0.8427,
-            1.4252,
-            0.2989
+            1.0343,
+            2.1957,
+            0.3886
           ]
         },
         "positionSum": [
-          0.103,
-          2381.142,
-          -42.714
+          119.645,
+          3572.475,
+          -54.49
         ]
       }
     },
@@ -4825,29 +4975,29 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 8023107,
+          "color": 7827037,
           "emissive": 0,
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 1104,
+        "vertexCount": 1392,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.6902,
-            0.8652,
-            -0.2902
+            -0.2504,
+            0.44,
+            -0.3436
           ],
           "max": [
-            0.6902,
-            1.83,
-            0.2902
+            0.325,
+            1.2,
+            0.3024
           ]
         },
         "positionSum": [
-          0,
-          1445.289,
-          -51.42
+          25.41,
+          1301.76,
+          64.401
         ]
       }
     },
@@ -4875,29 +5025,29 @@
       "mesh": {
         "material": {
           "type": "MeshStandardMaterial",
-          "color": 7827037,
+          "color": 1055516,
           "emissive": 0,
           "side": 0,
           "flatShading": false
         },
-        "vertexCount": 480,
+        "vertexCount": 180,
         "indexCount": null,
         "boundingBox": {
           "min": [
-            -0.2504,
-            0.44,
-            -0.3395
+            -0.1585,
+            1.3765,
+            -0.2663
           ],
           "max": [
-            0.3072,
-            1.2,
-            0.3012
+            0.1445,
+            1.5235,
+            -0.1797
           ]
         },
         "positionSum": [
-          11.606,
-          445.2,
-          14.458
+          0,
+          261,
+          -40.14
         ]
       }
     },
@@ -4948,6 +5098,56 @@
           0.681,
           15.034,
           -7.5
+        ]
+      }
+    },
+    {
+      "path": "root/0/12:baked:4",
+      "type": "Mesh",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "quaternion": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "visible": true,
+      "userDataKeys": [],
+      "mesh": {
+        "material": {
+          "type": "MeshStandardMaterial",
+          "color": 6048300,
+          "emissive": 0,
+          "side": 0,
+          "flatShading": false
+        },
+        "vertexCount": 348,
+        "indexCount": null,
+        "boundingBox": {
+          "min": [
+            -0.35,
+            0.8652,
+            -0.29
+          ],
+          "max": [
+            0.35,
+            1.25,
+            -0.17
+          ]
+        },
+        "positionSum": [
+          0,
+          388.14,
+          -84.96
         ]
       }
     },

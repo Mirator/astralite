@@ -4,6 +4,7 @@ import { planFloorMotifs } from './dungeon-decor-layout.ts';
 import { buildFloorMotifs } from './dungeon-floor-motifs.ts';
 import { type Room, TILE, type generateFloor } from './dungeon-floor';
 import { weatherStone } from './dungeon-motion';
+import { applyStoneTextures, getMasonryTextures } from './dungeon-textures';
 
 // The camera is fixed and orthographic — focus + (9.2, 12.5, 11.5), aimed at the focus — so its screen-up
 // axis is a constant, and these three numbers are the whole of it. Vertical structure has to be placed
@@ -89,10 +90,13 @@ export type Mood = {
   moss: [number, number, number]; mossAmount: number;
   warm: [number, number, number]; cool: [number, number, number]; crown: [number, number, number];
 };
+// Plan 014 round B: every room keeps a cool teal ambient - sky, ground bounce, key and fog - and the
+// theme's warmth (ruins amber) or colour (keep violet) is left to the point-light pools alone. Before
+// this the ruin's sky and fog were brown and the keep's blue-violet, so each frame was one tint.
 export const ROOM_MOOD: Record<Room['theme'], Mood> = {
   keep: {
-    key: 0xd1dce5, keyIntensity: 6, sky: 0x7a97b8, ground: 0x121721, hemisphere: .42,
-    fog: 0x0a111a, fogDensity: .024, background: 0x0f1a29, environment: .34,
+    key: 0xc8dde2, keyIntensity: 6, sky: 0x6c98a6, ground: 0x0f1a1d, hemisphere: .62,
+    fog: 0x0a1519, fogDensity: .024, background: 0x0f1a29, environment: .34,
     tile: 0x485670, border: 0x344055, block: 0x3d495c, foundation: 0x1f2737, seal: 0x72a5ca,
     fire: 0xa870e6, banner: 0x3a5c88, masonry: 0x475366,
     water: [.68, .78, 1],
@@ -100,8 +104,8 @@ export const ROOM_MOOD: Record<Room['theme'], Mood> = {
     warm: [1.06, 1.06, 1.03], cool: [.8, .89, 1.07], crown: [1.02, 1.07, 1.18],
   },
   ruins: {
-    key: 0xe3d8c9, keyIntensity: 5.2, sky: 0xa98560, ground: 0x221811, hemisphere: .42,
-    fog: 0x1b1009, fogDensity: .021, background: 0x2a1a0f, environment: .34,
+    key: 0xc9dad9, keyIntensity: 5.2, sky: 0x6d929a, ground: 0x141c1c, hemisphere: .62,
+    fog: 0x10191a, fogDensity: .021, background: 0x141d1f, environment: .34,
     tile: 0x5e4f3a, border: 0x453a2a, block: 0x5a4d3a, foundation: 0x352a1d, seal: 0xc4a164,
     fire: 0xff913d, banner: 0x345865, masonry: 0x665842,
     water: [.52, .64, .7],
@@ -109,8 +113,13 @@ export const ROOM_MOOD: Record<Room['theme'], Mood> = {
     warm: [1.16, 1.05, .86], cool: [.95, .89, .8], crown: [1.18, 1.07, .88],
   },
   flooded: {
-    key: 0xccdde1, keyIntensity: 6, sky: 0x69a2ab, ground: 0x0f1c1f, hemisphere: .44,
-    fog: 0x081417, fogDensity: .03, background: 0x0d2126, environment: .36,
+    key: 0xccdde1, keyIntensity: 6, sky: 0x69a2ab, ground: 0x0f1c1f, hemisphere: .64,
+    // Plan 014 round 6 (lever 3): this used to sit at 0x081417 and .03 - dark enough, with the
+    // steepest density of the three moods, that the far side of any room this theme touched read as a
+    // flat black void rather than a fogged-out distance. Raised toward the same dark teal the water
+    // and the moss already carry, and the density backed down to match `keep` - the fog still reads
+    // as depth, not as the frame running out of scene.
+    fog: 0x15353c, fogDensity: .024, background: 0x0d2126, environment: .36,
     tile: 0x3c5e62, border: 0x2b474a, block: 0x365054, foundation: 0x192b2e, seal: 0x5cb3bc,
     fire: 0x18c9dc, banner: 0x428a7b, masonry: 0x405a5e,
     water: [1, 1, 1],
@@ -135,8 +144,113 @@ export function vaultEnvironment() {
   const opening = ctx.createRadialGradient(145, 68, 2, 145, 68, 100);
   opening.addColorStop(0, '#fff5da'); opening.addColorStop(.25, '#e3e5e2cc'); opening.addColorStop(1, '#e3e5e200');
   ctx.fillStyle = opening; ctx.fillRect(0, 0, 512, 256);
+  // Plan 014 round 3 (lever A2): a dim, neutral map gives a wet surface nothing to reflect but grey -
+  // measured, that is exactly why a low-roughness puddle read as "darker stone" rather than as a
+  // sheen. Four bright cards, standing in for a torch and a brazier seen at reflection distance -
+  // two warm, two cool - so a narrow specular lobe over a puddle actually picks up colour.
+  const card = (cx: number, cy: number, w: number, h: number, colour: string) => {
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, w);
+    glow.addColorStop(0, colour); glow.addColorStop(.55, colour.slice(0, 7) + 'aa'); glow.addColorStop(1, colour.slice(0, 7) + '00');
+    ctx.fillStyle = glow; ctx.fillRect(cx - w, cy - h, w * 2, h * 2);
+  };
+  card(60, 150, 70, 46, '#ffb35bff'); card(430, 170, 60, 40, '#ff9a4aff');
+  card(250, 190, 65, 42, '#3fd8dcff'); card(360, 40, 55, 34, '#8f7bffff');
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace; texture.mapping = THREE.EquirectangularReflectionMapping;
+  return texture;
+}
+
+/**
+ * Plan 014 round 2: the ground telegraph used to be a flat colour at a material opacity the code set
+ * to 1 the instant a windup began, which is a solid, opaque slab of red big enough to swallow the
+ * bodies standing on it - not the reference's translucent warning square with a bright rim and a
+ * single arrow through it.
+ *
+ * Plan 014 round 3: round 2's version stacked three chevrons and tiled the whole thing 2x2, which
+ * read as scribbled internal streaks rather than a mark - a ring's own UV wraps that pattern at an
+ * angle no caller chose, and two overlapping copies of three lines apiece is a lot of line to read at
+ * once. One chevron, one rim, `repeat` left at its default 1x1: whatever shape holds this texture
+ * shows exactly this canvas, once, the way the reference's own red square does.
+ *
+ * Plan 014 round 4: round 3's single centred chevron and hard-edged 20% fill still read as a pasted
+ * UI decal rather than a warning burned into the floor - a flat rectangle of colour with one bold
+ * glyph in the middle is exactly what a UI sprite looks like. This version fills at 11%, perturbs
+ * that fill with noise and fades it toward every border rather than cutting it off square, and moves
+ * the arrows to a small repeated row along the *leading* edge only (high v, the direction every cue
+ * in the keep already reads) instead of one glyph spanning the whole shape. The material draws this
+ * additively now (see the two call sites in dungeon-game.tsx), so what shows through is genuinely the
+ * stone underneath brightened, not a sprite laid over it.
+ */
+/**
+ * Plan 014 round B: the arc telegraph (guard and warden), rebuilt as one coherent soft ground shape.
+ * The previous texture was a faint noise-eaten gradient (8-25% alpha) with two small solid arrow glyphs
+ * - so the only parts of the mark that actually read on screen were the glyphs, and on the stalker's
+ * 5 x 1.7 lane they stretched into the loose floating red slivers the critic read as a broken mesh.
+ * Now: a solid, soft-edged band that fills the ring sector (RingGeometry's UVs are planar, so the band
+ * sits between radius .283 and .5 of the canvas - the geometry's .85/1.5 inner/outer), a slightly
+ * stronger feathered rim at its outer edge, and one small arrow at the leading edge (+x, the aim).
+ */
+export function telegraphTexture() {
+  const size = 128, c = size / 2;
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, size, size);
+  const band = ctx.createRadialGradient(c, c, 0, c, c, c);
+  band.addColorStop(0, 'rgba(255,82,52,0)'); band.addColorStop(.5, 'rgba(255,82,52,0)');
+  band.addColorStop(.6, 'rgba(255,82,52,.24)'); band.addColorStop(.84, 'rgba(255,82,52,.3)');
+  band.addColorStop(.93, 'rgba(255,104,72,.62)'); band.addColorStop(1, 'rgba(255,82,52,0)');
+  ctx.fillStyle = band; ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = 'rgba(255,140,110,.8)';
+  ctx.beginPath(); ctx.moveTo(c + 57, c); ctx.lineTo(c + 45, c - 7); ctx.lineTo(c + 45, c + 7); ctx.closePath(); ctx.fill();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/**
+ * Plan 014 round B: the stalker's lunge lane - a filled, soft-edged rounded rectangle along the lane
+ * (u runs from the stalker, 0, to the far end, 1), a feathered rim, and one small arrow near the far
+ * end. Drawn per pixel from a signed distance so every edge is feathered and nothing is a stroke.
+ * The canvas has close to the lane's own 5:1.7 aspect so the arrow is not stretched into a sliver.
+ */
+export function laneTelegraphTexture() {
+  const w = 256, h = 88, r = 34, feather = 7;
+  const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  const image = ctx.createImageData(w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    // Signed distance to a rounded rectangle inset by the feather width.
+    const qx = Math.abs(x + .5 - w / 2) - (w / 2 - feather - r), qy = Math.abs(y + .5 - h / 2) - (h / 2 - feather - r);
+    const d = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+    const inside = Math.min(1, Math.max(0, -d / feather + .5));
+    const rim = Math.min(1, Math.max(0, 1 - Math.abs(d + 6) / 6));
+    const start = Math.min(1, x / (w * .1));
+    const a = inside * (.12 + rim * .24) * (.35 + .65 * start);
+    const i = (y * w + x) * 4;
+    image.data[i] = 255; image.data[i + 1] = 84; image.data[i + 2] = 56; image.data[i + 3] = Math.round(a * 255);
+  }
+  ctx.putImageData(image, 0, 0);
+  ctx.fillStyle = 'rgba(255,140,110,.8)';
+  ctx.beginPath(); ctx.moveTo(w - 22, h / 2); ctx.lineTo(w - 44, h / 2 - 13); ctx.lineTo(w - 44, h / 2 + 13); ctx.closePath(); ctx.fill();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/**
+ * Plan 014 round 2 (lever D10): the alert glyph shown over a body that has just noticed the knight and
+ * has not yet settled into its own windup - the reference marks exactly this moment with a small red
+ * exclamation, which is what turns "a body somewhere started moving" into "that one has seen you."
+ */
+export function alertTexture() {
+  const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 64, 64);
+  ctx.fillStyle = '#ff4529';
+  ctx.beginPath(); ctx.moveTo(24, 4); ctx.lineTo(40, 4); ctx.lineTo(36, 38); ctx.lineTo(28, 38); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.arc(32, 52, 7, 0, Math.PI * 2); ctx.fill();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
 
@@ -152,7 +266,7 @@ export function vaultEnvironment() {
  * Non-indexed on purpose: `computeVertexNormals` then gives each facet its own normal, so the steps stay
  * steps instead of being smoothed into the tube we started with.
  */
-function archivolt(span: number, segments = 20) {
+export function archivolt(span: number, segments = 20) {
   // (radial offset from the centreline, offset through the wall). Counter-clockwise, closed.
   const profile: [number, number][] = [
     [-.19, -.17], [-.19, .17], [-.12, .26], [.00, .26], [.03, .18], [.09, .18],
@@ -184,6 +298,7 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
   // Carved work was the last flat stone in the frame: columns, cornices and footings took one value per
   // face while the paving beside them was already weathering. Same draw, same triangles, same material.
   weatherStone(stone); weatherStone(pale);
+  applyStoneTextures(stone, getMasonryTextures(), .7); applyStoneTextures(pale, getMasonryTextures(), .7);
   const bronze = new THREE.MeshStandardMaterial({ color: 0xa88951, metalness: .65, roughness: .48 });
   // The medallion's own inlay, split off from `bronze` for two reasons that turned out to be the same
   // reason. Measured off a frame, its star sat brighter than the knight standing on it, which made the
@@ -572,7 +687,8 @@ const ring = (slab: Slab, shade: number, quad: Corner[]) => {
 };
 
 /** How much light the joint and the hollows keep. */
-const JOINT = .52, HOLLOW = .84;
+// Plan 014 round B: .52 -> .26. The joint is wet grout, the darkest line on the floor.
+const JOINT = .26, HOLLOW = .84;
 
 /**
  * `plain` is the paving. `groove` is a slab split by a fissure and `dish` one
@@ -585,7 +701,17 @@ export const pavingGeometry = (kind: 'plain' | 'groove' | 'dish' = 'plain') => {
   const slab: Slab = { position: [], normal: [], uv: [], color: [] };
   const half = SLAB / 2, inner = half - LIP, shoulder = TOP - LIP;
   // The rim, mitred at the corners so the four trapezoids close on each other.
-  ring(slab, 1, [[-inner, TOP, inner], [-half, shoulder, half], [half, shoulder, half], [inner, TOP, inner]]);
+  // Plan 014 round 6 (lever 6): unshaded (1) here, the +z lip's own flat-shaded normal against the
+  // moon landed at .90 real luminance by the doc above - close enough to full white that, repeated
+  // identically across every aligned tile in a run, it reads as a straight bright stroke laid across
+  // the floor rather than as one lit facet among the five this slab was built to carry. .82 keeps the
+  // whole seven-fold spread this geometry earns its keep for, just short of where the brightest facet
+  // clips into a line.
+  // Plan 014 round B: still .82 read as bright white strips along every joint whose lip faces the
+  // moon, and those strips ran straight through the knight's telegraph in torch-room. The camera sees
+  // the same +z/+x lips the moon lights, so the brightest facet was always the visible one. .46 keeps
+  // a visible chamfer without the lip ever out-shining the slab top it belongs to.
+  ring(slab, .46, [[-inner, TOP, inner], [-half, shoulder, half], [half, shoulder, half], [inner, TOP, inner]]);
   // The skirt down into the joint. What the lens actually sees of a neighbour across the gap.
   ring(slab, JOINT, [[-half, shoulder, half], [-half, BASE, half], [half, BASE, half], [half, shoulder, half]]);
   if (kind === 'groove') {
