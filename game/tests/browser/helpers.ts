@@ -21,6 +21,13 @@ export { canStand, expect, hasClearPath, TILE };
  * frames. Eight levels on any one channel is past dither and compression noise; below that a frame is
  * "the same" for the purposes this counts pixels for.
  */
+/**
+ * Frames cross from the page as one base64 string rather than an `Array.from` of the RGBA bytes: a
+ * plain array of ~3.7 million numbers is serialised element by element by Playwright's protocol, which
+ * cost about 15 s per full frame under CI, and the same bytes as base64 take well under one.
+ */
+const unpackPixels = (base64: string) => new Uint8ClampedArray(Buffer.from(base64, 'base64'));
+
 export const countChangedPixels = (a: Uint8ClampedArray, b: Uint8ClampedArray, threshold = 8) => {
   let changed = 0;
   for (let i = 0; i < a.length; i += 4) {
@@ -713,9 +720,10 @@ export class Game {
       copy.width = gl.width; copy.height = gl.height;
       const ctx = copy.getContext('2d', { willReadFrequently: true })!;
       ctx.drawImage(gl, 0, 0);
-      return Array.from(ctx.getImageData(0, 0, copy.width, copy.height).data);
+      const pack = (bytes: Uint8ClampedArray) => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000) as unknown as number[]); return btoa(bin); };
+      return pack(ctx.getImageData(0, 0, copy.width, copy.height).data);
     });
-    return Uint8ClampedArray.from(pixels);
+    return unpackPixels(pixels);
   }
 
   /**
@@ -734,7 +742,8 @@ export class Game {
       const copy = document.createElement('canvas');
       copy.width = gl.width; copy.height = gl.height;
       const ctx = copy.getContext('2d', { willReadFrequently: true })!;
-      const frame = () => { ctx.clearRect(0, 0, copy.width, copy.height); ctx.drawImage(gl, 0, 0); return Array.from(ctx.getImageData(0, 0, copy.width, copy.height).data); };
+      const pack = (bytes: Uint8ClampedArray) => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000) as unknown as number[]); return btoa(bin); };
+      const frame = () => { ctx.clearRect(0, 0, copy.width, copy.height); ctx.drawImage(gl, 0, 0); return pack(ctx.getImageData(0, 0, copy.width, copy.height).data); };
       advance(0, true);
       const before = frame();
       window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'pause' }));
@@ -744,7 +753,7 @@ export class Game {
       window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'pause' }));
       return { before, after };
     }, pausedMs);
-    return { before: Uint8ClampedArray.from(result.before), after: Uint8ClampedArray.from(result.after) };
+    return { before: unpackPixels(result.before), after: unpackPixels(result.after) };
   }
 
   /** Plan 007, development-only: the controller's own target/material state, for test setup and
@@ -775,13 +784,14 @@ export class Game {
       const copy = document.createElement('canvas');
       copy.width = gl.width; copy.height = gl.height;
       const ctx = copy.getContext('2d', { willReadFrequently: true })!;
-      const frame = () => { ctx.clearRect(0, 0, copy.width, copy.height); ctx.drawImage(gl, 0, 0); return Array.from(ctx.getImageData(0, 0, copy.width, copy.height).data); };
+      const pack = (bytes: Uint8ClampedArray) => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000) as unknown as number[]); return btoa(bin); };
+      const frame = () => { ctx.clearRect(0, 0, copy.width, copy.height); ctx.drawImage(gl, 0, 0); return pack(ctx.getImageData(0, 0, copy.width, copy.height).data); };
       setEnabled(false); advance(0, true); const off = frame();
       setEnabled(true); advance(0, true); const on = frame();
       setEnabled(true); // restored: the dev fixture defaults enabled
       return { width: copy.width, height: copy.height, off, on };
     });
-    return { width: result.width, height: result.height, off: Uint8ClampedArray.from(result.off), on: Uint8ClampedArray.from(result.on) };
+    return { width: result.width, height: result.height, off: unpackPixels(result.off), on: unpackPixels(result.on) };
   }
 
   /** Plan 009, development-only: what each figure costs to draw, off the live meshes. */

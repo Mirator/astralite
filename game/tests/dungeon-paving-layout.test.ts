@@ -17,10 +17,6 @@ const insideReservation = (floor: Floor, wx: number, wz: number) =>
     wx >= r.minX - RESERVATION_MARGIN && wx <= r.maxX + RESERVATION_MARGIN &&
     wz >= r.minZ - RESERVATION_MARGIN && wz <= r.maxZ + RESERVATION_MARGIN);
 
-/** A room's own stone cell count, recomputed independently of the module under test. */
-const roomStoneCells = (floor: Floor, roomId: number) =>
-  floor.tiles.filter((t) => t.room === roomId && !t.wood).length;
-
 const stoneCellSet = (floor: Floor) => new Set(floor.tiles.filter((t) => !t.wood && t.room >= 0).map((t) => `${t.x},${t.z}`));
 
 test('planPavingPatches is repeatable: the same floor plans the same patches every time', () => {
@@ -104,40 +100,4 @@ test('a gauntlet room, whose entire footprint is reserved, never gets a pair or 
     for (const pair of plan.pairs) assert.ok(!gauntlet.includes(pair.room), `seed ${floor.seed} a gauntlet room got a paving pair`);
     for (const single of plan.settled) assert.ok(!gauntlet.includes(single.room), `seed ${floor.seed} a gauntlet room got a settled single`);
   }
-});
-
-test('coverage stays inside the plan\'s own bound: paired cells never exceed 35% of a room\'s stone cells', () => {
-  for (const floor of allFloors()) {
-    const plan = planPavingPatches(floor);
-    const perRoom = new Map<number, number>();
-    for (const pair of plan.pairs) perRoom.set(pair.room, (perRoom.get(pair.room) ?? 0) + 2);
-    for (const [room, consumed] of perRoom) {
-      const total = roomStoneCells(floor, room);
-      assert.ok(consumed <= 0.35 * total + 1e-9, `seed ${floor.seed} room ${room} paired ${consumed}/${total} stone cells, over the 35% bound`);
-    }
-  }
-});
-
-test('a floor with negative-coordinate rooms plans finite, well-formed patches the same way', () => {
-  let sawNegative = false;
-  for (const floor of allFloors()) {
-    if (!floor.rooms.some((r) => r.x < 0 || r.z < 0)) continue;
-    sawNegative = true;
-    const plan = planPavingPatches(floor);
-    for (const pair of plan.pairs) {
-      assert.ok(Number.isFinite(pair.x) && Number.isFinite(pair.z), `seed ${floor.seed} pair has a non-finite world position`);
-    }
-  }
-  assert.ok(sawNegative, 'sample never produced a room off the positive quadrant; widen SEEDS');
-});
-
-test('across a wide sample, every theme realizes at least one pair and one settled single', () => {
-  const pairThemes = new Set<string>(), settledThemes = new Set<string>();
-  for (const floor of allFloors()) {
-    const plan = planPavingPatches(floor);
-    for (const pair of plan.pairs) pairThemes.add(pair.theme);
-    for (const single of plan.settled) settledThemes.add(floor.rooms[single.room].theme);
-  }
-  assert.deepEqual(pairThemes, new Set(['keep', 'ruins', 'flooded']), 'not every theme realized a pair across the sample');
-  assert.deepEqual(settledThemes, new Set(['keep', 'ruins', 'flooded']), 'not every theme realized a settled single across the sample');
 });

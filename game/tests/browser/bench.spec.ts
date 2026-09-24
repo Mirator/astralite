@@ -1,13 +1,15 @@
 import { expect, test } from '@playwright/test';
+import { CAPTURING } from './helpers.ts';
 
 // The figure bench (plan 012 Stage C) is not the pooled game page - it is a different route entirely, with
 // its own renderer and no floor, no input and no reset to hold a snapshot against - so this spec never
-// touches the `game` fixture in tests/browser/helpers.ts and runs on a plain Playwright page instead of
-// opting a pooled one out.
+// touches the `game` fixture in tests/browser/helpers.ts (it borrows only the CAPTURING flag) and runs on
+// a plain Playwright page instead of opting a pooled one out.
 //
 // It must add under 5s to the suite: one page load, one wait for `__bench`, one canvas read-back. It
 // writes no PNG unless GAME_TEST_CAPTURE=1 - `npm run figures` is what the PNG is for, and this spec's job
-// is a fast, no-artifact regression: does every cell it drew actually have a figure in it.
+// is a fast, no-artifact regression: does every cell it drew actually have a figure in it. CI sets the
+// variable to '0' when not capturing, which a bare truthiness check would read as "capture".
 
 /** True once every cell in the grid has enough pixels that differ from that cell's own corner (its empty
  *  background) by more than a small per-channel threshold - proof that a figure actually drew into it,
@@ -53,7 +55,7 @@ test('the bench renders every figure at every facing', async ({ page }) => {
   const result = await everyCellHasAFigure(page, rows, cols);
   expect(result.ok, `cell pixel counts (min ${result.min}): ${JSON.stringify(result.cells)}`).toBe(true);
 
-  if (process.env.GAME_TEST_CAPTURE) {
+  if (CAPTURING) {
     await page.locator('canvas').screenshot({ path: `test-results/bench-capture.png` });
   }
 });

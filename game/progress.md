@@ -2227,3 +2227,67 @@ scope for this pass.
 Gates: typecheck, lint, `npm test` (296/296), `GAME_TEST_GL=d3d11` `loading.spec.ts` + `smoke.spec.ts`
 (6/6; the early-press test runs ~110 s of a 120 s budget on a cold shader cache). Not run: the rest of the
 browser suite; frame-budget, pixel-diff and art-direction specs are expected to fail against this look.
+
+## Unit-test pruning, and what it turned up
+
+The unit suite was audited test by test against one bar: keep a test only if it would catch a real bug
+the browser suite misses. 293 tests became 166 (`npm test` ~13 s). Kept: generator invariants across many
+seeds, collision edge cases, enemy decision logic, projectile/fire/boon/draft rules, persistence
+corruption and rebinding, off-origin and vertical aim maths, bake correctness and disposal, cutaway slot
+allocation, death and cloak geometry, the balance comparator. Gone: restated constants, snapshots,
+unreachable inputs, tests of code written inside the test, the figure fingerprint fixture, and cases a
+browser spec already covers. `tests/README.md` and the spec headers that pointed at deleted tests are
+corrected.
+
+The audit found three real problems, fixed in their own commits:
+- **Decor ignored the weapon rack.** `weaponDrop` is in world units; the decor planner treated it as
+  tiles, so motifs and paving could land under the rack. Its guarding test had the same unit error.
+- **The cutaway shader maths lived twice.** The TypeScript copy was never called and the GLSL hardcoded
+  its numbers. The copy is gone; the named constants are now interpolated into the GLSL.
+- **`bench.spec.ts` captured on every PR.** It tested `GAME_TEST_CAPTURE` for truthiness, and CI sets
+  `'0'`. It now uses `CAPTURING` from `helpers.ts`.
+
+Gates: typecheck, lint, `npm test` (166/166); `GAME_TEST_GL=d3d11` browser runs of `floor-motifs`,
+`macro-paving`, `weapon` (25 passed), `occlusion` (3 passed, 1 conditional skip that also skips on main)
+and `bench` (2 passed; no PNG at `GAME_TEST_CAPTURE=0`, one written at `=1`). Not run: the full browser
+suite.
+
+## A lighter pull-request gate for the browser suite
+
+The browser suite was reviewed spec by spec for what a PR actually needs. Two tags now take scenarios off
+the gate without deleting them (`--grep-invert "@capture|@nightly"` in `deploy-pages.yml`; the nightly
+isolated run keeps everything, and a capture run draws everything):
+- `@capture`: all of `shots.spec.ts`, and the per-theme and phone review frames in `macro-paving`,
+  `floor-motifs` and `theme-flames`. On a PR they staged a scene and asserted almost nothing.
+- `@nightly`: art-tuning checks that pin the current look (theme colours, two of three telegraph themes,
+  the models eight-facing and cast checks) and the keep and ruins footstep pixel checks.
+
+Deleted as duplicates: the dash immune-window check (the unit test asserts the same thing), the
+pinned-seed reset scenarios in `macro-paving` and `floor-motifs` (every pooled scenario already ends by
+resetting and comparing the whole snapshot), the macro-paving rebuild-count and walk/strike-on-a-slab
+scenarios (collision is `canStand` over cells, which paving never touches) and the theme-flames rebuild
+count. Kept on purpose: scenarios that are now the only coverage for unit tests removed as duplicates
+(listed in `tests/README.md`).
+
+144 scenarios, 103 on the gate. Gates: typecheck, lint, and the gate subset under `GAME_TEST_GL=d3d11`
+(101 passed, 2 skipped as on main).
+
+## Shards balanced by duration, and a 15-second frame read
+
+The PR gate's three shards ran 1.8, 3.1 and 9.2 minutes of tests: Playwright's `--shard` cuts equal test
+counts in file order, and the heavy specs sit next to each other alphabetically. `scripts/shards/plan.ts`
+now gives each CI job its specs by longest-first assignment over measured per-spec durations
+(`scripts/shards/durations.json`, refreshed from a green run's logs by `scripts/shards/refresh.ts`).
+Tie-breaks use code-unit order rather than `localeCompare`, which sorts "ch" after "h" in a Czech locale
+and would let a developer's machine disagree with CI. `tests/shards.test.ts` guards that every spec lands
+on exactly one shard.
+
+The occlusion scenario was the single longest test (240 s on CI), which capped how short any shard could
+be. Its time was not the spot search - both searches succeed on the first candidate - but the frame reads:
+`framePixels`/`cutawayFrames`/`pauseFreezeCheck` returned `Array.from` of ~3.7 million RGBA bytes, which
+Playwright serialises element by element, about 15 s per frame. They now return base64. The whole occlusion
+spec runs in 23 s locally (was 3.5 min). Its durations entry is an estimate (90 s) until the next refresh.
+
+Planned load: 402 / 377 / 376 s of tests across the shards, two workers each. Gates: typecheck, lint,
+`npm test` (172/172), `occlusion.spec.ts` under `GAME_TEST_GL=d3d11` (3 passed, 1 skipped as on main), and
+`--list` per planned shard: 32 + 33 + 38 = the gate's 103 scenarios, each exactly once.

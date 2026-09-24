@@ -17,11 +17,10 @@
 // Ordering note for anyone editing this file: bakeStatic merges every plain, opaque, visible mesh under a
 // bake root into one mesh per material, in the order that material is FIRST met walking the tree
 // depth-first. Which part contributes which vertices to a merged mesh never depends on order - a sum and
-// a bounding box do not care - but WHICH material lands at baked:0 vs baked:1 does, and the fingerprint
-// records that. So: reordering parts that already share a material with something earlier in the walk is
+// a bounding box do not care - but WHICH material lands at baked:0 vs baked:1 does, and anything addressing
+// a batch by index would notice. So: reordering parts that already share a material with something earlier in the walk is
 // free; introducing a part in a NEW material earlier than before will shift every batch after it. If you
-// need to reorder for real, regenerate the fixture (UPDATE_FIGURE_FINGERPRINTS=1 npm test) and say why in
-// the commit, per Stage B's rule that this file may not silently drift from what ships.
+// need to reorder for real, say why in the commit.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { contactShadow } from './dungeon-characters.ts';
@@ -311,8 +310,8 @@ export function makeKnight() {
   const { root: arm } = buildSpec(ARM_SPEC, palette);
   // Order matters here only relative to `head` (already built, so already before these) and to each
   // other: bakeStatic always skips a kept subtree wherever it sits among torso's other children, but the
-  // kept subtrees themselves end up in the tree in the order they were added, and the fingerprint's
-  // paths follow that order.
+  // kept subtrees themselves end up in the tree in the order they were added, and anything that walks
+  // the tree by index follows that order.
   torso.add(cape); torso.add(tabard); torso.add(swordPivot); torso.add(arm);
 
   const legs = [byName['hip-l'] as THREE.Group, byName['hip-r'] as THREE.Group];

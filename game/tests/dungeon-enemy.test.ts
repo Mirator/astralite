@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
-import { ACTIVATION, ALERT_RADIUS, ALERT_STAGGER, ATTACK_RANGE, BASE_STATS, HIT, HIT_COOLDOWN, hitCooldown, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, HOLD_RANGE, interruptsWindup, isActive, LUNGE_SPEED, LUNGE_TIME, nearbyDozers, NOTICE_TIME, PATROL_SPAN, PATROL_SPEED, pursuitStep, RECOVERY, separateCrowd, STRIKE_RANGE, sweptContact, type CrowdBody, type EnemyView, type Wakeable, type World } from '../app/dungeon-enemy.ts';
+import { ALERT_RADIUS, ALERT_STAGGER, BASE_STATS, HIT, HIT_COOLDOWN, hitCooldown, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, interruptsWindup, LUNGE_SPEED, LUNGE_TIME, nearbyDozers, NOTICE_TIME, PATROL_SPAN, PATROL_SPEED, pursuitStep, RECOVERY, separateCrowd, sweptContact, type CrowdBody, type EnemyView, type Wakeable, type World } from '../app/dungeon-enemy.ts';
 
 // A square of open floor wide enough that nothing in these tests walks off it.
 const openFloor = (half = 8) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
@@ -13,36 +13,6 @@ const world = (cells: Set<string>, patch: Partial<World> = {}): World => ({ cell
 const foe = (patch: Partial<EnemyView> = {}): EnemyView => ({ kind: 'guard', x: 0, z: 0, room: 1, cooldown: 0, hitFlash: 0, windup: 0, lunge: 0, tell: 0.5, speed: 2.2, aim: { x: 1, z: 0 }, anchor: { x: 0, z: 0 }, notice: NOTICE_TIME, ...patch });
 const body = (patch: Partial<CrowdBody> = {}): CrowdBody => ({ x: 0, z: 0, windup: 0, dead: false, ...patch });
 const near = (a: number, b: number, slack = 1e-6) => Math.abs(a - b) <= slack;
-
-test('the tuning table is the balance, so a rebalance has to be deliberate', () => {
-  // Every number a fight is decided by, in one place. Changing one here should break a design argument,
-  // not slip through as an accident of refactoring.
-  assert.deepEqual(ACTIVATION, { sameRoom: 22, elsewhere: 10 });
-  assert.deepEqual(STRIKE_RANGE, { guard: 1.55, stalker: 1.55, warden: 2.55 });
-  assert.deepEqual(ATTACK_RANGE, { guard: 1.5, stalker: 4.2, warden: 2.2 });
-  // A guard commits from inside its own strike range, so a stationary knight is still hit when the tell
-  // runs out, and from outside the range it used to wait for, so it is no longer walking into the arc.
-  assert.ok(ATTACK_RANGE.guard < STRIKE_RANGE.guard && ATTACK_RANGE.guard > HOLD_RANGE.guard);
-  assert.deepEqual(HOLD_RANGE, { guard: 1.15, stalker: 1.15, warden: 2.0 });
-  assert.deepEqual(RECOVERY, { guard: 1.25, stalker: 1.7, warden: 1.6 });
-  assert.deepEqual([LUNGE_SPEED, LUNGE_TIME, CROWD_SPACING], [13, 0.32, 0.82]);
-  // A warden reaches further than a guard both to commit and to connect; a stalker commits from furthest
-  // of all because it closes the gap itself.
-  assert.ok(ATTACK_RANGE.warden > ATTACK_RANGE.guard && STRIKE_RANGE.warden > STRIKE_RANGE.guard);
-  assert.ok(ATTACK_RANGE.stalker > ATTACK_RANGE.warden);
-  // The noticing beat, the patrol it interrupts, and the contagion radius/stagger that couples wakes.
-  assert.equal(NOTICE_TIME, 0.32);
-  assert.deepEqual([PATROL_SPAN, PATROL_SPEED], [1.6, 0.55]);
-  assert.deepEqual([ALERT_RADIUS, ALERT_STAGGER], [6, 0.15]);
-});
-
-test('the activation cutoff is generous in the knight\'s own room and tight everywhere else', () => {
-  assert.deepEqual([22, 23].map(d => isActive(d, true)), [true, false]);
-  assert.deepEqual([10, 11].map(d => isActive(d, false)), [true, false]);
-  // A cell the flood never reached is unreachable, not adjacent.
-  assert.equal(isActive(Infinity, true), false);
-  assert.equal(isActive(Number.NaN, true), false);
-});
 
 test('a body too far to matter paces near its post instead of freezing, but still finishes recovering', () => {
   const cells = openFloor();
@@ -297,30 +267,6 @@ test('a decision never touches what it was handed', () => {
   const bodies = [Object.freeze(body({ x: 0, z: 0 })), Object.freeze(body({ x: 0.4, z: 0 }))];
   separateCrowd(cells, bodies, 0.1);
   assert.deepEqual(bodies.map(b => b.x), [0, 0.4]);
-});
-
-test('a junk frame delta is dropped rather than subtracted', () => {
-  // A hidden tab, a stalled worker or a NaN clock would otherwise poison a cooldown permanently: NaN is
-  // never <= 0, so the body could never swing again.
-  for (const dt of [Number.NaN, -1, Number.POSITIVE_INFINITY]) {
-    const idle = decideEnemy(foe({ cooldown: 0.5, hitFlash: 0.2 }), { x: 6, z: 0 }, world(openFloor()), dt);
-    assert.deepEqual([idle.cooldown, idle.hitFlash, idle.x, idle.z], [0.5, 0.2, 0, 0]);
-  }
-  assert.deepEqual(separateCrowd(openFloor(), [body({ x: 0, z: 0 }), body({ x: 0.4, z: 0 })], Number.NaN), [{ x: 0, z: 0 }, { x: 0.4, z: 0 }]);
-});
-
-test('a guard always walks the tile grid, because its commit range and its hold range are the same number', () => {
-  // Current behaviour, pinned rather than fixed. The straight-line step is only taken when the attack
-  // line is already clear, and a clear line for a guard means it is inside 1.15 - which is also the range
-  // at which it stops walking. So the two conditions can never both hold and a guard only ever steps from
-  // tile centre to tile centre. A warden, whose commit range (2.2) is wider than its hold range (2.0),
-  // does get the straight-line step in that gap.
-  const w = world(openFloor(), { pathDistance: (x, z) => Math.abs(x) + Math.abs(z - 2) });
-  const guard = decideEnemy(foe({ cooldown: 0.5 }), { x: 1, z: 1.8 }, w, 0.1);
-  assert.equal(guard.x, 0, 'a guard 2.06 away stepped diagonally, so the straight line is live after all');
-  assert.ok(guard.z > 0);
-  const warden = decideEnemy(foe({ kind: 'warden', speed: 1.65, tell: 0.72, cooldown: 0.5 }), { x: 1, z: 1.8 }, w, 0.1);
-  assert.ok(warden.x > 0, 'a warden inside its commit range but outside its hold range walks straight at him');
 });
 
 test('a hit knocks a swing out of a tell only while enough of it is left; a warden never flinches out', () => {

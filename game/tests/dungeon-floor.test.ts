@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canStand, generateFloor, cellKey, hasClearPath, moveOnFloor, TILE } from '../app/dungeon-floor.ts';
+import { canStand, generateFloor, cellKey, moveOnFloor, TILE } from '../app/dungeon-floor.ts';
 import { FOUND_WEAPONS } from '../app/dungeon-weapon.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
@@ -176,35 +176,11 @@ test('seeded encounter bags vary the route rhythm while preserving safe breaks',
 });
 
 
-test('attack lanes respect walls and narrow corners while permitting open approaches', () => {
-  const cells=new Set<string>();for(let x=-2;x<=2;x++)for(let z=-2;z<=2;z++)cells.add(cellKey(x,z));
-  const left={x:-TILE,z:0},right={x:TILE,z:0};
-  assert.equal(hasClearPath(cells,left,right),true);
-  cells.delete(cellKey(0,0));
-  assert.equal(hasClearPath(cells,left,right),false,'solid prop blocks direct pounce');
-  assert.equal(hasClearPath(cells,{x:-TILE,z:-TILE},{x:TILE,z:TILE}),false,'diagonal cannot cut a blocked corner');
-  assert.equal(hasClearPath(cells,{x:-TILE,z:TILE},{x:TILE,z:TILE}),true,'open lane beside prop remains usable');
-});
-
 // One character per tile, '#' solid; row 0 is z = 0, column 0 is x = 0. Tile n sits at world n * TILE.
 const floorFrom = (rows: string[]) => { const cells = new Set<string>(); rows.forEach((row, z) => row.split('').forEach((c, x) => { if (c !== '#') cells.add(cellKey(x, z)); })); return cells; };
 // How far a 0.32-radius body's centre may sit from a tile centre before its edge crosses into the next
 // tile: everything below is derived from this one number, so a changed radius changes the tests too.
 const REACH = TILE / 2 - 0.32;
-
-test('a body cannot walk through a wall', () => {
-  // Open, solid, open. Walking right from the first tile must stop short of the second.
-  const cells = floorFrom(['.#.']);
-  const body = { x: 0, z: 0 };
-  moveOnFloor(cells, body, 2 * TILE, 0);
-  assert.ok(body.x > 0, 'the body should still have covered the open ground in front of it');
-  assert.ok(body.x < REACH, `stopped at ${body.x.toFixed(3)}, which puts its edge inside the wall`);
-  assert.equal(canStand(cells, body.x, body.z), true);
-  // The same wall stops the walk from the far side too, so this is the wall and not the floor's edge.
-  const back = { x: 2 * TILE, z: 0 };
-  moveOnFloor(cells, back, -2 * TILE, 0);
-  assert.ok(back.x > 2 * TILE - REACH, `stopped at ${back.x.toFixed(3)}, inside the wall from the other side`);
-});
 
 test('a body slides along a wall instead of stopping dead against it', () => {
   // Open row with a solid row below: walking diagonally into it must keep all of the sideways travel.

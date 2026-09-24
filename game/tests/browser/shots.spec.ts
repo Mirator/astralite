@@ -52,7 +52,7 @@ const firstBy = <T>(items: T[], rank: (item: T) => number) =>
     .map((item) => ({ item, key: rank(item) }))
     .sort((a, b) => a.key - b.key)[0]?.item;
 
-test.describe('flooded hall', () => {
+test.describe('flooded hall', { tag: '@capture' }, () => {
   test.use({ seeds: [0x60] });
   test('a torchlit flooded hall with three guards closing', async ({ game }) => {
     await game.enter();
@@ -99,7 +99,7 @@ test.describe('flooded hall', () => {
   });
 });
 
-test.describe('warden chamber', () => {
+test.describe('warden chamber', { tag: '@capture' }, () => {
   test.use({ seeds: [0x1] });
   test('the warden chamber with the stair still sealed', async ({ game }) => {
     await game.enter();
@@ -117,7 +117,7 @@ test.describe('warden chamber', () => {
   });
 });
 
-test.describe('bridge', () => {
+test.describe('bridge', { tag: '@capture' }, () => {
   test.use({ seeds: [0x1] });
   test('the middle of a plank bridge over open water', async ({ game }) => {
     await game.enter();
@@ -144,7 +144,7 @@ test.describe('bridge', () => {
   });
 });
 
-test.describe('shrine', () => {
+test.describe('shrine', { tag: '@capture' }, () => {
   test.use({ seeds: [0x1] });
   test('a sanctuary shrine still unspent', async ({ game }) => {
     await game.enter();
@@ -166,7 +166,7 @@ test.describe('shrine', () => {
   });
 });
 
-test.describe('gauntlet', () => {
+test.describe('gauntlet', { tag: '@capture' }, () => {
   test.use({ seeds: [0x1] });
   test('an ember gauntlet mid-flare', async ({ game }) => {
     await game.enter();
@@ -218,7 +218,7 @@ test.describe('gauntlet', () => {
   });
 });
 
-test.describe('strike', () => {
+test.describe('strike', { tag: '@capture' }, () => {
   test.use({ seeds: [0x1] });
   test('the contact frame of a strike', async ({ game, page }) => {
     await game.enter();
@@ -259,7 +259,7 @@ test.describe('strike', () => {
   });
 });
 
-test.describe('dark corridor', () => {
+test.describe('dark corridor', { tag: '@capture' }, () => {
   test.use({ seeds: [0x128] });
   test('a corridor with no brazier in view', async ({ game }) => {
     await game.enter();
@@ -300,7 +300,7 @@ test.describe('dark corridor', () => {
   });
 });
 
-test.describe('junction', () => {
+test.describe('junction', { tag: '@capture' }, () => {
   test.use({ seeds: [0x150] });
   test('a wide junction where three ways branch off the trunk', async ({
     game,
@@ -406,7 +406,7 @@ const settle = async (game: Game, page: Page, at: Point, key: string | string[])
   expect(speedOf(state), 'the knight was still moving at frame zero').toBeLessThan(0.01);
 };
 
-test.describe('strike sequence', () => {
+test.describe('strike sequence', { tag: '@capture' }, () => {
   test.use({ seeds: [0x1] });
   // A 380ms swing plus the hit-stop a landed blow adds, with two frames of
   // stillness in front of it so the strip shows what the knight left as well as
@@ -466,7 +466,7 @@ test.describe('strike sequence', () => {
   });
 });
 
-test.describe('dash sequence', () => {
+test.describe('dash sequence', { tag: '@capture' }, () => {
   test.use({ seeds: [0x1] });
   // 180ms of dash and the same again of recovery, which is where a dash either
   // reads as a movement or as a cut. Triggered through the action event for the
@@ -513,7 +513,7 @@ test.describe('dash sequence', () => {
  * kinds standing in the open somewhere on the floor for the cast to borrow. Both pinned words are 0x86:
  * floor 1 is built on the first and `buildFloor(2)` draws the second.
  */
-test.describe('models', () => {
+test.describe('models', { tag: '@capture' }, () => {
   const ARMS: WeaponId[] = ['tideblade', 'fangs', 'spear', 'cleaver', 'maul', 'crossbow', 'flask'];
   /** Into the gate of floor 2, settled; returns the gate's floor and the knight's mark at its centre. */
   const intoGate = async (game: Game) => {

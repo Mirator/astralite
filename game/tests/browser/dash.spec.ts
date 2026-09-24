@@ -1,4 +1,4 @@
-import { DASH_IFRAMES, DASH_SPEED, DASH_TIME, WALK_SPEED } from '../../app/dungeon-combat.ts';
+import { DASH_SPEED, DASH_TIME, WALK_SPEED } from '../../app/dungeon-combat.ts';
 import { STRIKE_RANGE } from '../../app/dungeon-enemy.ts';
 import {
   ARROW_KEYS, canStand, expect, type Floor, type Point, SCREEN_DIRECTIONS,
@@ -10,8 +10,8 @@ import {
 // fight was fought standing on the same tile. These are the tests for the two halves of the fix —
 // distance that actually moves the knight, and a tail that can be punished for spending it early.
 //
-// The arithmetic behind the numbers lives in `tests/dungeon-combat.test.ts`, where it can be asserted
-// exactly. What these prove is that the running game is wired to it.
+// The immune head and exposed tail are asserted exactly in `tests/dungeon-combat.test.ts`. What these
+// prove is that the running game is wired to the same numbers.
 
 /**
  * The longest straight run of floor anywhere on this level, as a place to stand and a way to face.
@@ -77,26 +77,6 @@ test('one dash carries the knight past a warden’s reach', async ({ game, page 
   const dashed = await travel(true);
   expect(dashed - walked, 'a dash buys more ground than a warden can reach across')
     .toBeGreaterThan(STRIKE_RANGE.warden * 0.9);
-});
-
-test('the dash is immune at the head and exposed in the tail', async ({ game, page }) => {
-  await game.enter();
-  await game.step(200);
-
-  await page.keyboard.press('ShiftLeft');
-  await game.step(16);
-  const head = await game.state();
-  expect(head.player.dashTime, 'the dash is running').toBeGreaterThan(0);
-  expect(head.player.dashTime, 'and is still in its immune head')
-    .toBeGreaterThan(DASH_TIME - DASH_IFRAMES);
-
-  // Step to a point that must be inside the tail: past the immune window, before the dash ends.
-  const intoTail = Math.round((DASH_IFRAMES + (DASH_TIME - DASH_IFRAMES) / 2) * 1000);
-  await game.step(intoTail - 16);
-  const tail = await game.state();
-  expect(tail.player.dashTime, 'still dashing').toBeGreaterThan(0);
-  expect(tail.player.dashTime, 'but past the immunity — this is the window that can be punished')
-    .toBeLessThan(DASH_TIME - DASH_IFRAMES);
 });
 
 test('a woken body nearby no longer slows the knight down', async ({ game, page }) => {

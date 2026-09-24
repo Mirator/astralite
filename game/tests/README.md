@@ -16,13 +16,13 @@ pure modules:
   stair sits at the end of the trunk, dead ends are stubs, corridors never bypass the trunk, guards
   spawn on walkable floor, the gate is safe, quiet halls never come in pairs, deeper floors are meaner,
   and generation stays fast enough to rebuild a floor mid-run.
-- **The run simulation** (`dungeon-sim.ts`): the shape of a fresh run, the rank ladder, every boon, the
-  damage and invulnerability rules, kill rewards and the room-clear payouts.
+- **The run simulation** (`dungeon-sim.ts`): the rank ladder, every boon, the damage and
+  invulnerability rules, kill rewards, the boon draft and the stair dwell.
 - **The spatial rules** (`dungeon-enemy.ts`): the activation cutoff, pursuit steps off the flood map,
   when a windup starts and whether the committed swing connects, the stalker pounce and its swept
   contact test, and the crowd-separation pass. Collision itself (`canStand`, `moveOnFloor`) is covered
-  alongside the generator in `dungeon-floor.test.ts`: walls, sliding, diagonal gaps, tunnelling and
-  body radius.
+  alongside the generator in `dungeon-floor.test.ts`: sliding, diagonal gaps, tunnelling and body
+  radius.
 - **Persistence** (`dungeon-save.ts`), described under Persistence below.
 
 Anything involving three.js, the DOM or input is **not** covered here — use the browser hooks.
@@ -46,6 +46,35 @@ after a sword (0.35s), but it no longer gates damage — it used to, which meant
 bought more immunity than a 20-damage warden swing. The hazard's once-per-flare throttle now belongs to
 the flare: each ring carries its own `burned` flag, cleared the moment it stops firing. Dash cover
 (`dashTime > 0`) is separate and unchanged.
+
+## What the pull-request gate runs
+
+Two tags take scenarios off the PR gate without deleting them. `.github/workflows/deploy-pages.yml` passes
+`--grep-invert "@capture|@nightly"` unless a capture run was asked for, and the nightly isolated run
+(`isolated.yml`) runs everything.
+
+- **`@capture`**: the scenario only stages a frame for review. `game.capture()` writes nothing unless
+  `GAME_TEST_CAPTURE=1`, so on a PR it would boot, stage and assert only that the seed still produces the
+  scene. All of `shots.spec.ts` and the per-theme and phone captures in `macro-paving`, `floor-motifs` and
+  `theme-flames` carry it.
+- **`@nightly`**: a real check that is too expensive for every PR or pins art tuning a look change is
+  expected to move: the theme-colour and two of three telegraph-legibility cases in `art-direction`, the
+  eight-facing and cast checks in `models`, and the keep and ruins footstep pixel checks (flooded, whose
+  room is far from the origin, stays on the gate).
+
+The gate's three CI shards are split by measured duration, not by `--shard`'s equal test counts:
+`scripts/shards/plan.ts <shards> <index>` prints one shard's specs from `scripts/shards/durations.json`.
+When the suite changes shape, refresh the durations from a green run's browser-job logs with
+`node --experimental-strip-types scripts/shards/refresh.ts <log> [...]`. A spec missing from the file
+weighs the median until then, and `tests/shards.test.ts` guards that every spec lands on exactly one shard.
+
+Frames the harness compares (`framePixels`, `cutawayFrames`, `pauseFreezeCheck`) cross from the page as one
+base64 string. Shipping them as an `Array.from` of the RGBA bytes cost about 15 s a frame on CI and made
+the occlusion scenario the longest test in the suite by far.
+
+Some gate scenarios are the only coverage left for behaviour whose unit tests were removed as duplicates
+(the footstep hit-stop, subdivision and reduced-motion checks, the motif rebuild, the flame redraw, the
+enemy silhouettes, the arm-swap leak): trim those only together with a unit test that takes their place.
 
 ## Browser hooks
 
@@ -289,11 +318,9 @@ The iteration loop:
 1. Find the part by name in `dungeon-knight.ts` or `dungeon-skeleton.ts` and edit it.
 2. `npm run figures`, then compare `previous.png` with `latest.png` (they sit beside each other in
    `outputs/figures/`).
-3. `npm test` - the fingerprint test (`tests/dungeon-figures.test.ts`) fails on purpose, since it holds
-   every figure to `tests/fixtures/figure-fingerprints.json` byte for byte and a change was just made.
-4. Once the change is the one you meant: `UPDATE_FIGURE_FINGERPRINTS=1 npm test` to write the new fixture,
-   then `npm test` again to confirm it now passes.
-5. Judge the change the way it will actually be judged, in the game: `npm run shots:compare -- --grep
+3. `npm test` - `tests/dungeon-figures.test.ts` holds a cached rebuild of every figure to a fresh one,
+   so a bake that corrupts shared geometry fails here. There is no frozen fixture to regenerate.
+4. Judge the change the way it will actually be judged, in the game: `npm run shots:compare -- --grep
    models`.
 
 `tests/browser/bench.spec.ts` is the regression guard behind `npm run figures` itself: it opens `/bench`

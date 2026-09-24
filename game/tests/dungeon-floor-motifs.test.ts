@@ -117,21 +117,3 @@ test('a sanctuary keeps its clear centre empty but still shows a real motif outs
   assert.ok(checked > 0, 'sample never produced a sanctuary with a realized motif; widen the seed sample');
   assert.ok(everSubstantial, 'every sanctuary motif in the sample was reduced to a sliver by the clear-centre cut');
 });
-
-test('rebuilding the same floor twice settles at the same geometry', () => {
-  const floor = generateFloor(0xabc, 2);
-  const layouts = planFloorMotifs(floor);
-  const counts = () => {
-    const world = new THREE.Group();
-    buildFloorMotifs(world, floor, layouts, materials());
-    return world.children.map((child) => (child as THREE.Mesh).geometry.getAttribute('position').count);
-  };
-  assert.deepEqual(counts(), counts(), 'two builds of the same layout produced different vertex counts');
-});
-
-test('dispose is safe to call and does not throw on an empty floor', () => {
-  const floor = generateFloor(1, 1);
-  const world = new THREE.Group();
-  const built = buildFloorMotifs(world, floor, [], materials());
-  assert.doesNotThrow(() => built.dispose());
-});

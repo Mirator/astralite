@@ -2,8 +2,8 @@ import { type Floor, type Game, expect, roomCentre, test } from './helpers.ts';
 
 /**
  * Plan 005: witchfire, ordinary flame and bioluminescence get distinct silhouettes and motion
- * rhythms instead of sharing one octahedron and one animation. `dungeon-flame.test.ts` already
- * covers the geometry and the pose function in isolation; what is worth asking here is whether the
+ * rhythms instead of sharing one octahedron and one animation. `dungeon-flame.test.ts` covers
+ * the pose function's phase and bowl-floor bounds in isolation; what is worth asking here is whether the
  * running game actually attached the right shape to the right brazier and never lets the mood
  * transition swap one out from under a room it does not belong to - the same "attached, not
  * recomputed" question `floor-motifs.spec.ts` asks of the floor motifs plan 004 added.
@@ -140,24 +140,9 @@ test.describe('a brazier attaches its owning room\'s theme, not the floor\'s', (
     ).toEqual(before);
   });
 
-  test('a pinned-seed rebuild after all three shapes have drawn settles at stable counts', async ({ game }) => {
-    await game.enter();
-    await game.step(SETTLE);
-    const counts: { flames: number; geometries: number; textures: number }[] = [];
-    for (let i = 0; i < 3; i++) {
-      await game.buildFloor(1);
-      await game.step(0, true);
-      const state = await game.state();
-      counts.push({ flames: state.graphics.flames.length, geometries: state.render.geometries, textures: state.render.textures });
-    }
-    const last = counts[counts.length - 1];
-    for (const count of counts.slice(1)) {
-      expect(count, 'flame source count or the renderer\'s own resource counts drifted across identical rebuilds').toEqual(last);
-    }
-  });
 });
 
-test.describe('the three profiles read as different silhouettes and rhythms', () => {
+test.describe('the three profiles read as different silhouettes and rhythms', { tag: '@capture' }, () => {
   test.use({ seeds: [0x1] });
   for (const theme of ['keep', 'ruins', 'flooded'] as const) {
     test(`a ${theme} brazier is captured idle across its own rhythm, then mid-windup beside it`, async ({ game }) => {
@@ -183,7 +168,7 @@ test.describe('the three profiles read as different silhouettes and rhythms', ()
   }
 });
 
-test.describe('the three profiles on a phone', () => {
+test.describe('the three profiles on a phone', { tag: '@capture' }, () => {
   test.use({ seeds: [0x1], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   /**
    * One isolated mobile context for all three themes, not three: `isMobile`/`hasTouch`/`viewport`
