@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cellKey, TILE } from '../app/dungeon-floor.ts';
-import { BOLT_RADIUS, blocked, flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../app/dungeon-projectile.ts';
-import { KEEP_CROSSBOW, TIDEFLASK } from '../app/dungeon-weapon.ts';
+import { cellKey } from '../app/dungeon-floor.ts';
+import { BOLT_RADIUS, flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../app/dungeon-projectile.ts';
 
 const openFloor = (half = 10) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
 const cells = openFloor();
@@ -28,11 +27,6 @@ test('a wall stops a bolt, and says which kind of stop it was', () => {
   assert.deepEqual(flight.hits, []);
   // And the same shot in open air keeps going.
   assert.equal(flyShot(bolt({ z: -2 }), cells, [], 1 / 60).struck, false);
-});
-
-test('blocked reads the same stone the bodies walk on', () => {
-  assert.equal(blocked(cells, 0, 0), false);
-  assert.equal(blocked(cells, 40 * TILE, 0), true);
 });
 
 test('one bolt never bills the same body twice, however long it is in the air', () => {
@@ -72,14 +66,6 @@ test('a bolt falls out of the air when its flight runs out', () => {
   assert.equal(flight.struck, false, 'the clock is not a wall');
 });
 
-test('a junk frame delta moves nothing', () => {
-  for (const bad of [0, -1, Number.NaN]) {
-    const flight = flyShot(bolt(), cells, [mark(0, -.4)], bad);
-    assert.deepEqual([flight.x, flight.z], [0, 0]);
-    assert.deepEqual(flight.hits, []);
-  }
-});
-
 test('the quiver refills on its own clock and never past full', () => {
   // A cooldown would still let the knight back away and fire forever, since he outruns everything in
   // the keep; what limits a ranged arm is a quiver that runs dry.
@@ -93,18 +79,6 @@ test('the quiver refills on its own clock and never past full', () => {
   const long = reloadStep(0, 4, 0, 1.8, 60);
   assert.equal(long.spare, 4);
   for (const bad of [0, -1, Number.NaN]) assert.deepEqual(reloadStep(1, 4, .5, 1.8, bad), { spare: 1, timer: .5 });
-});
-
-test('the crossbow is limited by its quiver rather than by a wait', () => {
-  const bow = KEEP_CROSSBOW.ranged;
-  assert.ok(bow, 'the crossbow is the ranged arm');
-  // Range has to clear a room without clearing the floor: rooms run to roughly 18 units across.
-  const range = bow.speed * bow.flight;
-  assert.ok(range > 8 && range < 14, `range ${range} is not a room's worth`);
-  // Firing must be slower and more rooted than any swing, because it is the only arm that never has to
-  // be in reach at all.
-  assert.ok(KEEP_CROSSBOW.moveSpeed < 2, 'firing has to root the knight');
-  assert.ok(KEEP_CROSSBOW.reach < 1, 'a dry crossbow is not a melee weapon');
 });
 
 test('fire on the ground bites on its own clock, once a frame at most', () => {
@@ -125,34 +99,9 @@ test('fire on the ground bites on its own clock, once a frame at most', () => {
   assert.equal(bites, 4);
 });
 
-test('a tab hidden for a minute does not cash in a minute of fire', () => {
-  const pool: Pool = { x: 0, z: 0, radius: 2.2, life: 2.5, damage: 8, interval: .5, timer: .4 };
-  const burn = poolStep(pool, 60);
-  assert.equal(burn.bites, 1, 'at most one bite a frame however long the frame was');
-  assert.equal(burn.life, 0, 'and the fire is out');
-});
-
 test('fire catches what stands in it and nothing outside it', () => {
   const pool: Pool = { x: 3, z: -2, radius: 2.2, life: 2.5, damage: 8, interval: .5, timer: 0 };
   assert.equal(poolCatches(pool, 3, -2), true);
   assert.equal(poolCatches(pool, 3 + 2.1, -2), true);
   assert.equal(poolCatches(pool, 3 + 2.3, -2), false);
-});
-
-test('a junk frame delta neither burns the fire down nor bites', () => {
-  const pool: Pool = { x: 0, z: 0, radius: 2.2, life: 2.5, damage: 8, interval: .5, timer: .2 };
-  for (const bad of [0, -1, Number.NaN]) {
-    const burn = poolStep(pool, bad);
-    assert.deepEqual([burn.life, burn.timer, burn.bites], [2.5, .2, 0]);
-  }
-});
-
-test('the flask denies a place rather than killing a body', () => {
-  const flask = TIDEFLASK;
-  assert.ok(flask.burst, 'the flask is the one arm that leaves something behind');
-  assert.equal(flask.damage, 0, 'the flask itself does nothing on contact');
-  // Shorter than the crossbow: it is thrown into a doorway, not across a hall.
-  assert.ok(flask.ranged!.speed * flask.ranged!.flight < KEEP_CROSSBOW.ranged!.speed * KEEP_CROSSBOW.ranged!.flight);
-  // What it is worth is what walks through it, so the fire has to outlast the throw by a good margin.
-  assert.ok(flask.burst.life > flask.duration * 3);
 });

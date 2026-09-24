@@ -16,13 +16,13 @@ pure modules:
   stair sits at the end of the trunk, dead ends are stubs, corridors never bypass the trunk, guards
   spawn on walkable floor, the gate is safe, quiet halls never come in pairs, deeper floors are meaner,
   and generation stays fast enough to rebuild a floor mid-run.
-- **The run simulation** (`dungeon-sim.ts`): the shape of a fresh run, the rank ladder, every boon, the
-  damage and invulnerability rules, kill rewards and the room-clear payouts.
+- **The run simulation** (`dungeon-sim.ts`): the rank ladder, every boon, the damage and
+  invulnerability rules, kill rewards, the boon draft and the stair dwell.
 - **The spatial rules** (`dungeon-enemy.ts`): the activation cutoff, pursuit steps off the flood map,
   when a windup starts and whether the committed swing connects, the stalker pounce and its swept
   contact test, and the crowd-separation pass. Collision itself (`canStand`, `moveOnFloor`) is covered
-  alongside the generator in `dungeon-floor.test.ts`: walls, sliding, diagonal gaps, tunnelling and
-  body radius.
+  alongside the generator in `dungeon-floor.test.ts`: sliding, diagonal gaps, tunnelling and body
+  radius.
 - **Persistence** (`dungeon-save.ts`), described under Persistence below.
 
 Anything involving three.js, the DOM or input is **not** covered here — use the browser hooks.
@@ -289,11 +289,9 @@ The iteration loop:
 1. Find the part by name in `dungeon-knight.ts` or `dungeon-skeleton.ts` and edit it.
 2. `npm run figures`, then compare `previous.png` with `latest.png` (they sit beside each other in
    `outputs/figures/`).
-3. `npm test` - the fingerprint test (`tests/dungeon-figures.test.ts`) fails on purpose, since it holds
-   every figure to `tests/fixtures/figure-fingerprints.json` byte for byte and a change was just made.
-4. Once the change is the one you meant: `UPDATE_FIGURE_FINGERPRINTS=1 npm test` to write the new fixture,
-   then `npm test` again to confirm it now passes.
-5. Judge the change the way it will actually be judged, in the game: `npm run shots:compare -- --grep
+3. `npm test` - `tests/dungeon-figures.test.ts` holds a cached rebuild of every figure to a fresh one,
+   so a bake that corrupts shared geometry fails here. There is no frozen fixture to regenerate.
+4. Judge the change the way it will actually be judged, in the game: `npm run shots:compare -- --grep
    models`.
 
 `tests/browser/bench.spec.ts` is the regression guard behind `npm run figures` itself: it opens `/bench`

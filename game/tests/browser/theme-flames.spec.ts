@@ -2,8 +2,8 @@ import { type Floor, type Game, expect, roomCentre, test } from './helpers.ts';
 
 /**
  * Plan 005: witchfire, ordinary flame and bioluminescence get distinct silhouettes and motion
- * rhythms instead of sharing one octahedron and one animation. `dungeon-flame.test.ts` already
- * covers the geometry and the pose function in isolation; what is worth asking here is whether the
+ * rhythms instead of sharing one octahedron and one animation. `dungeon-flame.test.ts` covers
+ * the pose function's phase and bowl-floor bounds in isolation; what is worth asking here is whether the
  * running game actually attached the right shape to the right brazier and never lets the mood
  * transition swap one out from under a room it does not belong to - the same "attached, not
  * recomputed" question `floor-motifs.spec.ts` asks of the floor motifs plan 004 added.

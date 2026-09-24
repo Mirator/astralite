@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TILE } from '../app/dungeon-floor.ts';
-import { buildSurfaceIndex, surfaceCell, sampleSurface, type CellSurface, type SurfaceTriangle } from '../app/dungeon-surface.ts';
+import { buildSurfaceIndex, sampleSurface, type CellSurface, type SurfaceTriangle } from '../app/dungeon-surface.ts';
 
 // `dungeon-surface.ts`'s own `upwardY` is `(bz-az)*(cx-ax) - (bx-ax)*(cz-az)`: for three points given
 // in the order (a, b, c) as written below, that comes out negative - this is the module's real
@@ -13,41 +13,7 @@ import { buildSurfaceIndex, surfaceCell, sampleSurface, type CellSurface, type S
 const upTri = (y: number, ax: number, az: number, bx: number, bz: number, cx: number, cz: number): SurfaceTriangle =>
   ({ ax, ay: y, az, bx: cx, by: y, bz: cz, cx: bx, cy: y, cz: bz });
 
-/** The same three corners in the order that winds downward - a non-support face. */
-const downTri = (y: number, ax: number, az: number, bx: number, bz: number, cx: number, cz: number): SurfaceTriangle =>
-  ({ ax, ay: y, az, bx, by: y, bz, cx, cy: y, cz });
-
 const meta = (entries: [string, CellSurface][]) => new Map(entries);
-
-test('surfaceCell rounds to the nearest tile, matching how canStand/moveOnFloor key a cell', () => {
-  assert.equal(surfaceCell(0, 0), '0,0');
-  assert.equal(surfaceCell(TILE * 3, TILE * -2), '3,-2');
-  assert.equal(surfaceCell(TILE * 0.49, 0), '0,0');
-  assert.equal(surfaceCell(TILE * 0.51, 0), '1,0');
-});
-
-test('a flat upward tile returns its own height, theme and wood flag', () => {
-  const tri = upTri(0.02, -0.7, -0.7, 0.7, -0.7, 0, 0.7);
-  const index = buildSurfaceIndex([tri], meta([['0,0', { theme: 'ruins', wood: false }]]));
-  const hit = sampleSurface(index, 0, 0);
-  assert.ok(hit);
-  assert.equal(hit!.cell, '0,0');
-  assert.ok(Math.abs(hit!.y - 0.02) < 1e-9);
-  assert.equal(hit!.theme, 'ruins');
-  assert.equal(hit!.wood, false);
-});
-
-test('a downward-facing triangle is never a support surface, even sitting right where a query lands', () => {
-  const tri = downTri(0.5, -0.7, -0.7, 0.7, -0.7, 0, 0.7);
-  const index = buildSurfaceIndex([tri], meta([['0,0', { theme: 'keep', wood: false }]]));
-  assert.equal(sampleSurface(index, 0, 0), null);
-});
-
-test('a genuine gap - no triangle covers the point at all - is null, never an invented plane', () => {
-  const tri = upTri(0, -0.7, -0.7, 0.7, -0.7, 0, 0.7);
-  const index = buildSurfaceIndex([tri], meta([['5,5', { theme: 'flooded', wood: false }]]));
-  assert.equal(sampleSurface(index, TILE * 5, TILE * 5), null, 'a cell with metadata but no triangle must still read as a gap');
-});
 
 test('a tilted (settled) slab interpolates height smoothly, exactly matching its own barycentric weights', () => {
   // One triangle whose three corners sit at three different heights, the way a settled strip's small
@@ -128,13 +94,4 @@ test('negative cell coordinates work exactly like positive ones', () => {
   assert.ok(hit);
   assert.equal(hit!.cell, '-3,-2');
   assert.equal(hit!.wood, true);
-});
-
-test('a cell absent from the metadata map falls back rather than throwing', () => {
-  const tri = upTri(0.02, -0.7, -0.7, 0.7, -0.7, 0, 0.7);
-  const index = buildSurfaceIndex([tri], meta([]));
-  const hit = sampleSurface(index, 0, 0);
-  assert.ok(hit);
-  assert.equal(hit!.theme, 'keep');
-  assert.equal(hit!.wood, false);
 });

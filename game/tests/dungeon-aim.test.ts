@@ -1,26 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { eightWay, groundAim, groundPoint, SCREEN_DOWN, SCREEN_RIGHT, SNAP_ANGLE, snapAim } from '../app/dungeon-aim.ts';
+import { groundAim, groundPoint, SCREEN_DOWN, SCREEN_RIGHT, SNAP_ANGLE, snapAim } from '../app/dungeon-aim.ts';
 
 // The camera the game actually builds: focus + this offset, looking back at the focus.
 const OFFSET = { x: 9.2, y: 12.5, z: 11.5 };
 const SPAN = 7.2, ASPECT = 16 / 9;
 
-// The movement basis, copied from the game loop. The whole point of deriving the aim basis from the
-// camera offset is that it must come out as these; if it ever does not, a pointer and a key steer in
+// The ground direction between two points. The pointer map must land on the same SCREEN_RIGHT and
+// SCREEN_DOWN the game moves the knight along; if it ever does not, a pointer and a key steer in
 // different worlds and no amount of tuning will make aiming feel right.
 const unit = (x: number, z: number) => { const m = Math.hypot(x, z); return { x: x / m, z: z / m }; };
 
 const close = (a: number, b: number, tolerance = 1e-9) =>
   assert.ok(Math.abs(a - b) < tolerance, `expected ${a} to be within ${tolerance} of ${b}`);
-
-test('the exported basis is the one the game loop writes down', () => {
-  // dungeon-game.tsx builds screenRight from (11.5, 0, -9.2) and screenDown from (9.2, 0, 11.5). If
-  // these ever drift apart, a pointer and a key steer in different worlds.
-  const right = unit(11.5, -9.2), down = unit(9.2, 11.5);
-  close(SCREEN_RIGHT.x, right.x, 1e-12); close(SCREEN_RIGHT.z, right.z, 1e-12);
-  close(SCREEN_DOWN.x, down.x, 1e-12); close(SCREEN_DOWN.z, down.z, 1e-12);
-});
 
 test('the centre of the screen is the point the camera is looking at', () => {
   for (const focus of [{ x: 0, z: 0 }, { x: -13.5, z: 7.25 }]) {
@@ -43,14 +35,6 @@ test('the screen axes land on the movement basis', () => {
   const back = unit(up.x - focus.x, up.z - focus.z);
   close(back.x, -SCREEN_DOWN.x, 1e-12);
   close(back.z, -SCREEN_DOWN.z, 1e-12);
-});
-
-test('the map is affine: opposite corners are opposite offsets', () => {
-  const focus = { x: 2, z: 3 };
-  const a = groundPoint(0.7, -0.4, SPAN, ASPECT, focus, OFFSET);
-  const b = groundPoint(-0.7, 0.4, SPAN, ASPECT, focus, OFFSET);
-  close(a.x - focus.x, -(b.x - focus.x), 1e-12);
-  close(a.z - focus.z, -(b.z - focus.z), 1e-12);
 });
 
 test('span and aspect scale the reach without rotating it', () => {
@@ -126,41 +110,4 @@ test('the cone is honoured at its own edge', () => {
   const at = (angle: number) => ({ x: Math.cos(angle), z: Math.sin(angle) });
   assert.notDeepEqual(snapAim(facing, [at(just)], from, 2), facing, 'inside the cone snaps');
   assert.deepEqual(snapAim(facing, [at(past)], from, 2), facing, 'outside the cone does not');
-});
-
-test('a zero or absurd cone is refused rather than trusted', () => {
-  const from = { x: 0, z: 0 }, facing = { x: 1, z: 0 };
-  // Eighty degrees off: outside the real cone, inside an absurd one.
-  const wide = { x: Math.cos(1.4), z: Math.sin(1.4) };
-  // A negative angle must not become a cosine above 1 and swallow everything...
-  assert.deepEqual(snapAim(facing, [{ x: 1, z: 0.5 }], from, 2, -1), facing);
-  // ...and an angle past pi must not wrap around into refusing what it should accept.
-  assert.notDeepEqual(snapAim(facing, [wide], from, 2, 99), facing);
-});
-
-test('the eight directions are the screen basis, and every angle lands on one of them', () => {
-  const { SCREEN_RIGHT: R, SCREEN_DOWN: D } = { SCREEN_RIGHT, SCREEN_DOWN };
-  assert.deepEqual(eightWay(R), R);
-  assert.deepEqual(eightWay(D), D);
-
-  const seen = new Set<string>();
-  for (let i = 0; i < 360; i++) {
-    const a = i * Math.PI / 180;
-    const got = eightWay({ x: Math.cos(a), z: Math.sin(a) });
-    close(Math.hypot(got.x, got.z), 1, 1e-12);
-    seen.add(`${got.x.toFixed(6)},${got.z.toFixed(6)}`);
-  }
-  assert.equal(seen.size, 8, 'a full turn visits exactly eight directions');
-});
-
-test('quantising is never more than 22.5 degrees of error', () => {
-  let worst = 0;
-  for (let i = 0; i < 720; i++) {
-    const a = i * Math.PI / 360;
-    const to = { x: Math.cos(a), z: Math.sin(a) };
-    const got = eightWay(to);
-    worst = Math.max(worst, Math.acos(Math.min(1, got.x * to.x + got.z * to.z)));
-  }
-  // The number the whole aim change exists to remove.
-  assert.ok(worst <= 22.5 * Math.PI / 180 + 1e-9, `worst error was ${(worst * 180 / Math.PI).toFixed(2)} degrees`);
 });

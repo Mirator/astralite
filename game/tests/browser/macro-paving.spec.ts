@@ -3,9 +3,8 @@ import { canStand, expect, Game, keyToward, roomCentre, strikeStance, test, TILE
 
 /**
  * Plan 006's macro paving: merged two-cell slabs and settled, staggered strips. This checks the real
- * scene rather than the pure planner a second time - `dungeon-paving-layout.test.ts` and
- * `dungeon-paving-patches.test.ts` already cover `planPavingPatches`/`pavingPatchGeometry` in
- * isolation - so what is worth asking here is whether `dungeon-game.tsx` actually wired the two
+ * scene rather than the pure planner a second time - `dungeon-paving-layout.test.ts` covers
+ * `planPavingPatches` in isolation (and `dungeon-paving-patches.test.ts` the slab's face winding) - so what is worth asking here is whether `dungeon-game.tsx` actually wired the two
  * together: the live `graphics.paving` counters, real movement across a merged slab and a settled
  * single, and a landed blow, rather than a second recomputation standing in for a look at the
  * attached scene.

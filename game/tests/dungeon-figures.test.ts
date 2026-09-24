@@ -1,19 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import * as THREE from 'three';
 import { makeKnight } from '../app/dungeon-knight.ts';
 import { makeSkeleton } from '../app/dungeon-skeleton.ts';
 
-// Plan 012: a figure-by-figure snapshot of the built THREE tree, frozen after the verbatim move (Stage A)
-// so Stage B's rewrite into part lists can be held to producing the exact same geometry. Neither builder
-// draws from Math.random (checked by grep across dungeon-knight.ts, dungeon-skeleton.ts,
-// dungeon-characters.ts, dungeon-bake.ts, dungeon-armory.ts, dungeon-cloak.ts and dungeon-weapon.ts), so
-// nothing here needs to be stubbed for determinism.
+// A figure-by-figure fingerprint of the built THREE tree: every node's path, type, transform and mesh
+// content. It is compared build against build rather than against a frozen fixture - the fixture it was
+// first written for (plan 012) was rewritten by nearly every art change and caught nothing an intended
+// change did not also trip. Neither builder draws from Math.random, so nothing needs stubbing.
 
-const FIXTURE = resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures/figure-fingerprints.json');
 const round = (n: number, decimals: number) => { const r = Number(n.toFixed(decimals)); return r === 0 ? 0 : r; }; // -0 -> 0
 const V3 = (v: { x: number; y: number; z: number }, decimals = 4) => [round(v.x, decimals), round(v.y, decimals), round(v.z, decimals)];
 
@@ -76,7 +71,7 @@ function fingerprint(root: THREE.Object3D): NodeRecord[] {
     // name, which is the whole point of the part-list format - and that is true whether the named node
     // gets baked away, survives as a kept joint, or (like the eye sockets) survives unbaked as a plain
     // mesh. None of that is a change bakeStatic's own output ever goes through, so folding every one of
-    // Stage B's new names into the comparison would fail the fixture on nearly every node without catching
+    // Stage B's new names into the comparison would fail the comparison on nearly every node without catching
     // anything a position/scale/type/mesh-content mismatch at the same index wouldn't already catch. Only
     // the two name shapes Stage A's own pipeline produces are compared; a real reordering still shows up
     // as a position, type or mesh-content difference at the same index regardless.
@@ -109,28 +104,14 @@ const FIGURES: Record<string, () => THREE.Object3D> = {
   warden: () => makeSkeleton('warden'),
 };
 
-if (process.env.UPDATE_FIGURE_FINGERPRINTS === '1') {
-  test('write figure fingerprints', () => {
-    const fixture: Record<string, NodeRecord[]> = {};
-    for (const [name, build] of Object.entries(FIGURES)) fixture[name] = fingerprint(build());
-    mkdirSync(dirname(FIXTURE), { recursive: true });
-    writeFileSync(FIXTURE, JSON.stringify(fixture, null, 2) + '\n');
-    console.log(`wrote ${FIXTURE}`);
+// dungeon-bake.ts caches baked geometry per cacheKey at module scope; a second build of the same figure
+// hits that cache instead of remerging. The first build in this file is a fresh one, so this holds the
+// cached path to exactly what a fresh bake produces - a bake that mutates shared source geometry in place,
+// or a cache that hands back the wrong batch, shows up here and nowhere end to end.
+for (const [name, build] of Object.entries(FIGURES)) {
+  test(`${name} fingerprint is identical when built a second time (cached bake path)`, () => {
+    const first = fingerprint(build());
+    const second = fingerprint(build());
+    assertSameFingerprint(`${name} (second build)`, first, second);
   });
-} else {
-  const fixture: Record<string, NodeRecord[]> = JSON.parse(readFileSync(FIXTURE, 'utf8'));
-
-  for (const [name, build] of Object.entries(FIGURES)) {
-    test(`${name} fingerprint matches the frozen fixture`, () => {
-      assertSameFingerprint(name, fixture[name]!, fingerprint(build()));
-    });
-
-    // dungeon-bake.ts caches baked geometry per cacheKey at module scope; a second build of the same
-    // figure hits that cache instead of remerging, and that path needs its own coverage.
-    test(`${name} fingerprint is identical when built a second time (cached bake path)`, () => {
-      const first = fingerprint(build());
-      const second = fingerprint(build());
-      assertSameFingerprint(`${name} (second build)`, first, second);
-    });
-  }
 }

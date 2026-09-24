@@ -6,12 +6,10 @@ import type { WebGLProgramParametersWithUniforms } from 'three/src/renderers/web
  * the fixed isometric camera cannot otherwise see behind. Everything here is one controller, held for
  * the life of the mount; only its registration table is floor-scoped (`releaseFloor`).
  *
- * The shader math lives twice on purpose. `installCutawayShaderHooks` writes the GLSL that actually
- * runs on the GPU; `ellipseEdge` / `depthGap` / `cutStrengthAt` are the same arithmetic in plain
- * TypeScript, kept in lockstep with the GLSL string by sharing the same named constants below, so the
- * node suite can pin down the view/depth math, the behind-target rejection and the overlap bound
- * without a WebGL context. Passing those unit tests is not proof the shader compiles or does anything
- * visible — see `tests/browser/occlusion.spec.ts` for the actual pixel evidence this plan requires.
+ * `installCutawayShaderHooks` writes the GLSL that actually runs on the GPU, with its numbers inline.
+ * `ellipseEdge` / `depthGap` / `cutStrengthAt` / `combineCutStrength` and the named constants below are
+ * a TypeScript description of that arithmetic that nothing in the game calls and nothing tests, so they
+ * can drift from the GLSL. The evidence the cutaway works is `tests/browser/occlusion.spec.ts`.
  */
 
 export type EnemyKind = 'guard' | 'stalker' | 'warden';
