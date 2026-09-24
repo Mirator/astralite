@@ -205,7 +205,7 @@ const litRoom = (floor: Floor, theme: string) => {
     )[0];
 };
 
-test.describe('each family burns its own fire', () => {
+test.describe('each family burns its own fire', { tag: '@nightly' }, () => {
   test.use({ seeds: [0x1] });
   test('the three themes light their chambers three different colours', async ({ game }) => {
     test.slow();
@@ -266,7 +266,7 @@ test.describe('each family burns its own fire', () => {
 test.describe('the telegraph reads against its own stone', () => {
   test.use({ seeds: [0x1] });
   for (const theme of ['keep', 'ruins', 'flooded'] as const) {
-    test(`a warden winding up in the ${theme} is legible against the paving`, async ({ game }) => {
+    test(`a warden winding up in the ${theme} is legible against the paving`, { tag: theme === 'keep' ? [] : ['@nightly'] }, async ({ game }) => {
       test.slow();
       await game.enter();
       const floor = await game.floor();

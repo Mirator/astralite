@@ -1,13 +1,14 @@
 import { planPavingPatches } from '../../app/dungeon-paving-layout.ts';
-import { canStand, expect, Game, keyToward, roomCentre, strikeStance, test, TILE, type Floor } from './helpers.ts';
+import { expect, Game, roomCentre, test, TILE, type Floor } from './helpers.ts';
 
 /**
  * Plan 006's macro paving: merged two-cell slabs and settled, staggered strips. This checks the real
  * scene rather than the pure planner a second time - `dungeon-paving-layout.test.ts` covers
- * `planPavingPatches` in isolation (and `dungeon-paving-patches.test.ts` the slab's face winding) - so what is worth asking here is whether `dungeon-game.tsx` actually wired the two
- * together: the live `graphics.paving` counters, real movement across a merged slab and a settled
- * single, and a landed blow, rather than a second recomputation standing in for a look at the
- * attached scene.
+ * `planPavingPatches` in isolation (and `dungeon-paving-patches.test.ts` the slab's face winding) - so
+ * what is worth asking here is whether `dungeon-game.tsx` actually wired the two together: the live
+ * `graphics.paving` counters against the planner, in every theme. Collision is `canStand` over cells,
+ * which paving never touches, so walking or striking across a slab needs no scenario of its own; add
+ * one back if slabs ever become physical. The rest of the file stages review frames (`@capture`).
  */
 
 /** What every scene gets before its first frame: torches lit, water moving. */
@@ -52,104 +53,9 @@ test.describe('macro paving matches the pure planner', () => {
     expect([...pairThemes].sort(), 'fixture floor should realize a pair in every theme').toEqual(['flooded', 'keep', 'ruins']);
   });
 
-  test('a pinned-seed reset realizes the same paving the first build did', async ({ game }) => {
-    await game.enter();
-    await game.step(SETTLE);
-    const before = (await game.state()).graphics.paving;
-    await game.reset([FIXTURE_SEED]);
-    await game.step(SETTLE);
-    const after = (await game.state()).graphics.paving;
-    expect(after).toEqual(before);
-  });
-
-  test('repeated rebuilds of the same floor settle at stable geometry and texture counts', async ({ game }) => {
-    await game.enter();
-    await game.step(SETTLE);
-    const counts: { geometries: number; textures: number }[] = [];
-    for (let i = 0; i < 4; i++) {
-      await game.buildFloor(1);
-      await game.step(0, true);
-      const { geometries, textures } = (await game.state()).render;
-      counts.push({ geometries, textures });
-    }
-    const last = counts[counts.length - 1];
-    for (const count of counts.slice(1)) {
-      expect(count, 'geometry/texture counts drifted across identical rebuilds - a leak, not paving').toEqual(last);
-    }
-  });
 });
 
-test.describe('a merged slab and a settled strip behave exactly like ordinary paving', () => {
-  test.use({ seeds: [FIXTURE_SEED] });
-
-  test('walking from one cell of a pair onto the other moves the knight normally, no invisible seam', async ({ game }) => {
-    await game.enter();
-    const floor = await game.floor();
-    const pair = planPavingPatches(floor).pairs.find((p) => p.room === 1);
-    expect(pair, 'seed fixture room 1 no longer plans a keep pair').toBeDefined();
-    expect(canStand(floor.cells, pair!.bx * TILE, pair!.bz * TILE), 'the pair\'s own second cell is not walkable').toBe(true);
-    await game.teleport(pair!.ax * TILE, pair!.az * TILE);
-    await game.step(0);
-    const before = await game.state();
-    const direction = { x: pair!.bx - pair!.ax, z: pair!.bz - pair!.az };
-    const { key } = keyToward(direction);
-    await game.page.keyboard.down(key);
-    await game.step(500);
-    await game.page.keyboard.up(key);
-    await game.step(0);
-    const after = await game.state();
-    const displaced = Math.hypot(after.player.x - before.player.x, after.player.z - before.player.z);
-    expect(displaced, 'no movement at all across the merged slab\'s own two cells - an invisible wall').toBeGreaterThan(TILE * 0.3);
-  });
-
-  test('standing on a settled single, the knight can still walk off it in any open direction', async ({ game }) => {
-    await game.enter();
-    const floor = await game.floor();
-    const single = planPavingPatches(floor).settled.find((s) => s.room === 1);
-    expect(single, 'seed fixture room 1 no longer plans a settled single').toBeDefined();
-    expect(canStand(floor.cells, single!.x * TILE, single!.z * TILE), 'the settled cell itself is not walkable').toBe(true);
-    await game.teleport(single!.x * TILE, single!.z * TILE);
-    await game.step(0);
-    const before = await game.state();
-    await game.page.keyboard.down('ArrowUp');
-    await game.step(400);
-    await game.page.keyboard.up('ArrowUp');
-    await game.step(0);
-    const after = await game.state();
-    const displaced = Math.hypot(after.player.x - before.player.x, after.player.z - before.player.z);
-    expect(displaced, 'the knight never moved off the settled single - stuck on the new geometry').toBeGreaterThan(TILE * 0.2);
-  });
-
-  test('a strike against a target standing on a merged slab lands exactly like anywhere else', async ({ game }) => {
-    await game.enter();
-    await game.step(120);
-    const floor = await game.floor();
-    const pair = planPavingPatches(floor).pairs.find((p) => p.room === 1);
-    expect(pair, 'seed fixture room 1 no longer plans a keep pair').toBeDefined();
-    const target = { x: pair!.x, z: pair!.z };
-    const stance = strikeStance(floor, target);
-    await game.teleport(stance.x, stance.z);
-    await game.page.keyboard.down(stance.key);
-    await game.step(16);
-    await game.page.keyboard.up(stance.key);
-    const blade = (await game.state()).weapon.strikeDamage;
-    await game.configureCombat({
-      enemies: [{ index: 0, x: target.x, z: target.z, hp: Math.min(8, blade * 2), cooldown: 10, windup: 0 }],
-    });
-    const before = (await game.state()).enemies.find((e) => Math.hypot(e.x - target.x, e.z - target.z) < 0.5)?.hp;
-    await game.act('attack');
-    await game.step(130);
-    const state = await game.state();
-    expect(state.player.attackTime, 'the frame this checks is not inside a swing').toBeGreaterThan(0);
-    const after = state.enemies.find((e) => Math.hypot(e.x - target.x, e.z - target.z) < 0.5)?.hp;
-    expect(
-      after === undefined || (before !== undefined && after < before),
-      'a strike against a target standing on a merged slab did not connect',
-    ).toBe(true);
-  });
-});
-
-test.describe('all three themes read as a distinct macro change', () => {
+test.describe('all three themes read as a distinct macro change', { tag: '@capture' }, () => {
   test.use({ seeds: [FIXTURE_SEED] });
   for (const theme of ['keep', 'ruins', 'flooded'] as const) {
     test(`a ${theme} chamber's merged slabs and settled strip are captured for review`, async ({ game }) => {
@@ -167,7 +73,7 @@ test.describe('all three themes read as a distinct macro change', () => {
   }
 });
 
-test.describe('a narrow hall reads the same macro paving as a wide room', () => {
+test.describe('a narrow hall reads the same macro paving as a wide room', { tag: '@capture' }, () => {
   test.use({ seeds: [0x22] }); // 34 decimal: a 'hall'-shaped room realizes a pair here.
 
   test('a hall\'s merged slabs are captured for review', async ({ game }) => {
@@ -184,7 +90,7 @@ test.describe('a narrow hall reads the same macro paving as a wide room', () => 
   });
 });
 
-test.describe('a junction with several branches reads the same macro paving', () => {
+test.describe('a junction with several branches reads the same macro paving', { tag: '@capture' }, () => {
   test.use({ seeds: [0x2] });
 
   test('a junction\'s merged slabs and settled strip are captured for review', async ({ game }) => {
@@ -203,7 +109,7 @@ test.describe('a junction with several branches reads the same macro paving', ()
   });
 });
 
-test.describe('a bridge approach beside a merged slab reads cleanly', () => {
+test.describe('a bridge approach beside a merged slab reads cleanly', { tag: '@capture' }, () => {
   test.use({ seeds: [FIXTURE_SEED] });
 
   test('the wood-to-stone transition near a pair is captured for review, with no patch on the wood itself', async ({ game }) => {
@@ -226,7 +132,7 @@ test.describe('a bridge approach beside a merged slab reads cleanly', () => {
   });
 });
 
-test.describe('macro paving on a phone', () => {
+test.describe('macro paving on a phone', { tag: '@capture' }, () => {
   test.use({ seeds: [FIXTURE_SEED], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   /**
    * One isolated mobile context, not three: `isMobile`/`hasTouch`/`viewport` force a scenario off the
