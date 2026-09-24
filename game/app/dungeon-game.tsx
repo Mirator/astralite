@@ -14,7 +14,7 @@ import { footstepEffects } from './dungeon-footsteps';
 import { footfalls, footSupport, type FootstepKind } from './dungeon-footstep-rules';
 import { advanceDeath, startDeath, type DeathAnimation } from './dungeon-death';
 import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
-import { createPostChain } from './dungeon-post';
+import { createPostChain, postQuality } from './dungeon-post';
 import { bloodDecals } from './dungeon-blood';
 import { applyFloorDetail, applyStoneTextures, getFlagstoneTextures, getMasonryTextures } from './dungeon-textures';
 import { createDungeonAudio } from './dungeon-audio';
@@ -428,7 +428,7 @@ export default function DungeonGame() {
     // Plan 014, lever 3: bloom (flames, eyes, the THREAT/COMMIT marks, the water's own glow), dark
     // outlines on every living figure, a teal-shadow/orange-highlight grade, a tilt-shift blur and a
     // vignette - see dungeon-post.ts for why no OutputPass follows it.
-    const post = createPostChain(renderer, scene, camera, mount.clientWidth || 1, mount.clientHeight || 1);
+    const post = createPostChain(renderer, scene, camera, mount.clientWidth || 1, mount.clientHeight || 1, postQuality(renderer, window.location.search));
     const outlineTargets: THREE.Object3D[] = [];
     const updateOutline = () => { outlineTargets.length = 0; outlineTargets.push(player); for (const enemy of enemyData) if (!enemy.dead) outlineTargets.push(enemy.group); post.setOutline(outlineTargets); };
     // Ambient is the enemy of a lit pool: it paid for every unlit corner, so a brazier could only ever
@@ -832,7 +832,7 @@ export default function DungeonGame() {
       // task the veil's compositor-driven animation runs straight through.
       world.updateMatrixWorld(true);
       const drawingTo = renderer.getRenderTarget(); renderer.setRenderTarget(post.composer.readBuffer);
-      renderer.compile(scene, camera); renderer.setRenderTarget(drawingTo);
+      renderer.compile(scene, camera); renderer.setRenderTarget(drawingTo); post.pinPrograms();
       if (stopped) return false;
       updateOutline(); post.render(elapsed);
       setVeilStage(4);
@@ -2278,7 +2278,7 @@ export default function DungeonGame() {
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
-      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })() },
+      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })(), programs: (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0, quality: post.quality },
       effects: { impacts: impacts.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.

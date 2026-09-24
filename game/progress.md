@@ -2316,3 +2316,17 @@ Planned load: 402 / 377 / 376 s of tests across the shards, two workers each. Ga
 
 Gates: typecheck, lint, `npm test` (176/176), the PR-gate browser subset under `GAME_TEST_GL=d3d11`
 (102 passed, 2 skipped as on main).
+
+## 2026-09-24 - Shader programs survive rebuilds; a reduced post chain on software GL
+
+- PR #50's CI ran 4.8x main's time on the same specs. Cause: three.js destroys a program when its last
+  material is disposed, and every floor rebuild disposes the old floor first, so 24 heavy programs were
+  recompiled per rebuild - 3-6 s of first frame under SwiftShader, a descent hitch on real GPUs.
+  `dungeon-post.ts` now pins each program once (`usedTimes++`); the warm-up pins after its compile.
+- On a CPU rasteriser (`softwareGL`: SwiftShader, llvmpipe, Basic Render) the post chain drops GTAO,
+  both outline passes and bloom; tone map and grade stay. `?quality=full|reduced` overrides it, and
+  `GAME_TEST_CAPTURE=1` boots with `?quality=full` so reference frames stay comparable with the baseline.
+- Snapshot `render.programs` / `render.quality`; `frame-budget.spec.ts` asserts the program count never
+  dips across rebuilds and that the renderer picks the expected chain.
+- Not run locally (by request); CI is the check. Pixel-reading specs (models, art-direction) were tuned on
+  the full chain and may need their CI figures revisited if the reduced chain moves them.

@@ -1,4 +1,5 @@
 import {
+  CAPTURING,
   expect,
   type Game,
   openSpot,
@@ -206,5 +207,24 @@ test.describe('the light budget', () => {
     }
     expect(counts[0], 'more point lights than the torches, the fill and the anchor pool').toBeLessThanOrEqual(9);
     expect(counts, 'a floor changed the point-light count, which recompiles every lit shader').toEqual([counts[0], counts[0], counts[0]]);
+  });
+
+  test('a rebuild reuses the shader programs the last floor compiled instead of recompiling them', async ({ game }) => {
+    const programs: number[] = [];
+    for (const level of [1, 2, 3, 1]) {
+      await game.buildFloor(level);
+      await game.step(16, true);
+      programs.push((await game.state()).render.programs);
+    }
+    // three.js destroys a program when its last material is disposed, and every rebuild disposes the old
+    // floor's materials - so without pinning the count dips after each rebuild and the same programs compile
+    // again, seconds of stall per floor under software GL.
+    for (let i = 1; i < programs.length; i++) expect(programs[i], `rebuild ${i} dropped compiled programs: ${programs.join(' -> ')}`).toBeGreaterThanOrEqual(programs[i - 1]);
+    expect(programs[3], 'building floor 1 again compiled new programs').toBe(programs[2]);
+  });
+
+  test('a software rasteriser draws the reduced post chain, a GPU the full one', async ({ game }) => {
+    await game.step(16, true);
+    expect((await game.state()).render.quality).toBe(CAPTURING ? 'full' : process.env.GAME_TEST_GL ? 'full' : 'reduced');
   });
 });

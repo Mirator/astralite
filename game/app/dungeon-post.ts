@@ -127,7 +127,25 @@ const GRADE_SHADER = {
   `,
 };
 
-export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number, height: number) {
+/** Whether this context rasterises on the CPU - SwiftShader (CI, and Chrome when the GPU is blocklisted),
+ * Mesa's llvmpipe, Windows' Basic Render Driver. */
+export function softwareGL(renderer: THREE.WebGLRenderer) {
+  const gl = renderer.getContext();
+  const debug = gl.getExtension('WEBGL_debug_renderer_info');
+  return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(String(gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER)));
+}
+
+export type PostQuality = 'full' | 'reduced';
+
+/** `?quality=full` or `?quality=reduced` overrides the detection - reference frames are drawn at full
+ * quality on SwiftShader, because the baseline in `output/shots/baseline/` was. */
+export function postQuality(renderer: THREE.WebGLRenderer, search: string): PostQuality {
+  const asked = new URLSearchParams(search).get('quality');
+  if (asked === 'full' || asked === 'reduced') return asked;
+  return softwareGL(renderer) ? 'reduced' : 'full';
+}
+
+export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, width: number, height: number, quality: PostQuality = 'full') {
   const composer = new EffectComposer(renderer);
   composer.setSize(width, height);
   const renderPass = new RenderPass(scene, camera);
@@ -231,9 +249,28 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
   composer.addPass(gradePass);
   const uniforms = gradePass.uniforms as typeof GRADE_SHADER.uniforms;
   uniforms.uResolution.value.set(width, height);
+  // On a CPU rasteriser the scene pass alone costs tens of milliseconds, and GTAO (its own normal/depth
+  // pre-pass), the two outline passes (a depth and a mask pass of the scene each) and bloom's mip chain
+  // multiply it several times over - an unplayable frame for a player whose GPU is blocked, and most of
+  // the browser suite's time on CI. The reduced chain keeps the tone map and the grade, so colour stays
+  // where it was; it loses the contact shading, the inked figures and the glow.
+  if (quality === 'reduced') for (const pass of [gtaoPass, outlinePass, rimPass, bloomPass]) pass.enabled = false;
+
+  // three.js destroys a shader program the moment the last material using it is disposed. A floor
+  // rebuild disposes the old floor's materials before the new floor draws, so every identical program was
+  // thrown away and compiled again - 24 heavy programs per rebuild, 3-6 s a time under software GL, and a
+  // hitch on every descent on real hardware. Each program gets one extra reference the first time it is
+  // seen, so a rebuild finds it still cached. The set is bounded by the distinct shaders the game has.
+  const pinned = new WeakSet<object>();
+  const pinPrograms = () => {
+    const programs = (renderer.info as unknown as { programs?: { usedTimes: number }[] }).programs;
+    if (programs) for (const program of programs) if (!pinned.has(program)) { pinned.add(program); program.usedTimes++; }
+  };
 
   return {
     composer,
+    quality,
+    pinPrograms,
     bloomPass,
     outlinePass,
     rimPass,
@@ -255,6 +292,7 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
     render(t: number) {
       uniforms.uTime.value = t;
       composer.render();
+      pinPrograms();
     },
     dispose() {
       gtaoPass.dispose();

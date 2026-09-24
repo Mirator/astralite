@@ -212,6 +212,8 @@ export type Snapshot = {
     triangles: number;
     /** Point lights in the scene. Fixed by design: the count is compiled into every lit shader. */
     pointLights: number;
+    programs: number;
+    quality: 'full' | 'reduced';
   };
   /** Live effect pools. `footsteps` is plan 008's contact feedback: particles alive, whether the batch
    * is drawn, contacts emitted, phase crossings seen, crossings skipped for want of stone support, per
@@ -520,7 +522,8 @@ export class Game {
         value: pinnedDraw,
       });
     }, seeds);
-    await page.goto('/');
+    // Reference frames stay at full quality: the baseline was drawn with the whole post chain on SwiftShader.
+    await page.goto(CAPTURING ? '/?quality=full' : '/');
     await page.waitForFunction(
       () => typeof (window as GameWindow).render_game_to_text === 'function',
     );
