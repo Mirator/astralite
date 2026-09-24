@@ -62,6 +62,16 @@ Two tags take scenarios off the PR gate without deleting them. `.github/workflow
   eight-facing and cast checks in `models`, and the keep and ruins footstep pixel checks (flooded, whose
   room is far from the origin, stays on the gate).
 
+The gate's three CI shards are split by measured duration, not by `--shard`'s equal test counts:
+`scripts/shards/plan.ts <shards> <index>` prints one shard's specs from `scripts/shards/durations.json`.
+When the suite changes shape, refresh the durations from a green run's browser-job logs with
+`node --experimental-strip-types scripts/shards/refresh.ts <log> [...]`. A spec missing from the file
+weighs the median until then, and `tests/shards.test.ts` guards that every spec lands on exactly one shard.
+
+Frames the harness compares (`framePixels`, `cutawayFrames`, `pauseFreezeCheck`) cross from the page as one
+base64 string. Shipping them as an `Array.from` of the RGBA bytes cost about 15 s a frame on CI and made
+the occlusion scenario the longest test in the suite by far.
+
 Some gate scenarios are the only coverage left for behaviour whose unit tests were removed as duplicates
 (the footstep hit-stop, subdivision and reduced-motion checks, the motif rebuild, the flame redraw, the
 enemy silhouettes, the arm-swap leak): trim those only together with a unit test that takes their place.

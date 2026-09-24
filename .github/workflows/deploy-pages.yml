@@ -205,6 +205,11 @@ jobs:
   # on the ~50s of checkout, `npm ci` and dev server than on testing. Three also
   # halves what one run holds: at eight jobs a run, two overlapping runs came
   # close enough to a public repository's concurrency limit that a third queued.
+  # The split is by measured duration, not Playwright's `--shard`, which cuts the
+  # list into equal test counts in file order and so put the heavy, alphabetically
+  # adjacent specs on one machine (9.2 minutes against 1.8). scripts/shards/plan.ts
+  # hands each job its specs from scripts/shards/durations.json; refresh that file
+  # from a green run's logs with scripts/shards/refresh.ts when the suite changes.
   #
   # And on each machine, by worker. The single worker was never a correctness
   # constraint — see the note in playwright.config.ts — and a runner has four
@@ -238,7 +243,10 @@ jobs:
       # art tuning or repeat a check the gate already makes; neither guards a PR.
       # The nightly isolated run (isolated.yml) still runs both, and a capture
       # run draws everything.
-      - run: npm run test:browser -- --shard=${{ matrix.shard }}/3 ${{ !inputs.captures && '--grep-invert "@capture|@nightly"' || '' }}
+      - run: |
+          specs=$(node --experimental-strip-types scripts/shards/plan.ts 3 ${{ matrix.shard }})
+          echo "shard ${{ matrix.shard }}/3 runs: $specs"
+          npm run test:browser -- $specs ${{ !inputs.captures && '--grep-invert "@capture|@nightly"' || '' }}
       # Traces and screenshots are only written when something failed, and they
       # are the whole reason a red run is diagnosable without a local repro.
       # The capture run uploads on success too: the frames are its entire point.

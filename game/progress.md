@@ -2240,3 +2240,23 @@ count. Kept on purpose: scenarios that are now the only coverage for unit tests 
 
 144 scenarios, 103 on the gate. Gates: typecheck, lint, and the gate subset under `GAME_TEST_GL=d3d11`
 (101 passed, 2 skipped as on main).
+
+## Shards balanced by duration, and a 15-second frame read
+
+The PR gate's three shards ran 1.8, 3.1 and 9.2 minutes of tests: Playwright's `--shard` cuts equal test
+counts in file order, and the heavy specs sit next to each other alphabetically. `scripts/shards/plan.ts`
+now gives each CI job its specs by longest-first assignment over measured per-spec durations
+(`scripts/shards/durations.json`, refreshed from a green run's logs by `scripts/shards/refresh.ts`).
+Tie-breaks use code-unit order rather than `localeCompare`, which sorts "ch" after "h" in a Czech locale
+and would let a developer's machine disagree with CI. `tests/shards.test.ts` guards that every spec lands
+on exactly one shard.
+
+The occlusion scenario was the single longest test (240 s on CI), which capped how short any shard could
+be. Its time was not the spot search - both searches succeed on the first candidate - but the frame reads:
+`framePixels`/`cutawayFrames`/`pauseFreezeCheck` returned `Array.from` of ~3.7 million RGBA bytes, which
+Playwright serialises element by element, about 15 s per frame. They now return base64. The whole occlusion
+spec runs in 23 s locally (was 3.5 min). Its durations entry is an estimate (90 s) until the next refresh.
+
+Planned load: 402 / 377 / 376 s of tests across the shards, two workers each. Gates: typecheck, lint,
+`npm test` (172/172), `occlusion.spec.ts` under `GAME_TEST_GL=d3d11` (3 passed, 1 skipped as on main), and
+`--list` per planned shard: 32 + 33 + 38 = the gate's 103 scenarios, each exactly once.
