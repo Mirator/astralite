@@ -2339,3 +2339,32 @@ Gates: typecheck, lint, `npm test` (176/176), the PR-gate browser subset under `
   Rebuilds of floors 1, 2, 3, 1, 1: 64 programs throughout, first frame 36-239 ms (was 0.5-7 s).
   `frame-budget.spec.ts` asserts a revisited floor compiles nothing; `enter()` gives its click the
   warm-up budget, since a fresh page cannot take a click until the cold compile returns.
+
+## 2026-09-24 - Pooled resets under a driver's clock: no warm-up frames, no frame waits
+
+- PR #50's browser suite still ran ~4.6x main on the same specs after the program pinning (common tests
+  957 s -> 4437 s; `aim.spec` "right mouse button dodges" 0.9 s -> 33.6 s), with three fresh-boot
+  `waitForFunction` timeouts at the 25 s default. A pooled scenario resets twice, and each reset went
+  through `stagedBuild`: six `painted()` waits (twelve animation frames, each a compositor frame of the
+  veil's three fog layers on SwiftShader), plus two full `post.render` frames the driver never asked
+  for. Profiled locally on SwiftShader by the parent session: a reset was 4.2-6.9 s, ~90% of it the GPU
+  process, a third of that the two frames and ~1.4 s the veil's own raster.
+- `stagedBuild` under manual time (`advanceTime` has stopped the frame loop) now yields between stages
+  with `setTimeout(0)` - like a hidden tab - and draws neither warm-up frame; `renderer.compile` and the
+  program pinning still run. A second press still lands on a pending build. Snapshot `render.frames`
+  counts the post chain's frames; `loading.spec.ts` holds a rebuild under the driver's clock to zero of
+  them.
+- The veil on a software rasteriser (`veil-plain`, from the reduced post chain): no fog layers in the
+  document, a flat background, no vignette, glows or shadows. `loading.spec.ts` checks the class follows
+  `render.quality`.
+- The four floor-independent atmosphere textures (banner cloth, waterfall sheet, halo glow, contact
+  pool) are built once per session (`dungeon-atmosphere.ts`) and no longer re-drawn, re-uploaded and
+  mipmapped per floor. Per-floor textures are now exactly the shore mask and the paving's grime mask.
+  The brief's "~10 MB across six textures per reset" does not match the code (those six are ~1-3 MB,
+  mostly the two masks); the six 640 px stone maps would be 9.8 MB but are module-cached and nothing
+  re-versions them - worth re-checking the trace's attribution before chasing uploads further.
+- Harness: `Game.open`, `figure-mask.ts` and `frame-clock.spec.ts` wait for the hooks and the veil
+  with `WARM_UP` rather than 25 s; `smoke`, `frame-clock` and the isolated `models` describe get the
+  `120 s + WARM_UP` ceiling `loading.spec.ts` already had; `built()` polls at 50-250 ms instead of
+  100-1000 ms.
+- Not run locally (by request): CI is the check. Gates run: typecheck, lint, `npm test` (176/176).

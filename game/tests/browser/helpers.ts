@@ -59,7 +59,9 @@ export const CAPTURING = process.env.GAME_TEST_CAPTURE === '1';
  * linked and a frame has been presented. On a cold shader cache (a fresh profile, which every isolated
  * scenario is) that warm-up measured ~10 s under d3d11 once the point lights were capped, and software
  * rendering on CI is slower still. The veil covering it is the point of the loading screen, so waits
- * that span it get this budget rather than the 25 s default.
+ * that span it get this budget rather than the 25 s default - and so does the wait for the hooks on a
+ * fresh page, which lands before the compile but after a module load and a first floor that a sibling
+ * worker's software-rasterised frames can starve well past 25 s.
  */
 export const WARM_UP = 90_000;
 
@@ -210,6 +212,8 @@ export type Snapshot = {
     textures: number;
     calls: number;
     triangles: number;
+    /** Frames the post chain has drawn since the mount. Under manual time only `step(ms, true)` moves it. */
+    frames: number;
     /** Point lights in the scene. Fixed by design: the count is compiled into every lit shader. */
     pointLights: number;
     programs: number;
@@ -524,12 +528,17 @@ export class Game {
     }, seeds);
     // Reference frames stay at full quality: the baseline was drawn with the whole post chain on SwiftShader.
     await page.goto(CAPTURING ? '/?quality=full' : '/');
+    // The hooks go up as soon as floor 1 exists, before the cold compile - but a fresh page on CI
+    // shares its cores with a sibling worker's software-rasterised frames, and the 25 s default has
+    // timed out here on three isolated specs in one run. This is a boot, so it gets the boot's budget.
     await page.waitForFunction(
       () => typeof (window as GameWindow).render_game_to_text === 'function',
+      undefined,
+      { timeout: WARM_UP },
     );
     // The hook goes up a render before the veil comes down, so a scenario that
     // looked at the screen straight away could catch the tail of the boot wait.
-    await page.locator('.loading-veil').waitFor({ state: 'detached' });
+    await page.locator('.loading-veil').waitFor({ state: 'detached', timeout: WARM_UP });
     // Manual time before anything else: the rAF loop stops on the first call,
     // so every later assertion reads a simulation this test stepped itself.
     await game.step(0);
@@ -844,9 +853,13 @@ export class Game {
    * the veil needs to paint and the build that happens between them.
    */
   async built() {
+    // Under a driver's clock the build yields between stages but waits on no frames, so it is over in
+    // a few tasks plus the build itself; the default poll (100, 250, 500, then every second) would
+    // then charge most of a second of pure waiting to each of the two resets a pooled scenario makes.
     await expect
       .poll(() => this.state().then((state) => state.building), {
         message: 'the floor build behind the loading veil never finished',
+        intervals: [50, 100, 100, 250, 250, 500],
         timeout: WARM_UP,
       })
       .toBe(false);

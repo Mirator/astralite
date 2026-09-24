@@ -187,6 +187,10 @@ export default function DungeonGame() {
   // Plan 014 round C: what the veil reports while a keep is raised - the stage reached (an index into
   // VEIL_STAGES; 0 is "not started"), the floor being built and, once the layout is charted, its name.
   const [veilStage, setVeilStage] = useState(0), [veilFloor, setVeilFloor] = useState(1), [veilPlace, setVeilPlace] = useState<string | null>(null);
+  // True on a CPU rasteriser (the reduced post chain, `dungeon-post.ts`): the veil then drops its fog
+  // layers, gradients and glow. Those are composited every frame the veil is up, and on software GL that
+  // was seconds of raster per boot and per rebuild, out of the same CPU the build itself needs.
+  const [plainVeil, setPlainVeil] = useState(false);
   // ENTER THE KEEP pressed before floor 1 exists. The closure holds the press and clears this when it
   // answers it; until then the loading bar is up.
   const [entering, setEntering] = useState(false);
@@ -430,6 +434,7 @@ export default function DungeonGame() {
     // outlines on every living figure, a teal-shadow/orange-highlight grade, a tilt-shift blur and a
     // vignette - see dungeon-post.ts for why no OutputPass follows it.
     const post = createPostChain(renderer, scene, camera, mount.clientWidth || 1, mount.clientHeight || 1, postQuality(renderer, window.location.search));
+    setPlainVeil(post.quality === 'reduced');
     const flameKeeper = flameShaderKeeper(); scene.add(flameKeeper);
     const outlineTargets: THREE.Object3D[] = [];
     const updateOutline = () => { outlineTargets.length = 0; outlineTargets.push(player); for (const enemy of enemyData) if (!enemy.dead) outlineTargets.push(enemy.group); post.setOutline(outlineTargets); };
@@ -806,9 +811,13 @@ export default function DungeonGame() {
     // `dungeonTest.buildFloor`/`reset` never come through here: they stay synchronous and deterministic.
     let pendingFloor: { level: number; floor: ReturnType<typeof generateFloor> } | null = null;
     // A frame boundary the browser has painted: a rAF callback runs before its own frame's paint, so
-    // it takes two. A hidden tab runs no animation frames, and a build must not wait on it.
+    // it takes two. A hidden tab runs no animation frames, and a build must not wait on it. Nor does a
+    // build under a driver's clock (`advanceTime` stopped the frame loop): the stages then only have to
+    // yield, so a second press still lands while the first build is pending, but they do not hold the
+    // veil up for twelve frames nobody is watching - on a CPU rasteriser that was most of a test reset,
+    // since every frame of the veil's fog layers was composited in software.
     const painted = () => new Promise<void>((done) => {
-      if (document.hidden) { setTimeout(done, 0); return; }
+      if (document.hidden || manualTime) { setTimeout(done, 0); return; }
       requestAnimationFrame(() => requestAnimationFrame(() => done()));
     });
     const stagedBuild = async (nextLevel: number, seed: number | undefined, work: () => void, afterWork?: () => void) => {
@@ -836,10 +845,14 @@ export default function DungeonGame() {
       const drawingTo = renderer.getRenderTarget(); renderer.setRenderTarget(post.composer.readBuffer);
       flameKeeper.visible = true; renderer.compile(scene, camera); flameKeeper.visible = false; renderer.setRenderTarget(drawingTo); post.pinPrograms();
       if (stopped) return false;
-      updateOutline(); post.render(elapsed);
+      // The two frames below are for the player: the first takes the post chain's own first-use cost
+      // behind the veil, the second is the floor that is on screen when it lifts. A driver that owns the
+      // clock draws when it asks to and sees nothing until then, so under manual time neither is drawn -
+      // a full scene pass twice per reset was the largest single cost of a pooled test on software GL.
+      if (!manualTime) { updateOutline(); post.render(elapsed); }
       setVeilStage(4);
       await painted(); if (stopped) return false;
-      updateOutline(); post.render(elapsed);
+      if (!manualTime) { updateOutline(); post.render(elapsed); }
       setVeilStage(5);
       await painted();
       return !stopped;
@@ -2280,7 +2293,7 @@ export default function DungeonGame() {
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
-      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })(), programs: (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0, quality: post.quality },
+      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })(), programs: (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0, quality: post.quality },
       effects: { impacts: impacts.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.
@@ -2495,11 +2508,12 @@ export default function DungeonGame() {
       {/* Not in the prerendered page: the menu is, and nothing stands between a visitor and it. The veil
           belongs to the moments that make the player wait on a floor built from nothing — ENTER THE KEEP
           pressed before the first one is ready, a descent, and a fresh run — and to nothing else. */}
-      {veil && <output className="loading-veil">
+      {veil && <output className={plainVeil ? 'loading-veil veil-plain' : 'loading-veil'}>
         {/* Plan 014 round C: drifting fog, a vignette, the brass sigil with its ember, the line and the
             floor it is raising, a staged bar and one rotating line of keep-lore. Everything that moves
-            here moves by transform or opacity only, so it keeps moving while a stage blocks the thread. */}
-        <span className="veil-fog" aria-hidden="true"><i /><i /><i /></span>
+            here moves by transform or opacity only, so it keeps moving while a stage blocks the thread.
+            The fog is the one part with a real per-frame cost, so a software rasteriser goes without it. */}
+        {!plainVeil && <span className="veil-fog" aria-hidden="true"><i /><i /><i /></span>}
         <span className="veil-emblem" aria-hidden="true"><i className="veil-ring" /><i className="veil-diamond" /><i className="veil-glow" /><i className="veil-flame" /><i className="veil-flame veil-flame-core" /></span>
         <b>{veil}</b>
         <em className="veil-sub">Floor {veilFloor} of {FLOORS}{veilPlace ? ` · toward ${veilPlace}` : ''}</em>

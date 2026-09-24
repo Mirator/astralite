@@ -98,6 +98,28 @@ const PROP = {
  */
 export type LightAnchor={x:number;y:number;z:number;color:number;intensity:number;distance:number};
 
+/** The banner cloth, drawn in greys so the chamber can hang its own colour on it. A `MeshStandardMaterial`
+ * map only ever multiplies, so the field has to be the darker of the two for the device to stay the lighter
+ * of the two once a tint is applied; painting the wine red in here is what made every banner in the keep
+ * the knight's own cape whatever room it hung in. */
+function clothTexture_(){
+  const clothCanvas=document.createElement('canvas');clothCanvas.width=128;clothCanvas.height=256;const cc=clothCanvas.getContext('2d')!;
+  cc.fillStyle='#a8a8a8';cc.fillRect(0,0,128,256);cc.strokeStyle='#ffffff';cc.lineWidth=3;cc.strokeRect(9,8,110,240);
+  cc.beginPath();cc.moveTo(64,54);cc.lineTo(88,104);cc.lineTo(64,158);cc.lineTo(40,104);cc.closePath();cc.stroke();cc.beginPath();cc.moveTo(64,36);cc.lineTo(64,185);cc.moveTo(28,104);cc.lineTo(100,104);cc.stroke();
+  const texture=new THREE.CanvasTexture(clothCanvas);texture.colorSpace=THREE.SRGBColorSpace;return texture;
+}
+/** The streaked sheet a waterfall scrolls (`offset.y` is set every frame). */
+function flowTexture_(){
+  const waterCanvas=document.createElement('canvas');waterCanvas.width=64;waterCanvas.height=128;const wc=waterCanvas.getContext('2d')!;wc.fillStyle='#619d9e';wc.fillRect(0,0,64,128);
+  for(let i=0;i<35;i++){wc.fillStyle=i%2?'#c4eee0aa':'#83c7c4aa';wc.fillRect((i*17)%64,(i*37)%128,1+i%3,15+i%25);}
+  const texture=new THREE.CanvasTexture(waterCanvas);texture.wrapT=THREE.RepeatWrapping;texture.repeat.y=2;texture.colorSpace=THREE.SRGBColorSpace;return texture;
+}
+// None of these four depend on the floor, so they are drawn, uploaded and mipmapped once per session and
+// handed to every floor by reference - like the stone sets in `dungeon-textures.ts` - rather than built
+// again on each descent and thrown away with the old floor. `dispose()` below leaves them alone: a floor's
+// own textures (the shore mask, the paving's grime mask) still go with the floor.
+let sharedCloth:THREE.CanvasTexture|null=null,sharedFlow:THREE.CanvasTexture|null=null,sharedGlow:THREE.CanvasTexture|null=null,sharedContact:THREE.CanvasTexture|null=null;
+
 export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generateFloor>) {
   // A corridor has no room of its own. Since the near-face skip was lifted its walls
   // are built like any other, so they borrow the nearest chamber's stone rather than
@@ -140,19 +162,10 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   // a dark wet green that reads against every family's paving.
   const debrisStone=new THREE.MeshStandardMaterial({color:0x4a4843,roughness:.92,flatShading:true});
   const mossClump=new THREE.MeshStandardMaterial({color:0x26382a,roughness:1,flatShading:true});
-  const clothCanvas=document.createElement('canvas');clothCanvas.width=128;clothCanvas.height=256;const cc=clothCanvas.getContext('2d')!;
-  // Drawn in greys so the chamber can hang its own colour on it. A `MeshStandardMaterial` map only
-  // ever multiplies, so the field has to be the darker of the two for the device to stay the lighter
-  // of the two once a tint is applied; painting the wine red in here is what made every banner in the
-  // keep the knight's own cape whatever room it hung in.
-  cc.fillStyle='#a8a8a8';cc.fillRect(0,0,128,256);cc.strokeStyle='#ffffff';cc.lineWidth=3;cc.strokeRect(9,8,110,240);
-  cc.beginPath();cc.moveTo(64,54);cc.lineTo(88,104);cc.lineTo(64,158);cc.lineTo(40,104);cc.closePath();cc.stroke();cc.beginPath();cc.moveTo(64,36);cc.lineTo(64,185);cc.moveTo(28,104);cc.lineTo(100,104);cc.stroke();
-  const clothTexture=new THREE.CanvasTexture(clothCanvas);clothTexture.colorSpace=THREE.SRGBColorSpace;
+  const clothTexture=sharedCloth??=clothTexture_();
   const red=new THREE.MeshStandardMaterial({map:clothTexture,side:THREE.DoubleSide,roughness:1});
   const runner=new THREE.MeshStandardMaterial({map:clothTexture,side:THREE.DoubleSide,roughness:1});
-  const waterCanvas=document.createElement('canvas');waterCanvas.width=64;waterCanvas.height=128;const wc=waterCanvas.getContext('2d')!;wc.fillStyle='#619d9e';wc.fillRect(0,0,64,128);
-  for(let i=0;i<35;i++){wc.fillStyle=i%2?'#c4eee0aa':'#83c7c4aa';wc.fillRect((i*17)%64,(i*37)%128,1+i%3,15+i%25);}
-  const flowTexture=new THREE.CanvasTexture(waterCanvas);flowTexture.wrapT=THREE.RepeatWrapping;flowTexture.repeat.y=2;flowTexture.colorSpace=THREE.SRGBColorSpace;
+  const flowTexture=sharedFlow??=flowTexture_();
   const flowing=new THREE.MeshBasicMaterial({map:flowTexture,color:0xc6f0e7,transparent:true,opacity:.85,side:THREE.DoubleSide});
   flowing.depthWrite=false;
   flowing.onBeforeCompile=shader=>{shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
@@ -191,7 +204,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   // (urns alone were not what made a passage read as populated).
   let lastUrnTile:{x:number;z:number}|null=null,lastChainTile:{x:number;z:number}|null=null;
   const URN_GAP=4,CHAIN_GAP=5;
-  const glowMap=glowTexture(),halos:THREE.Sprite[]=[],haloBases:{x:number;y:number}[]=[];
+  const glowMap=sharedGlow??=glowTexture(),halos:THREE.Sprite[]=[],haloBases:{x:number;y:number}[]=[];
   // Plan 014 round 2: .3 opacity, at the camera's old 7.2 span, read as a soft glow; zoomed to 4.3
   // (lever 2) the same sprite is ~1.7x larger on screen, and stacked with the post chain's bloom it
   // blew a torch near the frame edge into a shapeless orange blob. The sprite's own footprint
@@ -360,7 +373,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     const e=shoreEdges[i];
     lightAnchors.push({x:(e.x+e.dx*.4)*TILE,y:.55,z:(e.z+e.dz*.4)*TILE,color:0x3fd0e8,intensity:3.2,distance:5.5});
   }
-  const contactMap=contactTexture(),contactMaterial=new THREE.MeshBasicMaterial({map:contactMap,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1});
+  const contactMap=sharedContact??=contactTexture(),contactMaterial=new THREE.MeshBasicMaterial({map:contactMap,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1});
   const contacts=new THREE.InstancedMesh(new THREE.PlaneGeometry(2.65,2.65),contactMaterial,floor.props.length),contactMatrix=new THREE.Matrix4();
   floor.props.forEach((p,i)=>{contactMatrix.makeRotationX(-Math.PI/2);contactMatrix.setPosition(p.x*TILE,.024,p.z*TILE);contacts.setMatrixAt(i,contactMatrix);});world.add(contacts);
   for(const p of floor.props)solid.add(packed(p.x,p.z));
@@ -722,5 +735,5 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     falls.forEach((fall,i)=>{for(let j=0;j<16;j++){const phase=(t*.8+j/16+i*.31)%1,angle=j*2.4,k=(i*16+j)*3;const span=.12+phase*.65;sprayPositions[k]=fall.position.x+Math.cos(angle)*span;sprayPositions[k+1]=-2.7+Math.sin(phase*Math.PI)*(.2+(j%3)*.12);sprayPositions[k+2]=fall.position.z+Math.sin(angle)*span;}});sprayGeometry.attributes.position.needsUpdate=true;
     seals.forEach((seal,i)=>{const m=seal.material as THREE.MeshBasicMaterial;m.color.setHex(cleared.has(i)?0x9dcf9e:sealTints[i]);m.opacity=cleared.has(i)?.6:.16;});
     flowTexture.offset.y=t*.5;falls.forEach((f,i)=>{f.scale.x=1+Math.sin(t*4+i)*.06;});
-  },dispose(){runner.dispose();clothTexture.dispose();sprayGeometry.dispose();sprayMaterial.dispose();contactMap.dispose();flowTexture.dispose();glowMap.dispose();haloMaterial.dispose();coalGlow.dispose();halos.forEach(h=>(h.material as THREE.Material).dispose());flames.forEach(f=>f.handle.dispose());staticFlames.forEach(h=>h.dispose());emberGeo.dispose();emberMaterial.dispose();motesGeo.dispose();(motes.material as THREE.Material).dispose();}};
+  },dispose(){runner.dispose();sprayGeometry.dispose();sprayMaterial.dispose();haloMaterial.dispose();coalGlow.dispose();halos.forEach(h=>(h.material as THREE.Material).dispose());flames.forEach(f=>f.handle.dispose());staticFlames.forEach(h=>h.dispose());emberGeo.dispose();emberMaterial.dispose();motesGeo.dispose();(motes.material as THREE.Material).dispose();}};
 }

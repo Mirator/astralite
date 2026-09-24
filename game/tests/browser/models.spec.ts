@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import type { Page, TestInfo } from '@playwright/test';
 import { deltaE, measureMasks, probeScene, readFlash } from './enemy-mask.ts';
 import { type FigureLightness, knightLightness, probeScenes, settleFacing } from './figure-mask.ts';
-import { CAPTURING, canStand, expect, Game, openSpot, roomCentre, SCREEN_DIRECTIONS, speedOf, test } from './helpers.ts';
+import { CAPTURING, canStand, expect, Game, openSpot, roomCentre, SCREEN_DIRECTIONS, speedOf, test, WARM_UP } from './helpers.ts';
 
 // Structural guards for the model round (plans 009-011), read off the live scene through
 // `dungeonTest.actorStats()`. What each figure looks like is judged on the contact sheet
@@ -155,6 +155,8 @@ test.describe('knight', () => {
  */
 test.describe('enemies', () => {
   test.use({ isolate: true });
+  // Each scenario boots its own page and so pays the cold shader warm-up (see WARM_UP in helpers.ts).
+  test.describe.configure({ timeout: 120_000 + WARM_UP });
   const KINDS = ['guard', 'stalker', 'warden'] as const;
   /**
    * Before plan 011: mean-Lab separation of the masks, actorStats heights, snapshot joints. The enemy

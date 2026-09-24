@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { expect, type Game, type GameWindow, type Point, speedOf } from './helpers.ts';
+import { expect, type Game, type GameWindow, type Point, speedOf, WARM_UP } from './helpers.ts';
 
 /**
  * A figure's own pixels, found by drawing the same frame twice - once with the figure and once without
@@ -39,8 +39,8 @@ export async function probeScenes(game: Game) {
     probe.__THREE_DEVTOOLS__ = hub;
   });
   await page.reload();
-  await page.waitForFunction(() => typeof (window as GameWindow).render_game_to_text === 'function');
-  await page.locator('.loading-veil').waitFor({ state: 'detached' });
+  await page.waitForFunction(() => typeof (window as GameWindow).render_game_to_text === 'function', undefined, { timeout: WARM_UP });
+  await page.locator('.loading-veil').waitFor({ state: 'detached', timeout: WARM_UP });
   await game.step(0);
   expect(
     await page.evaluate(() => ((window as Probe).__figureScenes ?? []).length),

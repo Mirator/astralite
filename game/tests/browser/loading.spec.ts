@@ -6,7 +6,7 @@ import { expect, type GameWindow, test, WARM_UP } from './helpers.ts';
 test.use({ isolate: true });
 test.describe.configure({ timeout: 120_000 + WARM_UP });
 
-type VeilWindow = Window & { veilSeen?: string | null };
+type VeilWindow = Window & { veilSeen?: string | null; veilClass?: string | null };
 type HeldWindow = Window & { releaseFrames?: () => void };
 
 /**
@@ -91,10 +91,10 @@ test('a fresh run waits behind the veil and lifts it on the new keep', async ({
   await game.enter();
   await page.evaluate(() => {
     const watched = window as VeilWindow;
-    watched.veilSeen = null;
+    watched.veilSeen = null; watched.veilClass = null;
     new MutationObserver(() => {
       const veil = document.querySelector('.loading-veil');
-      if (veil && !watched.veilSeen) watched.veilSeen = veil.textContent;
+      if (veil && !watched.veilSeen) { watched.veilSeen = veil.textContent; watched.veilClass = veil.className; }
     }).observe(document.body, { childList: true, subtree: true });
   });
 
@@ -117,6 +117,34 @@ test('a fresh run waits behind the veil and lifts it on the new keep', async ({
   const fresh = await game.state();
   expect(fresh.floor.level).toBe(1);
   expect(fresh.experience.total).toBe(0);
+  // A software rasteriser gets the plain veil - no fog layers, one flat background - and a GPU the full
+  // one; the same switch as the post chain, so the two never disagree about what the machine can draw.
+  expect(
+    (await page.evaluate(() => (window as VeilWindow).veilClass))?.includes('veil-plain'),
+    `the veil's dressing did not follow the ${fresh.render.quality} post chain`,
+  ).toBe(fresh.render.quality === 'reduced');
+});
+
+/**
+ * Under a driver's clock the frame loop is stopped and the driver draws when it asks to. A build behind
+ * the veil used to draw two frames of its own anyway - the warm-up frames a player needs - and on a
+ * software rasteriser those two scene passes were the largest single cost of every pooled reset. The
+ * driver reads exactly the frames it asked for, before and after a rebuild.
+ */
+test('a keep raised under a driver\'s clock draws no frame the driver did not ask for', async ({
+  game,
+}) => {
+  await game.enter();
+  await game.step(0, true);
+  const before = (await game.state()).render.frames;
+  await game.act('restart');
+  await game.built();
+  expect(
+    (await game.state()).render.frames,
+    'the build behind the veil drew frames of its own under manual time',
+  ).toBe(before);
+  await game.step(0, true);
+  expect((await game.state()).render.frames).toBe(before + 1);
 });
 
 /**

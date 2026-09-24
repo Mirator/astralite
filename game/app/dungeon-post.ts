@@ -266,11 +266,15 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
     const programs = (renderer.info as unknown as { programs?: { usedTimes: number }[] }).programs;
     if (programs) for (const program of programs) if (!pinned.has(program)) { pinned.add(program); program.usedTimes++; }
   };
+  // Frames this chain has drawn since the mount. A test driver that owns the clock reads it to check
+  // that nothing drew a frame it did not ask for - a floor build under manual time, above all.
+  let frames = 0;
 
   return {
     composer,
     quality,
     pinPrograms,
+    get frames() { return frames; },
     bloomPass,
     outlinePass,
     rimPass,
@@ -293,6 +297,7 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
       uniforms.uTime.value = t;
       composer.render();
       pinPrograms();
+      frames++;
     },
     dispose() {
       gtaoPass.dispose();

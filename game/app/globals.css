@@ -495,6 +495,17 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 :root[data-motion="reduce"] .veil-lore i { animation: none; }
 :root[data-motion="reduce"] .veil-lore i:first-child { opacity: 1; }
 @media (max-height: 560px) { .veil-emblem { width: 60px; height: 60px; margin-bottom: 16px; } .veil-lore { margin-top: 18px; } .veil-bar { margin-top: 18px; } }
+/* The veil on a CPU rasteriser (`veil-plain`, set from the reduced post chain in dungeon-post.ts): the fog
+   layers are not in the document at all, the background is one flat colour rather than a full-screen
+   gradient, and the vignette, glows and shadows go. Every one of those is rastered or composited in
+   software on each frame the veil is up - out of the same CPU the build behind it is waiting on - and
+   the emblem, the line, the bar and the stage are what the wait actually needs. */
+.loading-veil.veil-plain { background: #081419; }
+.loading-veil.veil-plain::after { content: none; }
+.loading-veil.veil-plain .veil-glow { display: none; }
+.loading-veil.veil-plain .veil-ring::before, .loading-veil.veil-plain .veil-ring::after, .loading-veil.veil-plain .veil-diamond, .loading-veil.veil-plain .veil-flame::before, .loading-veil.veil-plain .veil-flame-core::before,
+.loading-veil.veil-plain .veil-bar, .loading-veil.veil-plain .veil-bar::before, .loading-veil.veil-plain .veil-bar::after, .loading-veil.veil-plain .veil-bar i { box-shadow: none; }
+.loading-veil.veil-plain b { text-shadow: none; }
 
 /* The menu. One column of items under the title, the way the start of a game reads, with ENTER THE KEEP
    first and heaviest. Controls and Settings open as pages of the same card, each with a way back, instead of
