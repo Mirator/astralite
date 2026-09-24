@@ -1,10 +1,12 @@
-import { expect, type GameWindow, test } from './helpers.ts';
+import { expect, type GameWindow, test, WARM_UP } from './helpers.ts';
 
 // A boot is the thing under test here, so a page that is already booted has nothing to show. Every
-// scenario here needs its own load.
+// scenario here needs its own load. Each fresh load also pays a cold shader warm-up behind the veil
+// (see WARM_UP in helpers.ts), so the scenarios get room for it on top of the usual ceiling.
 test.use({ isolate: true });
+test.describe.configure({ timeout: 120_000 + WARM_UP });
 
-type VeilWindow = Window & { veilSeen?: string | null };
+type VeilWindow = Window & { veilSeen?: string | null; veilClass?: string | null };
 type HeldWindow = Window & { releaseFrames?: () => void };
 
 /**
@@ -67,7 +69,8 @@ test('a press that beats the build raises the loading bar and enters on the new 
   await page.waitForFunction(
     () => typeof (window as GameWindow).render_game_to_text === 'function',
   );
-  await expect(veil).toHaveCount(0);
+  // The hooks go up with the floor; the veil stays through the shader warm-up and lifts on the keep.
+  await expect(veil).toHaveCount(0, { timeout: WARM_UP });
   await expect(page.locator('.intro-screen')).toBeHidden();
   const state = await page.evaluate(
     () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string; floor: { level: number } },
@@ -88,10 +91,10 @@ test('a fresh run waits behind the veil and lifts it on the new keep', async ({
   await game.enter();
   await page.evaluate(() => {
     const watched = window as VeilWindow;
-    watched.veilSeen = null;
+    watched.veilSeen = null; watched.veilClass = null;
     new MutationObserver(() => {
       const veil = document.querySelector('.loading-veil');
-      if (veil && !watched.veilSeen) watched.veilSeen = veil.textContent;
+      if (veil && !watched.veilSeen) { watched.veilSeen = veil.textContent; watched.veilClass = veil.className; }
     }).observe(document.body, { childList: true, subtree: true });
   });
 
@@ -114,6 +117,34 @@ test('a fresh run waits behind the veil and lifts it on the new keep', async ({
   const fresh = await game.state();
   expect(fresh.floor.level).toBe(1);
   expect(fresh.experience.total).toBe(0);
+  // A software rasteriser gets the plain veil - no fog layers, one flat background - and a GPU the full
+  // one; the same switch as the post chain, so the two never disagree about what the machine can draw.
+  expect(
+    (await page.evaluate(() => (window as VeilWindow).veilClass))?.includes('veil-plain'),
+    `the veil's dressing did not follow the ${fresh.render.quality} post chain`,
+  ).toBe(fresh.render.quality === 'reduced');
+});
+
+/**
+ * Under a driver's clock the frame loop is stopped and the driver draws when it asks to. A build behind
+ * the veil used to draw two frames of its own anyway - the warm-up frames a player needs - and on a
+ * software rasteriser those two scene passes were the largest single cost of every pooled reset. The
+ * driver reads exactly the frames it asked for, before and after a rebuild.
+ */
+test('a keep raised under a driver\'s clock draws no frame the driver did not ask for', async ({
+  game,
+}) => {
+  await game.enter();
+  await game.step(0, true);
+  const before = (await game.state()).render.frames;
+  await game.act('restart');
+  await game.built();
+  expect(
+    (await game.state()).render.frames,
+    'the build behind the veil drew frames of its own under manual time',
+  ).toBe(before);
+  await game.step(0, true);
+  expect((await game.state()).render.frames).toBe(before + 1);
 });
 
 /**

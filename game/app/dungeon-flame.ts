@@ -266,10 +266,13 @@ export const FLAME_BASE_Y: Record<FlameTheme, number> = { keep: 1.52, ruins: 1.4
  * turning a real ~15px silhouette valley (see `ruinsFlame`) back into one smooth bright dome in a
  * captured frame. Smaller here is what lets the body's own shape carry the read it needs to.
  */
+// Plan 014 round 7 (lever 6): trimmed about 15% off every axis - "slightly smaller", alongside the
+// smoother falloff `glowTexture` now draws, since a softer edge earns back some of the presence a
+// bigger sprite was previously carrying just to be seen at all.
 export const FLAME_HALO_SCALE: Record<FlameTheme, { x: number; y: number }> = {
-  keep: { x: 2.0, y: 3.3 },
-  ruins: { x: 1.5, y: 1.7 },
-  flooded: { x: 2.7, y: 1.9 },
+  keep: { x: 1.7, y: 2.8 },
+  ruins: { x: 1.28, y: 1.45 },
+  flooded: { x: 2.3, y: 1.62 },
 };
 
 /** One ember slot's offset from its source, by theme: rising, drifting or clustered close by. */

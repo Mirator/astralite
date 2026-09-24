@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { pavingGeometry, pavingKind, ROOM_MOOD, tileHash, vaultEnvironment } from './dungeon-art';
+import { alertTexture, laneTelegraphTexture, pavingGeometry, pavingKind, ROOM_MOOD, telegraphTexture, tileHash, vaultEnvironment } from './dungeon-art';
 import { planPavingPatches } from './dungeon-paving-layout';
 import { pavingPatchGeometry } from './dungeon-paving-patches';
 import { buildSurfaceIndex, type CellSurface, type SurfaceIndex, type SurfaceTriangle } from './dungeon-surface';
@@ -14,6 +14,10 @@ import { footstepEffects } from './dungeon-footsteps';
 import { footfalls, footSupport, type FootstepKind } from './dungeon-footstep-rules';
 import { advanceDeath, startDeath, type DeathAnimation } from './dungeon-death';
 import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
+import { flameShaderKeeper } from './dungeon-flame-fx';
+import { createPostChain, postQuality } from './dungeon-post';
+import { bloodDecals } from './dungeon-blood';
+import { applyFloorDetail, applyStoneTextures, getFlagstoneTextures, getMasonryTextures } from './dungeon-textures';
 import { createDungeonAudio } from './dungeon-audio';
 import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidate } from './dungeon-occlusion';
 import { animateCloth, stoneMood, tideMood, tidalMaterial, weatherStone } from './dungeon-motion';
@@ -33,7 +37,7 @@ import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
 import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
-type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; death: DeathAnimation | null; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[];
+type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; death: DeathAnimation | null; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; alert: THREE.Sprite; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[];
   // Where it spawned, for a dozing body's pace; how far into noticing it is; a countdown to a contagion
   // kick a neighbour scheduled for it, or Infinity while none is pending. scripts/balance/sim.ts carries
   // the identical bookkeeping so a room wakes the same way in both sims.
@@ -55,6 +59,20 @@ type GameToolContext = {
   }, options: { signal: AbortSignal }) => void | Promise<void>;
 };
 const FLOORS = 3;
+/** Plan 014 round C: what the veil says is happening, one label per stage of `stagedBuild`. The label
+ *  shown is the stage now running, so index 0 names the first one before it has finished. */
+const VEIL_STAGES = ['Charting the halls', 'Cutting the stone', 'Raising the walls', 'Lighting the braziers', 'Flooding the halls'] as const;
+/** Short in-world lines, crossfaded one at a time under the bar (CSS only). */
+const VEIL_LORE = [
+  'Braziers mark the rooms the warden still watches.',
+  'A skeleton that crouches low is about to lunge.',
+  'The tide keeps what the keep forgets.',
+  'Red on the stone means a blow is already falling.',
+  'Dash through a swing, not away from it.',
+  'The stair only opens when its hall is quiet.',
+  'The deeper the floor, the older the stone.',
+  'Steel remembers every hand that held it.',
+] as const;
 // Keys the browser acts on itself — scrolling, quick-find, back-navigation. Only ever swallowed while one
 // of them is actually bound to something, so the list follows a rebind instead of being frozen at the
 // defaults: an arrow freed by a rebind goes back to scrolling the page, and a newly bound PageDown stops.
@@ -76,6 +94,12 @@ const keyLabel = (code: string) => code.startsWith('Key') || code.startsWith('Di
 // Deduplicated after labelling, not before: the two shift keys are distinct codes and one legend, and
 // "Shift / Shift" tells a player nothing except that the card is not thinking.
 const bindLabel = (codes: string[], join = ' / ') => [...new Set(codes.map(keyLabel))].join(join);
+// Plan 014 round 8 (lever 5): the ability row's own keycap reads a full key name ("Space", "Shift")
+// at 9px under a 32px diamond - the "unstyled dev placeholder" the critic named. A real keycap is
+// engraved with an abbreviation, not the key's full name, so this shortens the same label `bindLabel`
+// already produces rather than replacing it - settings and the controls legend keep the full word.
+const KEYCAP_GLYPH: Record<string, string> = { Space: 'SPC', Shift: '⇧', Control: '⌃', Alt: '⌥', Enter: '⏎', Escape: 'ESC', Tab: '⇥' };
+const keycapLabel = (codes: string[]) => [...new Set(codes.map(keyLabel))].map((l) => KEYCAP_GLYPH[l] ?? (l.length > 4 ? l.slice(0, 3).toUpperCase() : l.toUpperCase())).join('/');
 // Hydration never changes back, so there is nothing to subscribe to.
 const noSubscription = () => () => {};
 
@@ -151,11 +175,22 @@ export default function DungeonGame() {
   const applyRef = useRef<((settings: Settings, reduceMotion: boolean) => void) | null>(null);
   const reduceMotion = settings.reducedMotion ?? osReduce;
   const [roomName, setRoomName] = useState('The Tide Gate'), [plundered, setPlundered] = useState(0);
+  // Plan 014 round A: which family of foreground silhouettes frames the view - it follows the same
+  // chamber theme the lights do, so a keep hall, a ruined court and a flooded hall are no longer all
+  // framed by the one identical statue.
+  const [frameTheme, setFrameTheme] = useState<keyof typeof ROOM_MOOD>('keep');
   const [advance, setAdvance] = useState(0);
   const [notice, setNotice] = useState(''), [, setNoticeDetail] = useState(''), [ready, setReady] = useState(false);
   // What the keep is busy doing while the player waits on it, or null when it is not busy. Only ever set
   // for work that blocks the main thread long enough to be felt — which in this game is a floor build.
   const [loading, setLoading] = useState<string | null>(null);
+  // Plan 014 round C: what the veil reports while a keep is raised - the stage reached (an index into
+  // VEIL_STAGES; 0 is "not started"), the floor being built and, once the layout is charted, its name.
+  const [veilStage, setVeilStage] = useState(0), [veilFloor, setVeilFloor] = useState(1), [veilPlace, setVeilPlace] = useState<string | null>(null);
+  // True on a CPU rasteriser (the reduced post chain, `dungeon-post.ts`): the veil then drops its fog
+  // layers, gradients and glow. Those are composited every frame the veil is up, and on software GL that
+  // was seconds of raster per boot and per rebuild, out of the same CPU the build itself needs.
+  const [plainVeil, setPlainVeil] = useState(false);
   // ENTER THE KEEP pressed before floor 1 exists. The closure holds the press and clears this when it
   // answers it; until then the loading bar is up.
   const [entering, setEntering] = useState(false);
@@ -168,6 +203,10 @@ export default function DungeonGame() {
   const [menuView, setMenuView] = useState<'main' | 'controls' | 'settings'>('main');
   const returnTo = useRef<string | null>(null);
   const dashMeter = useRef<HTMLProgressElement>(null);
+  // Plan 014 round 5 (lever C8): the dash icon's own radial sweep, driven the same imperative way the
+  // old `<progress>` was - one DOM write a frame from the render loop, no React state and no re-render
+  // for something that changes sixty times a second.
+  const dashSweep = useRef<HTMLDivElement>(null);
   const [displayLost, setDisplayLost] = useState(false), [floorBuild, setFloorBuild] = useState(0);
   // Deliberately not the same flag as displayLost: that is a context taken away mid-descent and handed
   // back, this is one never granted, so there is no run to pause and nothing that could restore it.
@@ -387,14 +426,36 @@ export default function DungeonGame() {
     scene.fog = new THREE.FogExp2(0x081820, 0.027);
     const environment = vaultEnvironment(); scene.environment = environment; scene.environmentIntensity = .34;
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
-    renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
+    renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.42;
     mount.appendChild(renderer.domElement);
     const camera = new THREE.OrthographicCamera(-8, 8, 5, -5, 0.1, 70);
     camera.position.set(10, 13, 13); camera.lookAt(0, 0, 0);
+    // Plan 014, lever 3: bloom (flames, eyes, the THREAT/COMMIT marks, the water's own glow), dark
+    // outlines on every living figure, a teal-shadow/orange-highlight grade, a tilt-shift blur and a
+    // vignette - see dungeon-post.ts for why no OutputPass follows it.
+    const post = createPostChain(renderer, scene, camera, mount.clientWidth || 1, mount.clientHeight || 1, postQuality(renderer, window.location.search));
+    setPlainVeil(post.quality === 'reduced');
+    const flameKeeper = flameShaderKeeper(); scene.add(flameKeeper);
+    const outlineTargets: THREE.Object3D[] = [];
+    const updateOutline = () => { outlineTargets.length = 0; outlineTargets.push(player); for (const enemy of enemyData) if (!enemy.dead) outlineTargets.push(enemy.group); post.setOutline(outlineTargets); };
     // Ambient is the enemy of a lit pool: it paid for every unlit corner, so a brazier could only ever
     // read as a decal on an already-bright floor. Half of it moves into the moon, which models form
     // instead of flattening it, and the rest is bought back by the torches below.
     const hemisphere = new THREE.HemisphereLight(0x8fb4c6, 0x16282c, .52); scene.add(hemisphere);
+    // Plan 014 round 2: a floor under the whole scene's black point. The zoomed-in camera (lever 2)
+    // and the grade pass's shadow lift (dungeon-post.ts) both push dark areas further toward zero, and
+    // a corridor with no torch in view was crushing to near-total black - stone, blocks and figures
+    // alike losing all their form rather than just going dim. A flat, direction-independent ambient is
+    // what guarantees every visible surface keeps *some* value to shade from, however far it sits from
+    // a lamp; it is intentionally small next to the hemisphere and torches above so it never flattens
+    // a lit room, only rescues an unlit one.
+    // Plan 014 round 4 (lever A2): pushed further teal and a touch brighter - this is meant to read as
+    // the flood's own cyan bouncing off every wet surface in the keep, not a neutral grey floor, so an
+    // unlit shadow goes dark teal rather than dark nothing. The warm sconces above are what it is
+    // supposed to fight against; the two together are the whole of the reference's colour story.
+    // Plan 014 round A: .22 left armour and cape crushing to black a stride from a torch. Doubled, and
+    // pushed a touch further toward the flood's teal, so an unlit face reads dark teal with form in it.
+    scene.add(new THREE.AmbientLight(0x2f5a63, .5));
     // Its intensity is set per chamber below; this is only the value the first frame is built with.
     const moon = new THREE.DirectionalLight(0xccdfe6, 5);
     // One offset, read here and again every frame when the light is re-hung over the knight. It was
@@ -417,6 +478,21 @@ export default function DungeonGame() {
     const world = new THREE.Group(); scene.add(world);
     const matrix = new THREE.Matrix4();
     const texture = stoneTexture();
+    // Plan 014 round 3: one shared canvas texture for every attack telegraph in the keep - a
+    // translucent fill, a bright rim and a single arrow baked into its alpha channel - so the mark
+    // no longer needs the material's own opacity to reach 1 to be legible. Shown once, unrepeated
+    // (round 2's 2x2 tiling of three chevrons apiece was the "scribbled streaks" this replaced).
+    const telegraphTex = telegraphTexture(), laneTex = laneTelegraphTexture();
+    // Plan 014 round 2 (lever D10): one shared texture for the alert glyph every body in the keep
+    // shows the instant it notices the knight and before its own tell begins - see the `notice` window
+    // below. Kept just under 1 in the framebuffer's own terms (a plain sRGB texture, tone-mapped like
+    // any other sprite) so it reads as a hot little glyph without needing to bloom to be seen.
+    const alertTex = alertTexture();
+    const alertMaterial = new THREE.SpriteMaterial({map:alertTex,depthTest:false,transparent:true,fog:false});
+    // Uploaded now rather than on first use: these only ever draw once a guard notices or winds up, so a
+    // lazy upload made the renderer's texture count grow mid-floor, which reads as a leak to every check
+    // that compares resource counts across rebuilds - and it was a hitch on the first windup besides.
+    for (const shared of [telegraphTex, laneTex, alertTex]) renderer.initTexture(shared);
     const torchLights: THREE.PointLight[] = [];
     // Cutoff distance is what was drawing the hard-edged ellipse. Three windows a point light's falloff
     // by `(1 - (d/distance)^4)^2`, which collapses to zero over the last few units, and at distance 15 in
@@ -424,6 +500,13 @@ export default function DungeonGame() {
     // decal. No cutoff and a physical inverse square instead: the same brightness where it matters and a
     // tail that simply runs out. The intensity here is dead code, overwritten by the flicker each frame.
     for (let i = 0; i < 4; i++) { const light = new THREE.PointLight(0xff9440,22,0,2); torchLights.push(light); scene.add(light); }
+    // The sconces, lanterns and water bounces the atmosphere pass lays out are anchors, not lights (see
+    // `LightAnchor`): this fixed pool is lent to the ones nearest the knight each frame. A spare one sits
+    // at zero intensity rather than hidden, because an invisible light drops out of the count and a new
+    // count recompiles every lit shader - the very stall the pool exists to prevent.
+    const ANCHOR_LIGHTS = 4;
+    const anchorLights: THREE.PointLight[] = [];
+    for (let i = 0; i < ANCHOR_LIGHTS; i++) { const light = new THREE.PointLight(0xff9c52,0,6.5,2); anchorLights.push(light); scene.add(light); }
     // No fifth torch. The review's complaint was that an effect throws no light,
     // and the honest fix is a real one — but the renderer's light budget is spent
     // (a moon, a hemisphere, four torches and the knight's lantern) and a sixth
@@ -435,7 +518,7 @@ export default function DungeonGame() {
     const ember = borrowedLight(torchLights[3], 0xff9440);
     // One scratch vector for every bid: a light hung at floor level throws a hot
     // ring and reaches no wall, so each event lifts its offer off the paving.
-    const lampAt = new THREE.Vector3();
+    const lampAt = new THREE.Vector3(), barRight = new THREE.Vector3();
     const player = makeKnight(); world.add(player);
     // Every transform the rig is born with, so a reset can put it back. The pose is reached by
     // damping, which approaches a rest value without arriving, and `advanceTime(0)` moves nothing -
@@ -455,7 +538,9 @@ export default function DungeonGame() {
     // room. A warm lamp is the one thing none of the three themes now burns for itself, so the knight
     // carries the only warm pool in the standing keep and in the flood, and in the ruin, where he does
     // not, the cape is already doing it.
-    const fill = new THREE.PointLight(0xffdfbe, 27, 0, 2); scene.add(fill);
+    // Plan 014 round A: 27 -> 46, and hung lower and further toward the camera (see the per-frame
+    // placement below), so the steel and the red cape catch it on the faces the camera actually sees.
+    const fill = new THREE.PointLight(0xffdfbe, 46, 0, 2); scene.add(fill);
     // Every room in the keep was lit by these same lamps under this same fog, so a theme could only
     // ever differ from its neighbours by the base colour of its paving — and the moss tint in the
     // stone shader pulled even that back toward one drowned green. Eight frames, one colour. The
@@ -474,6 +559,7 @@ export default function DungeonGame() {
     // the knight has come from.
     const moodFire = new THREE.Color(), moodBanner = new THREE.Color(), moodMasonry = new THREE.Color(), moodBed = new THREE.Color();
     const moodNumbers = { key: 0, hemisphere: 0, fog: 0, environment: 0 };
+    const torchTint = new THREE.Color(), torchWarm = new THREE.Color(0xff9a4a);
     let moodFloor: typeof floor | null = null, moodCell = '', moodTheme: keyof typeof ROOM_MOOD = 'keep', moodSnap = true;
     const mixTo = (v: THREE.Vector3, to: readonly [number, number, number], k: number) =>
       v.set(v.x + (to[0] - v.x) * k, v.y + (to[1] - v.y) * k, v.z + (to[2] - v.z) * k);
@@ -488,6 +574,7 @@ export default function DungeonGame() {
         const id = floor.roomByCell.get(cell) ?? -1;
         if (id >= 0) moodTheme = floor.rooms[id].theme;
         else { let best = Infinity; for (const r of floor.rooms) { const d = (r.x - cx) ** 2 + (r.z - cz) ** 2; if (d < best) { best = d; moodTheme = r.theme; } } }
+        setFrameTheme(moodTheme);
       }
       const m = ROOM_MOOD[moodTheme], k = moodSnap ? 1 : rate; moodSnap = false;
       moodKey.lerp(moodTo.setHex(m.key), k); moodSky.lerp(moodTo.setHex(m.sky), k); moodGround.lerp(moodTo.setHex(m.ground), k);
@@ -504,14 +591,36 @@ export default function DungeonGame() {
       (scene.background as THREE.Color).copy(moodBack); scene.environmentIntensity = moodNumbers.environment;
       // Every lamp in the keep, including the one that gets lent out: the sconce it returns to has to
       // burn what its three neighbours burn or a borrow reads as a colour change rather than a flare.
-      for (const light of torchLights) light.color.copy(moodFire);
-      ember.home.copy(moodFire);
+      // Plan 014 round B: the pools carry the warmth. A brazier's light is its theme's fire run a third
+      // of the way to amber, so even a teal or violet chamber holds a warm pool against its cool ambient.
+      torchTint.copy(moodFire).lerp(torchWarm, .35);
+      for (const light of torchLights) light.color.copy(torchTint);
+      ember.home.copy(torchTint);
       mixTo(tideMood.value, m.water, k);
       mixTo(stoneMood.moss.value, m.moss, k); mixTo(stoneMood.warm.value, m.warm, k);
       mixTo(stoneMood.cool.value, m.cool, k); mixTo(stoneMood.crown.value, m.crown, k);
       stoneMood.mossAmount.value += (m.mossAmount - stoneMood.mossAmount.value) * k;
     };
-    const playerRing = new THREE.Mesh(new THREE.RingGeometry(0.5,0.55,40),new THREE.MeshBasicMaterial({color:0xcfe6e4,transparent:true,opacity:0.45,depthWrite:false}));playerRing.rotation.x=-Math.PI/2;world.add(playerRing);
+    // Plan 014 round 7 (lever 5): a .05-unit-wide `RingGeometry` annulus has no room for its own edges
+    // to feather even with antialiasing on, which is what "hard, aliased thin line" was describing.
+    // Widened into an actual band and given a radial alpha curve instead - RingGeometry's own UV.y runs
+    // 0 at the inner edge to 1 at the outer one, so a `smoothstep` pair peaking mid-band is a feathered
+    // gradient with no texture, and a slow sine on top is the "subtle pulse".
+    const ringTime={value:0};
+    const playerRingMaterial=new THREE.MeshBasicMaterial({color:0xcfe6e4,transparent:true,opacity:0.45,depthWrite:false,side:THREE.DoubleSide});
+    playerRingMaterial.onBeforeCompile=shader=>{
+      shader.uniforms.uRingTime=ringTime;
+      shader.vertexShader=shader.vertexShader.replace('#include <common>','#include <common>\nvarying vec2 ringUv;')
+        .replace('#include <uv_vertex>','#include <uv_vertex>\nringUv = uv;');
+      shader.fragmentShader=shader.fragmentShader.replace('#include <common>','#include <common>\nuniform float uRingTime;\nvarying vec2 ringUv;')
+        .replace('#include <color_fragment>',`#include <color_fragment>
+          float ringBand = smoothstep(0.0, 0.42, ringUv.y) * smoothstep(1.0, 0.55, ringUv.y);
+          float ringPulse = 0.82 + 0.18 * sin(uRingTime * 2.1);
+          diffuseColor.a *= ringBand * ringPulse;
+        `);
+    };
+    playerRingMaterial.customProgramCacheKey=()=>'player-ring-feathered-v1';
+    const playerRing = new THREE.Mesh(new THREE.RingGeometry(0.36,0.68,48),playerRingMaterial);playerRing.rotation.x=-Math.PI/2;world.add(playerRing);
     const cameraFocus = new THREE.Vector3();
     const velocity = new THREE.Vector3(), facing = new THREE.Vector3(1, 0, -0.6).normalize();
     const attackFacing = facing.clone(), dashFacing = facing.clone();
@@ -532,8 +641,21 @@ export default function DungeonGame() {
     // out without drawing a ribbon past where the blow would land. Same buffers,
     // same draw call, same 46-triangle ceiling; the longer life is what makes it
     // read as one crescent rather than as a wire.
-    const slash=weaponTrail(0xffedc5,.14,{inner:.34,outer:1.34});world.add(slash.mesh);
+    // Plan 014 round 8 (lever 3): .14s of retained history was well under the swing's own active
+    // window, so a capture anywhere but right at the very end of the beat caught a short, half-built
+    // ribbon rather than the full ~150 degree crescent the blade actually swept. Longer retention
+    // directly lengthens the visible arc at any instant without touching the shared edge shader
+    // (`dungeon-weapon-trail.ts`) that enemies also use, so it cannot introduce the "shapeless blob"
+    // round 2 fixed - that was a blend-strength problem, not a lifetime one.
+    // Plan 014 round 9 (lever 1): `reach` (replacing the old fan object) scales the ribbon's own
+    // cross-width beyond the sword's literal blade thickness, which combined with the spline now
+    // doing the actual curvature is what turns the recorded tip path into a wide crescent stroke.
+    const slash=weaponTrail(0xffedc5,.22,1.05,3.0);world.add(slash.mesh);
     const impacts=impactEffects();world.add(impacts.group);
+    // Plan 014 round 2 (lever B5): persistent blood splats where a blow lands. World-scoped like every
+    // other pooled effect here, and cleared at the top of `buildFloor` alongside the slash and the
+    // shots rather than being torn down and rebuilt with the floor group each descent.
+    const blood=bloodDecals();world.add(blood.group);
     // Plan 008: one bounded particle batch for every footfall of the mounted game (see dungeon-footsteps).
     // It owns its geometry and material and disposes them itself on unmount, detaching first so the
     // generic Mesh traversal below never sees them. `stepLog` is read-only diagnostics, reset on restart.
@@ -658,7 +780,7 @@ export default function DungeonGame() {
       atmosphere?.dispose();
       impacts.clear(); footsteps.clear();
       floorGroup.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); } });
-      world.remove(floorGroup);
+      (floorGroup.userData.floorDetail as THREE.Texture | null | undefined)?.dispose(); world.remove(floorGroup);
       particles.forEach(p => { world.remove(p.mesh); if (p.mesh.material !== sparkMat) (p.mesh.material as THREE.Material).dispose(); });
       particles.length = 0;
       dashTrails.forEach(m=>{m.userData.life=0;m.visible=false;(m.material as THREE.MeshBasicMaterial).opacity=0;});
@@ -672,17 +794,76 @@ export default function DungeonGame() {
     // it lifts, or a descent would flash the floor it just left. The mark spins on the compositor, which is
     // what keeps it turning through a block the main thread cannot answer.
     let building = false;
+    // Plan 014 round C: the build is split into stages that each yield to the browser before the next,
+    // so the veil can paint an honest step and a label between them rather than easing a bar toward a
+    // number nobody measured. Each stage is still one synchronous block - the emblem and the fog run on
+    // the compositor for exactly that reason - but the bar now moves when real work finishes:
+    //   1 chart the layout (the pure generator, and the one seed draw a build makes)
+    //   2 cut the stone (first-use texture generation, `dungeon-textures.ts`; cached after that)
+    //   3 raise the floor (the caller's own work: `buildFloor` and whatever resets ride with it)
+    //   4 warm the shaders (`renderer.compile` plus one post-chain draw, so the first visible frame does
+    //     not stall on program compiles - the cold-start hitch)
+    //   5 draw the first frame, and lift the veil only on the frame after it has been presented.
+    // `afterWork` runs the moment stage 3 is done, before the warm-up: the floor exists and is playable from
+    // then on, which is when the boot installs the window hooks. The warm-up can take ~10 s on a cold shader
+    // cache (see the compile below), and nothing that only reads or steps the floor should wait
+    // on it - only what shows the floor (the frame loop, the canvas fade-in, a waiting press) does.
+    // `dungeonTest.buildFloor`/`reset` never come through here: they stay synchronous and deterministic.
+    let pendingFloor: { level: number; floor: ReturnType<typeof generateFloor> } | null = null;
+    // A frame boundary the browser has painted: a rAF callback runs before its own frame's paint, so
+    // it takes two. A hidden tab runs no animation frames, and a build must not wait on it. Nor does a
+    // build under a driver's clock (`advanceTime` stopped the frame loop): the stages then only have to
+    // yield, so a second press still lands while the first build is pending, but they do not hold the
+    // veil up for twelve frames nobody is watching - on a CPU rasteriser that was most of a test reset,
+    // since every frame of the veil's fog layers was composited in software.
+    const painted = () => new Promise<void>((done) => {
+      if (document.hidden || manualTime) { setTimeout(done, 0); return; }
+      requestAnimationFrame(() => requestAnimationFrame(() => done()));
+    });
+    const stagedBuild = async (nextLevel: number, seed: number | undefined, work: () => void, afterWork?: () => void) => {
+      setVeilFloor(nextLevel); setVeilPlace(null); setVeilStage(0);
+      await painted(); if (stopped) return false;
+      const charted = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
+      pendingFloor = { level: nextLevel, floor: charted };
+      setVeilPlace(charted.rooms[charted.goal]?.name ?? null); setVeilStage(1);
+      await painted(); if (stopped) return false;
+      getFlagstoneTextures(); getMasonryTextures();
+      setVeilStage(2);
+      await painted(); if (stopped) return false;
+      work(); pendingFloor = null; afterWork?.();
+      setVeilStage(3);
+      await painted(); if (stopped) return false;
+      // Compiled against the composer's own offscreen target, not the canvas: a material's program
+      // differs by render target (tone mapping and output encoding are only baked in when drawing
+      // straight to the canvas), and compiling for the canvas built variants the post chain never uses.
+      // Synchronous on purpose. `compileAsync` polls the materials it collected across later frames,
+      // and a floor torn down meanwhile (a restart, or the test pool's reset) crashed three.js inside
+      // that poll on a disposed material, leaving the promise - and the veil - hanging forever. With
+      // the point lights capped (see `ANCHOR_LIGHTS`) a cold compile is ~10 s rather than minutes, one
+      // task the veil's compositor-driven animation runs straight through.
+      world.updateMatrixWorld(true);
+      const drawingTo = renderer.getRenderTarget(); renderer.setRenderTarget(post.composer.readBuffer);
+      flameKeeper.visible = true; renderer.compile(scene, camera); flameKeeper.visible = false; renderer.setRenderTarget(drawingTo); post.pinPrograms();
+      if (stopped) return false;
+      // The two frames below are for the player: the first takes the post chain's own first-use cost
+      // behind the veil, the second is the floor that is on screen when it lifts. A driver that owns the
+      // clock draws when it asks to and sees nothing until then, so under manual time neither is drawn -
+      // a full scene pass twice per reset was the largest single cost of a pooled test on software GL.
+      if (!manualTime) { updateOutline(); post.render(elapsed); }
+      setVeilStage(4);
+      await painted(); if (stopped) return false;
+      if (!manualTime) { updateOutline(); post.render(elapsed); }
+      setVeilStage(5);
+      await painted();
+      return !stopped;
+    };
     // `then` runs as the veil lifts, on the frame the new floor is first on screen.
-    const veiled = (line: string, work: () => void, then?: () => void) => {
+    const veiled = (line: string, plan: { level: number; seed?: number }, work: () => void, then?: () => void) => {
       // A second press while a build is pending would queue a second build: the status that guards each
       // caller does not change until the work this one is holding actually runs.
       if (building) return;
       building = true; setLoading(line);
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (stopped) return;
-        work();
-        requestAnimationFrame(() => { if (stopped) return; building = false; setLoading(null); then?.(); });
-      }));
+      void stagedBuild(plan.level, plan.seed, work).then((ok) => { if (!ok) return; building = false; setLoading(null); setVeilStage(0); then?.(); });
     };
     // An explicit seed replays a floor verbatim; without one the keep is new every descent.
     const buildFloor = (nextLevel: number, seed?: number) => {
@@ -693,7 +874,12 @@ export default function DungeonGame() {
       phase('dispose');
       level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; features = []; stairOpen = false; stairDwell = 0; drop = null; overDrop = false; showOffer(null);
       gameStatus = 'playing'; setStatus('playing');
-      floor = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], level);
+      // A staged build (see `stagedBuild`) charts the layout a stage early so the veil can name it; the
+      // floor it drew is taken here instead of drawing a second seed. Only a match is taken - the same
+      // level, and the same seed if one was asked for - so a synchronous build never sees a stale one.
+      const charted = pendingFloor && pendingFloor.level === level && (seed === undefined || pendingFloor.floor.seed === seed >>> 0) ? pendingFloor.floor : null;
+      pendingFloor = null;
+      floor = charted ?? generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], level);
       // Pure and deterministic off this floor alone: which stone cells merge into a long slab or
       // settle as a staggered strip, kept away from every 004 reservation before a single mesh exists.
       const pavingPlan = planPavingPatches(floor);
@@ -702,14 +888,22 @@ export default function DungeonGame() {
       // is what a logged entry carries, so the log is held here rather than read off the current floor.
       if (level === 1) { firstSeed = floor.seed; runStart = elapsed; setRunSeed(floor.seed); writeSeed(floor.seed); }
       floorGroup = new THREE.Group(); world.add(floorGroup);
-      swingHits.clear();slash.clear();clearShots();posePlayer(0);
+      swingHits.clear();slash.clear();clearShots();blood.clear();posePlayer(0);
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
       reached = 0; loot = 0; activeRoom = 0; pathCell = ''; distances.clear();
       // `vertexColors` is the slab's baked joint shading, and it multiplies with the per-instance tint
       // rather than replacing it. Only the three paving geometries use this material, and all three carry
       // the attribute.
-      const floorMaterial = new THREE.MeshStandardMaterial({ map: texture, bumpMap: texture, bumpScale: .07, color: 0xffffff, roughness: .83, vertexColors: true });
+      // Plan 014 round 3 (lever B5): the old `map`/`bumpMap` pair (a 256px grain speckle, tiled by the
+      // slab's own local UV so it repeated identically on every instance) is gone in favour of a real
+      // generated flagstone material sampled in world space - see `dungeon-textures.ts`. `weatherStone`
+      // still runs first for its per-room tint, crack/moss placement and wet-roughness dip; the
+      // triplanar sample multiplies on top of that rather than replacing it.
+      const floorMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .83, vertexColors: true });
       weatherStone(floorMaterial);
+      applyStoneTextures(floorMaterial, getFlagstoneTextures(), 1.1);
+      // Plan 014 round B: wall-base grime, near-mirror puddles and per-slab variation (dungeon-textures.ts).
+      const floorDetail = applyFloorDetail(floorMaterial, [...floor.tiles, ...floor.props].map(({ x, z }) => ({ x: x * TILE, z: z * TILE })), TILE); floorGroup.userData.floorDetail = floorDetail;
       const stoneTiles = floor.tiles.filter(t=>!t.wood), bridgeTiles = floor.tiles.filter(t=>t.wood);
       // A corridor tile belongs to no room and used to take the keep's own grey wherever it ran, so a
       // passage through the ruin came out as a grey ribbon laid across an ochre floor. It takes the
@@ -724,7 +918,7 @@ export default function DungeonGame() {
       // White, and coloured per instance instead: the submerged plinth is the tallest continuous run of
       // stone in any frame and it was one fixed teal under every theme, which made it one of the loudest
       // things holding the three areas together. Per-instance colour is a buffer, not a draw call.
-      const foundationMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.9});weatherStone(foundationMaterial);
+      const foundationMaterial=new THREE.MeshStandardMaterial({color:0xffffff,roughness:.9});weatherStone(foundationMaterial);applyStoneTextures(foundationMaterial,getMasonryTextures(),.9);
       // One cell's worth of paving colour, shared by the plain batches and by both variant meshes so a
       // damaged slab weathers like the one beside it. The jitter this replaces was `abs(x*7+z*3)%7`, and
       // seven divides seven — the x term cancelled and the field was a function of z alone, so two rounds
@@ -734,7 +928,14 @@ export default function DungeonGame() {
         const mood=ROOM_MOOD[themeOf(x,z,room)];
         const border=room>=0&&(Math.abs(x-floor.rooms[room].x)===floor.rooms[room].halfX-1||Math.abs(z-floor.rooms[room].z)===floor.rooms[room].halfZ-1);
         const wear=tileHash(x,z,1),drift=tileHash(x,z,2);
-        tint.setHex(border?mood.border:mood.tile).multiplyScalar(.83+wear*.15).offsetHSL(drift<.5?.008:-.009,drift*.016-.008,0);
+        // Plan 014 round 8 (lever 6): a hard `drift<.5?A:B` branch is a coin flip per tile, and a coin
+        // flip laid over a grid is exactly what reads as a checkerboard once enough tiles are on
+        // screen at once - two fixed hue offsets, no continuum between them, so neighbouring tiles
+        // either match or don't with nothing in between. Both terms are continuous functions of
+        // `drift` now (no threshold at all) and both ranges are narrower - the triplanar stone texture
+        // from `applyStoneTextures` already carries real per-tile variation; this only has to keep the
+        // instanced batch from reading as one flat colour, not do all the work itself.
+        tint.setHex(border?mood.border:mood.tile).multiplyScalar(.89+wear*.09).offsetHSL((drift-.5)*.012,drift*.01-.005,0);
         return {mood,wear};
       };
       const slabEuler=new THREE.Euler(),slabTurn=new THREE.Quaternion(),slabAt=new THREE.Vector3(),slabScale=new THREE.Vector3(1,1,1);
@@ -744,7 +945,11 @@ export default function DungeonGame() {
       const seat=(x:number,z:number,settled:boolean)=>{
         const spin=(Math.abs(x*13+z*7)%4)*Math.PI/2;
         if(settled){slabEuler.set((tileHash(x,z,4)-.5)*.09,spin,(tileHash(x,z,5)-.5)*.09);matrix.compose(slabAt.set(x*TILE,-.126,z*TILE),slabTurn.setFromEuler(slabEuler),slabScale);}
-        else{matrix.makeRotationY(spin);matrix.setPosition(x*TILE,-.07,z*TILE);}
+        // Plan 014 round 4 (lever C7): even an ordinary, undamaged slab now sits a few millimetres off
+        // true - height and tilt both hashed off its own cell, same as the settled variant but far
+        // subtler, so a floor of identical flat slabs picks up the same faint unevenness real flagstone
+        // never loses even where nothing has actually broken.
+        else{slabEuler.set((tileHash(x,z,24)-.5)*.025,spin,(tileHash(x,z,25)-.5)*.025);matrix.compose(slabAt.set(x*TILE,-.07-tileHash(x,z,26)*.012,z*TILE),slabTurn.setFromEuler(slabEuler),slabScale);}
         return matrix;
       };
       // Macro paving (plan 006): a merged pair's two cells never get an ordinary top at all - their
@@ -808,14 +1013,18 @@ export default function DungeonGame() {
         }
       }
       phase('tiles');
-      const planks = new THREE.InstancedMesh(new THREE.BoxGeometry(1.43,.2,.34),new THREE.MeshStandardMaterial({color:0x372c21,roughness:.95}),bridgeTiles.length*4);
-      // Every board was one of two values, which is why a span read as a striped decal. Each one now takes
-      // its own weathering off its position, so no two neighbours match.
-      bridgeTiles.forEach(({x,z},i)=>{for(let n=0;n<4;n++){matrix.makeTranslation(x*TILE,-.09,z*TILE+(n-1.5)*.365);planks.setMatrixAt(i*4+n,matrix);
-        const grain=Math.abs(x*13+z*29+n*7)%9,damp=Math.abs(x*3-z*5+n*11)%4;
-        planks.setColorAt(i*4+n,new THREE.Color(n%2?0x5f503c:0x6c5c45).multiplyScalar(.74+grain*.062).offsetHSL(damp%2?.008:-.018,-.02+damp*.012,0));}});planks.receiveShadow=true;planks.userData.walkingSurface=true;floorGroup.add(planks);
+      // Plan 014 round 4 (lever C5): stone flagstone in place of the wood plank deck - the same slab
+      // geometry and the same triplanar flagstone material the rest of the floor stands on, so a
+      // bridge reads as a stone span rather than a wood dock. `slabTint` already resolves a theme for
+      // a tile with no room of its own (a bridge always sits between two rooms), which is exactly the
+      // case this needs. The timber piles and rail below stay - removing them entirely wherever a
+      // stone arch now stands would leave the long stretches between arches looking unsupported, and
+      // this round did not have room to also rebuild the understructure tile by tile.
+      const deck = new THREE.InstancedMesh(tileGeometry, floorMaterial, bridgeTiles.length);
+      bridgeTiles.forEach(({x,z,room},i)=>{slabTint(x,z,room);deck.setColorAt(i,tint);deck.setMatrixAt(i,seat(x,z,false));});
+      deck.receiveShadow=true;deck.userData.walkingSurface=true;floorGroup.add(deck);
       const { minX, maxX, minZ, maxZ } = floor.bounds;
-      tide = tidalMaterial(new THREE.Vector4((minX + maxX) * TILE / 2, (minZ + maxZ) * TILE / 2, (maxX - minX) * TILE / 2 + 1.5, (maxZ - minZ) * TILE / 2 + 1.5));
+      tide = tidalMaterial(new THREE.Vector4((minX + maxX) * TILE / 2, (minZ + maxZ) * TILE / 2, (maxX - minX) * TILE / 2 + 1.5, (maxZ - minZ) * TILE / 2 + 1.5), floor.tiles.map(({ x, z }) => ({ x: x * TILE, z: z * TILE })), TILE);
       water = new THREE.Mesh(new THREE.PlaneGeometry((maxX - minX + 40) * TILE, (maxZ - minZ + 40) * TILE), tide.material);
       water.rotation.x = -Math.PI / 2; water.position.set((minX + maxX) * TILE / 2, -2.8, (minZ + maxZ) * TILE / 2); floorGroup.add(water);
       const borders: { x: number; z: number; horizontal: boolean }[] = [];
@@ -828,11 +1037,22 @@ export default function DungeonGame() {
       // Neutral rather than teal: the kerb runs the full border of every tile on the floor including the
       // corridors, so whatever hue it holds is a hue the whole keep holds. It takes the chamber's from
       // the weathering uniforms instead.
-      const parapetGeometry=new RoundedBoxGeometry(1,0.58,1,1,.1),parapetMaterial=new THREE.MeshStandardMaterial({color:0x6b6f70,roughness:.8});parapetSkin=parapetMaterial;weatherStone(parapetMaterial);
+      const parapetGeometry=new RoundedBoxGeometry(1,0.58,1,1,.1),parapetMaterial=new THREE.MeshStandardMaterial({color:0x6b6f70,roughness:.8});parapetSkin=parapetMaterial;weatherStone(parapetMaterial);applyStoneTextures(parapetMaterial,getMasonryTextures(),.85);
       const parapets=new Map<string,typeof borders>();for(const b of borders){const key=`${Math.floor(b.x/18)},${Math.floor(b.z/18)}`;const batch=parapets.get(key);if(batch)batch.push(b);else parapets.set(key,[b]);}
       for(const local of parapets.values()){
         const walls=new THREE.InstancedMesh(parapetGeometry,parapetMaterial,local.length);
-        local.forEach((b,i)=>{matrix.compose(new THREE.Vector3(b.x,.2,b.z),new THREE.Quaternion(),new THREE.Vector3(b.horizontal?TILE:.3,1,b.horizontal?.3:TILE));walls.setMatrixAt(i,matrix);});
+        // Plan 014 round 4 (lever C7): a run of identical merlons reads as a fence, not a broken
+        // rampart. A per-segment hash jitters height and yaw so no two blocks share an edge line, and
+        // one in twelve is a missing merlon - scaled to nothing rather than skipped, since an
+        // instanced mesh's count is fixed once it is created.
+        local.forEach((b,i)=>{
+          const roll=tileHash(Math.round(b.x*4),Math.round(b.z*4),31);
+          const broken=roll<.08;
+          const h=broken?0:.82+tileHash(Math.round(b.x*4),Math.round(b.z*4),32)*.4;
+          const yaw=(tileHash(Math.round(b.x*4),Math.round(b.z*4),33)-.5)*.12;
+          matrix.compose(new THREE.Vector3(b.x,.2+(h-1)*.29,b.z),new THREE.Quaternion().setFromEuler(new THREE.Euler(0,yaw,0)),new THREE.Vector3(b.horizontal?TILE:.3,broken?.001:h,b.horizontal?.3:TILE));
+          walls.setMatrixAt(i,matrix);
+        });
         // Not a shadow caster. The parapet runs the full border of every tile on the floor, corridors
         // included, and putting that instance count through the shadow pass as well cost more triangles
         // than every piece of vertical structure this round adds, for a shadow half a block wide.
@@ -840,6 +1060,10 @@ export default function DungeonGame() {
       }
       phase('walls');
       atmosphere = addAtmosphere(floorGroup, floor);
+      // Plan 014 round 9 (lever 6): the water's own reflection streaks (dungeon-motion.ts's
+      // `tidalMaterial`) need real torch world-positions, which only exist once the atmosphere pass
+      // above has actually placed them - set once here, not per frame, since torches do not move.
+      if (tide) { const slots = tide.torches.value; atmosphere.torchPositions.slice(0, slots.length).forEach((p, i) => slots[i].copy(p)); }
       // The presentation-only support-height index (plan 006/008): every mesh tagged
       // `walkingSurface=true` -- paving tops (plain, groove, dish, merged pairs), wood planks and
       // floor motifs -- is read back into world-space triangles once, here, after everything that
@@ -987,14 +1211,46 @@ export default function DungeonGame() {
         // carrying a deadline may not do: be dimmer than the furniture. `toneMapped: false` buys the
         // headroom and the opacity was giving it straight back.
         const cueGeometry = kind === 'stalker' ? new THREE.PlaneGeometry(5,1.7).translate(2.5,0,0) : BONES.cue;
-        const cue = new THREE.Mesh(cueGeometry,new THREE.MeshBasicMaterial({color:THREAT,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,toneMapped:false,fog:false}));cue.rotation.x=-Math.PI/2;cue.renderOrder=9;floorGroup.add(cue);
-        const ghost = new THREE.Mesh(cueGeometry,new THREE.MeshBasicMaterial({color:THREAT,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,depthTest:false,toneMapped:false,fog:false}));ghost.renderOrder=8;cue.add(ghost);
+        // Plan 014 round 2: toneMapped is true here now (it was false). `THREAT` was drawn
+        // above the tone-mapped range on purpose while the mark was an opaque slab that had to win
+        // against any floor under it; translucent, it only needs to read as red, and a
+        // never-compressed value alpha-blended over a lit floor is exactly what was clearing the
+        // post chain's bloom threshold and blowing the whole shape out to white.
+        // Plan 014 round 4 (lever B3) tried additive blending here on the theory that it would let
+        // the stone underneath stay visible; round 5's critic instead read the result as laser lines
+        // crossing the room. Back to `NormalBlending` (the default - no `blending` key at all) with a
+        // texture that carries its own soft, capped-alpha gradient (see `telegraphTexture`), which is
+        // what actually keeps the stone visible without needing additive's unbounded stacking.
+        const cueMap = kind === 'stalker' ? laneTex : telegraphTex;
+        const cue = new THREE.Mesh(cueGeometry,new THREE.MeshBasicMaterial({color:THREAT,map:cueMap,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,fog:false}));cue.rotation.x=-Math.PI/2;cue.renderOrder=9;floorGroup.add(cue);
+        const ghost = new THREE.Mesh(cueGeometry,new THREE.MeshBasicMaterial({color:THREAT,map:cueMap,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,depthTest:false,fog:false}));ghost.renderOrder=8;cue.add(ghost);
         const bar = new THREE.Mesh(BONES.bar,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xffb65f:0xe89a79,depthTest:false,toneMapped:false,fog:false}));bar.renderOrder=10;floorGroup.add(bar);
+        // Plan 014 round B: a framed bar - a dark border plate with a darker track behind the fill, as a
+        // child of the fill counter-scaled every frame (below), so it stays full width while the fill
+        // drains from the right.
+        const barFrame = new THREE.Mesh(new THREE.PlaneGeometry(.88,.15),new THREE.MeshBasicMaterial({color:0x6b5a3e,depthTest:false,toneMapped:false,fog:false}));barFrame.renderOrder=9;barFrame.position.z=-.001;
+        const barTrack = new THREE.Mesh(new THREE.PlaneGeometry(.82,.09),new THREE.MeshBasicMaterial({color:0x120b0a,depthTest:false,toneMapped:false,fog:false}));barTrack.renderOrder=9;barTrack.position.z=.0005;barFrame.add(barTrack);bar.add(barFrame);
+        const alert = new THREE.Sprite(alertMaterial);alert.scale.set(.55,.55,1);alert.visible=false;alert.renderOrder=10;floorGroup.add(alert);
         const anchors:THREE.Object3D[]=kind==='stalker'?group.userData.limbs.slice(0,2):[group.userData.weapon];
         const trails=anchors.map(anchor=>{const effect=weaponTrail(kind==='warden'?0xffa15c:kind==='stalker'?0xffcc90:0xffd39b,kind==='warden'?.13:.095);floorGroup.add(effect.mesh);return {effect,anchor,inner:kind==='stalker'?new THREE.Vector3(0,-.72,-.12):new THREE.Vector3(0,0,-.24),tip:kind==='stalker'?new THREE.Vector3(0,-.87,-.5):new THREE.Vector3(0,0,kind==='warden'?-1.2:-.86)};});
-        return { group, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush, anchor:{x:spawn.x*TILE,z:spawn.z*TILE}, notice:0, alertIn:Infinity };
+        return { group, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush, anchor:{x:spawn.x*TILE,z:spawn.z*TILE}, notice:0, alertIn:Infinity };
       });
       phase('enemies');
+      // Every texture the new floor uses goes to the GPU now. three.js otherwise uploads a texture the
+      // first frame something using it is on screen, so which ones were resident depended on where the
+      // camera happened to look: walking into a new room hitched on the upload, and the renderer's texture
+      // count wandered by what was in view, which every leak check across rebuilds reads as a leak.
+      const uploaded = new Set<THREE.Texture>();
+      const upload = (value: unknown) => { if (value instanceof THREE.Texture && !uploaded.has(value)) { uploaded.add(value); renderer.initTexture(value); } };
+      world.traverse((object) => {
+        const material = (object as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+        for (const m of material ? (Array.isArray(material) ? material : [material]) : []) {
+          for (const value of Object.values(m)) upload(value);
+          const uniforms = (m as THREE.ShaderMaterial).uniforms;
+          if (uniforms) for (const key in uniforms) upload(uniforms[key]?.value);
+        }
+      });
+      phase('upload');
       player.position.set(floor.rooms[0].x * TILE, 0.03, floor.rooms[0].z * TILE);
       cameraFocus.copy(player.position);
       // The knight is on his mark, so the chamber he is standing in is known and its lights can be hung
@@ -1017,7 +1273,7 @@ export default function DungeonGame() {
     const continueDescent = () => {
       if (gameStatus !== 'complete') return;
       if (level >= FLOORS) { endRun(null); return; }
-      veiled(`Descending to floor ${level + 1}`, () => {
+      veiled(`Descending to floor ${level + 1}`, { level: level + 1 }, () => {
         buildFloor(level + 1);
         heal(run, Math.round(run.maxHp * .25)); setHealth(run.hp);
         keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; dashBuffer = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; audio.pause(false);
@@ -1029,7 +1285,7 @@ export default function DungeonGame() {
     // Everything buildFloor(1) already rebuilds (floor, level, rooms, enemies, map, status) is left to it,
     // but the run must be fresh first because it snapshots kills and XP as the floor's baseline. A whole
     // new `run` is the point of createRun(): a field added to the sim can never be forgotten here.
-    const restart = (seed?: number, then?: () => void) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', () => {
+    const restart = (seed?: number, then?: () => void) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', { level: 1, seed }, () => {
       run = createRun(); boonsTaken = [];
       attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; dashBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; clearShots();
       walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
@@ -1053,7 +1309,7 @@ export default function DungeonGame() {
     // the build waits until the end of this mount and then runs behind that menu (see `boot`). Until it
     // has run there is no floor, and nothing below may touch one: the loop draws nothing, the window
     // hooks are not installed, and a press of ENTER THE KEEP is held until the keep exists.
-    let built = false, enterWhenBuilt = false, bootSeed: number | undefined;
+    let built = false, warmed = false, enterWhenBuilt = false, bootSeed: number | undefined, enterSeed: number | undefined;
     // The thumbstick's screen-space direction while a thumb is planted, null the rest of the time. It is a
     // unit vector on the very basis the keys below build on, so analog steering is a second source of the
     // same quantity rather than a second input system.
@@ -1225,7 +1481,9 @@ export default function DungeonGame() {
         if (hasStarted || enterWhenBuilt || building) return;
         const seed = Number.parseInt(detail.slice(6), 10), pinned = Number.isNaN(seed) ? undefined : seed >>> 0;
         audio.start();
-        if (!built) { enterWhenBuilt = true; bootSeed = pinned; setEntering(true); scheduleBoot(); return; }
+        // Not yet on screen: either floor 1 is still ahead (the seed becomes the one it is built from) or it
+        // is built and its shaders are still warming (the seed, if it differs, is taken once they are).
+        if (!warmed) { enterWhenBuilt = true; setEntering(true); if (built) enterSeed = pinned; else { bootSeed = pinned; scheduleBoot(); } return; }
         if (pinned === undefined) enter(); else restart(pinned, enter);
         return;
       }
@@ -1359,7 +1617,8 @@ export default function DungeonGame() {
       const dt = hitStop > 0 ? 0 : frameDt; hitStop = Math.max(0, hitStop - frameDt);
       // This, not the constructor, is the torch's real intensity — it is rewritten every frame. Raised to
       // hold the near field after the decay went from 1.9 to a physical 2 and the cutoff came off.
-      const torchFlicker = (i: number) => 22 + Math.sin(t * 9 + i * 2.2) * 1.9 + Math.sin(t * 17) * 0.7;
+      // Plan 014 round A: 22 -> 34, the warm bounce a torch throws on everything within a couple of tiles.
+      const torchFlicker = (i: number) => 34 + Math.sin(t * 9 + i * 2.2) * 2.6 + Math.sin(t * 17) * 0.9;
       for (let i = 0; i < torchLights.length - 1; i++) torchLights[i].intensity = torchFlicker(i);
       if (water) water.position.y = -2.8 + Math.sin(t * 0.9) * 0.05;
       if (tide) tide.time.value=t;
@@ -1556,7 +1815,15 @@ export default function DungeonGame() {
               if (broke) {enemy.windup = 0;enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
               enemy.cooldown = Math.max(enemy.cooldown, hitCooldown(enemy.kind, broke, swing.stagger));
               const shove = enemy.kind === 'warden' ? swing.wardenKnockback : swing.knockback;
-              moveOnFloor(floor.cells, enemy.group.position, delta.x * shove, delta.z * shove); burst(enemy.group.position, 0xffb24a, 3); impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,enemy.kind==='warden');
+              moveOnFloor(floor.cells, enemy.group.position, delta.x * shove, delta.z * shove); burst(enemy.group.position, 0xffb24a, 3);
+              // Plan 014 round 2: a blade landing was amber sparks alone, which is a spark's colour and
+              // not a wound's - the reference always throws a red mist off a struck body.
+              // Plan 014 round 8 (lever 3): 6 read as a puff, not a burst - the reference throws a real
+              // spray of droplets off a struck body. 14 is inside the "10-20" the plan asked for and
+              // still cheap: each is a pooled mesh already paid for by the spark burst beside it.
+              burst(enemy.group.position, 0xe0202c, 22);
+              blood.spawn(enemy.group.position, enemy.kind === 'warden' ? 1.4 : 1);
+              impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,enemy.kind==='warden');
               // Three sparks rather than seven. Each one is its own mesh and so its own draw call, and
               // next to a crescent, a bloom and a shockwave they were paying four calls at the most
               // expensive frame in the game for grit nobody could pick out.
@@ -1568,7 +1835,7 @@ export default function DungeonGame() {
               // pause rather than the pose. It also freezes the cut mid-arc now that the curve launches
               // early, so what is held is a blade across the body rather than one behind the shoulder.
               shake = 0.085; hitStop = 0.07;
-              if (enemy.hp <= 0) { enemy.dead = true; enemy.death=startDeath(enemy.group,enemy.kind);enemy.cue.visible=enemy.bar.visible=false;enemy.trails.forEach(trail=>trail.effect.clear()); award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills); if (!cleared.has(enemy.room) && enemyData.every(e => e.room !== enemy.room || e.dead)) {
+              if (enemy.hp <= 0) { enemy.dead = true; enemy.death=startDeath(enemy.group,enemy.kind);enemy.cue.visible=enemy.bar.visible=enemy.alert.visible=false;enemy.trails.forEach(trail=>trail.effect.clear()); award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills); if (!cleared.has(enemy.room) && enemyData.every(e => e.room !== enemy.room || e.dead)) {
                 cleared.add(enemy.room);
                 const room = floor.rooms[enemy.room], detour = room.role === 'branch';
                 award(clearRoomReward(run, detour));
@@ -1586,12 +1853,22 @@ export default function DungeonGame() {
         // skeletons must not get one more move out of this tick.
         if (run.choosing || gameStatus !== 'playing') return;
         enemyData.forEach((enemy, index) => {
-          if (!enemy.awake) { enemy.cue.visible = false; enemy.bar.visible = false;enemy.trails.forEach(trail=>trail.effect.clear()); return; }
+          if (!enemy.awake) { enemy.cue.visible = false; enemy.bar.visible = false; enemy.alert.visible = false; enemy.trails.forEach(trail=>trail.effect.clear()); return; }
           // A neighbour's noticing beat can pull a still-dormant body in early; scripts/balance/sim.ts
           // carries the identical countdown so a room wakes the same way in both sims.
           if (enemy.alertIn < Infinity) { enemy.alertIn -= dt; if (enemy.alertIn <= 0) { if (enemy.notice <= 0) enemy.notice = dt; enemy.alertIn = Infinity; } }
           enemy.cue.visible = !enemy.dead && (enemy.windup > 0 || enemy.lunge > 0); enemy.bar.visible = !enemy.dead && enemy.hp < enemy.maxHp;
-          enemy.bar.position.copy(enemy.group.position).add(new THREE.Vector3(0,enemy.kind === 'warden'?2.65:2.05,0)); enemy.bar.quaternion.copy(camera.quaternion); enemy.bar.scale.x = enemy.hp / enemy.maxHp;
+          enemy.bar.position.copy(enemy.group.position).add(new THREE.Vector3(0,enemy.kind === 'warden'?2.65:2.05,0)); enemy.bar.quaternion.copy(camera.quaternion); const fill = Math.max(.001, enemy.hp / enemy.maxHp); enemy.bar.scale.x = fill;
+          // Left-anchored: the fill shifts left as it shrinks, and its frame child is counter-scaled and
+          // counter-shifted so it stays put at full width.
+          enemy.bar.position.addScaledVector(barRight.set(1,0,0).applyQuaternion(camera.quaternion), -(1 - fill) * .4);
+          const frame = enemy.bar.children[0]; if (frame) { frame.scale.x = 1 / fill; frame.position.x = (1 - fill) * .4 / fill; }
+          // Plan 014 round 2 (lever D10): the alert glyph lives exactly in the noticing window - after
+          // `startedNoticing` below sets `notice` above zero and before it reaches `NOTICE_TIME`, which
+          // is the same beat `decideEnemy` holds a body at before it is `awake` enough to begin its own
+          // tell. That is "just seen you" as a number already in this loop, not a new timer to invent.
+          enemy.alert.visible = enemy.notice > 0 && enemy.notice < NOTICE_TIME;
+          enemy.alert.position.copy(enemy.group.position).add(new THREE.Vector3(0, enemy.kind === 'warden' ? 3.15 : 2.55, 0));
           // The clock. `close` runs 0 at the start of the tell to 1 on the strike, and the mark converges
           // over it: it opens at nearly twice the reach the blow actually has and shuts onto the body, so
           // what is left to run is a distance on the floor.
@@ -1604,9 +1881,13 @@ export default function DungeonGame() {
           enemy.cue.scale.setScalar((enemy.kind === 'warden' ? 1.7 : 1) * (1.9 - .9 * close));
           enemy.cue.position.copy(enemy.group.position); enemy.cue.position.y = 0.055; enemy.cue.rotation.z = Math.atan2(-enemy.aim.z,enemy.aim.x);
           const cueSkin = enemy.cue.material as THREE.MeshBasicMaterial;
-          cueSkin.opacity = 1; cueSkin.color.setHex(THREAT);
+          // Plan 014 round 2: this was 1 - a fully opaque slab, drawn for the whole tell, wide enough
+          // in the stalker's case to cover half a room and swallow every body standing on it. The
+          // texture's own alpha channel now carries the fill/rim/pattern shape (see
+          // `telegraphTexture`), so the material only has to hold a modest overall multiplier.
+          cueSkin.opacity = .92; cueSkin.color.setHex(THREAT);
           const cueGhost = enemy.cue.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
-          cueGhost.material.opacity = .34; cueGhost.material.color.setHex(THREAT);
+          cueGhost.material.opacity = .16; cueGhost.material.color.setHex(THREAT);
           if (enemy.dead) { if(enemy.death)advanceDeath(enemy.death,dt);return; }
           const hurtPlayer = () => {
             if (gameStatus !== 'playing' || !hurt(run, enemy.damage, { dashing: dashImmune(dashTime), warded: true })) return;
@@ -1674,7 +1955,25 @@ export default function DungeonGame() {
           // dimmest at the top of the tell and hottest on the frame the blade goes out. That is what
           // makes the tell survive a pier standing between the lens and the arc.
           const closing = enemy.windup > 0 ? 1 - enemy.windup / enemy.tell : 0;
-          enemy.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.emissive.setHex(struck > 0 ? COMMIT : enemy.windup > 0 ? THREAT : 0x000000); o.material.emissiveIntensity = struck > 0 ? 0.2 + struck * 0.5 : enemy.windup > 0 ? 0.5 + closing * 1.6 : 0.5; } });
+          // Plan 014 round 3 (lever A3): these ran up to 0.7 (struck) and 2.1 (windup) - tuned against
+          // a pipeline that was tone-mapping this material before bloom ever saw it. Now that the
+          // chain reads real linear HDR (see dungeon-post.ts), an emissive that hot on a whole body
+          // mesh - not a point, the entire skeleton - blooms into the shapeless blob a hit used to
+          // vanish into. Kept well under the bloom threshold so the flash still reads as a hot tint on
+          // the body without becoming a second light source.
+          // Plan 014 round 6 (lever 5): round 3's ceiling was tuned against a body standing in the
+          // scene's average light, not one standing a torch-light's width from an actual brazier or
+          // sconce - and this round's critic still caught both the stalker (mid-windup, torch-room) and
+          // a struck skeleton (combat-bridge) clipping to a near-white blob. The emissive term stacks
+          // additively on whatever direct light the body already has, so the same absolute ceiling reads
+          // as a mild warm cast in mid-room and as a bloom-triggering blowout standing in a torch's own
+          // pool. Confirmed with a diagnostic, not a guess: setting this to zero outright on a live
+          // capture recovered the stalker's own teal-green bone exactly, at the same frame and the same
+          // lighting that had it reading pale pink-white a moment before - so the wash really was this
+          // term, and round 3's own halving of it was still an order of magnitude too hot for a body
+          // standing this close to a real light source. Cut hard, not halved again: legible as a tint,
+          // not a wash, on the frame it peaks.
+          enemy.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.emissive.setHex(struck > 0 ? COMMIT : enemy.windup > 0 ? THREAT : 0x000000); o.material.emissiveIntensity = struck > 0 ? 0.015 + struck * 0.05 : enemy.windup > 0 ? 0.01 + closing * 0.06 : 0.5; } });
         });
         // Separate bodies without moving a guard during its committed windup; the rule itself lives in
         // dungeon-enemy, and only the write back into the scene graph belongs here.
@@ -1695,7 +1994,7 @@ export default function DungeonGame() {
             burst(enemy.group.position, 0xff8c38, 5);
             if (enemy.hp <= 0) {
               enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind);
-              enemy.cue.visible = enemy.bar.visible = false; enemy.trails.forEach(trail => trail.effect.clear());
+              enemy.cue.visible = enemy.bar.visible = enemy.alert.visible = false; enemy.trails.forEach(trail => trail.effect.clear());
               award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
               if (!cleared.has(enemy.room) && enemyData.every(other => other.room !== enemy.room || other.dead)) {
                 cleared.add(enemy.room);
@@ -1725,11 +2024,11 @@ export default function DungeonGame() {
               enemy.cooldown = Math.max(enemy.cooldown, hitCooldown(enemy.kind, broke, weapon.stagger));
               const shove = enemy.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
               moveOnFloor(floor.cells, enemy.group.position, live.shot.dx * shove, live.shot.dz * shove);
-              burst(enemy.group.position, 0xffb24a, 7); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffedbb, enemy.kind === 'warden');
+              burst(enemy.group.position, 0xffb24a, 7); burst(enemy.group.position, 0xe0202c, 22); blood.spawn(enemy.group.position, enemy.kind === 'warden' ? 1.4 : 1); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffedbb, enemy.kind === 'warden');
               shake = 0.05; hitStop = 0.025;
               if (enemy.hp <= 0) {
                 enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind);
-                enemy.cue.visible = enemy.bar.visible = false; enemy.trails.forEach(trail => trail.effect.clear());
+                enemy.cue.visible = enemy.bar.visible = enemy.alert.visible = false; enemy.trails.forEach(trail => trail.effect.clear());
                 award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
                 if (!cleared.has(enemy.room) && enemyData.every(other => other.room !== enemy.room || other.dead)) {
                   cleared.add(enemy.room);
@@ -1772,12 +2071,16 @@ export default function DungeonGame() {
       // Three of the four go to their sconces. The fourth is settled below, once
       // the accents have had their chance to ask for it.
       for (let i = 0; i < torchLights.length - 1; i++) if (nearest[i]) torchLights[i].position.copy(nearest[i]);
-      fill.position.copy(player.position).add(new THREE.Vector3(0,4,1));
+      const anchors = atmosphere?.lightAnchors ?? [];
+      const lent = anchors.length <= ANCHOR_LIGHTS ? anchors : [...anchors].sort((a,b)=>((a.x-player.position.x)**2+(a.z-player.position.z)**2)-((b.x-player.position.x)**2+(b.z-player.position.z)**2));
+      anchorLights.forEach((light, i) => { const a = lent[i]; if (!a) { light.intensity = 0; return; } light.position.set(a.x, a.y, a.z); light.color.setHex(a.color); light.intensity = a.intensity; light.distance = a.distance; });
+      fill.position.copy(player.position).add(new THREE.Vector3(1.4,3.2,2.2));
       moveMood(1 - Math.exp(-6 * frameDt));
-      playerRing.position.set(player.position.x,0.04,player.position.z); (playerRing.material as THREE.MeshBasicMaterial).opacity = dashTime > 0 ? 0.85 : 0.32;
+      playerRing.position.set(player.position.x,0.04,player.position.z); (playerRing.material as THREE.MeshBasicMaterial).opacity = dashTime > 0 ? 0.85 : 0.14; ringTime.value = t;
       moon.position.copy(player.position).setY(0).add(MOONRISE); moon.target.position.set(player.position.x,0,player.position.z); moon.target.updateMatrixWorld();
       mapPlayer.current?.setAttribute('cx', String(player.position.x / TILE)); mapPlayer.current?.setAttribute('cy', String(player.position.z / TILE));
       if (dashMeter.current) dashMeter.current.value = Math.max(0,1-dashCooldown/run.dashSpan);
+      if (dashSweep.current) dashSweep.current.style.setProperty('--ready', String(Math.max(0,Math.min(1,1-dashCooldown/run.dashSpan))));
       const target = player.position.clone().addScaledVector(velocity,0.12); cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
       camera.position.set(cameraFocus.x + 9.2,12.5,cameraFocus.z + 11.5);
       // Reduced motion drops the shake outright: it is ~90 Hz camera translation that carries nothing the
@@ -1808,7 +2111,12 @@ export default function DungeonGame() {
       // eleven frames — and because it is the one event that happens on top of
       // the knight, where a light is worth most.
       const lamp = impacts.lamp;
-      if (lamp) ember.bid(lampAt.set(lamp.at.x, .95, lamp.at.z), Math.hypot(lamp.at.x - player.position.x, lamp.at.z - player.position.z), (lamp.heavy ? 31 : 23) * lamp.glow, lamp.colour);
+      // Plan 014 round 3 (lever A3): this ran up to 31/23 - tuned before the post chain read real
+      // linear HDR (see dungeon-post.ts). A real point light at that intensity sitting almost on top
+      // of the struck body is exactly what was left of the white slash blob once the emissive flash
+      // and the flat VFX quads were all tamed - the light itself, not anything drawn on screen, was
+      // still bright enough to bloom the stone and the body around it into one shapeless glow.
+      if (lamp) ember.bid(lampAt.set(lamp.at.x, .95, lamp.at.z), Math.hypot(lamp.at.x - player.position.x, lamp.at.z - player.position.z), (lamp.heavy ? 7 : 5) * lamp.glow, lamp.colour);
       ember.settle(nearest[torchLights.length - 1], torchFlicker(torchLights.length - 1));
       // The hurt filter is reduced, not removed. Its discomfort is the brightness ramping across the whole
       // screen as the flash decays; its job is telling the player they were hit, which is gameplay. So the
@@ -1818,7 +2126,7 @@ export default function DungeonGame() {
     const hooks = window as Window & {
       advanceTime?: (ms: number, draw?: boolean) => void;
       render_game_to_text?: () => string;
-      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void; footstepParticles?: () => ReturnType<typeof footsteps.particles>; setFootstepsEnabled?: (enabled: boolean) => void; actorStats?: () => { knight: ReturnType<typeof actorStat> & { disposedMaterials: number }; enemies: ({ kind: Enemy['kind'] } & ReturnType<typeof actorStat>)[]; drop: { kind: WeaponId; meshes: number; triangles: number } | null } };
+      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void; footstepParticles?: () => ReturnType<typeof footsteps.particles>; setFootstepsEnabled?: (enabled: boolean) => void; actorStats?: () => { knight: ReturnType<typeof actorStat> & { disposedMaterials: number }; enemies: ({ kind: Enemy['kind'] } & ReturnType<typeof actorStat>)[]; drop: { kind: WeaponId; meshes: number; triangles: number } | null }; lightDiagnostics?: (index: number, radius?: number) => unknown };
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     const testHooks: NonNullable<typeof hooks.dungeonTest> = {
@@ -1843,6 +2151,9 @@ export default function DungeonGame() {
       reset: (seed) => {
         hasStarted = false; setStarted(false); setCapturing(null); enterWhenBuilt = false; setEntering(false);
         elapsed = 0; runStart = 0; floorStart = 0; activeRoom = 0;
+        // A fresh page has never seen the cursor. The veil used to clear this by covering the canvas for a few
+        // frames (Chrome then sends it a pointerleave), but a reset under the driver's clock draws none.
+        pointerNdc = null; aimDevice = 'keys';
         // Before restart, which places the knight on the new floor's start tile: this puts the rig
         // back, not the body.
         restPose.forEach((rest, o) => { o.position.copy(rest.p); o.rotation.copy(rest.r); });
@@ -1882,6 +2193,49 @@ export default function DungeonGame() {
       testHooks.actorStats = () => {
         const held = drop ? actorStat(drop.group) : null;
         return { knight: { ...actorStat(player), disposedMaterials: knightDisposals }, enemies: enemyData.filter(e => !e.dead).map(e => ({ kind: e.kind, ...actorStat(e.group) })), drop: drop && held ? { kind: drop.kind, meshes: held.meshes, triangles: held.triangles } : null };
+      };
+      // Plan 014 round 5 (lever A3): a real answer to "what is overbright here" instead of another
+      // guess. Enumerates every material on a live enemy's own group, plus every light and every
+      // additive-blended mesh/sprite anywhere in the scene within `radius` of its position, with the
+      // handful of numbers that actually decide whether something blooms: emissive/emissiveIntensity,
+      // opacity, and (for lights) colour/intensity/distance from the target. Read-only, dropped from a
+      // production build with the rest of this block.
+      testHooks.lightDiagnostics = (index: number, radius = 2) => {
+        const enemy = enemyData[index];
+        if (!enemy) throw new Error(`no enemy at spawn index ${index}`);
+        const at = enemy.group.position;
+        const materials: unknown[] = [];
+        enemy.group.traverse(o => {
+          if (!(o instanceof THREE.Mesh)) return;
+          for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+            const std = m as THREE.MeshStandardMaterial & THREE.MeshBasicMaterial;
+            materials.push({
+              node: o.name || o.type, material: m.type,
+              color: '#' + std.color?.getHexString(), emissive: std.emissive ? '#' + std.emissive.getHexString() : null,
+              emissiveIntensity: std.emissiveIntensity ?? null, opacity: m.opacity, transparent: m.transparent,
+              blending: m.blending, toneMapped: m.toneMapped, visible: o.visible,
+            });
+          }
+        });
+        const lights: unknown[] = [];
+        const nearby: unknown[] = [];
+        scene.traverse(o => {
+          if (o instanceof THREE.Light) {
+            const d = o.position.distanceTo(at);
+            if (d <= radius) lights.push({ type: o.type, color: '#' + o.color.getHexString(), intensity: o.intensity, distance: +d.toFixed(3) });
+            return;
+          }
+          let underEnemy = false; for (let p: THREE.Object3D | null = o; p; p = p.parent) if (p === enemy.group) { underEnemy = true; break; }
+          if ((o instanceof THREE.Mesh || o instanceof THREE.Sprite) && !underEnemy) {
+            const d = o.getWorldPosition(new THREE.Vector3()).distanceTo(at);
+            if (d > radius) return;
+            for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+              if (m.blending !== THREE.AdditiveBlending && m.opacity >= 1 && !(o instanceof THREE.Sprite)) continue;
+              nearby.push({ node: o.name || o.type, distance: +d.toFixed(3), material: m.type, color: '#' + (m as THREE.MeshBasicMaterial).color?.getHexString(), opacity: m.opacity, blending: m.blending, toneMapped: m.toneMapped, visible: o.visible });
+            }
+          }
+        });
+        return { at: { x: at.x, y: at.y, z: at.z }, materials, lights, nearby };
       };
       testHooks.configureCombatFixture = (fixture) => {
         if (!hasStarted) throw new Error('start the run before staging a combat fixture');
@@ -1933,7 +2287,7 @@ export default function DungeonGame() {
       manualTime = true;
       const steps = Math.max(1, Math.ceil(ms / (1000 / 60)));
       for (let i = 0; i < steps; i++) update(ms / steps / 1000);
-      if (draw) renderer.render(scene, camera);
+      if (draw) { updateOutline(); post.render(elapsed); }
     };
     const renderText = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
@@ -1942,7 +2296,7 @@ export default function DungeonGame() {
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
-      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles },
+      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })(), programs: (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0, quality: post.quality },
       effects: { impacts: impacts.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.
@@ -1970,11 +2324,13 @@ export default function DungeonGame() {
       if (stopped) return; raf = requestAnimationFrame(animate);
       // rAF timestamps describe the frame start, which can precede effect setup.
       // Establish the clock on the first callback so startup cannot run time backwards.
-      if (built && !manualTime && !document.hidden) { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); renderer.render(scene, camera); }
+      if (built && warmed && !manualTime && !document.hidden) { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); updateOutline(); post.render(elapsed); }
       last = now;
     };
     raf = requestAnimationFrame(animate);
-    const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 6.3 : 7.2; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); };
+    // Plan 014: zoomed in close to the reference's framing - the knight fills much more of the
+    // frame than the old 7.2/6.3 span left him. Ratio kept the same between the two breakpoints.
+    const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 3.76 : 4.3; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); };
     window.addEventListener('resize', resize); resize();
     // The keep is raised two frames after the mount rather than inside it, so the hydrated menu gets a frame
     // on screen first: its button is live, and a press that lands while the build is still ahead of it
@@ -1989,14 +2345,30 @@ export default function DungeonGame() {
       bootFrame = requestAnimationFrame(() => { bootFrame = requestAnimationFrame(boot); });
       if (document.hidden) bootTimer = window.setTimeout(boot, 200);
     };
+    // Plan 014 round C: floor 1 is raised in the same stages as any other build (see `stagedBuild`),
+    // behind the menu when nobody is waiting and behind the veil when a press beat it there. `booting`
+    // keeps a press that reschedules the boot from starting a second one mid-way. The floor counts as
+    // built - and the hooks go up, since every one of them reads it - as soon as it exists; it counts as
+    // warmed once the shaders are linked and a frame of it has been presented, which is when the frame
+    // loop starts drawing, the canvas fades in and a waiting press is answered.
+    let booting = false;
     const boot = () => {
-      if (stopped || built) return;
-      buildFloor(1, bootSeed); built = true; setReady(true);
-      hooks.dungeonTest = testHooks; hooks.advanceTime = advanceTime; hooks.render_game_to_text = renderText;
-      requestAnimationFrame(() => { if (!stopped && enterWhenBuilt) enter(); });
+      if (stopped || built || booting) return;
+      booting = true;
+      void stagedBuild(1, bootSeed, () => buildFloor(1, bootSeed), () => {
+        built = true;
+        hooks.dungeonTest = testHooks; hooks.advanceTime = advanceTime; hooks.render_game_to_text = renderText;
+      }).then((ok) => {
+        booting = false; setVeilStage(0);
+        if (!ok) return;
+        warmed = true; setReady(true);
+        if (!enterWhenBuilt) return;
+        const seed = enterSeed; enterSeed = undefined;
+        if (seed === undefined || seed === floor.seed) enter(); else restart(seed, enter);
+      });
     };
     scheduleBoot();
-    return () => { stopped = true; cancelAnimationFrame(raf); cancelAnimationFrame(bootFrame); clearTimeout(bootTimer); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); atmosphere?.dispose(); texture.dispose(); environment.dispose(); impacts.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); renderer.dispose(); mount.removeChild(renderer.domElement); };
+    return () => { stopped = true; cancelAnimationFrame(raf); cancelAnimationFrame(bootFrame); clearTimeout(bootTimer); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); atmosphere?.dispose(); texture.dispose(); telegraphTex.dispose(); laneTex.dispose(); alertTex.dispose(); alertMaterial.dispose(); environment.dispose(); impacts.dispose(); blood.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); post.dispose(); renderer.dispose(); mount.removeChild(renderer.domElement); };
   }, []);
 
   const roomCount = floorMap?.rooms.length ?? 0;
@@ -2035,15 +2407,41 @@ export default function DungeonGame() {
   return (
     <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}${ready ? ' world-ready' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
-      <header className="game-title"><span>{floorLevel} / {FLOORS} · {roomName}</span></header>
+      {/* Plan 014, lever 10: dark, out-of-focus mass in two corners, the way the reference frames its
+          fight between foreground silhouettes rather than leaving the corners open floor. Decorative
+          only - it never reaches the centre of the frame or the HUD, and it steps aside on a touch
+          layout, where the same corners hold the real controls. */}
+      <div className={`foreground-frame fg-${frameTheme}`} aria-hidden="true"><i className="fg-left" /><i className="fg-chain" /><i className="fg-ivy" /><i className="fg-column" /><i className="fg-banner" /><i className="fg-arch" /><i className="fg-reeds" /></div>
+      <header className="game-title"><span className="sigil" aria-hidden="true" /><div className="title-text"><b>{floorLevel} / {FLOORS} · {roomName}</b><i>{roomName === goalName ? 'Take the stair down' : `Reach ${goalName}`}</i></div></header>
       <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || paused || status !== 'playing' || boonChoice.length > 0} aria-label="Pause game">☰</button></nav>
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      <section className="hud" aria-label="Player status"><div className="health-row"><span aria-hidden="true" /><b>{health}<small>/{maxHealth}</small></b></div><div className="health-track" role="progressbar" aria-label="Vitality" aria-valuemin={0} aria-valuemax={maxHealth} aria-valuenow={health}><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div><div className="dash-status"><progress ref={dashMeter} max="1" value="1" aria-label="Dash readiness" /></div>{ammo && <div className="quiver" role="progressbar" aria-label="Bolts in hand" aria-valuemin={0} aria-valuemax={ammo.of} aria-valuenow={ammo.held}>{Array.from({ length: ammo.of }, (_, i) => <i key={i} className={i < ammo.held ? 'held' : ''} />)}</div>}<progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} /></section>
+      <section className="hud" aria-label="Player status"><div className="health-row"><span aria-hidden="true" /><b>{health}<small>/{maxHealth}</small></b><span className="rank-badge" aria-label={`Rank ${rank}`}>{rank}</span></div><div className="health-track" role="progressbar" aria-label="Vitality" aria-valuemin={0} aria-valuemax={maxHealth} aria-valuenow={health}><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div>
+        {/* Plan 014 round 5 (lever C8): the two abilities the knight actually has, each named by its
+            real bound key rather than a fixed legend - a rebind shows up here the same frame it shows
+            up on the settings card. The dash icon's own conic-gradient sweep is what used to be the
+            plain `<progress>` bar; `dashMeter` stays too, off-screen, so nothing that reads the
+            accessible value tree loses the plain 0-1 progressbar semantics a sweep can't carry alone. */}
+        <div className="ability-row">
+          <div className="ability"><div className="ability-icon strike-icon" aria-hidden="true"><span className="ability-glyph">⚔</span></div><kbd className="keycap"><span className="visually-hidden">{bindLabel(settings.binds.attack)}</span><span aria-hidden="true">{keycapLabel(settings.binds.attack)}</span></kbd></div>
+          <div className="ability">
+            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+            <div className="ability-icon dash-icon" role="progressbar" aria-label="Dash readiness" aria-valuemin={0} aria-valuemax={1}>
+              <div className="dash-sweep" ref={dashSweep} /><span className="ability-glyph">»</span>
+            </div>
+            <kbd className="keycap"><span className="visually-hidden">{bindLabel(settings.binds.dash)}</span><span aria-hidden="true">{keycapLabel(settings.binds.dash)}</span></kbd>
+          </div>
+          <progress ref={dashMeter} max="1" value="1" className="visually-hidden" aria-hidden="true" tabIndex={-1} />
+        </div>
+        {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+        {ammo && <div className="quiver" role="progressbar" aria-label="Bolts in hand" aria-valuemin={0} aria-valuemax={ammo.of} aria-valuenow={ammo.held}>{Array.from({ length: ammo.of }, (_, i) => <i key={i} className={i < ammo.held ? 'held' : ''} />)}</div>}<progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} /></section>
       {floorMap && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action(mapOpen ? 'pause' : 'map')} aria-label={mapOpen ? 'Close floor map' : 'Open floor map'}><svg key={floorBuild} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g transform={`rotate(${mapAngle*180/Math.PI})`}>
-        <path d={floorMap.tiles.map(t => `M${t.x - 0.5},${t.z - 0.5}h1v1h-1z`).join('')} fill="#334e56" />
-        {floorMap.rooms.map(r => <path key={r.id} id={`map-room-${r.id}`} d={floorMap.tiles.filter(t=>t.room===r.id).map(t=>`M${t.x-.5},${t.z-.5}h1v1h-1z`).join('')} fill={r.id===0?'#5aa89d':r.role==='goal'?'#b8863f':'#4a747c'} />)}
+        {/* Plan 014 round 5 (lever C9): brighter, more saturated fills - the round-3 frame gave the
+            panel real contrast against the world behind it, but the room shapes inside it were still
+            close enough in value to the panel to read as a smudge rather than a map. */}
+        <path d={floorMap.tiles.map(t => `M${t.x - 0.5},${t.z - 0.5}h1v1h-1z`).join('')} fill="#3f6572" />
+        {floorMap.rooms.map(r => <path key={r.id} id={`map-room-${r.id}`} d={floorMap.tiles.filter(t=>t.room===r.id).map(t=>`M${t.x-.5},${t.z-.5}h1v1h-1z`).join('')} fill={r.id===0?'#6fd1c0':r.role==='goal'?'#d9a24f':'#5c9aa5'} />)}
         <circle className="map-mark" cx={floorMap.rooms[floorMap.goal].x} cy={floorMap.rooms[floorMap.goal].z} r="3.4" fill="none" stroke="#ffc573" strokeWidth="0.9" opacity="0.9" />
         <circle ref={mapPlayer} className="map-mark" cx={floorMap.rooms[0].x} cy={floorMap.rooms[0].z} r="1.8" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
       </g></svg></button>}
@@ -2113,7 +2511,19 @@ export default function DungeonGame() {
       {/* Not in the prerendered page: the menu is, and nothing stands between a visitor and it. The veil
           belongs to the moments that make the player wait on a floor built from nothing — ENTER THE KEEP
           pressed before the first one is ready, a descent, and a fresh run — and to nothing else. */}
-      {veil && <output className="loading-veil"><span className="veil-bar" aria-hidden="true"><i /></span><b>{veil}</b></output>}
+      {veil && <output className={plainVeil ? 'loading-veil veil-plain' : 'loading-veil'}>
+        {/* Plan 014 round C: drifting fog, a vignette, the brass sigil with its ember, the line and the
+            floor it is raising, a staged bar and one rotating line of keep-lore. Everything that moves
+            here moves by transform or opacity only, so it keeps moving while a stage blocks the thread.
+            The fog is the one part with a real per-frame cost, so a software rasteriser goes without it. */}
+        {!plainVeil && <span className="veil-fog" aria-hidden="true"><i /><i /><i /></span>}
+        <span className="veil-emblem" aria-hidden="true"><i className="veil-ring" /><i className="veil-diamond" /><i className="veil-glow" /><i className="veil-flame" /><i className="veil-flame veil-flame-core" /></span>
+        <b>{veil}</b>
+        <em className="veil-sub">Floor {veilFloor} of {FLOORS}{veilPlace ? ` · toward ${veilPlace}` : ''}</em>
+        <span className="veil-bar" aria-hidden="true"><i style={{ transform: `scaleX(${Math.max(.04, veilStage / VEIL_STAGES.length)})` }} /></span>
+        <span className="veil-stage">{VEIL_STAGES[Math.min(veilStage, VEIL_STAGES.length - 1)]}<small>{Math.min(veilStage + 1, VEIL_STAGES.length)} / {VEIL_STAGES.length}</small></span>
+        <span className="veil-lore" aria-hidden="true">{VEIL_LORE.map((line) => <i key={line}>{line}</i>)}</span>
+      </output>}
       {/* The alternative layout, not a fallback bolted onto the stick: four buttons a screen reader can name
           and reach, each speaking the same discrete move:/stop: protocol every automated driver uses. It is
           the worse way to play — one direction at a time, no diagonals — and the only way to play at all if

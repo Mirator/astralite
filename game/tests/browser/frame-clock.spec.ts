@@ -1,7 +1,9 @@
-import { expect, test } from './helpers.ts';
+import { expect, test, WARM_UP } from './helpers.ts';
 
-// This hands the page an older first animation timestamp, which only exists once per load.
+// This hands the page an older first animation timestamp, which only exists once per load. A fresh load
+// pays the cold shader warm-up (see WARM_UP in helpers.ts), so the scenario gets room for it.
 test.use({ isolate: true });
+test.describe.configure({ timeout: 120_000 + WARM_UP });
 
 test('an older first animation timestamp cannot create a startup hit pause', async ({ page }) => {
   const errors: string[] = [];
@@ -17,7 +19,9 @@ test('an older first animation timestamp cannot create a startup hit pause', asy
     });
   });
   await page.goto('/');
-  await page.waitForFunction(() => (window as typeof window & { staleFrameDelivered?: boolean }).staleFrameDelivered);
+  // The stale frame is delivered on the first animation frame after the hooks go up, which is after a
+  // module load and a first floor - the same wait `Game.open` gives the boot's budget.
+  await page.waitForFunction(() => (window as typeof window & { staleFrameDelivered?: boolean }).staleFrameDelivered, undefined, { timeout: WARM_UP });
   const state = await page.evaluate(() => {
     const hooks = window as typeof window & { advanceTime: (ms: number, draw: boolean) => void; render_game_to_text: () => string };
     hooks.advanceTime(0, false);

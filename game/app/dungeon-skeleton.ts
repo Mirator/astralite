@@ -13,6 +13,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { contactShadow } from './dungeon-characters.ts';
 import { bakeStatic } from './dungeon-bake.ts';
 import { buildSpec, type Node, type Part, type V3 } from './dungeon-figure-spec.ts';
+import { weatherBone } from './dungeon-motion.ts';
 
 export type SkeletonKind = 'guard' | 'stalker' | 'warden';
 
@@ -23,10 +24,16 @@ const shared = <T extends THREE.BufferGeometry>(geometry: T) => { geometry.userD
 export const BONES = {
   pelvis: shared(new THREE.BoxGeometry(0.48, 0.22, 0.25)),
   spine: shared(new THREE.BoxGeometry(0.13, 0.58, 0.13)),
-  ribs: shared(new THREE.TorusGeometry(0.27, 0.055, 4, 7, Math.PI * 1.55)),
-  skull: shared(new THREE.DodecahedronGeometry(0.27, 0)),
+  // Plan 014 round 8 (lever 2): radialSegments was 4 - a *square*-sectioned bar bent into a torus, not
+  // a rib, however curved the bend itself was. Six rounds it into an actual thin tube; tubularSegments
+  // up too so the bend the tube rides is smooth along its own length as well as around its own girth.
+  ribs: shared(new THREE.TorusGeometry(0.27, 0.055, 6, 10, Math.PI * 1.55)),
+  // A dodecahedron is twelve flat pentagons at any camera angle - there is no vertex-normal trick that
+  // makes twelve large flat faces read as a skull. A sphere at the same nominal radius is a drop-in
+  // swap for every brow/jaw/tooth trim already positioned relative to .27, and is genuinely smooth.
+  skull: shared(new THREE.SphereGeometry(0.27, 12, 8)),
   socket: shared(new THREE.SphereGeometry(0.035, 5, 4)),
-  limb: shared(new THREE.CylinderGeometry(.055, .075, .65, 6)),
+  limb: shared(new THREE.CylinderGeometry(.055, .075, .65, 8)),
   shield: shared(new THREE.CylinderGeometry(0.38, 0.38, 0.1, 8)),
   weapon: shared(new THREE.BoxGeometry(0.09, 0.09, 0.92)),
   // Plan 011: the guard's sword, flat and broad-face up, so it reads by its width from above rather than
@@ -48,7 +55,10 @@ export const BONES = {
 // to do for its own merge cache).
 const roundedUnitBox = () => new RoundedBoxGeometry(1, 1, 1, 1, .08);
 const plainUnitBox = () => new THREE.BoxGeometry(1, 1, 1);
-const unitJoint = () => new THREE.IcosahedronGeometry(1, 0);
+// Plan 014 round 8 (lever 2): detail 1 (each of the base icosahedron's 20 faces split into 4) rather
+// than 0 - the rounded "knobbed ends" the plan asked for on the limb bones ride this same shape, and
+// a raw 20-face icosahedron reads as a gem, not a knuckle.
+const unitJoint = () => new THREE.IcosahedronGeometry(1, 1);
 function clothGeometry() {
   const shape = new THREE.Shape();
   shape.moveTo(-.5, .5); shape.lineTo(.5, .5); shape.lineTo(.43, -.42); shape.lineTo(.15, -.33); shape.lineTo(0, -.5); shape.lineTo(-.18, -.36); shape.lineTo(-.4, -.45); shape.closePath();
@@ -65,7 +75,7 @@ function trim(target: (Part | Node)[], name: string, geom: Geom, material: strin
     geom === 'box' ? { geometry: Math.min(...size) < .06 ? plainUnitBox() : roundedUnitBox() } :
     geom === 'joint' ? { geometry: unitJoint() } :
     geom === 'spike' ? { cone: [1, 1, 4] } :
-    geom === 'rib' ? { torus: [1, .13, 4, 10, Math.PI * 1.65] } :
+    geom === 'rib' ? { torus: [1, .13, 6, 10, Math.PI * 1.65] } :
     geom === 'shaft' ? { cylinder: [.72, 1, 1, 6] } :
     { geometry: clothGeometry() };
   target.push({ name, shape, material, at, scale: size, rot });
@@ -92,12 +102,19 @@ function skeletonSpec(kind: SkeletonKind): Node {
   // makeSkeleton()'s own kind armour, added to `rig` before the base skeleton.
   if (warden) {
     rigParts.push({ name: 'plate', shape: { geometry: BONES.plate }, material: 'iron', at: [0, 1.0, -.05] });
-    for (const s of [-1, 1] as const) rigParts.push({ name: `shoulder-${s < 0 ? 'l' : 'r'}`, shape: { geometry: BONES.armor }, material: 'iron', at: [s * .49, 1.21, 0], scale: [1.18, .72, 1] });
+    // Plan 014 round A: a brute, not a chess king. The shoulders are lopsided - the hammer side a great
+    // hunched boulder of plate, the off side a lighter cop - and the crown is four iron spikes of
+    // uneven height, each leaning its own way, rather than six matched gold teeth in a ring.
+    for (const s of [-1, 1] as const) rigParts.push({ name: `shoulder-${s < 0 ? 'l' : 'r'}`, shape: { geometry: BONES.armor }, material: 'iron', at: [s * (s > 0 ? .55 : .47), s > 0 ? 1.27 : 1.19, 0], scale: s > 0 ? [1.62, 1.02, 1.3] : [1.02, .62, .92] });
     const teeth: Part[] = [];
-    for (let i = 0; i < 6; i++) { const angle = i * Math.PI / 3; teeth.push({ name: `crown-tooth-${i}`, shape: { geometry: BONES.crownTooth }, material: 'brass', at: [Math.cos(angle) * .26, .1, Math.sin(angle) * .26] }); }
-    rigParts.push({ name: 'crown', shape: { geometry: BONES.crown }, material: 'brass', at: [0, 1.63, 0], parts: teeth });
+    const crownSpikes = [[.35, 2.1, .28], [1.95, 1.25, -.22], [3.3, 2.6, .12], [4.75, 1.05, -.35]] as const;
+    crownSpikes.forEach(([angle, tall, lean], i) => teeth.push({ name: `crown-tooth-${i}`, shape: { geometry: BONES.crownTooth }, material: 'iron', at: [Math.cos(angle) * .27, .06 + tall * .09, Math.sin(angle) * .27], scale: [1.35, tall, 1.35], rot: [Math.sin(angle) * (.3 + lean), 0, -Math.cos(angle) * (.3 - lean)] }));
+    rigParts.push({ name: 'crown', shape: { geometry: BONES.crown }, material: 'iron', at: [0, 1.61, .02], rot: [.08, 0, -.12], parts: teeth });
   } else if (!stalker) {
-    rigParts.push({ name: 'helmet', shape: { geometry: BONES.armor }, material: 'iron', at: [0, 1.62, .13], scale: [.90, .42, .95] });
+    // Plan 014 round B: the helmet sat .2 low and .13 behind the skull's centre, so its lower faces cut
+    // straight through the cranium and the face read as a black block wedged into the bone. It now caps
+    // the skull: centred on it, raised, and wide enough that the skull's top is inside it.
+    rigParts.push({ name: 'helmet', shape: { geometry: BONES.armor }, material: 'iron', at: [0, 1.67, .03], scale: [.98, .48, .92] });
   }
 
   rigParts.push({ name: 'pelvis', shape: { geometry: BONES.pelvis }, material: 'bone', at: [0, .55, 0] });
@@ -121,8 +138,14 @@ function skeletonSpec(kind: SkeletonKind): Node {
   }
   rigParts.push({ name: 'skull', at: [0, 1.42, stalker ? -.16 : 0], scale: stalker ? [.85, .82, 1.15] : [.88, 1, .78], parts: skullParts });
 
-  rigParts.push({ name: 'eye-l', shape: { geometry: BONES.socket }, material: 'eye', at: [-.085, 1.45, stalker ? -.445 : -.223], scale: 1.2 });
-  rigParts.push({ name: 'eye-r', shape: { geometry: BONES.socket }, material: 'eye', at: [.085, 1.45, stalker ? -.445 : -.223], scale: 1.2 });
+  // Plan 014 round 8 (lever 2): "real eye sockets (dark recesses where the emissive eyes sit)" - a
+  // wider, shallower `shadow`-material dome set a hair behind each eye light, so the bright dot reads
+  // as sitting inside a dark cavity rather than stuck to the front of a smooth skull.
+  const eyeAt = (s: 1 | -1): V3 => [s * .085, 1.45, stalker ? -.445 : -.223];
+  rigParts.push({ name: 'socket-l', shape: { geometry: BONES.socket }, material: 'shadow', at: eyeAt(-1), scale: [2.1, 2.1, 1.3] });
+  rigParts.push({ name: 'socket-r', shape: { geometry: BONES.socket }, material: 'shadow', at: eyeAt(1), scale: [2.1, 2.1, 1.3] });
+  rigParts.push({ name: 'eye-l', shape: { geometry: BONES.socket }, material: 'eye', at: [eyeAt(-1)[0], eyeAt(-1)[1], eyeAt(-1)[2] - .012], scale: 1.2 });
+  rigParts.push({ name: 'eye-r', shape: { geometry: BONES.socket }, material: 'eye', at: [eyeAt(1)[0], eyeAt(1)[1], eyeAt(1)[2] - .012], scale: 1.2 });
 
   // Arms and legs: each a pivot holding one limb bone. Arm-l also holds the shield (always, even when
   // invisible - shield.visible only decides whether it draws, not whether the rig carries one). Stalker's
@@ -164,10 +187,12 @@ function skeletonSpec(kind: SkeletonKind): Node {
 
   // makeSkeleton()'s own weapon, then rig.add(...weapon) below.
   if (warden) {
-    weaponParts.push({ name: 'haft', shape: { geometry: BONES.haft }, material: 'brass', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.42] });
-    weaponParts.push({ name: 'head', shape: { geometry: BONES.hammer }, material: 'iron', at: [0, 0, -1.04], parts: [{ name: 'band', shape: { geometry: BONES.hammer }, material: 'brass', scale: [.18, 1.04, 1.04] }] });
+    // Round A: a longer haft and a far heavier head - the one thing the warden's silhouette has to say
+    // from across a room is "that is a very large hammer".
+    weaponParts.push({ name: 'haft', shape: { geometry: BONES.haft }, material: 'iron', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.52], scale: [1.25, 1.2, 1.25] });
+    weaponParts.push({ name: 'head', shape: { geometry: BONES.hammer }, material: 'iron', at: [0, 0, -1.2], scale: [1.25, 1.22, 1.2], parts: [{ name: 'band', shape: { geometry: BONES.hammer }, material: 'brass', scale: [.18, 1.04, 1.04] }] });
   } else if (!stalker) {
-    weaponParts.push({ name: 'blade', shape: { geometry: BONES.blade }, material: 'iron', at: [0, 0, -.4] });
+    weaponParts.push({ name: 'blade', shape: { geometry: BONES.blade }, material: 'steel', at: [0, 0, -.4] });
   }
   rigParts.push({ name: 'weapon', at: [warden ? .5 : .42, .97, -.12], rot: [warden ? .45 : .1, 0, 0], parts: weaponParts });
 
@@ -182,24 +207,33 @@ function skeletonSpec(kind: SkeletonKind): Node {
   if (warden) {
     for (const s of [-1, 1] as const) {
       const side = s < 0 ? 'l' : 'r';
-      for (let i = 0; i < 3; i++) trim(rigParts, `pauldron-${side}-${i}`, 'box', i === 0 ? 'brass' : 'iron', [s * (.49 + i * .04), 1.25 - i * .095, -.025], [.38, .1, .47], [0, 0, s * -.22]);
-      for (let i = 0; i < 2; i++) trim(rigParts, `spaulder-${side}-${i}`, 'spike', 'brass', [s * (.48 + i * .16), 1.46, .04], [.08, .26 + i * .08, .08], [0, 0, s * -.3]);
+      const heavy = s > 0;
+      for (let i = 0; i < 3; i++) trim(rigParts, `pauldron-${side}-${i}`, 'box', 'iron', [s * ((heavy ? .58 : .47) + i * .05), (heavy ? 1.33 : 1.2) - i * .11, -.025], heavy ? [.56, .14, .62] : [.32, .08, .4], [0, 0, s * (heavy ? -.34 : -.18)]);
+      for (let i = 0; i < 2; i++) trim(rigParts, `spaulder-${side}-${i}`, 'spike', 'iron', [s * ((heavy ? .52 : .46) + i * (heavy ? .22 : .12)), heavy ? 1.62 : 1.38, heavy ? .02 - i * .12 : .04], heavy ? [.13, .5 - i * .14, .13] : [.06, .16, .06], [heavy ? -.25 * i : 0, 0, s * (heavy ? -.18 - i * .3 : -.4)]);
       trim(rigParts, `tabard-${side}`, 'cloth', 'cloth', [s * .18, .56, -.25], [.33, .64, 1], [0, 0, s * -.12]);
       trim(rigParts, `collar-${side}`, 'box', 'brass', [s * .23, 1.04, -.23], [.042, .35, .032], [0, 0, s * -.25]);
-      trim(weaponParts, `weapon-plate-${side}`, 'box', 'brass', [s * .3, 0, -1.04], [.07, .41, .42]);
-      trim(weaponParts, `weapon-spike-${side}`, 'spike', 'iron', [s * .46, 0, -1.04], [.13, .23, .13], [0, 0, s * -Math.PI / 2]);
+      trim(weaponParts, `weapon-plate-${side}`, 'box', 'iron', [s * .42, 0, -1.22], [.08, .54, .56]);
+      trim(weaponParts, `weapon-spike-${side}`, 'spike', 'iron', [s * .62, 0, -1.22], [.17, .3, .17], [0, 0, s * -Math.PI / 2]);
     }
     trim(rigParts, 'gorget', 'joint', 'brass', [0, 1.12, -.255], [.1, .13, .035]);
     trim(rigParts, 'chest-rim', 'box', 'brass', [0, 1.235, -.2], [.7, .03, .06]);
     trim(rigParts, 'chest-rib', 'box', 'iron', [0, 1.0, -.235], [.05, .4, .03]);
     for (let i = 0; i < 3; i++) trim(rigParts, `fauld-${i}`, 'box', 'iron', [0, .71 - i * .08, 0], [.5 + i * .02, .1, .3 + i * .02]);
-    trim(weaponParts, 'weapon-band-h', 'box', 'brass', [0, .19, -1.04], [.32, .025, .1]);
-    trim(weaponParts, 'weapon-band-v', 'box', 'brass', [0, .19, -1.04], [.07, .025, .32]);
+    trim(weaponParts, 'weapon-band-h', 'box', 'brass', [0, .25, -1.22], [.44, .03, .12]);
+    trim(weaponParts, 'weapon-band-v', 'box', 'brass', [0, .25, -1.22], [.09, .03, .44]);
   } else if (stalker) {
     for (let i = 0; i < 5; i++) trim(rigParts, `spine-spike-${i}`, 'spike', 'bone', [0, .8 + i * .135, .13], [.065, (.23 + i * .04) * 1.25, .065], [.8, 0, 0]);
     for (const s of [-1, 1] as const) trim(rigParts, `cloak-${s < 0 ? 'l' : 'r'}`, 'cloth', 'cloth', [s * .2, .67, .12], [.32, .69, 1], [-.3, s * .5, s * -.25]);
   } else {
     trim(rigParts, 'tabard', 'cloth', 'cloth', [0, .53, -.17], [.52, .53, 1]);
+    // Plan 014 round 7 (lever 2): the pale cross the reference's own surcoat carries - two thin boxes
+    // rather than a decal, so it needs no UVs on a shape this small ever to look wrong. Static, like
+    // the tabard cloth it sits on: a guard's whole figure is `bakeStatic`-merged geometry, and neither
+    // gets `animateCloth`'s per-frame position rewrite the way the knight's own cape and the freestanding
+    // banners do - wiring that up for every skeleton, every frame, is not the "if cheap" this was asked
+    // for.
+    trim(rigParts, 'tabard-cross-v', 'box', 'crest', [0, .58, -.185], [.075, .32, .025]);
+    trim(rigParts, 'tabard-cross-h', 'box', 'crest', [0, .62, -.185], [.27, .075, .025]);
     for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; trim(shieldParts, `rivet-${i}`, 'joint', 'brass', [Math.sin(a) * .31, .069, Math.cos(a) * .31], [.031, .025, .031]); }
     trim(shieldParts, 'cross-h', 'box', 'brass', [0, .065, 0], [.055, .026, .64]);
     trim(shieldParts, 'cross-v', 'box', 'brass', [0, .065, 0], [.64, .026, .055]);
@@ -207,7 +241,7 @@ function skeletonSpec(kind: SkeletonKind): Node {
     // up the same, since bakeStatic applies each mesh's own local matrix to its geometry when it flattens.
     shieldParts.push({ name: 'rim', shape: { torus: [.36, .025, 4, 16] }, material: 'brass', at: [0, .055, 0], rot: [Math.PI / 2, 0, 0] });
     trim(weaponParts, 'weapon-guard', 'box', 'brass', [0, 0, .025], [.32, .07, .08]);
-    trim(weaponParts, 'weapon-tip', 'spike', 'iron', [0, 0, -.69], [.095, .34, .035], [-Math.PI / 2, 0, 0]);
+    trim(weaponParts, 'weapon-tip', 'spike', 'steel', [0, 0, -.69], [.095, .34, .035], [-Math.PI / 2, 0, 0]);
     trim(rigParts, 'baldric', 'box', 'iron', [.32, 1.17, 0], [.3, .16, .34], [0, 0, -.2]);
   }
 
@@ -235,24 +269,39 @@ export function makeSkeleton(kind: SkeletonKind) {
   // between them. Neutralising the warden spent the hue axis to buy value, and the two do not trade at
   // par. The warm-tan bone stays and only its value moves, which is the axis the reviewer named.
   const bone = new THREE.MeshStandardMaterial({ color: warden ? 0x776e5d : stalker ? 0x6f9084 : 0x9ca39a, roughness: 0.84 });
+  weatherBone(bone);
   // The other half of the cluster. The warden's plate was a dark navy three units of Lab from the knight's
   // own iron, and in the stair chamber that plate is most of the warden's torso and the breastplate is most
   // of the knight's - two figures carrying the same dark mass in the same hue. It leaves navy for the
   // drowned green the rest of the keep's dead already wear, and comes up three points of L on the way out
   // so the warden is not simply a hole.
-  const iron = new THREE.MeshStandardMaterial({ color: warden ? 0x27302d : 0x3f4a53, roughness: 0.5, metalness: 0.5 });
+  const iron = new THREE.MeshStandardMaterial({ color: warden ? 0x1c201f : 0x3f4a53, roughness: warden ? 0.58 : 0.5, metalness: 0.5 });
   // The warden's gold was the warmest thing on any skeleton and the nearest any of them came to the
   // knight's own accent. Six points of value off it: still a crown, no longer a second brass figure.
-  const brass = new THREE.MeshStandardMaterial({ color: warden ? 0x7a6c43 : 0x6f6244, roughness: .52, metalness: .55 });
+  const brass = new THREE.MeshStandardMaterial({ color: warden ? 0x5c4a2c : 0x6f6244, roughness: .52, metalness: .55 });
   // Eye colour is the cheapest rank badge there is: one unlit speck already being drawn, and it names the
   // kind from across the room before the silhouette has resolved. Fog stays on, unlike the tell.
-  const eye = new THREE.MeshBasicMaterial({ color: warden ? 0xffd23a : stalker ? 0xd6ff5e : 0xff8a2a, toneMapped: false });
+  // Plan 014 round 2 (lever D10): pushed over 1 per channel (a Color multiplied past white rather
+  // than a plain hex) so a bloom pass has something to actually catch here - a hex colour alone tops
+  // out at (1,1,1) and, at these small a socket's screen size, that read as merely "pale" rather than
+  // "lit from within" once the post chain went in.
+  const eye = new THREE.MeshBasicMaterial({ color: new THREE.Color(warden ? 0xffd23a : stalker ? 0xd6ff5e : 0xff8a2a).multiplyScalar(1.7), toneMapped: false });
   const shadow = new THREE.MeshStandardMaterial({ color: 0x101b1c, roughness: 1 });
-  // The guard's tabard and the stalker's cloak: everything the enemies wear is cold, so the warm half of
-  // the wheel belongs to the knight alone; the warden's tabard is the same drowned green at the same value.
-  const cloth = new THREE.MeshStandardMaterial({ color: warden ? 0x2a3a33 : stalker ? 0x334b43 : 0x3d4a48, roughness: 1, side: THREE.DoubleSide });
+  // Plan 014 round B: the guard's blade took the dark armour iron and read as an unshaded black plane
+  // through the torso. Bright, fairly smooth steel, so it catches the key and the torches as a blade.
+  const steel = new THREE.MeshStandardMaterial({ color: 0xaab2b6, roughness: .32, metalness: .55, envMapIntensity: 1.4 });
+  // The guard's tabard and the stalker's cloak: everything the enemies wore was cold, so the warm half
+  // of the wheel belonged to the knight alone; the warden's tabard is the same drowned green at the
+  // same value. Plan 014 round 7 (lever 2): the reference's own guards wear a dark red surcoat with a
+  // pale cross, which the critic named directly - so that rule now has its one exception. It stays an
+  // exception rather than a repeal: stalker and warden keep the cold cloth the rest of this file's
+  // reasoning about them (drowned green, "no gold outshines the knight's") still depends on: a guard's
+  // own dark red is muted and desaturated enough - closer to old blood than to the knight's own bright
+  // red plume - that it reads as heraldry on an undead thing, not as a second knight.
+  const cloth = new THREE.MeshStandardMaterial({ color: warden ? 0x2a3a33 : stalker ? 0x334b43 : 0x5c2430, roughness: 1, side: THREE.DoubleSide });
+  const crest = new THREE.MeshStandardMaterial({ color: 0xcfc3a8, roughness: .88 });
 
-  const { root: rig, byName } = buildSpec(skeletonSpec(kind), { bone, iron, brass, eye, shadow, cloth });
+  const { root: rig, byName } = buildSpec(skeletonSpec(kind), { bone, iron, brass, eye, shadow, cloth, crest, steel });
   const g = new THREE.Group(); g.add(rig);
 
   const skull = byName['skull'] as THREE.Group;
@@ -277,6 +326,6 @@ export function makeSkeleton(kind: SkeletonKind) {
   bakeStatic(shield, { cacheKey: `${kind}:shield` });
   // Weaker than the knight's, and sized to the actor: the reference grounds the enemies too, but the
   // player's own pool has to stay the darkest thing at his feet.
-  g.add(contactShadow(warden ? .68 : stalker ? .56 : .52, .44));
+  g.add(contactShadow(warden ? .82 : stalker ? .62 : .58, .64));
   return g;
 }

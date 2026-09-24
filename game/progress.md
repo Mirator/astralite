@@ -2197,6 +2197,37 @@ Gates: typecheck, lint, `npm test` (292/292), `GAME_TEST_GL=d3d11 npm run test:b
 `npm run build`. Not run: SwiftShader captures / `shots:compare`. The intro card's layout changed, so any
 reference frame of the intro will differ.
 
+## Plan 014 — toward the reference image (art pass)
+
+An iterative builder/critic loop against a painted concept-art reference (`plans/014-reference-art.md`).
+Performance budgets and the graphics tests (frame budget, pixel diff, art direction) were explicitly out of
+scope for this pass.
+
+- **Post chain** (`dungeon-post.ts`): RenderPass → GTAO (transparent surfaces excluded) → dark ink outline
+  and warm rim → hue-preserving HDR ceiling → bloom → OutputPass → display-referred grade (teal lift, warm
+  highlights, vignette, grain). The grade must run after OutputPass: the composer's targets are linear HDR
+  because three.js only tone-maps when drawing to the canvas, and grading before it crushed every shadow.
+- **Camera** zoomed in (ortho span 7.2 → 4.3; phone 6.3 → 3.76).
+- **Surfaces** (`dungeon-textures.ts`): seeded canvas flagstone and masonry sets (albedo, Sobel normal,
+  roughness with puddles), triplanar over `weatherStone`; floor detail with wall-base grime and wet slabs;
+  darker grout, matte joint facets.
+- **Water** (`tidalMaterial`): Voronoi caustics that fade with depth, depth absorption, sunken blocks, fish,
+  fresnel sheen, warm torch reflection streaks.
+- **Light and fire**: warm wall sconces in every theme, braziers rebuilt as iron bowls with tall billboard
+  flames (`dungeon-flame-fx.ts`; the flicker no longer overwrites the caller's placement, which had put
+  every flame at floor level), depth-tested with a view-space nudge so walls hide them.
+- **Figures and VFX**: smoother knight and skeletons, guard tabards, a brutish warden, lit blades, blood
+  splats (`dungeon-blood.ts`), a Catmull-Rom slash ribbon with its bright rim on the outer edge, soft
+  telegraph decals, contact shadows.
+- **HUD**: diamond title panel, framed vitality bar, strike/dash diamonds with keycaps and a dash cooldown
+  sweep, rank badge and framed rank bar, framed enemy HP bars, per-theme blurred foreground silhouettes.
+- **Harness**: `scripts/reference-shot.ts <outDir>` films three deterministic scenes (combat on a bridge,
+  a torch room, a corridor) at 1672×941 on its own dev server.
+
+Gates: typecheck, lint, `npm test` (296/296), `GAME_TEST_GL=d3d11` `loading.spec.ts` + `smoke.spec.ts`
+(6/6; the early-press test runs ~110 s of a 120 s budget on a cold shader cache). Not run: the rest of the
+browser suite; frame-budget, pixel-diff and art-direction specs are expected to fail against this look.
+
 ## Unit-test pruning, and what it turned up
 
 The unit suite was audited test by test against one bar: keep a test only if it would catch a real bug
@@ -2260,3 +2291,80 @@ spec runs in 23 s locally (was 3.5 min). Its durations entry is an estimate (90 
 Planned load: 402 / 377 / 376 s of tests across the shards, two workers each. Gates: typecheck, lint,
 `npm test` (172/172), `occlusion.spec.ts` under `GAME_TEST_GL=d3d11` (3 passed, 1 skipped as on main), and
 `--list` per planned shard: 32 + 33 + 38 = the gate's 103 scenarios, each exactly once.
+
+## Light cap, loading screen, and the art pass made gate-clean
+
+- **Point lights capped.** The art pass gave every sconce, lantern and water bounce its own light: 134 on
+  floor 1. three.js unrolls its point-light loop into every lit shader, so a cold boot blocked the main
+  thread for 133.8 s compiling, every lit pixel paid for 134 lights, and a floor with a different count
+  recompiled everything. The atmosphere now lays out `LightAnchor`s and a fixed pool of four lights is lent
+  to the nearest each frame (spares sit at zero intensity, never hidden, since hiding changes the count).
+  Floor 1: 9 point lights, 10.2 s cold. `frame-budget.spec.ts` pins the count across floors.
+- **Loading screen.** Staged builds with real progress; hooks go up when the floor exists, the veil lifts
+  once shaders are linked and a frame presented. The warm-up compiles synchronously: `compileAsync`
+  crashed inside three.js when a floor was torn down mid-poll. `WARM_UP` budgets the waits that span it.
+- **Render counters read the scene pass.** Behind the post chain `renderer.info.render` described only the
+  last full-screen quad (1 triangle), so the frame budget, the footstep "one extra draw" check and the
+  carved-chamber triangle floor were measuring nothing; `post.sceneCost` is captured after the scene pass.
+- **A GPU leak per floor.** The water's floor-sized shore mask lived only in a shader uniform, which
+  `material.dispose()` does not reach; it now goes with the material (57, 57, 57 textures across rebuilds).
+- **Textures uploaded at build.** Every texture a floor uses (and the telegraph and alert textures at
+  mount) goes to the GPU up front, so the texture count no longer depends on what the camera saw first,
+  and walking into a room no longer hitches on an upload.
+- Tests: the flames snapshot type matches the billboards; the footsteps repeat-run check asserts no growth
+  rather than equality with a run that inherits the pooled page's earlier uploads.
+
+Gates: typecheck, lint, `npm test` (176/176), the PR-gate browser subset under `GAME_TEST_GL=d3d11`
+(102 passed, 2 skipped as on main).
+
+## 2026-09-24 - Shader programs survive rebuilds; a reduced post chain on software GL
+
+- PR #50's CI ran 4.8x main's time on the same specs. Cause: three.js destroys a program when its last
+  material is disposed, and every floor rebuild disposes the old floor first, so 24 heavy programs were
+  recompiled per rebuild - 3-6 s of first frame under SwiftShader, a descent hitch on real GPUs.
+  `dungeon-post.ts` now pins each program once (`usedTimes++`); the warm-up pins after its compile.
+- On a CPU rasteriser (`softwareGL`: SwiftShader, llvmpipe, Basic Render) the post chain drops GTAO,
+  both outline passes and bloom; tone map and grade stay. `?quality=full|reduced` overrides it, and
+  `GAME_TEST_CAPTURE=1` boots with `?quality=full` so reference frames stay comparable with the baseline.
+- Snapshot `render.programs` / `render.quality`; `frame-budget.spec.ts` asserts the program count never
+  dips across rebuilds and that the renderer picks the expected chain.
+- Not run locally (by request); CI is the check. Pixel-reading specs (models, art-direction) were tuned on
+  the full chain and may need their CI figures revisited if the reduced chain moves them.
+- Follow-up, profiled locally on SwiftShader: the first frame after a rebuild was 100% shader compile
+  (`getProgramInfoLog` in `onFirstUse`), from two keys that changed on every build. `applyStoneTextures`
+  put the albedo texture's uuid in `customProgramCacheKey` (the maps are per-material uniforms; the uuid
+  never changed the source), and the flame billboard's `ShaderMaterial` got new shader-stage ids once
+  every flame was disposed with the old floor. The key is constant now, and `flameShaderKeeper()` - one
+  hidden card in the scene, shown only for the warm-up compile - holds the flame source registered.
+  Rebuilds of floors 1, 2, 3, 1, 1: 64 programs throughout, first frame 36-239 ms (was 0.5-7 s).
+  `frame-budget.spec.ts` asserts a revisited floor compiles nothing; `enter()` gives its click the
+  warm-up budget, since a fresh page cannot take a click until the cold compile returns.
+
+## 2026-09-24 - Pooled resets under a driver's clock: no warm-up frames, no frame waits
+
+- PR #50's browser suite still ran ~4.6x main on the same specs after the program pinning (common tests
+  957 s -> 4437 s; `aim.spec` "right mouse button dodges" 0.9 s -> 33.6 s), with three fresh-boot
+  `waitForFunction` timeouts at the 25 s default. A pooled scenario resets twice, and each reset went
+  through `stagedBuild`: six `painted()` waits (twelve animation frames, each a compositor frame of the
+  veil's three fog layers on SwiftShader), plus two full `post.render` frames the driver never asked
+  for. Profiled locally on SwiftShader by the parent session: a reset was 4.2-6.9 s, ~90% of it the GPU
+  process, a third of that the two frames and ~1.4 s the veil's own raster.
+- `stagedBuild` under manual time (`advanceTime` has stopped the frame loop) now yields between stages
+  with `setTimeout(0)` - like a hidden tab - and draws neither warm-up frame; `renderer.compile` and the
+  program pinning still run. A second press still lands on a pending build. Snapshot `render.frames`
+  counts the post chain's frames; `loading.spec.ts` holds a rebuild under the driver's clock to zero of
+  them.
+- The veil on a software rasteriser (`veil-plain`, from the reduced post chain): no fog layers in the
+  document, a flat background, no vignette, glows or shadows. `loading.spec.ts` checks the class follows
+  `render.quality`.
+- The four floor-independent atmosphere textures (banner cloth, waterfall sheet, halo glow, contact
+  pool) are built once per session (`dungeon-atmosphere.ts`) and no longer re-drawn, re-uploaded and
+  mipmapped per floor. Per-floor textures are now exactly the shore mask and the paving's grime mask.
+  The brief's "~10 MB across six textures per reset" does not match the code (those six are ~1-3 MB,
+  mostly the two masks); the six 640 px stone maps would be 9.8 MB but are module-cached and nothing
+  re-versions them - worth re-checking the trace's attribution before chasing uploads further.
+- Harness: `Game.open`, `figure-mask.ts` and `frame-clock.spec.ts` wait for the hooks and the veil
+  with `WARM_UP` rather than 25 s; `smoke`, `frame-clock` and the isolated `models` describe get the
+  `120 s + WARM_UP` ceiling `loading.spec.ts` already had; `built()` polls at 50-250 ms instead of
+  100-1000 ms.
+- Not run locally (by request): CI is the check. Gates run: typecheck, lint, `npm test` (176/176).

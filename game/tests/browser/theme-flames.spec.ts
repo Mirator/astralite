@@ -52,7 +52,7 @@ const standWithWindup = async (game: Game) => {
 test.describe('a brazier attaches its owning room\'s theme, not the floor\'s', () => {
   test.use({ seeds: [0x1] });
 
-  test('theme, source count and the core/body proportion all come from floor.rooms[prop.room]', async ({ game }) => {
+  test('theme and source count come from floor.rooms[prop.room], and every flame stands above its bowl', async ({ game }) => {
     await game.enter();
     const floor = await game.floor();
     await game.step(SETTLE);
@@ -70,36 +70,9 @@ test.describe('a brazier attaches its owning room\'s theme, not the floor\'s', (
       'a brazier is burning a theme other than the one its own room declares - fire RGB or the camera room leaked in',
     ).toEqual(expectedThemes);
 
-    for (const f of state.graphics.flames) {
-      for (const [name, part] of [['body', f.body], ['core', f.core]] as const) {
-        expect(part.width, `${f.theme} ${name}: non-positive width`).toBeGreaterThan(0);
-        expect(part.height, `${f.theme} ${name}: non-positive height`).toBeGreaterThan(0);
-        expect(part.depth, `${f.theme} ${name}: non-positive depth`).toBeGreaterThan(0);
-      }
-      // Core is at most 65% of body height everywhere - never a white cap. Width/depth are 45-55%
-      // of the body for `keep` and `flooded`, whose bodies have one peak and "width" cleanly means
-      // how far that peak's own mass reaches. `ruins` is exempted from that specific number: its
-      // body's width is mostly the gap BETWEEN its two peaks, not either peak's own size, and a core
-      // held to the same 45-55% would have to pull the two peaks toward each other by that same
-      // factor - which is exactly the "one spike, not two tongues" bug this shape was rebuilt to fix
-      // (see the comment on `ruinsFlame`). It still has to be visibly smaller than the body on every
-      // axis and never merely a re-tinted copy of it.
-      const widthRatio = f.core.width / f.body.width, depthRatio = f.core.depth / f.body.depth;
-      const heightRatio = f.core.height / f.body.height;
-      expect(heightRatio, `${f.theme}: core is ${(heightRatio * 100).toFixed(0)}% of body height`).toBeLessThanOrEqual(0.66);
-      if (f.theme === 'ruins') {
-        expect(widthRatio, `${f.theme}: core is as wide as its own body, not a smaller hot centre`).toBeLessThan(0.95);
-        expect(widthRatio, `${f.theme}: core has collapsed to almost nothing`).toBeGreaterThan(0.3);
-        expect(depthRatio, `${f.theme}: core is as deep as its own body`).toBeLessThan(0.95);
-      } else {
-        expect(widthRatio, `${f.theme}: core is ${(widthRatio * 100).toFixed(0)}% of body width`).toBeGreaterThan(0.4);
-        expect(widthRatio, `${f.theme}: core is ${(widthRatio * 100).toFixed(0)}% of body width`).toBeLessThan(0.6);
-        expect(depthRatio, `${f.theme}: core is ${(depthRatio * 100).toFixed(0)}% of body depth`).toBeGreaterThan(0.4);
-        expect(depthRatio, `${f.theme}: core is ${(depthRatio * 100).toFixed(0)}% of body depth`).toBeLessThan(0.6);
-      }
-      // Never below the bowl rim, even at whatever extreme this instant's breathing/bob reached.
-      expect(f.body.y, `${f.theme} body base sits below the bowl rim`).toBeGreaterThanOrEqual(1.03);
-    }
+    // The flames are billboards now (plan 014), not the solid body and core the shape checks used to
+    // measure, so what is left to ask of each one is where it was planted: never below the bowl rim.
+    for (const f of state.graphics.flames) expect(f.y, `${f.theme} flame sits below the bowl rim`).toBeGreaterThanOrEqual(1.03);
   });
 
   test('the same instant redraws identically, and pausing freezes every source\'s pose', async ({ game }) => {

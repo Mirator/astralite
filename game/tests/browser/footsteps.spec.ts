@@ -389,7 +389,11 @@ test.describe('the surface decides the feedback', () => {
     await game.reset([SEED]);
     const repeat = await run(async () => { for (let i = 0; i < 25; i++) await game.step(16); });
     expect(repeat.feet, 'an identical run did not replay the identical footfalls').toEqual(fine.feet);
-    expect({ geometries: repeat.render.geometries, textures: repeat.render.textures }, 'repeat runs grew GPU resources').toEqual({ geometries: fine.render.geometries, textures: fine.render.textures });
+    // A leak only ever grows. The first run can hold a couple of geometries more than a run made after
+    // `reset`, because it inherits whatever the pooled page had already drawn before this scenario began
+    // (three.js uploads geometry the first time it is on screen), so equality would fail on a shrink too.
+    expect(repeat.render.geometries, 'repeat runs grew GPU geometries').toBeLessThanOrEqual(fine.render.geometries);
+    expect(repeat.render.textures, 'repeat runs grew GPU textures').toBeLessThanOrEqual(fine.render.textures);
   });
 
   // One scenario per theme on the pooled page, so no single test carries every theme's draws.

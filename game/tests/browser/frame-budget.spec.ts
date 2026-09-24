@@ -1,4 +1,5 @@
 import {
+  CAPTURING,
   expect,
   type Game,
   openSpot,
@@ -185,5 +186,47 @@ test.describe('the moment of contact', () => {
       'the frame this budget covers is not inside a swing',
     ).toBeGreaterThan(0);
     await spend(game, 'strike-contact');
+  });
+});
+
+/**
+ * three.js compiles the number of point lights into every lit shader and unrolls its light loop once per
+ * light. When the art pass gave every sconce and lantern its own light, each program grew dozens of times
+ * over (a 44 s cold compile for 57 programs under d3d11), every lit pixel paid for all of them, and a floor
+ * with a different sconce count recompiled everything on the way down. The atmosphere now lays out light
+ * anchors and a fixed pool is lent to the nearest: the count is the same small number on every floor.
+ */
+test.describe('the light budget', () => {
+  test.use({ seeds: [0x60] });
+  test('every floor draws with the same small, fixed set of point lights', async ({ game }) => {
+    const counts: number[] = [];
+    for (const level of [1, 2, 3]) {
+      await game.buildFloor(level);
+      await game.step(16, true);
+      counts.push((await game.state()).render.pointLights);
+    }
+    expect(counts[0], 'more point lights than the torches, the fill and the anchor pool').toBeLessThanOrEqual(9);
+    expect(counts, 'a floor changed the point-light count, which recompiles every lit shader').toEqual([counts[0], counts[0], counts[0]]);
+  });
+
+  test('a rebuild reuses the shader programs the last floor compiled instead of recompiling them', async ({ game }) => {
+    const programs: number[] = [];
+    for (const level of [1, 2, 3, 1]) {
+      await game.buildFloor(level);
+      await game.step(16, true);
+      programs.push((await game.state()).render.programs);
+    }
+    // three.js destroys a program when its last material is disposed, and every rebuild disposes the old
+    // floor's materials - so without pinning the count dips after each rebuild and the same programs compile
+    // again, seconds of stall per floor under software GL.
+    for (let i = 1; i < programs.length; i++) expect(programs[i], `rebuild ${i} dropped compiled programs: ${programs.join(' -> ')}`).toBeGreaterThanOrEqual(programs[i - 1]);
+    // And a floor already seen compiles nothing: a cache key that changes per build (a texture uuid in
+    // it, once) makes a new program on every rebuild, and pinning would then keep every one of them.
+    expect(programs[3], `building floor 1 again compiled new programs: ${programs.join(' -> ')}`).toBe(programs[2]);
+  });
+
+  test('a software rasteriser draws the reduced post chain, a GPU the full one', async ({ game }) => {
+    await game.step(16, true);
+    expect((await game.state()).render.quality).toBe(CAPTURING ? 'full' : process.env.GAME_TEST_GL ? 'full' : 'reduced');
   });
 });

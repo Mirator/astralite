@@ -54,6 +54,18 @@ export const countChangedPixels = (a: Uint8ClampedArray, b: Uint8ClampedArray, t
 export const CAPTURING = process.env.GAME_TEST_CAPTURE === '1';
 
 /**
+ * How long anything that waits for the keep to be *on screen* may take, as opposed to merely built.
+ * The window hooks go up the moment floor 1 exists, but the loading veil stays until every shader is
+ * linked and a frame has been presented. On a cold shader cache (a fresh profile, which every isolated
+ * scenario is) that warm-up measured ~10 s under d3d11 once the point lights were capped, and software
+ * rendering on CI is slower still. The veil covering it is the point of the loading screen, so waits
+ * that span it get this budget rather than the 25 s default - and so does the wait for the hooks on a
+ * fresh page, which lands before the compile but after a module load and a first floor that a sibling
+ * worker's software-rasterised frames can starve well past 25 s.
+ */
+export const WARM_UP = 90_000;
+
+/**
  * Boot a page per test the way this suite did before pooling, rather than resetting one the worker
  * already has. Twelve of the fifteen seconds a scenario used to cost were that boot - module load, a
  * WebGL context and a first floor - paid eighty-five times for a page every test threw away.
@@ -200,6 +212,12 @@ export type Snapshot = {
     textures: number;
     calls: number;
     triangles: number;
+    /** Frames the post chain has drawn since the mount. Under manual time only `step(ms, true)` moves it. */
+    frames: number;
+    /** Point lights in the scene. Fixed by design: the count is compiled into every lit shader. */
+    pointLights: number;
+    programs: number;
+    quality: 'full' | 'reduced';
   };
   /** Live effect pools. `footsteps` is plan 008's contact feedback: particles alive, whether the batch
    * is drawn, contacts emitted, phase crossings seen, crossings skipped for want of stone support, per
@@ -250,12 +268,11 @@ export type Snapshot = {
   /** What the floor's own motif geometry actually attached, not a recomputation of the planner. */
   graphics: {
     motifs: { room: number; theme: 'keep' | 'ruins' | 'flooded' }[];
-    /** Every brazier's actual attached theme and body/core bounds, read off the live mesh and its
-     * current pose - not the design table in `dungeon-flame.ts` recomputed from scratch. */
+    /** Every brazier's actual attached theme and the height its billboard flame is planted at, read
+     * off the live scene - not the design table in `dungeon-flame.ts` recomputed from scratch. */
     flames: {
       theme: 'keep' | 'ruins' | 'flooded';
-      body: { width: number; height: number; depth: number; y: number };
-      core: { width: number; height: number; depth: number };
+      y: number;
     }[];
     /** Realized macro paving (plan 006), derived from the actual batches rather than recomputed. */
     paving: { pairs: number; settled: number; surfaceCells: number };
@@ -509,13 +526,19 @@ export class Game {
         value: pinnedDraw,
       });
     }, seeds);
-    await page.goto('/');
+    // Reference frames stay at full quality: the baseline was drawn with the whole post chain on SwiftShader.
+    await page.goto(CAPTURING ? '/?quality=full' : '/');
+    // The hooks go up as soon as floor 1 exists, before the cold compile - but a fresh page on CI
+    // shares its cores with a sibling worker's software-rasterised frames, and the 25 s default has
+    // timed out here on three isolated specs in one run. This is a boot, so it gets the boot's budget.
     await page.waitForFunction(
       () => typeof (window as GameWindow).render_game_to_text === 'function',
+      undefined,
+      { timeout: WARM_UP },
     );
     // The hook goes up a render before the veil comes down, so a scenario that
     // looked at the screen straight away could catch the tail of the boot wait.
-    await page.locator('.loading-veil').waitFor({ state: 'detached' });
+    await page.locator('.loading-veil').waitFor({ state: 'detached', timeout: WARM_UP });
     // Manual time before anything else: the rAF loop stops on the first call,
     // so every later assertion reads a simulation this test stepped itself.
     await game.step(0);
@@ -816,8 +839,11 @@ export class Game {
   async enter() {
     const enterButton = this.page.locator('.intro-screen .primary-action');
     await expect(enterButton).toBeEnabled();
-    await enterButton.click();
-    await expect(this.page.locator('.intro-screen')).toBeHidden();
+    // A freshly booted page may still be inside its one synchronous warm-up compile, and a click cannot land
+    // until the main thread comes back - on SwiftShader that outlasts the default action timeout.
+    await enterButton.click({ timeout: WARM_UP });
+    // A page whose floor 1 is built but still warming answers the press behind the veil.
+    await expect(this.page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
   }
 
   /**
@@ -827,9 +853,14 @@ export class Game {
    * the veil needs to paint and the build that happens between them.
    */
   async built() {
+    // Under a driver's clock the build yields between stages but waits on no frames, so it is over in
+    // a few tasks plus the build itself; the default poll (100, 250, 500, then every second) would
+    // then charge most of a second of pure waiting to each of the two resets a pooled scenario makes.
     await expect
       .poll(() => this.state().then((state) => state.building), {
         message: 'the floor build behind the loading veil never finished',
+        intervals: [50, 100, 100, 250, 250, 500],
+        timeout: WARM_UP,
       })
       .toBe(false);
   }
