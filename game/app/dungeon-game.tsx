@@ -2151,6 +2151,9 @@ export default function DungeonGame() {
       reset: (seed) => {
         hasStarted = false; setStarted(false); setCapturing(null); enterWhenBuilt = false; setEntering(false);
         elapsed = 0; runStart = 0; floorStart = 0; activeRoom = 0;
+        // A fresh page has never seen the cursor. The veil used to clear this by covering the canvas for a few
+        // frames (Chrome then sends it a pointerleave), but a reset under the driver's clock draws none.
+        pointerNdc = null; aimDevice = 'keys';
         // Before restart, which places the knight on the new floor's start tile: this puts the rig
         // back, not the body.
         restPose.forEach((rest, o) => { o.position.copy(rest.p); o.rotation.copy(rest.r); });
