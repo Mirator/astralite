@@ -1,18 +1,20 @@
 import { expect, test } from './helpers.ts';
 
 /**
- * The HUD is vitality and rank only: the strike/dash icon row and its keycaps read as an overlay on the
- * painted scene and were taken out. The knight and the guards carry no outline pass either, and the
- * camera sits a fifth further out than the tight Plan 014 framing.
+ * Nothing flat sits over the painted scene but the HUD itself: the blurred foreground silhouettes that
+ * used to frame the corners (statue, column, reeds, banner) read as a pasted-on cutout and were taken
+ * out, while the strike/dash icons and their keycaps stay. The knight and the guards carry no outline
+ * pass, and the camera sits a fifth further out than the tight Plan 014 framing.
  */
-test('the HUD carries no ability icons, figures carry no outline, and the camera sits a fifth wider', async ({ game, page }) => {
+test('no foreground silhouettes or figure outlines, the ability row stays, and the camera sits a fifth wider', async ({ game, page }) => {
   await game.enter();
   await game.step(100);
 
+  await expect(page.locator('.foreground-frame')).toHaveCount(0);
   const hud = page.getByRole('region', { name: 'Player status' });
   await expect(hud.getByRole('progressbar', { name: 'Vitality' })).toBeVisible();
-  await expect(hud.locator('kbd')).toHaveCount(0);
-  await expect(page.locator('.ability-row, .ability-icon')).toHaveCount(0);
+  await expect(hud.getByRole('progressbar', { name: 'Dash readiness' })).toBeVisible();
+  await expect(hud.locator('kbd.keycap')).toHaveCount(2);
 
   const state = await game.state();
   expect(state.render.passes).not.toContain('OutlinePass');

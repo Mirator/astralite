@@ -94,6 +94,12 @@ const keyLabel = (code: string) => code.startsWith('Key') || code.startsWith('Di
 // Deduplicated after labelling, not before: the two shift keys are distinct codes and one legend, and
 // "Shift / Shift" tells a player nothing except that the card is not thinking.
 const bindLabel = (codes: string[], join = ' / ') => [...new Set(codes.map(keyLabel))].join(join);
+// Plan 014 round 8 (lever 5): the ability row's own keycap reads a full key name ("Space", "Shift")
+// at 9px under a 32px diamond - the "unstyled dev placeholder" the critic named. A real keycap is
+// engraved with an abbreviation, not the key's full name, so this shortens the same label `bindLabel`
+// already produces rather than replacing it - settings and the controls legend keep the full word.
+const KEYCAP_GLYPH: Record<string, string> = { Space: 'SPC', Shift: '⇧', Control: '⌃', Alt: '⌥', Enter: '⏎', Escape: 'ESC', Tab: '⇥' };
+const keycapLabel = (codes: string[]) => [...new Set(codes.map(keyLabel))].map((l) => KEYCAP_GLYPH[l] ?? (l.length > 4 ? l.slice(0, 3).toUpperCase() : l.toUpperCase())).join('/');
 // Hydration never changes back, so there is nothing to subscribe to.
 const noSubscription = () => () => {};
 
@@ -169,10 +175,6 @@ export default function DungeonGame() {
   const applyRef = useRef<((settings: Settings, reduceMotion: boolean) => void) | null>(null);
   const reduceMotion = settings.reducedMotion ?? osReduce;
   const [roomName, setRoomName] = useState('The Tide Gate'), [plundered, setPlundered] = useState(0);
-  // Plan 014 round A: which family of foreground silhouettes frames the view - it follows the same
-  // chamber theme the lights do, so a keep hall, a ruined court and a flooded hall are no longer all
-  // framed by the one identical statue.
-  const [frameTheme, setFrameTheme] = useState<keyof typeof ROOM_MOOD>('keep');
   const [advance, setAdvance] = useState(0);
   const [notice, setNotice] = useState(''), [, setNoticeDetail] = useState(''), [ready, setReady] = useState(false);
   // What the keep is busy doing while the player waits on it, or null when it is not busy. Only ever set
@@ -197,6 +199,10 @@ export default function DungeonGame() {
   const [menuView, setMenuView] = useState<'main' | 'controls' | 'settings'>('main');
   const returnTo = useRef<string | null>(null);
   const dashMeter = useRef<HTMLProgressElement>(null);
+  // Plan 014 round 5 (lever C8): the dash icon's own radial sweep, driven the same imperative way the
+  // old `<progress>` was - one DOM write a frame from the render loop, no React state and no re-render
+  // for something that changes sixty times a second.
+  const dashSweep = useRef<HTMLDivElement>(null);
   const [displayLost, setDisplayLost] = useState(false), [floorBuild, setFloorBuild] = useState(0);
   // Deliberately not the same flag as displayLost: that is a context taken away mid-descent and handed
   // back, this is one never granted, so there is no run to pause and nothing that could restore it.
@@ -562,7 +568,6 @@ export default function DungeonGame() {
         const id = floor.roomByCell.get(cell) ?? -1;
         if (id >= 0) moodTheme = floor.rooms[id].theme;
         else { let best = Infinity; for (const r of floor.rooms) { const d = (r.x - cx) ** 2 + (r.z - cz) ** 2; if (d < best) { best = d; moodTheme = r.theme; } } }
-        setFrameTheme(moodTheme);
       }
       const m = ROOM_MOOD[moodTheme], k = moodSnap ? 1 : rate; moodSnap = false;
       moodKey.lerp(moodTo.setHex(m.key), k); moodSky.lerp(moodTo.setHex(m.sky), k); moodGround.lerp(moodTo.setHex(m.ground), k);
@@ -2068,6 +2073,7 @@ export default function DungeonGame() {
       moon.position.copy(player.position).setY(0).add(MOONRISE); moon.target.position.set(player.position.x,0,player.position.z); moon.target.updateMatrixWorld();
       mapPlayer.current?.setAttribute('cx', String(player.position.x / TILE)); mapPlayer.current?.setAttribute('cy', String(player.position.z / TILE));
       if (dashMeter.current) dashMeter.current.value = Math.max(0,1-dashCooldown/run.dashSpan);
+      if (dashSweep.current) dashSweep.current.style.setProperty('--ready', String(Math.max(0,Math.min(1,1-dashCooldown/run.dashSpan))));
       const target = player.position.clone().addScaledVector(velocity,0.12); cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
       camera.position.set(cameraFocus.x + 9.2,12.5,cameraFocus.z + 11.5);
       // Reduced motion drops the shake outright: it is ~90 Hz camera translation that carries nothing the
@@ -2395,20 +2401,28 @@ export default function DungeonGame() {
   return (
     <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}${ready ? ' world-ready' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
-      {/* Plan 014, lever 10: dark, out-of-focus mass in two corners, the way the reference frames its
-          fight between foreground silhouettes rather than leaving the corners open floor. Decorative
-          only - it never reaches the centre of the frame or the HUD, and it steps aside on a touch
-          layout, where the same corners hold the real controls. */}
-      <div className={`foreground-frame fg-${frameTheme}`} aria-hidden="true"><i className="fg-left" /><i className="fg-chain" /><i className="fg-ivy" /><i className="fg-column" /><i className="fg-banner" /><i className="fg-arch" /><i className="fg-reeds" /></div>
       <header className="game-title"><span className="sigil" aria-hidden="true" /><div className="title-text"><b>{floorLevel} / {FLOORS} · {roomName}</b><i>{roomName === goalName ? 'Take the stair down' : `Reach ${goalName}`}</i></div></header>
       <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || paused || status !== 'playing' || boonChoice.length > 0} aria-label="Pause game">☰</button></nav>
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
       <section className="hud" aria-label="Player status"><div className="health-row"><span aria-hidden="true" /><b>{health}<small>/{maxHealth}</small></b><span className="rank-badge" aria-label={`Rank ${rank}`}>{rank}</span></div><div className="health-track" role="progressbar" aria-label="Vitality" aria-valuemin={0} aria-valuemax={maxHealth} aria-valuenow={health}><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div>
-        {/* The strike/dash icon row and its keycaps are gone: they read as a UI overlay on the painted
-            scene. The dash meter stays, off-screen, so a driver reading the value tree still has it. */}
-        <progress ref={dashMeter} max="1" value="1" className="visually-hidden" aria-hidden="true" tabIndex={-1} />
+        {/* Plan 014 round 5 (lever C8): the two abilities the knight actually has, each named by its
+            real bound key rather than a fixed legend - a rebind shows up here the same frame it shows
+            up on the settings card. The dash icon's own conic-gradient sweep is what used to be the
+            plain `<progress>` bar; `dashMeter` stays too, off-screen, so nothing that reads the
+            accessible value tree loses the plain 0-1 progressbar semantics a sweep can't carry alone. */}
+        <div className="ability-row">
+          <div className="ability"><div className="ability-icon strike-icon" aria-hidden="true"><span className="ability-glyph">⚔</span></div><kbd className="keycap"><span className="visually-hidden">{bindLabel(settings.binds.attack)}</span><span aria-hidden="true">{keycapLabel(settings.binds.attack)}</span></kbd></div>
+          <div className="ability">
+            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+            <div className="ability-icon dash-icon" role="progressbar" aria-label="Dash readiness" aria-valuemin={0} aria-valuemax={1}>
+              <div className="dash-sweep" ref={dashSweep} /><span className="ability-glyph">»</span>
+            </div>
+            <kbd className="keycap"><span className="visually-hidden">{bindLabel(settings.binds.dash)}</span><span aria-hidden="true">{keycapLabel(settings.binds.dash)}</span></kbd>
+          </div>
+          <progress ref={dashMeter} max="1" value="1" className="visually-hidden" aria-hidden="true" tabIndex={-1} />
+        </div>
         {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
         {ammo && <div className="quiver" role="progressbar" aria-label="Bolts in hand" aria-valuemin={0} aria-valuemax={ammo.of} aria-valuenow={ammo.held}>{Array.from({ length: ammo.of }, (_, i) => <i key={i} className={i < ammo.held ? 'held' : ''} />)}</div>}<progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} /></section>
       {floorMap && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action(mapOpen ? 'pause' : 'map')} aria-label={mapOpen ? 'Close floor map' : 'Open floor map'}><svg key={floorBuild} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g transform={`rotate(${mapAngle*180/Math.PI})`}>

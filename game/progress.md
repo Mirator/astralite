@@ -2370,14 +2370,15 @@ Gates: typecheck, lint, `npm test` (176/176), the PR-gate browser subset under `
 - Not run locally (by request): CI is the check. Gates run: typecheck, lint, `npm test` (176/176).
 
 
-## 2026-09-24 - HUD icons, figure outlines and camera zoom
+## 2026-09-24 - Foreground silhouettes, figure outlines and camera zoom
 
-- **HUD**: the strike/dash diamond icons and their keycaps are gone; the HUD is the vitality bar,
-  rank badge and XP track. The dash meter survives only as the off-screen `<progress>`, so dash
-  readiness is no longer visible - a deliberate departure from the "dash readiness on screen" rule.
+- **Foreground frame**: the blurred CSS/SVG silhouettes laid over the corners (keep statue and chain,
+  ruins column, flooded banner/arch/reeds, ivy) are gone, with the `frameTheme` state that picked them.
+  Plan 014 had reworked them five times against "pasted-on cutout" notes; they never moved with the
+  camera or took the room's light. The strike/dash ability row is unchanged.
 - **Outlines**: both `OutlinePass`es (dark ink edge, warm rim) are removed from the post chain; the
-  knight and enemies are no longer bordered. Two fewer scene mask/depth passes per frame.
+  knight and enemies are no longer bordered. Two fewer scene mask/depth passes per frame. Dark-armoured
+  wardens lose some separation from dark stone.
 - **Camera**: ortho span eased out 20% (desktop 4.3 -> 5.16, phone 3.76 -> 4.51).
-- New `tests/browser/hud.spec.ts`; the state text reports `render.passes`. Gates: typecheck, lint,
-  `npm test` (176/176), PR-gate browser suite on d3d11 (106 passed, 2 skipped). Reference frames not
-  re-captured - `output/shots/baseline/` is now stale for framing and figure edges.
+- New `tests/browser/hud.spec.ts`; the state text reports `render.passes`. Reference frames not
+  re-captured - `output/shots/baseline/` is now stale for framing, corners and figure edges.
