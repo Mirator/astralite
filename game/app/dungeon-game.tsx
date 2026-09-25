@@ -175,10 +175,6 @@ export default function DungeonGame() {
   const applyRef = useRef<((settings: Settings, reduceMotion: boolean) => void) | null>(null);
   const reduceMotion = settings.reducedMotion ?? osReduce;
   const [roomName, setRoomName] = useState('The Tide Gate'), [plundered, setPlundered] = useState(0);
-  // Plan 014 round A: which family of foreground silhouettes frames the view - it follows the same
-  // chamber theme the lights do, so a keep hall, a ruined court and a flooded hall are no longer all
-  // framed by the one identical statue.
-  const [frameTheme, setFrameTheme] = useState<keyof typeof ROOM_MOOD>('keep');
   const [advance, setAdvance] = useState(0);
   const [notice, setNotice] = useState(''), [, setNoticeDetail] = useState(''), [ready, setReady] = useState(false);
   // What the keep is busy doing while the player waits on it, or null when it is not busy. Only ever set
@@ -430,14 +426,12 @@ export default function DungeonGame() {
     mount.appendChild(renderer.domElement);
     const camera = new THREE.OrthographicCamera(-8, 8, 5, -5, 0.1, 70);
     camera.position.set(10, 13, 13); camera.lookAt(0, 0, 0);
-    // Plan 014, lever 3: bloom (flames, eyes, the THREAT/COMMIT marks, the water's own glow), dark
-    // outlines on every living figure, a teal-shadow/orange-highlight grade, a tilt-shift blur and a
+    // Plan 014, lever 3: bloom (flames, eyes, the THREAT/COMMIT marks, the water's own glow), a
+    // teal-shadow/orange-highlight grade, a tilt-shift blur and a
     // vignette - see dungeon-post.ts for why no OutputPass follows it.
     const post = createPostChain(renderer, scene, camera, mount.clientWidth || 1, mount.clientHeight || 1, postQuality(renderer, window.location.search));
     setPlainVeil(post.quality === 'reduced');
     const flameKeeper = flameShaderKeeper(); scene.add(flameKeeper);
-    const outlineTargets: THREE.Object3D[] = [];
-    const updateOutline = () => { outlineTargets.length = 0; outlineTargets.push(player); for (const enemy of enemyData) if (!enemy.dead) outlineTargets.push(enemy.group); post.setOutline(outlineTargets); };
     // Ambient is the enemy of a lit pool: it paid for every unlit corner, so a brazier could only ever
     // read as a decal on an already-bright floor. Half of it moves into the moon, which models form
     // instead of flattening it, and the rest is bought back by the torches below.
@@ -574,7 +568,6 @@ export default function DungeonGame() {
         const id = floor.roomByCell.get(cell) ?? -1;
         if (id >= 0) moodTheme = floor.rooms[id].theme;
         else { let best = Infinity; for (const r of floor.rooms) { const d = (r.x - cx) ** 2 + (r.z - cz) ** 2; if (d < best) { best = d; moodTheme = r.theme; } } }
-        setFrameTheme(moodTheme);
       }
       const m = ROOM_MOOD[moodTheme], k = moodSnap ? 1 : rate; moodSnap = false;
       moodKey.lerp(moodTo.setHex(m.key), k); moodSky.lerp(moodTo.setHex(m.sky), k); moodGround.lerp(moodTo.setHex(m.ground), k);
@@ -849,10 +842,10 @@ export default function DungeonGame() {
       // behind the veil, the second is the floor that is on screen when it lifts. A driver that owns the
       // clock draws when it asks to and sees nothing until then, so under manual time neither is drawn -
       // a full scene pass twice per reset was the largest single cost of a pooled test on software GL.
-      if (!manualTime) { updateOutline(); post.render(elapsed); }
+      if (!manualTime) { post.render(elapsed); }
       setVeilStage(4);
       await painted(); if (stopped) return false;
-      if (!manualTime) { updateOutline(); post.render(elapsed); }
+      if (!manualTime) { post.render(elapsed); }
       setVeilStage(5);
       await painted();
       return !stopped;
@@ -2287,7 +2280,7 @@ export default function DungeonGame() {
       manualTime = true;
       const steps = Math.max(1, Math.ceil(ms / (1000 / 60)));
       for (let i = 0; i < steps; i++) update(ms / steps / 1000);
-      if (draw) { updateOutline(); post.render(elapsed); }
+      if (draw) { post.render(elapsed); }
     };
     const renderText = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
@@ -2296,7 +2289,7 @@ export default function DungeonGame() {
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
-      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })(), programs: (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0, quality: post.quality },
+      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })(), programs: (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0, quality: post.quality },
       effects: { impacts: impacts.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.
@@ -2324,13 +2317,14 @@ export default function DungeonGame() {
       if (stopped) return; raf = requestAnimationFrame(animate);
       // rAF timestamps describe the frame start, which can precede effect setup.
       // Establish the clock on the first callback so startup cannot run time backwards.
-      if (built && warmed && !manualTime && !document.hidden) { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); updateOutline(); post.render(elapsed); }
+      if (built && warmed && !manualTime && !document.hidden) { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); post.render(elapsed); }
       last = now;
     };
     raf = requestAnimationFrame(animate);
     // Plan 014: zoomed in close to the reference's framing - the knight fills much more of the
     // frame than the old 7.2/6.3 span left him. Ratio kept the same between the two breakpoints.
-    const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 3.76 : 4.3; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); };
+    // Then eased back out a fifth twice (4.3/3.76 -> 5.16/4.51 -> 6.19/5.41): the tight frame hid too much of the room.
+    const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 5.41 : 6.19; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); };
     window.addEventListener('resize', resize); resize();
     // The keep is raised two frames after the mount rather than inside it, so the hydrated menu gets a frame
     // on screen first: its button is live, and a press that lands while the build is still ahead of it
@@ -2407,11 +2401,6 @@ export default function DungeonGame() {
   return (
     <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}${ready ? ' world-ready' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
-      {/* Plan 014, lever 10: dark, out-of-focus mass in two corners, the way the reference frames its
-          fight between foreground silhouettes rather than leaving the corners open floor. Decorative
-          only - it never reaches the centre of the frame or the HUD, and it steps aside on a touch
-          layout, where the same corners hold the real controls. */}
-      <div className={`foreground-frame fg-${frameTheme}`} aria-hidden="true"><i className="fg-left" /><i className="fg-chain" /><i className="fg-ivy" /><i className="fg-column" /><i className="fg-banner" /><i className="fg-arch" /><i className="fg-reeds" /></div>
       <header className="game-title"><span className="sigil" aria-hidden="true" /><div className="title-text"><b>{floorLevel} / {FLOORS} · {roomName}</b><i>{roomName === goalName ? 'Take the stair down' : `Reach ${goalName}`}</i></div></header>
       <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || paused || status !== 'playing' || boonChoice.length > 0} aria-label="Pause game">☰</button></nav>
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native

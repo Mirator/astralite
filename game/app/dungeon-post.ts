@@ -27,7 +27,6 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutlinePass } from 'three/addons/postprocessing/OutlinePass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
@@ -165,10 +164,9 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
   // for standing close to another one, only for standing in shadow of a light. GTAO is a genuine
   // ambient-occlusion term (screen-space, from the depth+normal buffer this pass renders for itself),
   // not a fake contact-shadow decal, so it darkens exactly the concave corners a painted scene's own
-  // eye would - and nowhere else. It runs here, right after `RenderPass` and before either outline
-  // pass, because it is a multiplicative term on incoming radiance (occlusion attenuates light, it
+  // eye would - and nowhere else. It runs here, right after `RenderPass` and before bloom, because it is a multiplicative term on incoming radiance (occlusion attenuates light, it
   // does not tint or tone-map it) - correct on the linear HDR `RenderPass` just wrote, same reasoning
-  // as bloom below, and safely before the outline passes read the buffer for their own edge work.
+  // as bloom below.
   // Radius is in world units, not pixels: this game's orthographic camera holds roughly a 16x10 unit
   // frustum on screen (`new THREE.OrthographicCamera(-8,8,5,-5,...)`), and a tile is 1 unit - so 0.6
   // reaches a little under a tile's width, enough to shade a grout line or a wall base without the
@@ -193,32 +191,8 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
     });
   };
   composer.addPass(gtaoPass);
-  // Dark, tight outlines on the knight and every living enemy - the reference's inked figures
-  // against a painted field. `selectedObjects` is replaced wholesale each frame from the live actor
-  // list rather than mutated, which is the array `setOutline` already hands over.
-  const outlinePass = new OutlinePass(new THREE.Vector2(width, height), scene, camera);
-  outlinePass.edgeStrength = 5.5;
-  outlinePass.edgeGlow = 0;
-  outlinePass.edgeThickness = 1.4;
-  outlinePass.visibleEdgeColor.setHex(0x05070a);
-  outlinePass.hiddenEdgeColor.setHex(0x05070a);
-  outlinePass.pulsePeriod = 0;
-  composer.addPass(outlinePass);
-  // Plan 014 round 2 (lever D10): a second, thin, warm-bright rim beside the dark ink one - the
-  // reference's figures carry a lit edge that separates them from the floor as well as the dark
-  // outline that separates them from the background. Same selection, updated in the same call.
-  const rimPass = new OutlinePass(new THREE.Vector2(width, height), scene, camera);
-  // Plan 014 round 2: this ran at 2.6/0.4 in a first pass and read as a cartoon selection-highlight -
-  // a bright, glowing line around every body, including ones standing in near-total dark where the
-  // rim was the only thing left of them at all. Turned down hard: a faint warm accent on the lit
-  // side of a figure, not a second light source of its own.
-  rimPass.edgeStrength = 0.9;
-  rimPass.edgeGlow = 0;
-  rimPass.edgeThickness = 1;
-  rimPass.visibleEdgeColor.setHex(0xffce9a);
-  rimPass.hiddenEdgeColor.setHex(0x000000);
-  rimPass.pulsePeriod = 0;
-  composer.addPass(rimPass);
+  // No outline passes: the dark ink edge and the warm rim OutlinePass drew around the knight and every
+  // living enemy read as a selection border, not as part of the painting, and they were removed.
   // Bloom runs here, on the raw linear HDR `RenderPass` wrote - see the header comment. The threshold
   // is a linear radiance value now, not a display-referred one: an ordinary lit stone face sits well
   // under 1 even close to a torch, and only an actual light source, an emissive (fire, eyes, the
@@ -250,11 +224,10 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
   const uniforms = gradePass.uniforms as typeof GRADE_SHADER.uniforms;
   uniforms.uResolution.value.set(width, height);
   // On a CPU rasteriser the scene pass alone costs tens of milliseconds, and GTAO (its own normal/depth
-  // pre-pass), the two outline passes (a depth and a mask pass of the scene each) and bloom's mip chain
-  // multiply it several times over - an unplayable frame for a player whose GPU is blocked, and most of
+  // pre-pass) and bloom's mip chain multiply it several times over - an unplayable frame for a player whose GPU is blocked, and most of
   // the browser suite's time on CI. The reduced chain keeps the tone map and the grade, so colour stays
-  // where it was; it loses the contact shading, the inked figures and the glow.
-  if (quality === 'reduced') for (const pass of [gtaoPass, outlinePass, rimPass, bloomPass]) pass.enabled = false;
+  // where it was; it loses the contact shading and the glow.
+  if (quality === 'reduced') for (const pass of [gtaoPass, bloomPass]) pass.enabled = false;
 
   // three.js destroys a shader program the moment the last material using it is disposed. A floor
   // rebuild disposes the old floor's materials before the new floor draws, so every identical program was
@@ -276,18 +249,13 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
     pinPrograms,
     get frames() { return frames; },
     bloomPass,
-    outlinePass,
-    rimPass,
     gtaoPass,
     resize(w: number, h: number) {
       composer.setSize(w, h);
       gtaoPass.setSize(w, h);
       bloomPass.setSize(w, h);
-      outlinePass.setSize(w, h);
-      rimPass.setSize(w, h);
       uniforms.uResolution.value.set(w, h);
     },
-    setOutline(objects: THREE.Object3D[]) { outlinePass.selectedObjects = objects; rimPass.selectedObjects = objects; },
     /** Draw calls and triangles of the last frame's scene pass - what the frame actually submitted for
      * the world, without the post chain's own full-screen passes. */
     sceneCost,
@@ -302,8 +270,6 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
     dispose() {
       gtaoPass.dispose();
       bloomPass.dispose();
-      outlinePass.dispose();
-      rimPass.dispose();
       gradePass.dispose();
       composer.dispose();
     },

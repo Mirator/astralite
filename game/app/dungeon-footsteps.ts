@@ -243,9 +243,13 @@ export function footstepEffects(capacity = FOOTSTEP_CAPACITY) {
         const travel = reduced ? REDUCED_FOOTSTEP.travel * 0.6 : pick(look.travel, r(4));
         const height = reduced ? REDUCED_FOOTSTEP.travel * 0.45 : pick(look.height, r(5));
         const shade = 0.94 + r(6) * 0.12;
+        // A reduced fleck barely rises, so born at the ground it sat under the boot's edge and drew almost
+        // nothing once the camera eased out. It starts where an ordinary fleck's lowest rise would take it;
+        // the start is not travel, so it moves no further than before.
+        const lift = reduced && !look.droplet ? look.height[0] : 0;
         Object.assign(slot, {
           alive: true, birth: ++births, droplet: look.droplet,
-          ox: at.x + hx * along - hz * lateral, oy: at.y + FOOTSTEP_LIFT, oz: at.z + hz * along + hx * lateral,
+          ox: at.x + hx * along - hz * lateral, oy: at.y + FOOTSTEP_LIFT + lift, oz: at.z + hz * along + hx * lateral,
           dx: Math.cos(angle), dz: Math.sin(angle), age: 0, life, travel, height,
           size: pick(look.size, r(7)),
           length: look.droplet && look.length ? pick(look.length, r(7)) : 0,
