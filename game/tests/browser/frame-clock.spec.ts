@@ -60,11 +60,16 @@ test('a paused frame is not redrawn in real time, and resumes drawing once unpau
   await expect.poll(frames, { message: 'the entered keep never drew a real frame', timeout: WARM_UP }).toBeGreaterThan(start);
   await pause();
   // The pause itself may still draw one more frame (see `dirty` in dungeon-game.tsx), and on software GL
-  // that frame can land late. The baseline is taken once two reads a quarter-second apart agree.
-  let paused = await frames();
-  await expect
-    .poll(async () => { const now = await frames(); const settled = now === paused; paused = now; return settled; }, { message: 'the paused frame count never settled', intervals: [250], timeout: 20_000 })
-    .toBe(true);
+  // that frame can land late. Counted in animation frames rather than read on a timer: the game's loop
+  // runs once in every one of them, so three in a row with no new draw means that frame is behind us.
+  // (A timed poll checks once straight away, so "two reads a quarter-second apart" were in fact two reads
+  // a few milliseconds apart, both taken before the pause's own frame drew - which then failed below.)
+  const paused = await page.evaluate(() => new Promise<number>((done) => {
+    const read = () => JSON.parse((window as GameWindow).render_game_to_text!()).render.frames as number;
+    let last = read(), quiet = 0;
+    const tick = () => { const now = read(); quiet = now === last ? quiet + 1 : 0; last = now; if (quiet >= 3) done(now); else requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }));
   await page.waitForTimeout(500);
   expect(await frames(), 'a paused frame was redrawn with nothing to show for it').toBe(paused);
 

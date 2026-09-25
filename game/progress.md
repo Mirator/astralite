@@ -2705,3 +2705,11 @@ ENTER click waited 12.5 s for "stable" and the Descend click 25 s, and closing t
    the frosted blur on the touch controls and swap prompt. The flat fills stay. Reference captures run
    at `?quality=full`, so they are unaffected. Regression: `hud.spec.ts` holds the class and the three
    computed styles against `render.quality`.
+
+**Follow-up in the same PR.** The first CI run went green on shards 1 and 2, progression included, with
+the diagnostic gone. Shard 3 then failed `frame-clock.spec.ts:47` at "a paused frame was redrawn" (10 ->
+11). The test settled its paused baseline with `expect.poll`, whose first check runs at once. So "two
+reads a quarter-second apart" were really two reads 15 ms apart, both taken before the pause's one allowed
+frame drew. It now counts animation frames instead: three in a row with no new draw. Locally, all 112
+scenarios in the gate set pass on SwiftShader at two workers, and frame-clock passes 9/9 with
+`--repeat-each=3`.
