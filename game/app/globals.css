@@ -417,6 +417,16 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 .loading-veil.veil-plain .veil-ring::before, .loading-veil.veil-plain .veil-ring::after, .loading-veil.veil-plain .veil-diamond, .loading-veil.veil-plain .veil-flame::before, .loading-veil.veil-plain .veil-flame-core::before,
 .loading-veil.veil-plain .veil-bar, .loading-veil.veil-plain .veil-bar::before, .loading-veil.veil-plain .veil-bar::after, .loading-veil.veil-plain .veil-bar i { box-shadow: none; }
 .loading-veil.veil-plain b { text-shadow: none; }
+/* The rest of the chrome on the same machine (`plain-chrome` on the shell, the same switch as `veil-plain`):
+   the blurs that are rastered or composited in software whenever a card opens, closes or changes - the
+   end screen's full-screen backdrop blur, the card's 100px drop shadow, the title's 45px text shadow, and
+   the frosted touch controls and swap prompt over a live canvas. On a software rasteriser each of them
+   was seconds of GPU-process time per repaint, queued ahead of the next animation frame. The flat fills
+   under them stay, so every card and control keeps its contrast. */
+.game-shell.plain-chrome .end-screen, .game-shell.plain-chrome .swap-prompt,
+.game-shell.plain-chrome .touch-stick .stick-base, .game-shell.plain-chrome .touch-pad button, .game-shell.plain-chrome .touch-actions button { backdrop-filter: none; }
+.game-shell.plain-chrome .end-card { box-shadow: none; }
+.game-shell.plain-chrome .intro-card h1 { text-shadow: none; }
 
 /* The menu. One column of items under the title, the way the start of a game reads, with ENTER THE KEEP
    first and heaviest. Controls and Settings open as pages of the same card, each with a way back, instead of
