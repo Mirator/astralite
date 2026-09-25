@@ -2323,8 +2323,8 @@ export default function DungeonGame() {
     raf = requestAnimationFrame(animate);
     // Plan 014: zoomed in close to the reference's framing - the knight fills much more of the
     // frame than the old 7.2/6.3 span left him. Ratio kept the same between the two breakpoints.
-    // Then eased back out by a fifth (4.3/3.76 -> 5.16/4.51): the tight frame hid too much of the room.
-    const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 4.51 : 5.16; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); };
+    // Then eased back out a fifth twice (4.3/3.76 -> 5.16/4.51 -> 6.19/5.41): the tight frame hid too much of the room.
+    const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 5.41 : 6.19; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); };
     window.addEventListener('resize', resize); resize();
     // The keep is raised two frames after the mount rather than inside it, so the hydrated menu gets a frame
     // on screen first: its button is live, and a press that lands while the build is still ahead of it

@@ -2379,6 +2379,12 @@ Gates: typecheck, lint, `npm test` (176/176), the PR-gate browser subset under `
 - **Outlines**: both `OutlinePass`es (dark ink edge, warm rim) are removed from the post chain; the
   knight and enemies are no longer bordered. Two fewer scene mask/depth passes per frame. Dark-armoured
   wardens lose some separation from dark stone.
-- **Camera**: ortho span eased out 20% (desktop 4.3 -> 5.16, phone 3.76 -> 4.51).
+- **Camera**: ortho span eased out 20% twice (desktop 4.3 -> 5.16 -> 6.19, phone 3.76 -> 4.51 -> 5.41),
+  most of the way back to the pre-Plan-014 7.2/6.3.
+- **Footsteps**: the reduced-motion fleck in the keep stopped registering on a phone once the camera
+  eased out (0-1 px changed at 4.51, 0 at 5.41): it barely rises, so it was born at floor level under the
+  boot's edge. It now starts at the ordinary fleck's lowest rise height, which is not travel, so its motion
+  is unchanged. It reads, just (2-3 px, peak delta 7 against a threshold of 3) - still the thinnest margin
+  in `footsteps.spec.ts`.
 - New `tests/browser/hud.spec.ts`; the state text reports `render.passes`. Reference frames not
   re-captured - `output/shots/baseline/` is now stale for framing, corners and figure edges.
