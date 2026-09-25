@@ -54,20 +54,22 @@ test('a paused frame is not redrawn in real time, and resumes drawing once unpau
   const pause = () => page.evaluate(() => window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'pause' })));
   const frames = () => page.evaluate(() => JSON.parse((window as GameWindow).render_game_to_text!()).render.frames as number);
 
-  // A few real frames first, so the frame count this test holds steady is not just the first one drawn.
-  await page.waitForTimeout(200);
+  // Real frames first, so the count this test holds steady is not just the first one drawn. Waited on
+  // rather than timed: on a software rasteriser one real frame can take longer than any fixed pause.
+  const start = await frames();
+  await expect.poll(frames, { message: 'the entered keep never drew a real frame', timeout: WARM_UP }).toBeGreaterThan(start);
   await pause();
-  // The pause itself may still draw one more frame (see `dirty` in dungeon-game.tsx) before the loop
-  // settles on the frozen picture; this waits that out before taking the baseline the 500ms wait is held
-  // against.
-  await page.waitForTimeout(100);
-  const paused = await frames();
+  // The pause itself may still draw one more frame (see `dirty` in dungeon-game.tsx), and on software GL
+  // that frame can land late. The baseline is taken once two reads a quarter-second apart agree.
+  let paused = await frames();
+  await expect
+    .poll(async () => { const now = await frames(); const settled = now === paused; paused = now; return settled; }, { message: 'the paused frame count never settled', intervals: [250], timeout: 20_000 })
+    .toBe(true);
   await page.waitForTimeout(500);
   expect(await frames(), 'a paused frame was redrawn with nothing to show for it').toBe(paused);
 
   await pause();
-  await page.waitForTimeout(200);
-  expect(await frames(), 'resuming did not start drawing again').toBeGreaterThan(paused);
+  await expect.poll(frames, { message: 'resuming did not start drawing again', timeout: 20_000 }).toBeGreaterThan(paused);
 });
 
 /**
