@@ -17,7 +17,7 @@ import { addAtmosphere, stoneTexture } from './dungeon-atmosphere';
 import { flameShaderKeeper } from './dungeon-flame-fx';
 import { createPostChain, postQuality } from './dungeon-post';
 import { bloodDecals } from './dungeon-blood';
-import { applyFloorDetail, applyStoneTextures, getFlagstoneTextures, getMasonryTextures } from './dungeon-textures';
+import { applyFloorDetail, applyStoneTextures, getFlagstoneTextures, getFlagstoneTexturesSteps, getMasonryTextures, getMasonryTexturesSteps } from './dungeon-textures';
 import { createDungeonAudio } from './dungeon-audio';
 import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidate } from './dungeon-occlusion';
 import { animateCloth, stoneMood, tideMood, tidalMaterial, weatherStone } from './dungeon-motion';
@@ -310,6 +310,11 @@ export default function DungeonGame() {
     // input, and anything holding a THREE object.
     let run = createRun();
     let stopped = false, attackTime = 0, dashTime = 0, dashCooldown = 0, hurtFlash = 0, shake = 0;
+    // Plan 015 Stage B: `animate` draws only when this is true, then clears it. Set wherever the picture
+    // can actually change while the frame loop is the one deciding whether to draw - which the paused/
+    // drafting/complete return inside `update` is not, since nothing past it ever runs. Starts true so
+    // the first frame after the keep is warm still paints.
+    let dirty = true;
     // What the knight is holding. Every number the swing used to hardcode now comes off this record,
     // so a second arm is a different record rather than a second code path.
     let weapon: Weapon = TIDEBLADE;
@@ -329,7 +334,7 @@ export default function DungeonGame() {
     // The closure's own handle on the same funnel the card uses — built here from a ref and a setState, both
     // stable for the life of the mount, so this effect stays dependency-free and the world is never rebuilt.
     const updateSettings = changeSettings(settingsRef, setSettings);
-    applyRef.current = (next, reduce) => { easeMotion = reduce; audio.volume(next.volume); audio.mute(next.muted); isMuted = next.muted; };
+    applyRef.current = (next, reduce) => { easeMotion = reduce; audio.volume(next.volume); audio.mute(next.muted); isMuted = next.muted; dirty = true; };
     // And called once for whatever is already stored. The effect that pushes later changes may well have
     // run before this one mounted, in which case it found no `applyRef` and did nothing; without this the
     // world would sit on the defaults until the player happened to change something else.
@@ -365,6 +370,9 @@ export default function DungeonGame() {
     let tide: ReturnType<typeof tidalMaterial> | null = null;
     // Building a floor is the only place this game can stutter, so each phase is timed and reported.
     let buildMs: Record<string, number> = {};
+    // Plan 015 Stage C: what the last staged build's warm-up cost (see `stagedBuild`) - programs linked at
+    // each step, and the longest single slice of each kind of work, for the probe to report.
+    let warmUp = { precompiled: 0, firstFrame: 0, firstFrameSliceMs: 0, secondFrame: 0, sceneCompileMs: 0, postCompileMs: 0, pollSliceMs: 0, buildSliceMs: 0 };
     const goalRoom = () => floor.rooms[floor.goal];
     const swingHits = new Set<Enemy>();
     let gameStatus: 'playing' | 'complete' | 'won' | 'lost' = 'playing';
@@ -813,45 +821,205 @@ export default function DungeonGame() {
       if (document.hidden || manualTime) { setTimeout(done, 0); return; }
       requestAnimationFrame(() => requestAnimationFrame(() => done()));
     });
-    const stagedBuild = async (nextLevel: number, seed: number | undefined, work: () => void, afterWork?: () => void) => {
+    // Plan 015 Stage C fix round: a cheaper yield for a poll's own internal slices, which only need to
+    // give the browser a turn - not the two-rAF guarantee that a *user-visible* change (a veil stage's
+    // label) actually painted before the next stage starts. `painted()`'s two rAFs cost ~33ms at 60Hz;
+    // spent on every one of a poll's slices (tens of them for the programs, dozens for a cold texture
+    // band or a build phase), that was most of the wall-time regression this round exists to fix.
+    // `pollProgramsReady` and `driveSliced` yield through this instead, and call `painted()` only at the
+    // `stagedBuild` stage boundaries above and below, where the label genuinely has to be on screen.
+    const yielded = () => new Promise<void>((done) => {
+      if (document.hidden || manualTime) { setTimeout(done, 0); return; }
+      requestAnimationFrame(() => done());
+    });
+    // Plan 015 Stage C.1: bumped once per `stagedBuild` call and captured by each poll below, so a build
+    // superseded by a newer one (a second press, a restart, the test pool's reset) makes its own poll
+    // stop rather than fighting the new build for frames - the failure mode `compileAsync` had, because
+    // it polled the *materials* it collected, and a restart meanwhile disposed one out from under it and
+    // left the veil hanging forever. This reads `renderer.info.programs` instead, the renderer's own live
+    // list, which a disposed program simply leaves; it never looks at a material.
+    let buildToken = 0;
+    /**
+     * Submits nothing itself - `renderer.compile` already did that, and with `KHR_parallel_shader_compile`
+     * that submission runs asynchronously in the GPU process. What used to force the wait was the very
+     * next line, the first render, which called `getUniforms`/`getAttributes` on every program in one
+     * synchronous sweep. This calls them instead, split across frames: `isReady()` (never blocks) says
+     * whether a program's link has actually landed, and only a program that says yes gets its reflection
+     * pulled, within a budget of about 12ms a slice, so the first real frame the player sees does none.
+     * Without the extension `isReady()` reports every program ready immediately, and `getUniforms` is
+     * what actually forces that one program's link - the same budget then force-links a handful of
+     * programs a frame instead of all of them at once, and the worst single frame is bounded by the
+     * slowest one.
+     */
+    const pollProgramsReady = async (token: number) => {
+      const budgetMs = 12;
+      while (true) {
+        const programs = (renderer.info as unknown as {
+          programs?: { isReady: () => boolean; getUniforms: () => unknown; getAttributes: () => unknown }[];
+        }).programs ?? [];
+        const frameStart = performance.now();
+        let allReady = true;
+        for (const program of programs) {
+          if (!program.isReady()) { allReady = false; continue; }
+          program.getUniforms(); program.getAttributes();
+          if (performance.now() - frameStart > budgetMs) { allReady = false; break; }
+        }
+        warmUp.pollSliceMs = Math.max(warmUp.pollSliceMs, +(performance.now() - frameStart).toFixed(1));
+        if (allReady || stopped || buildToken !== token) return;
+        await yielded();
+      }
+    };
+    /**
+     * Plan 015 Stage C.2: drives any of this file's own sliced generators (the texture bands, a
+     * `buildFloorSteps` run) the same way `pollProgramsReady` drives three.js's program list - a budget
+     * of work per frame, yielding through `yielded()` in between, until the generator reports done or
+     * this build is stopped or superseded. Carries the same token for the same reason.
+     */
+    const driveSliced = async (steps: Generator<void>, token: number) => {
+      const budgetMs = 12;
+      while (true) {
+        const frameStart = performance.now();
+        let done = false;
+        while (performance.now() - frameStart < budgetMs) {
+          if (steps.next().done) { done = true; break; }
+        }
+        warmUp.buildSliceMs = Math.max(warmUp.buildSliceMs, +(performance.now() - frameStart).toFixed(1));
+        if (done || stopped || buildToken !== token) return;
+        await yielded();
+      }
+    };
+    const stagedBuild = async (nextLevel: number, seed: number | undefined, work: (token: number) => void | Promise<void>, afterWork?: () => void) => {
+      const myToken = ++buildToken;
+      warmUp = { precompiled: 0, firstFrame: 0, firstFrameSliceMs: 0, secondFrame: 0, sceneCompileMs: 0, postCompileMs: 0, pollSliceMs: 0, buildSliceMs: 0 };
       setVeilFloor(nextLevel); setVeilPlace(null); setVeilStage(0);
       await painted(); if (stopped) return false;
       const charted = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
       pendingFloor = { level: nextLevel, floor: charted };
       setVeilPlace(charted.rooms[charted.goal]?.name ?? null); setVeilStage(1);
       await painted(); if (stopped) return false;
-      getFlagstoneTextures(); getMasonryTextures();
+      await driveSliced(getFlagstoneTexturesSteps(), myToken);
+      if (stopped || buildToken !== myToken) return false;
+      await driveSliced(getMasonryTexturesSteps(), myToken);
+      if (stopped || buildToken !== myToken) return false;
       setVeilStage(2);
       await painted(); if (stopped) return false;
-      work(); pendingFloor = null; afterWork?.();
+      await work(myToken); pendingFloor = null; afterWork?.();
+      if (stopped || buildToken !== myToken) return false;
       setVeilStage(3);
       await painted(); if (stopped) return false;
       // Compiled against the composer's own offscreen target, not the canvas: a material's program
       // differs by render target (tone mapping and output encoding are only baked in when drawing
       // straight to the canvas), and compiling for the canvas built variants the post chain never uses.
-      // Synchronous on purpose. `compileAsync` polls the materials it collected across later frames,
-      // and a floor torn down meanwhile (a restart, or the test pool's reset) crashed three.js inside
-      // that poll on a disposed material, leaving the promise - and the veil - hanging forever. With
-      // the point lights capped (see `ANCHOR_LIGHTS`) a cold compile is ~10 s rather than minutes, one
-      // task the veil's compositor-driven animation runs straight through.
+      // `renderer.compile` only submits the work (see `pollProgramsReady` above); with the point lights
+      // capped (see `ANCHOR_LIGHTS`) a cold link is ~3 s of GPU-process time rather than tens of seconds,
+      // none of it blocking the main thread here.
       world.updateMatrixWorld(true);
+      const warmUpFrom = (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0;
       const drawingTo = renderer.getRenderTarget(); renderer.setRenderTarget(post.composer.readBuffer);
-      flameKeeper.visible = true; renderer.compile(scene, camera); flameKeeper.visible = false; renderer.setRenderTarget(drawingTo); post.pinPrograms();
+      const compileStart = performance.now();
+      flameKeeper.visible = true; renderer.compile(scene, camera); warmUp.sceneCompileMs = +(performance.now() - compileStart).toFixed(1); flameKeeper.visible = false; renderer.setRenderTarget(drawingTo); post.pinPrograms();
       if (stopped) return false;
-      // The two frames below are for the player: the first takes the post chain's own first-use cost
-      // behind the veil, the second is the floor that is on screen when it lifts. A driver that owns the
-      // clock draws when it asks to and sees nothing until then, so under manual time neither is drawn -
-      // a full scene pass twice per reset was the largest single cost of a pooled test on software GL.
-      if (!manualTime) { post.render(elapsed); }
+      await pollProgramsReady(myToken);
+      if (stopped || buildToken !== myToken) return false;
+      // Plan 015 Stage C fix round: the first bullet-5 attempt precompiled the post chain's own
+      // full-screen materials against a plain quad with no targetScene and got programs the real render
+      // never reused - a program's cache key folds in the render state's light/fog/shadow tally, and
+      // that plain quad was never part of a scene at all, gathering none of what the *real* chain
+      // renders with. Two kinds of pass need two different proxies:
+      //  - the simple full-screen ones (ceiling, grade, GTAO's own and bloom's own high-pass/blur/composite/
+      //    blend chain) render their own single triangle with no scene and no targetScene, exactly like
+      //    `FullScreenQuad` itself (`three/addons/postprocessing/Pass.js`) - so the proxy below matches
+      //    that triangle and that orthographic camera, and passes no targetScene either.
+      //  - GTAO's normal-pass override (`normalMaterial`) renders the *game* scene with the *game*
+      //    scene's own lights, so its proxies carry `scene` as the targetScene, one representative
+      //    object per shape the real floor puts in front of it: a plain Mesh, an InstancedMesh with no
+      //    per-instance colour, and one with `setColorAt` called (`USE_INSTANCING_COLOR` is a define,
+      //    not a runtime branch).
+      // Every render target below is the one that pass actually draws into - a canvas-bound program
+      // differs from an offscreen one the same way the main scene compile above does.
+      {
+        const postStart = performance.now();
+        const triangle = new THREE.BufferGeometry();
+        triangle.setAttribute('position', new THREE.Float32BufferAttribute([-1, 3, 0, -1, -1, 0, 3, -1, 0], 3));
+        triangle.setAttribute('uv', new THREE.Float32BufferAttribute([0, 2, 0, 0, 2, 0], 2));
+        const screenCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        const screenProxy = new THREE.Mesh(triangle);
+        const offscreen = post.composer.readBuffer;
+        const drawingTo = renderer.getRenderTarget();
+        // A disabled pass (both, on the reduced chain software GL gets) never draws, so its materials
+        // are left alone: compiling them there is a dozen programs nobody uses, at software-GL prices.
+        const bloom = post.bloomPass.enabled, gtao = post.gtaoPass.enabled;
+        const screenMaterials: [THREE.Material, THREE.WebGLRenderTarget | null][] = [
+          [post.ceilingPass.material, offscreen],
+          ...(bloom ? [post.bloomPass.materialHighPassFilter, ...post.bloomPass.separableBlurMaterials, post.bloomPass.compositeMaterial, post.bloomPass.blendMaterial] : []).map((material): [THREE.Material, THREE.WebGLRenderTarget | null] => [material, offscreen]),
+          // GTAO's own full-screen materials - everything but `normalMaterial` below, which is the one
+          // override that renders the scene itself rather than a screen triangle, and `depthRenderMaterial`,
+          // which only the debug depth output draws: precompiled, it was the one program of the set the
+          // real frame never used (its PERSPECTIVE_CAMERA define is left at 1, since nothing draws it).
+          ...(gtao ? [post.gtaoPass.gtaoMaterial, post.gtaoPass.pdMaterial, post.gtaoPass.copyMaterial, post.gtaoPass.blendMaterial] : []).map((material): [THREE.Material, THREE.WebGLRenderTarget | null] => [material, offscreen]),
+          // Not OutputPass's own material: its `defines` (SRGB_TRANSFER, a tone-mapping one) are set
+          // lazily inside its own `render()`, compared against the renderer's current colour space and
+          // tone mapping - never here, since nothing has rendered yet - so a bare compile always finds
+          // them unset and produces a program the real render (which does set them first) never reuses.
+          // Its own first use is covered below instead, when the sliced first draw actually renders it.
+          [post.gradePass.material, null],
+        ];
+        for (const [material, target] of screenMaterials) {
+          screenProxy.material = material;
+          renderer.setRenderTarget(target);
+          renderer.compile(screenProxy, screenCamera);
+        }
+        const normalTarget = (post.gtaoPass as unknown as { normalRenderTarget: THREE.WebGLRenderTarget }).normalRenderTarget;
+        const cube = new THREE.BoxGeometry(1, 1, 1);
+        const meshProxy = new THREE.Mesh(cube, post.gtaoPass.normalMaterial);
+        const instancedProxy = new THREE.InstancedMesh(cube, post.gtaoPass.normalMaterial, 1);
+        instancedProxy.setMatrixAt(0, new THREE.Matrix4());
+        const instancedColorProxy = new THREE.InstancedMesh(cube, post.gtaoPass.normalMaterial, 1);
+        instancedColorProxy.setMatrixAt(0, new THREE.Matrix4());
+        instancedColorProxy.setColorAt(0, new THREE.Color());
+        renderer.setRenderTarget(normalTarget);
+        if (gtao) for (const proxy of [meshProxy, instancedProxy, instancedColorProxy]) renderer.compile(proxy, camera, scene);
+        renderer.setRenderTarget(drawingTo);
+        triangle.dispose(); cube.dispose(); instancedProxy.dispose(); instancedColorProxy.dispose();
+        post.pinPrograms();
+        warmUp.postCompileMs = +(performance.now() - postStart).toFixed(1);
+      }
+      if (stopped) return false;
+      await pollProgramsReady(myToken);
+      if (stopped || buildToken !== myToken) return false;
+      // The two frames below are for the player: the first takes whatever the precompile above still
+      // left for first use - draws the composer's own passes one at a time, each its own task, rather
+      // than the one synchronous `post.render` that used to be the whole point of this bug; nothing from
+      // this frame reaches the screen, so a pass drawing into the wrong ping-pong buffer only costs
+      // pixels nobody sees. The second is the floor that is on screen when the veil lifts, and is a
+      // single ordinary draw - everything should be warm by then. A driver that owns the clock draws
+      // when it asks to and sees nothing until then, so under manual time neither runs - a full scene
+      // pass twice per reset was the largest single cost of a pooled test on software GL.
+      // `warmUp` (in `render_game_to_text`) records what each step still compiled, so the probe can say
+      // whether the precompile above is being reused rather than guessing from the total.
+      const linked = () => (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0;
+      warmUp.precompiled = linked() - warmUpFrom;
+      if (!manualTime) {
+        const from = linked();
+        const steps = post.renderSteps(elapsed);
+        while (true) {
+          const sliceStart = performance.now();
+          if (steps.next().done) break;
+          warmUp.firstFrameSliceMs = Math.max(warmUp.firstFrameSliceMs, +(performance.now() - sliceStart).toFixed(1));
+          if (stopped || buildToken !== myToken) return false;
+          await yielded();
+        }
+        warmUp.firstFrame = linked() - from;
+      }
       setVeilStage(4);
       await painted(); if (stopped) return false;
-      if (!manualTime) { post.render(elapsed); }
+      if (!manualTime) { const from = linked(); post.render(elapsed); warmUp.secondFrame = linked() - from; }
       setVeilStage(5);
       await painted();
       return !stopped;
     };
     // `then` runs as the veil lifts, on the frame the new floor is first on screen.
-    const veiled = (line: string, plan: { level: number; seed?: number }, work: () => void, then?: () => void) => {
+    const veiled = (line: string, plan: { level: number; seed?: number }, work: (token: number) => void | Promise<void>, then?: () => void) => {
       // A second press while a build is pending would queue a second build: the status that guards each
       // caller does not change until the work this one is holding actually runs.
       if (building) return;
@@ -859,12 +1027,16 @@ export default function DungeonGame() {
       void stagedBuild(plan.level, plan.seed, work).then((ok) => { if (!ok) return; building = false; setLoading(null); setVeilStage(0); then?.(); });
     };
     // An explicit seed replays a floor verbatim; without one the keep is new every descent.
-    const buildFloor = (nextLevel: number, seed?: number) => {
+    // Plan 015 Stage C.2: a generator, yielding once after each existing `phase()` boundary, so the
+    // boot/restart path below can spread it across frames instead of paying for it in one block; `buildFloor`
+    // just past the closing brace runs it to completion synchronously, so `dungeonTest.buildFloor`, `reset`
+    // and `buildMs` see no change at all - same phases, same order, same numbers, same PRNG draws.
+    function* buildFloorSteps(nextLevel: number, seed?: number): Generator<void> {
       const clock = performance.now(); let mark = clock;
       const phase = (name: string) => { const now = performance.now(); buildMs[name] = +(now - mark).toFixed(1); mark = now; };
       buildMs = {};
       if (atmosphere) clearFloor();
-      phase('dispose');
+      phase('dispose'); yield;
       level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; features = []; stairOpen = false; stairDwell = 0; drop = null; overDrop = false; showOffer(null);
       gameStatus = 'playing'; setStatus('playing');
       // A staged build (see `stagedBuild`) charts the layout a stage early so the veil can name it; the
@@ -876,7 +1048,7 @@ export default function DungeonGame() {
       // Pure and deterministic off this floor alone: which stone cells merge into a long slab or
       // settle as a staggered strip, kept away from every 004 reservation before a single mesh exists.
       const pavingPlan = planPavingPatches(floor);
-      phase('generate');
+      phase('generate'); yield;
       // Floor 1 is the run's fingerprint: keeping its seed is what lets a lost run be taken again, and it
       // is what a logged entry carries, so the log is held here rather than read off the current floor.
       if (level === 1) { firstSeed = floor.seed; runStart = elapsed; setRunSeed(floor.seed); writeSeed(floor.seed); }
@@ -1005,7 +1177,7 @@ export default function DungeonGame() {
           patches.receiveShadow=true;patches.userData.walkingSurface=true;floorGroup.add(patches);
         }
       }
-      phase('tiles');
+      phase('tiles'); yield;
       // Plan 014 round 4 (lever C5): stone flagstone in place of the wood plank deck - the same slab
       // geometry and the same triplanar flagstone material the rest of the floor stands on, so a
       // bridge reads as a stone span rather than a wood dock. `slabTint` already resolves a theme for
@@ -1051,7 +1223,7 @@ export default function DungeonGame() {
         // than every piece of vertical structure this round adds, for a shadow half a block wide.
         walls.receiveShadow=true;floorGroup.add(walls);
       }
-      phase('walls');
+      phase('walls'); yield;
       atmosphere = addAtmosphere(floorGroup, floor);
       // Plan 014 round 9 (lever 6): the water's own reflection streaks (dungeon-motion.ts's
       // `tidalMaterial`) need real torch world-positions, which only exist once the atmosphere pass
@@ -1105,7 +1277,7 @@ export default function DungeonGame() {
         surfaceIndex = buildSurfaceIndex(triangles, cellMeta);
         pavingSummary = { pairs: pavingPlan.pairs.length, settled: pavingPlan.settled.length, surfaceCells: surfaceIndex.cells.size };
       }
-      phase('surface');
+      phase('surface'); yield;
       for (const room of floor.rooms) {
         if (room.id === 0 || !['sanctuary', 'gauntlet'].includes(room.encounter)) continue;
         const shrine = room.encounter === 'sanctuary';
@@ -1167,7 +1339,7 @@ export default function DungeonGame() {
         stairGlow = new THREE.Mesh(new THREE.CircleGeometry(2.05, 32), shaftSkin); stairGlow.rotation.x = -Math.PI / 2; stairGlow.position.set(stairSpot.x, .08, stairSpot.z); stairGlow.visible = false; stairGlow.renderOrder = 4; floorGroup.add(stairGlow);
         stairRing = new THREE.Mesh(new THREE.RingGeometry(1.5, 1.85, 48), new THREE.MeshBasicMaterial({ color: 0xfbc956, transparent: true, opacity: .85, side: THREE.DoubleSide, depthWrite: false })); stairRing.rotation.x = -Math.PI / 2; stairRing.position.set(stairSpot.x, .09, stairSpot.z); stairRing.visible = false; stairRing.renderOrder = 5; floorGroup.add(stairRing); }
       placeDrop(floor.weaponDrop.kind, floor.weaponDrop.x, floor.weaponDrop.z);
-      phase('atmosphere');
+      phase('atmosphere'); yield;
       enemyData = floor.spawns.map((spawn, index) => {
         const kind = spawn.kind;
         const stats = enemyStats(kind, level), maxHp = stats.hp, tell = stats.tell;
@@ -1228,13 +1400,16 @@ export default function DungeonGame() {
         const trails=anchors.map(anchor=>{const effect=weaponTrail(kind==='warden'?0xffa15c:kind==='stalker'?0xffcc90:0xffd39b,kind==='warden'?.13:.095);floorGroup.add(effect.mesh);return {effect,anchor,inner:kind==='stalker'?new THREE.Vector3(0,-.72,-.12):new THREE.Vector3(0,0,-.24),tip:kind==='stalker'?new THREE.Vector3(0,-.87,-.5):new THREE.Vector3(0,0,kind==='warden'?-1.2:-.86)};});
         return { group, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush, anchor:{x:spawn.x*TILE,z:spawn.z*TILE}, notice:0, alertIn:Infinity };
       });
-      phase('enemies');
+      phase('enemies'); yield;
       // Every texture the new floor uses goes to the GPU now. three.js otherwise uploads a texture the
       // first frame something using it is on screen, so which ones were resident depended on where the
       // camera happened to look: walking into a new room hitched on the upload, and the renderer's texture
       // count wandered by what was in view, which every leak check across rebuilds reads as a leak.
       const uploaded = new Set<THREE.Texture>();
-      const upload = (value: unknown) => { if (value instanceof THREE.Texture && !uploaded.has(value)) { uploaded.add(value); renderer.initTexture(value); } };
+      // Non-null assertion, not a new check: `renderer` is guaranteed by the mount guard above, but a
+      // hoisted function declaration (`buildFloorSteps`, needed because a generator cannot be an arrow
+      // function) is outside the arrow-function closures TypeScript narrows a `const` guard through.
+      const upload = (value: unknown) => { if (value instanceof THREE.Texture && !uploaded.has(value)) { uploaded.add(value); renderer!.initTexture(value); } };
       world.traverse((object) => {
         const material = (object as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
         for (const m of material ? (Array.isArray(material) ? material : [material]) : []) {
@@ -1243,7 +1418,7 @@ export default function DungeonGame() {
           if (uniforms) for (const key in uniforms) upload(uniforms[key]?.value);
         }
       });
-      phase('upload');
+      phase('upload'); yield;
       player.position.set(floor.rooms[0].x * TILE, 0.03, floor.rooms[0].z * TILE);
       cameraFocus.copy(player.position);
       // The knight is on his mark, so the chamber he is standing in is known and its lights can be hung
@@ -1256,6 +1431,14 @@ export default function DungeonGame() {
       setFloorMap(floor); setFloorBuild(build => build + 1); setFloorLevel(level); setRoomName(floor.rooms[0].name);
       setVisitedCount(1); setPlundered(0); setAdvance(0);
       buildMs.total = +(performance.now() - clock).toFixed(1);
+    }
+    // Runs `buildFloorSteps` to completion synchronously - every caller before plan 015 Stage C.2, and
+    // still every one of them (`dungeonTest.buildFloor`/`reset` above all: they stay synchronous and
+    // deterministic). The boot/restart path below drives the same generator incrementally instead.
+    const buildFloor = (nextLevel: number, seed?: number) => {
+      const steps = buildFloorSteps(nextLevel, seed);
+      let step = steps.next();
+      while (!step.done) step = steps.next();
     };
     const descend = () => {
       if (gameStatus !== 'playing' || run.choosing || activeRoom !== floor.goal || !stairClear()) return;
@@ -1266,8 +1449,8 @@ export default function DungeonGame() {
     const continueDescent = () => {
       if (gameStatus !== 'complete') return;
       if (level >= FLOORS) { endRun(null); return; }
-      veiled(`Descending to floor ${level + 1}`, { level: level + 1 }, () => {
-        buildFloor(level + 1);
+      veiled(`Descending to floor ${level + 1}`, { level: level + 1 }, async (token) => {
+        await driveSliced(buildFloorSteps(level + 1), token);
         heal(run, Math.round(run.maxHp * .25)); setHealth(run.hp);
         keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; dashBuffer = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; audio.pause(false);
         burst(player.position, 0x71f4c4, 22);
@@ -1278,7 +1461,7 @@ export default function DungeonGame() {
     // Everything buildFloor(1) already rebuilds (floor, level, rooms, enemies, map, status) is left to it,
     // but the run must be fresh first because it snapshots kills and XP as the floor's baseline. A whole
     // new `run` is the point of createRun(): a field added to the sim can never be forgotten here.
-    const restart = (seed?: number, then?: () => void) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', { level: 1, seed }, () => {
+    const restart = (seed?: number, then?: () => void) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', { level: 1, seed }, async (token) => {
       run = createRun(); boonsTaken = [];
       attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; dashBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; clearShots();
       walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
@@ -1291,17 +1474,18 @@ export default function DungeonGame() {
       setHeldWeapon(TIDEBLADE.name);
       setNotice(''); setNoticeDetail(''); setFloorResult({ kills: 0, xp: 0, seconds: 0 });
       setPaused(false); setMapOpen(false);
-      buildFloor(1, seed);
+      await driveSliced(buildFloorSteps(1, seed), token);
       player.rotation.set(0, Math.atan2(-facing.x, -facing.z), 0); player.userData.sword.rotation.y = 0;
       audio.pause(false);
     }, then);
     // Read before floor 1 overwrites the stored seed, so "Last keep" still offers the previous visit's.
     const restoreSave = () => { setBest(readBest()); setPriorSeed(readSeed()); setRunLog(readRuns()); };
     restoreSave();
-    // Floor 1 is not built here. The menu is in the prerendered page and is what a visitor sees first, so
-    // the build waits until the end of this mount and then runs behind that menu (see `boot`). Until it
-    // has run there is no floor, and nothing below may touch one: the loop draws nothing, the window
-    // hooks are not installed, and a press of ENTER THE KEEP is held until the keep exists.
+    // Floor 1 is not built here. The menu is in the prerendered page and is what a visitor sees first, and
+    // nothing below runs until ENTER THE KEEP asks for it (see `boot`, called on demand from the press
+    // path further down). Until a press starts one, there is no floor and nothing below may touch one: no
+    // frame is requested, the window hooks are not installed, and the press itself is what raises the
+    // loading bar and is answered once the keep exists.
     let built = false, warmed = false, enterWhenBuilt = false, bootSeed: number | undefined, enterSeed: number | undefined;
     // The thumbstick's screen-space direction while a thumb is planted, null the rest of the time. It is a
     // unit vector on the very basis the keys below build on, so analog steering is a second source of the
@@ -1385,12 +1569,16 @@ export default function DungeonGame() {
 
     };
     const requestAttack = () => {
-      if (!hasStarted || isPaused || gameStatus !== 'playing') return;
+      // Plan 015 Stage C fix round: `building` too. A sliced restart/descent flips `gameStatus` to
+      // 'playing' in its first slice, well before `enemyData` and the floor it swings against exist -
+      // and a restart's own work resets these buffers before the sliced build even starts, so a press
+      // made during the veil would otherwise sit buffered and fire on the very first frame after it.
+      if (!hasStarted || isPaused || gameStatus !== 'playing' || building) return;
       if (attackTime <= 0 && dashTime <= 0) startAttack();
       else { attackBuffer = 0.18; const aim = aimNow(); bufferedFacing = aim ? new THREE.Vector3(aim.x, 0, aim.z) : facing.clone(); }
     };
     const requestDash = () => {
-      if (!hasStarted || isPaused || gameStatus !== 'playing' || dashCooldown > 0) return;
+      if (!hasStarted || isPaused || gameStatus !== 'playing' || building || dashCooldown > 0) return;
       // While the blade is live the swing is a commitment: the dash waits for contact to end instead of
       // cutting it short, which is what makes swinging into a tell a mistake rather than a free action.
       if (!canAbortSwing(attackTime, swing)) { dashBuffer = DASH_BUFFER; return; }
@@ -1407,7 +1595,7 @@ export default function DungeonGame() {
     // it, so the key is inert everywhere else in the keep rather than a second thing to be careful with.
     // What he was holding goes down where the new arm lay: a swap he regrets is a walk back, not a dead run.
     const requestSwap = () => {
-      if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing') return;
+      if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing' || building) return;
       if (!drop || !overDrop) return;
       const taken = weaponById(drop.kind), set = weapon.id, at = { x: drop.x, z: drop.z };
       equip(drop.kind);
@@ -1424,6 +1612,7 @@ export default function DungeonGame() {
       // An armed rebind goes with the card. Left live, the first key pressed back in the fight would be
       // bound instead of swung, which is the worst possible moment to find out the capture was still open.
       isPaused = !isPaused; setMapOpen(false); setCapturing(null); keys.clear(); attackBuffer = 0; dashBuffer = 0; bufferedFacing = null; setPaused(isPaused); audio.pause(isPaused);
+      dirty = true;
     };
     // Mute is a setting like any other now, so it goes out through the same funnel and comes back through
     // applyRef — one path, whether it was the M key, the menu button or a `mute` event that asked.
@@ -1587,14 +1776,16 @@ export default function DungeonGame() {
 
     window.addEventListener('keydown', keyDown); window.addEventListener('keyup', keyUp);
     const blur = () => { clearInput(); if (hasStarted && !isPaused && gameStatus === 'playing') togglePause(); };
-    const visibility = () => { if (document.hidden) blur(); };
+    // Plan 015 Stage B: a background tab draws no frame at all, held or not, so nothing about `dirty`
+    // needs to change while hidden; coming back does not know that on its own, so it asks for one frame.
+    const visibility = () => { if (document.hidden) blur(); else dirty = true; };
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('blur', blur); window.addEventListener('dungeon-action', trigger);
     // three.js restores the GPU context on its own; what it cannot do is stop the simulation, so without
     // this the knight goes on taking damage behind a frozen image. Restoring never resumes by itself —
     // whoever was pulled away picks the moment to step back into the fight.
     const contextLost = () => { setDisplayLost(true); blur(); };
-    const contextRestored = () => setDisplayLost(false);
+    const contextRestored = () => { setDisplayLost(false); dirty = true; };
     renderer.domElement.addEventListener('webglcontextlost', contextLost);
     renderer.domElement.addEventListener('webglcontextrestored', contextRestored);
     let last: number | null = null, raf = 0;
@@ -1603,6 +1794,7 @@ export default function DungeonGame() {
       // this frame, exactly as a key would.
       pollPad();
       if (isPaused || run.choosing || gameStatus === 'complete') return;
+      dirty = true;
       elapsed += frameDt; const t = elapsed;
       // Deliberately not touched by reduced motion. Hit-stop is the absence of movement, not movement,
       // and it is also time the enemies do not get: shortening it would hand every landed blow back to
@@ -2119,7 +2311,7 @@ export default function DungeonGame() {
     const hooks = window as Window & {
       advanceTime?: (ms: number, draw?: boolean) => void;
       render_game_to_text?: () => string;
-      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void; footstepParticles?: () => ReturnType<typeof footsteps.particles>; setFootstepsEnabled?: (enabled: boolean) => void; actorStats?: () => { knight: ReturnType<typeof actorStat> & { disposedMaterials: number }; enemies: ({ kind: Enemy['kind'] } & ReturnType<typeof actorStat>)[]; drop: { kind: WeaponId; meshes: number; triangles: number } | null }; lightDiagnostics?: (index: number, radius?: number) => unknown };
+      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number, seed?: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void; footstepParticles?: () => ReturnType<typeof footsteps.particles>; setFootstepsEnabled?: (enabled: boolean) => void; actorStats?: () => { knight: ReturnType<typeof actorStat> & { disposedMaterials: number }; enemies: ({ kind: Enemy['kind'] } & ReturnType<typeof actorStat>)[]; drop: { kind: WeaponId; meshes: number; triangles: number } | null }; lightDiagnostics?: (index: number, radius?: number) => unknown; textureHash?: () => { flagstone: number; masonry: number } };
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     const testHooks: NonNullable<typeof hooks.dungeonTest> = {
@@ -2131,7 +2323,10 @@ export default function DungeonGame() {
       // arms the Tideblade rather than leaving the knight empty-handed, as weaponById does everywhere.
       equip: (id) => { equip(weaponById(id).id); setHeldWeapon(weaponById(id).name); },
       descend: () => buildFloor(Math.min(FLOORS, level + 1)),
-      buildFloor: (nextLevel) => buildFloor(nextLevel),
+      // The optional seed (plan 015 Stage C.2) is additive: every existing one-argument call still draws
+      // from the pinned queue exactly as before. It exists so a test can build the same floor twice, once
+      // through this synchronous path and once through the sliced boot/restart path, and compare them.
+      buildFloor: (nextLevel, seed) => buildFloor(nextLevel, seed),
       grantXp: (amount) => award(grantXp(run, amount)),
       // What a test driver uses instead of opening the page again, which costs twelve seconds of module
       // load, WebGL boot and a first floor. It is the same `restart` the end screen runs - so a field
@@ -2186,6 +2381,20 @@ export default function DungeonGame() {
       testHooks.actorStats = () => {
         const held = drop ? actorStat(drop.group) : null;
         return { knight: { ...actorStat(player), disposedMaterials: knightDisposals }, enemies: enemyData.filter(e => !e.dead).map(e => ({ kind: e.kind, ...actorStat(e.group) })), drop: drop && held ? { kind: drop.kind, meshes: held.meshes, triangles: held.triangles } : null };
+      };
+      // Plan 015 Stage C.2: a cheap checksum of the shared stone textures' actual pixels, off the live
+      // canvas each one draws to - not a recomputation, so a sliced band that lands its pixels in the
+      // wrong place or skips one shows up here even though nothing about the material or the floor it
+      // skins would otherwise reveal it. Read-only, dropped from a production build with the rest of
+      // this block.
+      testHooks.textureHash = () => {
+        const hash = (texture: THREE.Texture) => {
+          const canvas = texture.image as HTMLCanvasElement;
+          const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+          let h = 0; for (let i = 0; i < data.length; i += 97) h = (h * 31 + data[i]) >>> 0;
+          return h;
+        };
+        return { flagstone: hash(getFlagstoneTextures().albedo), masonry: hash(getMasonryTextures().albedo) };
       };
       // Plan 014 round 5 (lever A3): a real answer to "what is overbright here" instead of another
       // guess. Enumerates every material on a live enemy's own group, plus every light and every
@@ -2289,7 +2498,7 @@ export default function DungeonGame() {
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
-      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })(), programs: (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0, quality: post.quality },
+      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })(), programs: (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0, warmUp, quality: post.quality },
       effects: { impacts: impacts.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.
@@ -2317,43 +2526,73 @@ export default function DungeonGame() {
       if (stopped) return; raf = requestAnimationFrame(animate);
       // rAF timestamps describe the frame start, which can precede effect setup.
       // Establish the clock on the first callback so startup cannot run time backwards.
-      if (built && warmed && !manualTime && !document.hidden) { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); post.render(elapsed); }
+      // Plan 015 Stage C fix round: `!building` too. A sliced restart or descent swaps `gameStatus` to
+      // 'playing' and `floor` to the new one in its first slices, while `enemyData`, `atmosphere` and
+      // `surfaceIndex` still belong to the old, already-disposed floor until later phases (the player's
+      // own position does not move until 'upload') - `update` and a draw in that window ran the sim and
+      // drew a half-built floor under real time, which manual time never caught since every pooled and
+      // isolated scenario steps it by hand. `stagedBuild`'s own two warm-up `post.render` calls are
+      // direct, not gated here, and are unaffected.
+      if (built && warmed && !building && !manualTime && !document.hidden) {
+        update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04)));
+        // Plan 015 Stage B: a frozen frame (paused, drafting, complete, or simply nothing since invalidated)
+        // matches the one already on screen, so it is not redrawn. `update` sets `dirty` itself whenever it
+        // actually advances; everything else that can change the picture while frozen sets it directly.
+        if (dirty) { post.render(elapsed); dirty = false; }
+      }
       last = now;
     };
-    raf = requestAnimationFrame(animate);
+    // Plan 015: no `raf = requestAnimationFrame(animate)` here any more - a page nobody enters must
+    // never ask for a frame. The loop is kicked off from `boot` below instead, the one place that runs
+    // on demand; `animate` keeps re-requesting itself every tick after that, and stays a no-op draw-wise
+    // (see the `built && warmed` guard above) until stagedBuild's own warm-up frames have run.
     // Plan 014: zoomed in close to the reference's framing - the knight fills much more of the
     // frame than the old 7.2/6.3 span left him. Ratio kept the same between the two breakpoints.
     // Then eased back out a fifth twice (4.3/3.76 -> 5.16/4.51 -> 6.19/5.41): the tight frame hid too much of the room.
-    const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 5.41 : 6.19; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); };
+    const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 5.41 : 6.19; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); dirty = true; };
     window.addEventListener('resize', resize); resize();
-    // The keep is raised two frames after the mount rather than inside it, so the hydrated menu gets a frame
-    // on screen first: its button is live, and a press that lands while the build is still ahead of it
-    // raises the loading bar instead of vanishing into a blocked thread. The hooks go up with the floor,
-    // because every one of them reads it. A held press is answered one frame later still, once the floor
-    // has actually been drawn, so the bar lifts onto the keep rather than onto an empty canvas.
-    // A background tab runs no animation frames at all, and a keep that waited on them would sit unbuilt
-    // until the tab came forward; a hidden page has nothing to paint first, so a timer stands in.
+    // Plan 015: the keep is raised on the press that asks for it (`enterWhenBuilt`/`bootSeed` below),
+    // never at mount, so the hydrated menu's button is live from the first frame and a press before the
+    // floor exists raises the loading bar rather than vanishing into a blocked thread. The hooks go up
+    // with the floor, because every one of them reads it. A held press is answered one frame later
+    // still, once the floor has actually been drawn, so the bar lifts onto the keep rather than onto an
+    // empty canvas. A background tab runs no animation frames at all, and a boot that waited on them
+    // would sit unbuilt until the tab came forward; a hidden page has nothing to paint first, so a timer
+    // stands in.
     let bootFrame = 0, bootTimer = 0;
     const scheduleBoot = () => {
       cancelAnimationFrame(bootFrame); clearTimeout(bootTimer);
       bootFrame = requestAnimationFrame(() => { bootFrame = requestAnimationFrame(boot); });
       if (document.hidden) bootTimer = window.setTimeout(boot, 200);
     };
-    // Plan 014 round C: floor 1 is raised in the same stages as any other build (see `stagedBuild`),
-    // behind the menu when nobody is waiting and behind the veil when a press beat it there. `booting`
-    // keeps a press that reschedules the boot from starting a second one mid-way. The floor counts as
-    // built - and the hooks go up, since every one of them reads it - as soon as it exists; it counts as
-    // warmed once the shaders are linked and a frame of it has been presented, which is when the frame
-    // loop starts drawing, the canvas fades in and a waiting press is answered.
+    // Plan 014 round C, on demand since plan 015: floor 1 is raised in the same stages as any other
+    // build (see `stagedBuild`), behind the veil the press that called `scheduleBoot` just raised.
+    // `booting` keeps a press that reschedules the boot from starting a second one mid-way. The floor
+    // counts as built - and the hooks go up, since every one of them reads it - as soon as it exists; it
+    // counts as warmed once the shaders are linked and a frame of it has been presented, which is when
+    // the frame loop starts drawing, the canvas fades in and a waiting press is answered.
     let booting = false;
     const boot = () => {
       if (stopped || built || booting) return;
       booting = true;
-      void stagedBuild(1, bootSeed, () => buildFloor(1, bootSeed), () => {
+      // Plan 015 Stage C.1: also claims `veiled`'s own `building` flag, not just `booting`. Before the
+      // compile's wait moved off the main thread (see `pollProgramsReady`), a boot's own stagedBuild call
+      // finished within one synchronous burst, so nothing else ever got a turn to run while it was in
+      // flight. Now it can span real seconds of async polling, and without this a `dungeonTest.reset()`
+      // or a restart landing in that window sailed straight past `veiled`'s guard (which only ever
+      // checked `building`, never `booting`) and started a second, concurrent stagedBuild - whichever one
+      // finished first superseded the other via `buildToken`, and if that was this boot, its own `.then`
+      // saw `ok === false` and returned before ever setting `warmed`, wedging every future press behind
+      // `enterWhenBuilt` with nothing left to answer it. `building` now covers both paths uniformly.
+      building = true;
+      // The frame loop's first request, moved here from mount (plan 015): this is the one place a boot
+      // actually starts, so it is also the one place a page that never enters never reaches.
+      if (!raf) raf = requestAnimationFrame(animate);
+      void stagedBuild(1, bootSeed, (token) => driveSliced(buildFloorSteps(1, bootSeed), token), () => {
         built = true;
         hooks.dungeonTest = testHooks; hooks.advanceTime = advanceTime; hooks.render_game_to_text = renderText;
       }).then((ok) => {
-        booting = false; setVeilStage(0);
+        booting = false; building = false; setVeilStage(0);
         if (!ok) return;
         warmed = true; setReady(true);
         if (!enterWhenBuilt) return;
@@ -2361,7 +2600,13 @@ export default function DungeonGame() {
         if (seed === undefined || seed === floor.seed) enter(); else restart(seed, enter);
       });
     };
-    scheduleBoot();
+    // Plan 015: no boot at mount. `scheduleBoot`'s only caller is now the press path (`enterWhenBuilt`
+    // above), so a visit that never presses ENTER never builds a floor, compiles a shader or requests a
+    // frame. `?boot=eager`, dev-only, restores today's mount-time boot for the test harness, which wants
+    // a floor built (and its hooks up) the moment a scenario's page is up without spending every test on
+    // a press; kept out of production the same way `configureCombatFixture` is, and passed on every
+    // harness `goto` (`tests/browser/helpers.ts`). Scenarios that test the boot itself load the plain URL.
+    if (process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('boot') === 'eager') scheduleBoot();
     return () => { stopped = true; cancelAnimationFrame(raf); cancelAnimationFrame(bootFrame); clearTimeout(bootTimer); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); atmosphere?.dispose(); texture.dispose(); telegraphTex.dispose(); laneTex.dispose(); alertTex.dispose(); alertMaterial.dispose(); environment.dispose(); impacts.dispose(); blood.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); post.dispose(); renderer.dispose(); mount.removeChild(renderer.domElement); };
   }, []);
 
@@ -2395,12 +2640,20 @@ export default function DungeonGame() {
   // callback ref runs once, when the menu list mounts again, which is exactly the moment to do it.
   const returnFocus = useCallback((item: HTMLButtonElement | null) => { if (item && item.dataset.view === returnTo.current) { item.focus({ preventScroll: true }); returnTo.current = null; } }, []);
   // A display that was never granted has its own screen and nothing left to wait for. Nothing is waited on
-  // before the menu: the keep builds behind it, and the bar goes up only for a press that beat the build,
-  // or for a floor build the player has asked for since.
+  // before the menu: nothing builds until ENTER is pressed (plan 015), and the bar goes up for that first
+  // press, or for any floor build the player has asked for since.
   const veil = displayFailed ? null : loading ?? (entering ? 'Waking the keep' : null);
   return (
     <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}${ready ? ' world-ready' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
+      {/* Plan 015 Stage A.3: a static frame of the keep (npm run backdrop), standing in for the live one
+          that used to build behind the menu. Pre-start only, under the intro gradient, never over a
+          started run - `.game-canvas` carries the live keep once one exists. Document-relative for the
+          same reason as the favicon hrefs in layout.tsx: GitHub Pages serves this project from a
+          sub-path. The menu never waits on it - low priority, decoded off the main thread, no alt text.
+          A plain img on purpose: this is a static export with no next/image loader behind it. */}
+      {/* oxlint-disable-next-line next/no-img-element */}
+      {!started && <img className="keep-backdrop" src="./keep-backdrop.jpg" alt="" aria-hidden="true" decoding="async" fetchPriority="low" />}
       <header className="game-title"><span className="sigil" aria-hidden="true" /><div className="title-text"><b>{floorLevel} / {FLOORS} · {roomName}</b><i>{roomName === goalName ? 'Take the stair down' : `Reach ${goalName}`}</i></div></header>
       <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || paused || status !== 'playing' || boonChoice.length > 0} aria-label="Pause game">☰</button></nav>
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
