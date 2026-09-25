@@ -356,7 +356,9 @@ export type GameWindow = Window & {
     teleport: (x: number, z: number) => void;
     equip: (id: string) => void;
     descend: () => void;
-    buildFloor: (level: number) => void;
+    /** The optional seed (plan 015 Stage C.2) lets a test build the same floor synchronously and
+     * compare it with one built through the sliced boot/restart path. */
+    buildFloor: (level: number, seed?: number) => void;
     grantXp: (amount: number) => void;
     reset: (seed?: number) => void;
     configureCombatFixture?: (fixture: CombatFixture) => void;
@@ -370,6 +372,9 @@ export type GameWindow = Window & {
     setFootstepsEnabled?: (enabled: boolean) => void;
     /** Plan 009: meshes, triangles and height per figure, off the live scene; absent from a production build. */
     actorStats?: () => ActorStats;
+    /** Plan 015 Stage C.2: a checksum of the shared stone textures' actual pixels; absent from a
+     * production build. */
+    textureHash?: () => { flagstone: number; masonry: number };
   };
 };
 
@@ -469,6 +474,39 @@ const describe = (spot: Point) =>
     Math.round(spot.z / TILE),
   )}`;
 
+/**
+ * Installs the pinned-seed `crypto.getRandomValues` interception before a page navigates. `Game.open`
+ * calls this for every page it boots; a scenario that drives its own boot on the plain URL instead of
+ * going through `Game` (loading.spec.ts's LAST KEEP case, which must not pick up `Game.open`'s
+ * `boot=eager`) calls it directly, so there is one way seeds are pinned rather than two that can drift
+ * apart. The pinned draws live behind a handle rather than being baked into the closure: a pooled page
+ * outlives the seeds of the test it was booted for, and the next scenario has to be able to hand it a
+ * different set and rewind the cursor without a reload - see `Game.pin`, which re-points the same handle.
+ */
+export async function pinSeeds(page: Page, seeds: number[]) {
+  await page.addInitScript((pinned: number[]) => {
+    const source = crypto;
+    const original = source.getRandomValues.bind(source);
+    const handle = { values: pinned, index: 0 };
+    (window as unknown as { __pinnedSeeds: typeof handle }).__pinnedSeeds = handle;
+    // Only the single-word draw `buildFloor` makes is pinned; everything else
+    // keeps real entropy, so nothing but the floor seed is stubbed out.
+    const pinnedDraw = (array: Parameters<Crypto['getRandomValues']>[0]) => {
+      if (array instanceof Uint32Array && array.length === 1 && handle.values.length) {
+        array[0] =
+          handle.values[Math.min(handle.index++, handle.values.length - 1)] >>> 0;
+        return array;
+      }
+      return original(array);
+    };
+    Object.defineProperty(source, 'getRandomValues', {
+      configurable: true,
+      writable: true,
+      value: pinnedDraw,
+    });
+  }, seeds);
+}
+
 export class Game {
   readonly pageErrors: string[] = [];
   readonly consoleErrors: string[] = [];
@@ -503,33 +541,14 @@ export class Game {
         game.failedRequests.push(`${request.url()} (${failure})`);
       });
     }
-    // The pinned draws live behind a handle rather than being baked into the closure: a pooled page
-    // outlives the seeds of the test it was booted for, and the next scenario has to be able to hand it
-    // a different set and rewind the cursor without a reload. The isolated path uses the same handle,
-    // so there is one way seeds are pinned rather than two that can drift apart.
-    await page.addInitScript((pinned: number[]) => {
-      const source = crypto;
-      const original = source.getRandomValues.bind(source);
-      const handle = { values: pinned, index: 0 };
-      (window as unknown as { __pinnedSeeds: typeof handle }).__pinnedSeeds = handle;
-      // Only the single-word draw `buildFloor` makes is pinned; everything else
-      // keeps real entropy, so nothing but the floor seed is stubbed out.
-      const pinnedDraw = (array: Parameters<Crypto['getRandomValues']>[0]) => {
-        if (array instanceof Uint32Array && array.length === 1 && handle.values.length) {
-          array[0] =
-            handle.values[Math.min(handle.index++, handle.values.length - 1)] >>> 0;
-          return array;
-        }
-        return original(array);
-      };
-      Object.defineProperty(source, 'getRandomValues', {
-        configurable: true,
-        writable: true,
-        value: pinnedDraw,
-      });
-    }, seeds);
+    await pinSeeds(page, seeds);
     // Reference frames stay at full quality: the baseline was drawn with the whole post chain on SwiftShader.
-    await page.goto(CAPTURING ? '/?quality=full' : '/');
+    // `boot=eager` (dev-only, plan 015 Stage A) restores the mount-time boot production dropped: this is a
+    // boot, and almost every scenario here wants a floor already built and warm rather than spending itself
+    // on a press first. It is passed on every `goto` this helper makes, pooled and isolated alike, so the
+    // GAME_TEST_ISOLATE oracle still holds a reset against the same boot. A scenario that tests the boot
+    // itself (loading.spec.ts) drives its own `page.goto` on the plain URL instead of going through `Game`.
+    await page.goto(`${CAPTURING ? '/?quality=full&' : '/?'}boot=eager`);
     // The hooks go up as soon as floor 1 exists, before the cold compile - but a fresh page on CI
     // shares its cores with a sibling worker's software-rasterised frames, and the 25 s default has
     // timed out here on three isolated specs in one run. This is a boot, so it gets the boot's budget.
@@ -541,6 +560,20 @@ export class Game {
     // The hook goes up a render before the veil comes down, so a scenario that
     // looked at the screen straight away could catch the tail of the boot wait.
     await page.locator('.loading-veil').waitFor({ state: 'detached', timeout: WARM_UP });
+    // Plan 015 Stage C.1: an eager boot never raises the veil at all - it does not go through `veiled`,
+    // which is the only thing that ever sets `loading` - so the wait above is a no-op here and this is
+    // the one that matters. `building` now covers a boot in progress the same way it covers a restart
+    // (see the comment in `boot` on why), and waiting it out here is what keeps this call from handing
+    // back a page mid-compile: a `dungeonTest.reset()` issued into that window would find `building`
+    // still true and be silently dropped, since only one build may run at a time.
+    await page.waitForFunction(
+      () => {
+        const hook = (window as GameWindow).render_game_to_text;
+        return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
+      },
+      undefined,
+      { timeout: WARM_UP },
+    );
     // Manual time before anything else: the rAF loop stops on the first call,
     // so every later assertion reads a simulation this test stepped itself.
     await game.step(0);

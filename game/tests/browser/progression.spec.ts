@@ -1,6 +1,7 @@
 import {
   expect,
   Game,
+  type GameWindow,
   strikeStance,
   test,
   TILE,
@@ -162,6 +163,15 @@ test('killing the last warden ends a floor, freezes it, and waits for a real Con
     expect((await game.state()).mode).toBe('complete');
     await game.capture(`floor-${level}-complete`);
 
+    // TEMPORARY CI diagnostic (plan 015): does the page still produce animation frames here?
+    const diag = await page.evaluate(() => new Promise((resolve) => {
+      const t0 = performance.now(); let n = 0;
+      const info = () => ({ visibility: document.visibilityState, focus: document.hasFocus(), render: (JSON.parse((window as GameWindow).render_game_to_text!()) as { render: unknown; building: boolean }) });
+      const tick = () => { n++; if (n === 3) resolve({ rafMs: +(performance.now() - t0).toFixed(1), ...info() }); else requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+      setTimeout(() => resolve({ rafMs: -1, frames: n, ...info() }), 5000);
+    }));
+    console.log(`DIAG level ${level}: ${JSON.stringify(diag)}`);
     await page.locator('.success-screen button').click();
     await game.built();
     await game.step(16);

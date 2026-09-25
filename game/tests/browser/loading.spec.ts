@@ -1,4 +1,4 @@
-import { expect, type GameWindow, test, WARM_UP } from './helpers.ts';
+import { DEFAULT_SEEDS, expect, type GameWindow, pinSeeds, test, WARM_UP } from './helpers.ts';
 
 // A boot is the thing under test here, so a page that is already booted has nothing to show. Every
 // scenario here needs its own load. Each fresh load also pays a cold shader warm-up behind the veil
@@ -25,13 +25,61 @@ test('the menu ships inside the prerendered page and the veil does not', async (
 });
 
 /**
- * The keep is built a couple of frames after the page mounts, behind the menu. A press that lands before
- * then is not lost and does not start a run with no floor: it raises the loading bar and is answered on
- * the keep. Animation frames are held from before the page's own script runs, so "before the build" is
- * guaranteed by construction rather than by out-racing it; Playwright's own frame checks run in an isolated
- * world and are not held.
+ * Plan 015 Stage A, target 1: before ENTER, nothing runs. `compileShader` is hooked before the page's own
+ * script runs, so a compile hidden inside module evaluation or a lazy effect would still be caught; the
+ * hook goes up with the floor, so its absence after two full seconds idle is "no floor built", not "not
+ * built yet"; and `requestAnimationFrame` is hooked the same way `frame-clock.spec.ts` holds it, so a
+ * frame loop that requested itself once and never drew would still be counted. Vite's own client and
+ * React's scheduler use neither API in this app, which is what makes a bare zero the right assertion
+ * rather than a fuzzier "stays low" one - if a framework dependency ever changes that, the fix is a
+ * narrower probe here, not a wider tolerance.
  */
-test('a press that beats the build raises the loading bar and enters on the new keep', async ({
+test('the idle page compiles nothing, builds nothing and requests no frame', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __probeCompiles: number; __probeFrames: number };
+    w.__probeCompiles = 0;
+    w.__probeFrames = 0;
+    const proto = (window as unknown as { WebGL2RenderingContext?: { prototype: Record<string, unknown> } })
+      .WebGL2RenderingContext?.prototype;
+    if (proto) {
+      const compileShader = proto.compileShader as (this: WebGL2RenderingContext, shader: WebGLShader) => void;
+      proto.compileShader = function (this: WebGL2RenderingContext, shader: WebGLShader) {
+        w.__probeCompiles++;
+        return compileShader.call(this, shader);
+      };
+    }
+    const raf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (callback) => { w.__probeFrames++; return raf(callback); };
+  });
+  await page.goto('/');
+  await page.waitForTimeout(2000);
+  const idle = await page.evaluate(() => {
+    const w = window as unknown as {
+      __probeCompiles: number;
+      __probeFrames: number;
+      render_game_to_text?: unknown;
+    };
+    return {
+      compiles: w.__probeCompiles,
+      frames: w.__probeFrames,
+      hookExists: typeof w.render_game_to_text === 'function',
+    };
+  });
+  expect(idle.compiles, 'a shader compiled before any press').toBe(0);
+  expect(idle.hookExists, 'floor 1 (or its window hooks) exists before any press').toBe(false);
+  expect(idle.frames, 'the idle page asked for an animation frame').toBe(0);
+});
+
+/**
+ * Nothing is built until ENTER is pressed (plan 015 Stage A); the press is what builds the keep, not a
+ * race the press might lose against a build already under way. Animation frames are held from before the
+ * page's own script runs, so this holds even if a future change reintroduced work started at mount:
+ * "before the build" is guaranteed by construction rather than by out-racing it. Playwright's own frame
+ * checks run in an isolated world and are not held, which is what proves the veil and its bar paint
+ * without needing a single frame - the whole point of a loading screen that must show up before the work
+ * it is covering for gets to run.
+ */
+test('the keep is built on the press, not before it', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -77,6 +125,105 @@ test('a press that beats the build raises the loading bar and enters on the new 
   );
   expect(state.mode).toBe('playing');
   expect(state.floor.level).toBe(1);
+});
+
+/**
+ * Plan 015 Stage C.1: `stagedBuild`'s program poll can span real seconds once
+ * `KHR_parallel_shader_compile` is exercised, where the wait used to close over one synchronous burst
+ * (the first render's own `getUniforms`/`getAttributes` sweep). A `dungeonTest.reset()` landing inside
+ * that window - the same shape a pooled scenario's own setup issues, and exactly what caught this in
+ * development - found `veiled`'s `building` guard unclaimed by the boot it was racing (`boot` bypasses
+ * `veiled` and calls `stagedBuild` directly) and started a second, concurrent build. Whichever superseded
+ * the other via `buildToken` left the loser's `.then` seeing `ok === false`; when the loser was the boot,
+ * it returned before ever setting `warmed`, and every press after that hung behind `enterWhenBuilt` with
+ * nothing left to answer it. `boot` now claims `building` too, so the reset below is silently dropped
+ * rather than racing it - what this proves is that dropping it is safe: no page error, the boot it
+ * interrupted still lands, and a real press afterward still works.
+ */
+test('a reset issued while the boot is still polling its programs does not corrupt it', async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(String(error)));
+  await page.goto('/?boot=eager');
+  // As early as the hooks allow - well before the poll has had time to finish - so this lands inside the
+  // async window, not after it.
+  await page.waitForFunction(
+    () => typeof (window as GameWindow).render_game_to_text === 'function',
+    undefined,
+    { timeout: WARM_UP },
+  );
+  await page.evaluate(() => (window as GameWindow).dungeonTest?.reset());
+  // The boot this interrupted still has to land, whether or not the reset above did anything.
+  await page.waitForFunction(
+    () => {
+      const hook = (window as GameWindow).render_game_to_text;
+      return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
+    },
+    undefined,
+    { timeout: WARM_UP },
+  );
+  // And a real press afterward has to work - this is exactly what hung before `boot` claimed `building`.
+  const enter = page.locator('.intro-screen .primary-action');
+  await enter.click({ timeout: WARM_UP });
+  await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
+  const state = await page.evaluate(
+    () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string },
+  );
+  expect(state.mode).toBe('playing');
+  expect(errors, 'the interrupted boot left a page error behind').toEqual([]);
+});
+
+/**
+ * Plan 015 Stage C.2: `buildFloor` is a generator now, yielding at its existing `phase()` boundaries, but
+ * `dungeonTest.buildFloor` still drains it synchronously in one call - the same generator the sliced
+ * boot/restart path drives incrementally across frames instead. This builds the same seed both ways and
+ * holds the floor, its graphics summary and its enemy spawns to be identical: same rooms, same edges,
+ * same motifs, same spawns, in every field - proof that slicing when a build runs does not change what
+ * it builds. `buildMs` is excluded, the same way the pooled leak guard excludes it elsewhere in this
+ * suite: wall-clock milliseconds describe the machine, not the floor, and cannot match between a build
+ * that ran in one synchronous burst and one spread across frames.
+ */
+test('a floor built through the sliced path is identical to the synchronous one, for the same seed', async ({
+  page,
+}) => {
+  const seed = 0x51a7;
+  await page.goto('/?boot=eager');
+  await page.waitForFunction(
+    () => {
+      const hook = (window as GameWindow).render_game_to_text;
+      return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
+    },
+    undefined,
+    { timeout: WARM_UP },
+  );
+  const capture = () =>
+    page.evaluate(() => {
+      const snapshot = JSON.parse((window as GameWindow).render_game_to_text!()) as {
+        floor: unknown;
+        graphics: unknown;
+        enemies: unknown;
+      };
+      return { floor: snapshot.floor, graphics: snapshot.graphics, enemies: snapshot.enemies };
+    });
+
+  // The sliced path: the same generator, driven incrementally by `restart` (via `dungeonTest.reset`).
+  await page.evaluate((s) => (window as GameWindow).dungeonTest!.reset(s), seed);
+  await page.waitForFunction(
+    () => {
+      const hook = (window as GameWindow).render_game_to_text;
+      return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
+    },
+    undefined,
+    { timeout: WARM_UP },
+  );
+  const sliced = await capture();
+
+  // The synchronous reference: dungeonTest.buildFloor drains the identical generator in one call.
+  await page.evaluate((s) => (window as GameWindow).dungeonTest!.buildFloor(1, s), seed);
+  const unsliced = await capture();
+
+  expect(sliced).toEqual(unsliced);
 });
 
 /**
@@ -167,9 +314,15 @@ test('a second press while the veil is up does not build a second keep', async (
 });
 
 /**
- * LAST KEEP is a menu item that enters the floor 1 a previous visit left, not a button that swaps the
- * floor behind the menu and waits for a second press. The stored seed is read on mount, before floor 1
- * overwrites it.
+ * LAST KEEP is a menu item that enters the floor 1 a previous visit left, not a button that raises a
+ * fresh floor 1 first and only then rebuilds with the remembered seed. The stored seed is read on mount,
+ * before floor 1 overwrites it.
+ *
+ * This drives the plain URL directly rather than through the `game` fixture: `Game.open` passes
+ * `boot=eager` on every `goto` so the rest of the suite gets a floor already built, and eager-booting
+ * here would build a first floor from the pinned queue before LAST KEEP ever got to press anything -
+ * exactly the spare build this test exists to rule out. `pinSeeds` is the same interception `Game.open`
+ * installs, called directly for the same reason.
  */
 test.describe('with a keep remembered from a previous visit', () => {
   const remembered = 0x2468ace;
@@ -185,12 +338,23 @@ test.describe('with a keep remembered from a previous visit', () => {
     },
   });
 
-  test('LAST KEEP enters that keep in one press', async ({ game, page }) => {
-    await page.getByRole('button', { name: 'Last keep' }).click();
-    await game.built();
-    await expect(page.locator('.intro-screen')).toBeHidden();
-    const state = await game.state();
+  test('LAST KEEP enters that keep in one press, with no build before it', async ({ page }) => {
+    await pinSeeds(page, DEFAULT_SEEDS);
+    await page.goto('/');
+    const lastKeep = page.getByRole('button', { name: 'Last keep' });
+    await expect(lastKeep).toBeEnabled();
+    await lastKeep.click();
+    await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
+    const state = await page.evaluate(
+      () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string; floor: { seed: number } },
+    );
     expect(state.mode).toBe('playing');
     expect(state.floor.seed).toBe(remembered);
+    // The lazy path takes `bootSeed` (the remembered seed) directly, so `generateFloor` never draws from
+    // the pinned queue at all - not for a spare first build, and not for the remembered one either.
+    const index = await page.evaluate(
+      () => (window as unknown as { __pinnedSeeds: { index: number } }).__pinnedSeeds.index,
+    );
+    expect(index, 'a build drew from the pinned seed queue before LAST KEEP\'s own').toBe(0);
   });
 });

@@ -46,8 +46,14 @@ type StoneSet = { albedo: THREE.CanvasTexture; normal: THREE.Texture; roughness:
  * scatter of cracks and chips near the grout, and moss finding the grout's low spots. The height
  * field that drives the normal map is the same cell layout, tilted a hair per cell, so the paving
  * key light actually breaks across the joints rather than only the paint suggesting it does.
+ *
+ * Plan 015 Stage C.2: a generator that yields after every 32-row band of the main pixel loop, which is
+ * where this spends nearly all of its time - `flagstoneTextures` below runs it to completion
+ * synchronously, so every existing caller (including `dungeonTest.buildFloor`/`reset`, which must stay
+ * synchronous and deterministic) sees no change at all. The PRNG (`random`) draws in the same order
+ * either way, so a sliced build's output is bit-identical to an unsliced one.
  */
-export function flagstoneTextures(size = 640, seed = 1): StoneSet {
+export function* flagstoneTexturesSteps(size = 640, seed = 1): Generator<void, StoneSet> {
   const random = rng(seed);
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
@@ -110,6 +116,7 @@ export function flagstoneTextures(size = 640, seed = 1): StoneSet {
       roughImage.data[i] = roughImage.data[i + 1] = roughImage.data[i + 2] = roughValue * 255;
       roughImage.data[i + 3] = 255;
     }
+    if (y % 32 === 31) yield;
   }
   ctx.putImageData(image, 0, 0); rctx.putImageData(roughImage, 0, 0);
 
@@ -136,12 +143,23 @@ export function flagstoneTextures(size = 640, seed = 1): StoneSet {
   return { albedo, normal, roughness };
 }
 
+/** Runs {@link flagstoneTexturesSteps} to completion synchronously - every caller before plan 015 Stage
+ * C.2, and every one that still needs a texture set in one call rather than across frames. */
+export function flagstoneTextures(size = 640, seed = 1): StoneSet {
+  const steps = flagstoneTexturesSteps(size, seed);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+}
+
 /**
  * Coursed masonry: rows of offset rectangular blocks (a running bond, like the hand-built wall
  * batches already do in world space) with mortar joints, per-block tone jitter, and grime pooling in
  * the mortar rather than on the faces.
+ *
+ * Plan 015 Stage C.2: sliced the same way as {@link flagstoneTexturesSteps} above, for the same reason.
  */
-export function masonryTextures(size = 640, seed = 2): StoneSet {
+export function* masonryTexturesSteps(size = 640, seed = 2): Generator<void, StoneSet> {
   const random = rng(seed);
   const canvas = document.createElement('canvas'); canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d')!;
@@ -178,6 +196,7 @@ export function masonryTextures(size = 640, seed = 2): StoneSet {
       roughImage.data[i] = roughImage.data[i + 1] = roughImage.data[i + 2] = roughValue * 255;
       roughImage.data[i + 3] = 255;
     }
+    if (y % 32 === 31) yield;
   }
   ctx.putImageData(image, 0, 0); rctx.putImageData(roughImage, 0, 0);
   // Chips along a few block edges.
@@ -191,6 +210,14 @@ export function masonryTextures(size = 640, seed = 2): StoneSet {
   roughness.wrapS = roughness.wrapT = THREE.RepeatWrapping;
   const normal = heightToNormal(height, size, 2.6);
   return { albedo, normal, roughness };
+}
+
+/** Runs {@link masonryTexturesSteps} to completion synchronously - see {@link flagstoneTextures}. */
+export function masonryTextures(size = 640, seed = 2): StoneSet {
+  const steps = masonryTexturesSteps(size, seed);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
 }
 
 const TRIPLANAR_VARYING = 'varying vec3 stoneNormalWorld;';
@@ -284,6 +311,20 @@ let sharedFlagstone: StoneSet | null = null;
 let sharedMasonry: StoneSet | null = null;
 export const getFlagstoneTextures = () => (sharedFlagstone ??= flagstoneTextures());
 export const getMasonryTextures = () => (sharedMasonry ??= masonryTextures());
+/**
+ * Plan 015 Stage C.2: the sliceable pair `dungeon-game.tsx`'s boot/restart path drives incrementally
+ * instead of calling the getters above. A no-op once each set is cached - which is every floor after
+ * the first, since both are shared for the run - so a rebuild's "cut the stone" stage costs nothing
+ * whether it goes through this path or the synchronous getters.
+ */
+export function* getFlagstoneTexturesSteps(): Generator<void> {
+  if (sharedFlagstone) return;
+  sharedFlagstone = yield* flagstoneTexturesSteps();
+}
+export function* getMasonryTexturesSteps(): Generator<void> {
+  if (sharedMasonry) return;
+  sharedMasonry = yield* masonryTexturesSteps();
+}
 
 /**
  * Plan 014 round B: what makes a floor read as a lived-in wet dungeon rather than clean repeated slabs.

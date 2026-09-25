@@ -2388,3 +2388,283 @@ Gates: typecheck, lint, `npm test` (176/176), the PR-gate browser subset under `
   in `footsteps.spec.ts`.
 - New `tests/browser/hud.spec.ts`; the state text reports `render.passes`. Reference frames not
   re-captured - `output/shots/baseline/` is now stale for framing, corners and figure edges.
+
+## 2026-09-25 - Plan 015 Stages 0, A, B, C: nothing runs until ENTER, and the boot stops blocking
+
+On `perf/instant-menu` off `072de75`. Stage 0's probe (`scripts/perf/boot.ts`, `npm run perf:boot -- --url
+<url> [--cold]`) drives a real Chromium (the launch args `GAME_TEST_GL=d3d11` uses) against a served
+production build (`npm run build`, `npm start` - `wrangler dev` served it fine, no fallback needed), pinning
+`buildFloor`'s one seed draw the same way the test harness does, and timing a priming pass plus a measured
+one so a warm pass actually hits the process's own GPU program cache rather than launching cold every time.
+`--cold` tags every `shaderSource` call with a nonce on the measured pass only. Not run in CI; nothing there
+has a real GPU.
+
+**Probe table** (cold / warm), long tasks and programs from `render_game_to_text()`, per-frame ms is the
+median of 60 `advanceTime(16.7, true)` steps:
+
+| | tasks before press | longest before press | longest, press-to-keep | press-to-keep wall | programs | per-frame ms |
+| --- | --- | --- | --- | --- | --- | --- |
+| Baseline cold | 3 | 3021 ms | n/a (0 tasks) | 78 ms | 79 | 12.3 |
+| Baseline warm | 3 | 237 ms | n/a (0 tasks) | 66 ms | 79 | 11.3 |
+| After B cold | 0 | - | 2925 ms | 3897 ms | 79 | 11.8 |
+| After B warm | 0 | - | 265 ms | 1194 ms | 79 | 11.7 |
+| After C cold | 1 | 67 ms | 1041 ms | 4859 ms | 79 | 14.6 |
+| After C warm | 1 | 67 ms | 158 ms | 1378 ms | 79 | 14.4 |
+
+Baseline confirms the bug as filed: within the probe's 3 s idle window the mount-time boot already
+compiles all 158 shader sources and draws the keep behind the menu, so a press that lands after that (the
+common case) is answered in under 100 ms with nothing left to build - "a player who lingers on the menu
+enters instantly" - while the real cost (that single 3021 ms cold compile) was paid silently before any
+press, invisible to this table's press-to-keep columns. After B the same cost is still one block, just
+correctly billed to the press instead of hidden at load - Stage B does not touch the boot's total cost,
+only frozen-frame redraws elsewhere. After C the worst single task drops from 2925-3021 ms to 158-1041 ms
+(warm/cold), meeting target 2's spirit if not its 50 ms figure; target 3 is not met on this machine -
+press-to-keep wall time rose to 1.4 s warm / 4.9 s cold, worse than baseline's masked ~3.4 s cold, because
+spreading the work across `requestAnimationFrame` yields adds real vsync-bound wall time the one
+synchronous block did not pay. Flagged for the operator; Stage D was out of scope for this pass. The
+post-C per-frame figures (14.4-14.6 ms vs 11.3-12.3 ms before) are almost certainly session noise - nothing
+in B or C touches the steady-state render path - not re-measured for lack of a fourth probe session under
+the three-session budget.
+
+**Stage A** - nothing runs before ENTER. `scheduleBoot()` no longer runs at mount; the press path
+(`bootSeed = pinned; scheduleBoot()`) already booted on demand and needed no change. The frame loop's first
+`requestAnimationFrame` moved from mount into `boot()` itself. A dev-only `?boot=eager` (gated the same way
+as `configureCombatFixture`) restores today's mount-time boot for the harness; `Game.open` passes it on
+every `goto` (pooled and isolated alike), so `dungeonTest.buildFloor`/`reset` behave exactly as before for
+every other spec. `pinSeeds` was pulled out of `Game.open` into its own export so a scenario that must not
+carry `boot=eager` - LAST KEEP's, which asserts `__pinnedSeeds.index` stays 0 - can drive the plain URL
+directly. Decision 1(a): `scripts/backdrop.ts` (`npm run backdrop`) boots a fixed seed at `?quality=full`,
+presses ENTER, and reads the canvas with `toDataURL` in the same task as one `advanceTime(0, true)` draw
+(no `preserveDrawingBuffer`, so a later read finds nothing). Wrote `game/public/keep-backdrop.jpg`, 131 KB.
+Shown as a plain `<img>` (`decoding="async" fetchPriority="low"`, document-relative `src` for GitHub Pages)
+under `.intro-screen`'s gradient, gated on `!started` so it is never shown over a live keep.
+
+**Stage B** - `animate` now draws only when a `dirty` flag is set, cleared right after each draw. Set
+wherever the picture can change while the loop decides whether to draw: inside `update` when it actually
+advances `elapsed` (not on the paused/drafting/complete early return), on resize, on context restore, on
+the tab regaining visibility, in `togglePause`, and in the settings-apply callback. Real-time regression in
+`frame-clock.spec.ts` (the one spec that never calls `advanceTime`, since that stops the real frame loop on
+its first call): enter, pause, hold 500 ms real time and assert `render.frames` unchanged, then resume and
+assert it advances.
+
+**Stage C.1** - shader warm-up without blocking. `renderer.compile` only submits the work; the block was
+always the very next line, one synchronous sweep of `getUniforms`/`getAttributes` over every program.
+`pollProgramsReady` now polls `renderer.info.programs` across frames instead (never a material - nothing to
+crash on if a rebuild disposes one mid-poll), calling `getUniforms`/`getAttributes` only on programs whose
+`isReady()` says the link landed, within an 8 ms/frame budget; without `KHR_parallel_shader_compile`,
+`isReady()` is always true and the same budget force-links a few programs at a time instead of all 79 at
+once. A `buildToken`, bumped once per `stagedBuild` call, lets a superseded poll stop rather than racing a
+newer build.
+
+Bullet 5 (precompiling the shadow-depth and post-pass materials `renderer.compile` cannot reach) was tried
+and reverted. Measured: the first real frame after the poll still creates and links new programs on the
+spot - 22 of them, 531 ms full quality; with GTAO and bloom disabled (`?quality=reduced`) only 7, 133 ms, so
+those two own the rest. Precompiling the post chain's three simple full-screen-quad passes (ceiling,
+output, grade) against a matching quad and an orthographic camera matching `FullScreenQuad`'s own
+(`three/addons/postprocessing/Pass.js`) compiled three programs that the real render then ignored and
+recompiled anyway (60 -> 82 programs on the first frame, same as without the precompile, just three
+wasted). Root cause not found within the time this stage had; GTAOPass's and UnrealBloomPass's own
+scene-override materials (a normal/depth pre-pass over every geometry in the scene, not a single quad) were
+not attempted at all - reaching into either addon's private material cache to replicate its own override
+sequence is past the three.js surface this plan sanctions (`renderer.info.programs`, `isReady`,
+`getUniforms`, `getAttributes`). Reported per the plan's stop rule rather than pursued further.
+
+**A real regression this stage's own testing caught**: `boot()` calls `stagedBuild` directly, bypassing
+`veiled`'s `building` guard entirely. Before C.1 that was safe - the compile-to-first-frame tail ran in one
+synchronous burst, so nothing else ever got a turn while it was in flight. Once that tail could span real
+seconds of polling, a `dungeonTest.reset()` (the shape every pooled scenario's own setup issues) landing in
+that window sailed past the unclaimed guard and started a second, concurrent `stagedBuild`; whichever
+superseded the other via `buildToken` left the loser's `.then` seeing `ok === false`, and when the loser
+was the boot, it returned before ever setting `warmed` - every press after that hung behind
+`enterWhenBuilt` with nothing left to answer it. Reproduced first as `frame-budget.spec.ts` hanging past its
+300 s ceiling, isolated with a throwaway Playwright script outside the repo, fixed by having `boot()` also
+claim `building` (and `Game.open` wait it out, since an eager boot never raises a veil to wait on instead).
+`loading.spec.ts` now has a standing regression for it: a reset mid-poll must leave no page error and the
+interrupted boot must still land.
+
+**Stage C.2** - slicing, at existing `phase()` boundaries only. Attempting the finer grain the plan
+describes (after each enemy, after every N cells of the surface index) was judged too invasive for a safe
+in-place edit once C.1's own async conversion had already surfaced one production-shaped race condition
+from a much smaller change; slicing only at the eight boundaries `buildFloor` already had was taken instead,
+per the plan's own fallback. `dungeon-textures.ts`'s `flagstoneTextures`/`masonryTextures` are now
+generators (`flagstoneTexturesSteps`/`masonryTexturesSteps`) yielding every 32 rows of their main pixel
+loop - the dominant cost - with the original names now synchronous wrappers draining them in one call;
+`heightToNormal`'s own smaller per-pixel pass was left whole (a second, cheaper pass called at the end of
+each generator, not separately measured). `buildFloor` is now `function* buildFloorSteps` (a generator
+cannot be an arrow function, so this one stray function declaration needed a `renderer!` non-null assertion
+where TypeScript would not carry the mount guard's narrowing through it), yielding once after each existing
+`phase()` call; `buildFloor` itself is now a five-line wrapper that drains it synchronously, so
+`dungeonTest.buildFloor`, `reset` and `buildMs` are unchanged for every existing caller. A new
+`driveSliced` helper (the same budget-and-yield shape as `pollProgramsReady`, generalised to drive any
+`Generator<void>`) steps the texture generators and `buildFloorSteps` across frames instead, wired into
+`stagedBuild`'s own texture stage and into `boot`/`restart`/`continueDescent`'s `work` callback (now
+`(token) => void | Promise<void>`, called with `await`).
+
+Determinism: `dungeonTest.buildFloor` gained an optional seed argument (additive - every one-argument call
+is unaffected) so a test can build the same seed through the synchronous wrapper and through the sliced
+`reset()` path and compare them; a new `dungeonTest.textureHash()` reads a checksum of the shared stone
+textures' actual canvas pixels. New regression in `loading.spec.ts`: the same seed built both ways holds
+identical `floor`, `graphics` and `enemies` (buildMs excluded, same reason the pooled leak guard excludes
+it - wall-clock milliseconds describe the machine, not the floor). A true sliced-vs-unsliced pixel
+comparison for the textures was not achievable within this pass: the shared textures are memoized for the
+run, and by the time `dungeonTest.buildFloor` is callable at all a boot has already built them once through
+the now-sliced path, so there is no code path left that builds them any other way to compare against.
+
+**Gates**, from `game/`, after each stage and again at the end: `npm run typecheck` and `npm run lint`
+clean throughout; `npm test` 176/176 throughout; `npm run build` clean (twice, for probe sessions 2 and 3).
+`git diff -w --stat` matches `git diff --stat` exactly for `dungeon-game.tsx` (200 insertions, 55 deletions,
+both ways) - no reformatting.
+
+Browser specs, `GAME_TEST_GL=d3d11 GAME_TEST_PORT=3200` throughout, one job at a time: `loading.spec.ts`
+(9/9, including the two new C.1/C.2 regressions), `smoke.spec.ts` (1/1), `frame-budget.spec.ts` (6/6),
+`frame-clock.spec.ts` (2/2, including the new Stage B real-time regression), `progression.spec.ts` (2/2),
+`a11y.spec.ts` (3/3), `hud.spec.ts` (1/1) - all pass. `loading.spec.ts` and `smoke.spec.ts` also pass under
+`GAME_TEST_ISOLATE=1` (the pooled-vs-isolated oracle), both right after Stage A and again at the end: no
+disagreement.
+
+**Deviations from the plan**: target 3 (press-to-keep wall time) is not met cold, and gets worse than
+baseline (see the probe table's note above) - a real, measured trade-off the plan's own framing anticipated
+in shape ("about 1s warm and 3s cold... Today a player who lingers on the menu enters instantly") but not
+in this specific direction (cold got slower, not merely "not worse"). C.1 bullet 5 and C.2's finer-than-
+phase-boundary slicing were both stopped and reported per the plan's own stop rules rather than forced
+through. Two bugs the plan did not anticipate were found and fixed by this pass's own testing, not by the
+plan's prescribed tests: the `boot`/`veiled` race above, and the `for (;;)` infinite-loop syntax in
+`pollProgramsReady` crashing oxlint's `react-compiler` rule with an internal invariant (rewritten as
+`while (true)`, semantically identical, no further investigation attempted).
+
+**Open issues for Stage D**: the program count (79) is unchanged - Stage D's own job. C.1 bullet 5's ~22
+programs / ~530 ms (full quality) first-real-frame cost from GTAOPass and UnrealBloomPass's own
+scene-override materials is unaddressed; whether it is worth reaching further into three.js internals for
+is an operator call, not this pass's to make. Target 3 needs a decision: accept the slower cold wall time
+Stage C measured, tune the frame budgets (a wider slice trades main-thread responsiveness for fewer
+`requestAnimationFrame` round trips), or treat it as Stage D's problem once there are fewer programs to
+link in the first place. The post-C per-frame regression (14.4-14.6 ms vs 11.3-12.3 ms) is unexplained and
+worth a fourth probe pass to confirm as noise before trusting it either way.
+
+## 2026-09-25 - Plan 015 Stage C fix round: one correctness bug, wall time, first-frame compiles
+
+Reviewer-requested fix round on the same numbers above. Probe sessions capped at two this round; one used.
+
+| | before this round | after |
+| --- | --- | --- |
+| cold: longest task / wall / per-frame | 1041 ms / 4859 ms / 14.6 ms | 925 ms / 3945 ms / 14.7 ms |
+| warm: longest task / wall / per-frame | 158 ms / 1378 ms / 14.4 ms | 159 ms / 997 ms / 14.2 ms |
+| programs | 79 | 80 |
+| first real frame adds | +22 programs, 531 ms (full quality) | +5 programs |
+
+**1. Correctness bug, found by the reviewer's own reading of the diff, not by any test here (every one runs
+under manual time):** `animate`'s draw guard gained `!building`, and `requestAttack`/`requestDash`/
+`requestSwap` gained a `building` check - a sliced restart or descent flips `gameStatus` to `'playing'` and
+swaps `floor` in its first slices, while `enemyData`, `atmosphere` and `surfaceIndex` still belong to the
+old, disposed floor until later phases (the player's own position does not move until `'upload'`), so in
+real play the old floor's enemies could act and land a hit on a veil the player cannot see through. New
+`frame-clock.spec.ts` regression, real time throughout: a sliced restart must draw exactly one frame (the
+"floor on screen when the veil lifts" frame `stagedBuild` draws itself - its own first warm-up draw no
+longer calls `post.render` at all, see below) between `building` going true and false. Polled from Node at
+50ms intervals this was unusably noisy (real gameplay frames legitimately drawn between a poll and the
+`building` flip it was 50ms late catching inflated the count past any fixed expectation); polled from inside
+the page once a rendered frame instead, `before` and the frame at the `building` transition are read in the
+same task, and it holds exactly.
+
+**2. Wall time.** `pollProgramsReady` and `driveSliced` yielded through `painted()` - two `requestAnimationFrame`
+calls, ~33 ms at 60Hz, paid by every slice of a cold texture band, a build phase or a program-readiness
+check. A new single-rAF `yielded()` (the same `document.hidden`/manual-time `setTimeout(0)` fallback
+`painted()` has) replaces it for both; `painted()` stays only at the `stagedBuild` stage boundaries, where
+the veil's own label has to actually be on screen before the next stage starts. Slice budgets raised 8/10 ->
+12 ms. Cold wall time: 4859 -> 3945 ms, at the "back at or below 3.9 s" the reviewer asked for within noise;
+warm: 1378 -> 997 ms.
+
+**3. The first real frame's ~22 programs.** The first bullet-5 attempt (previous entry) precompiled against
+a plain quad with no scene and no targetScene and got programs the real render never reused. Root cause,
+found by comparing `renderer.properties.get(material).programs` (a `Map<cacheKey, WebGLProgram>`) for the
+precompiled material against the same map after the real draw, both from a throwaway script (not shipped):
+- The proxy's own geometry mattered: `PlaneGeometry` carries a `normal` attribute, `FullScreenQuad`'s own
+  `FullscreenTriangleGeometry` (`three/addons/postprocessing/Pass.js`) does not, and `vertexNormals` is one
+  of the boolean flags `WebGLPrograms.getProgramCacheKeyBooleans` folds into the key. Matched the triangle
+  exactly (same three vertices, same UVs) and it stopped mattering.
+- `OutputPass`'s `defines` (`SRGB_TRANSFER`, a tone-mapping one) are set lazily inside its own `render()`,
+  compared against the renderer's current colour space and tone mapping - never by a bare `renderer.compile`,
+  since nothing has rendered yet. A precompile can only ever find them unset. Dropped from the precompile
+  list; its own first use is covered by the per-pass split below instead.
+- The new per-pass first draw (`pass.render(...)` called directly, once per pass, one per frame - the point
+  of it being that nothing from this frame is shown, so which ping-pong buffer each pass lands in does not
+  matter for pixels) does not go through `EffectComposer.render()`'s own loop, which is what normally sets
+  `pass.renderToScreen` fresh on every call. Left unset, grade (the last enabled pass) rendered into an
+  offscreen target instead of the canvas and compiled a `srgb-linear` program nobody used a moment later.
+  Now set explicitly before each pass renders, matching `isLastEnabledPass`.
+
+With those three fixed, the full precompile list is: ceiling, grade, output excluded (see above), bloom's
+high-pass/blur-ladder/composite/blend, and GTAO's own five full-screen materials (`gtaoMaterial`,
+`pdMaterial`, `depthRenderMaterial`, `copyMaterial`, `blendMaterial` - all against a matching triangle, no
+targetScene) plus its scene-rendering `normalMaterial` (three proxies - plain `Mesh`, `InstancedMesh`, and
+`InstancedMesh` with `setColorAt` called, since `USE_INSTANCING_COLOR` is a cache-key flag, not a runtime
+branch - `targetScene = scene`, against `gtaoPass.normalRenderTarget`). None of the precompiled materials
+showed a second cache key after the real draw. +22 programs on the first real frame is now +5; not chased
+further per the plan's own instruction (shadow-depth variants are internal to `WebGLShadowMap`) and per this
+round's own scope.
+
+**4. Per-frame cost (11.3 ms baseline -> 14.2-14.7 ms after Stage C) did not improve** and was asked to be
+bisected rather than guessed at. `git stash` (the direct way to compare against the committed baseline on
+this same machine, same session) was refused by the permission system as irreversible destruction, and a
+read-only `git status` was refused immediately after for the same stated reason; neither was pursued through
+another tool, per the refusal's own instruction. Bisected what remained reachable without touching git
+instead: disabling this round's entire item-3 precompile block (`if (false)` around it, a plain edit,
+reverted after) measured 14.80 ms against 15.80 ms with it enabled, on the dev server - no meaningful
+change, which rules out today's precompile work specifically. Did not reach a toggle of `pollProgramsReady`'s
+polling loop or `buildFloorSteps`'s yields themselves (original Stage C, not this round) before this round's
+time ran out. Open: the regression predates this round's changes (present immediately after the original
+Stage C, before today's items 2 and 3 existed), so if it is code and not environment, it is more likely
+`pollProgramsReady` or `buildFloorSteps` than anything added today - neither ruled in or out.
+
+**Gates**: typecheck and lint clean throughout; `npm test` 176/176. **Specs**,
+`GAME_TEST_GL=d3d11 GAME_TEST_PORT=3200`: loading (9/9, including the new sliced-restart-corruption
+regression), frame-clock (3/3, including the new item-1 regression), frame-budget (6/6), smoke (1/1),
+progression (2/2) - all pass. Isolate oracle (loading + smoke, `GAME_TEST_ISOLATE=1`): no disagreement.
+`git diff -w --stat` matches `git diff --stat` for `dungeon-game.tsx` (305 insertions, 62 deletions, both
+ways this round) - no reformatting.
+
+## 2026-09-25 - Plan 015 Stage C fix round, finished and verified
+
+This entry supersedes the unverified one above: that pass was stopped mid-round. Where the two disagree,
+this one is right. Two probe sessions were run, both on a production build at the pinned seed.
+
+| | after C | session 1 | session 2 |
+| --- | --- | --- | --- |
+| cold: wall / longest task / per-frame | 4859 / 1041 / 14.6 ms | 3790 / 760 / 11.5 ms | 4161 / 826 / 12.4 ms |
+| warm: wall / longest task / per-frame | 1378 / 158 / 14.4 ms | 934 / 125 / 11.5 ms | 951 / 123 / 12.3 ms |
+| programs | 79 | 79 | 79 |
+
+1. **The half-built floor.** `animate` skips `update` and the draw while `building` is set, and
+   `requestAttack`, `requestDash` and `requestSwap` do nothing then. The frame-clock regression was
+   rewritten to real time. It samples on every animation frame while `building` is set, and presses
+   attack and dash on each of those frames. The last sample must show `render.frames` up by exactly 2,
+   and the attack, dash and buffer state must be zero. For that count to hold, the sliced first warm-up
+   frame now goes through `post.renderSteps`, which counts as a frame. Negative controls: with the
+   `animate` guard removed the frame assertion fails, and with the input guards removed the
+   `attackBuffer` is 0.18.
+2. **Wall time.** Slices yield through `yielded()` (one rAF, or `setTimeout(0)` when the tab is hidden
+   or time is manual). `painted()` is used only at stage boundaries. The budget is 12 ms. Cold wall time
+   was 3.8 s in one session and 4.2 s in the other, so it sits on the 3.9 s target, within noise.
+3. **First-frame compiles.** The first warm-up frame now adds 5 programs, down from 22: four shadow-depth
+   (`depth`) variants, which are internal to three.js and were not chased, and `OutputShader`, whose
+   defines are only set inside its own `render()`. Its longest per-pass slice was 34 ms warm and 47-66 ms
+   cold. A cacheKey diff against a run without the precompile found one extra program. It was
+   `gtaoPass.depthRenderMaterial` (`PERSPECTIVE_CAMERA=1`), which only GTAO's debug depth output draws,
+   so it was dropped from the list; programs went from 80 back to 79. Bloom and GTAO materials are now
+   precompiled only when their pass is enabled, so the reduced chain skips about a dozen programs on
+   software GL. `render.warmUp` in `render_game_to_text` records the programs linked at each step and
+   the longest slice of each kind; the probe prints it.
+4. **Per-frame cost.** The rise is not reproducible, and nothing was fixed. A throwaway script with URL
+   toggles (since removed) turned each Stage C change off in turn: textures, build slicing, the poll,
+   the precompile, and the split frame. The spread for a single configuration was 11.6-15.2 ms. With
+   everything off it measured 11.6-13.1 ms, and with everything on 11.6-12.4 ms. No toggle moved the
+   figure beyond that noise, and both probe sessions read 11.5-12.4 ms.
+
+**Open for Stage D.** The longest task cold is `renderer.compile(scene, camera)` itself: 811 ms cold and
+103 ms warm, as one synchronous call. It does not "only submit" as C.1 assumed. Stage D.4's per-group
+batching is the natural place to split it. The next-longest items are single build phases (`enemies`
+at about 90 ms, `surface` at about 54 ms) and a poll slice (85 ms cold).
+
+Gates: typecheck and lint are clean, and `npm test` passes 176/176. With `GAME_TEST_GL=d3d11
+GAME_TEST_PORT=3200`, all specs pass: loading 9/9, frame-clock 3/3, frame-budget 6/6, smoke 1/1 and
+progression 2/2. `git diff -w --stat` matches `git diff --stat` for `dungeon-game.tsx` (318/65).

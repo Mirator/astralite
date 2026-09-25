@@ -212,13 +212,15 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
   // beside it to linear radiance in the hundreds, and at that energy even the high threshold passes it
   // and the widest mips smear it across a frame corner. A hue-preserving ceiling right before bloom
   // caps any such spot; at 3.0 linear, ACES already maps it to near-white, so nothing visible is lost.
-  composer.addPass(new ShaderPass(HDR_CEILING_SHADER));
+  const ceilingPass = new ShaderPass(HDR_CEILING_SHADER);
+  composer.addPass(ceilingPass);
   const bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), 0.4, 0.19, 1.32);
   composer.addPass(bloomPass);
   // Tone-maps (ACES) and converts linear -> the renderer's own output colour space (sRGB), exactly
   // once. Everything before this line is linear HDR; everything after it is ordinary 0-1 display
   // colour, which is what the grade pass below is written to expect.
-  composer.addPass(new OutputPass());
+  const outputPass = new OutputPass();
+  composer.addPass(outputPass);
   const gradePass = new ShaderPass(GRADE_SHADER);
   composer.addPass(gradePass);
   const uniforms = gradePass.uniforms as typeof GRADE_SHADER.uniforms;
@@ -250,6 +252,11 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
     get frames() { return frames; },
     bloomPass,
     gtaoPass,
+    // Exposed for plan 015 Stage C's boot-time precompile: each pass's own material(s), which
+    // `renderer.compile(scene, camera)` cannot reach since none of them are in the scene it walks.
+    ceilingPass,
+    outputPass,
+    gradePass,
     resize(w: number, h: number) {
       composer.setSize(w, h);
       gtaoPass.setSize(w, h);
@@ -265,6 +272,23 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
       uniforms.uTime.value = t;
       composer.render();
       pinPrograms();
+      frames++;
+    },
+    /** Plan 015 Stage C: the same frame as `render`, one pass per step, so a caller can yield between
+     * passes and whatever each pass still compiles on first use lands in its own task. For a warm-up
+     * frame nobody sees: nothing swaps the ping-pong buffers, so the intermediate pixels are wrong.
+     * `renderToScreen` is set here because `composer.render()` normally sets it on every call, and the
+     * last pass drawing offscreen would compile a program (linear output, no tone map) the real frame
+     * does not use. Counts as a frame once every pass has drawn. */
+    *renderSteps(t: number): Generator<void> {
+      uniforms.uTime.value = t;
+      const enabled = composer.passes.filter((pass) => pass.enabled);
+      for (const pass of enabled) {
+        pass.renderToScreen = pass === enabled[enabled.length - 1];
+        pass.render(renderer, composer.writeBuffer, composer.readBuffer, 0, false);
+        pinPrograms();
+        yield;
+      }
       frames++;
     },
     dispose() {
