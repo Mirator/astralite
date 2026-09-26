@@ -189,6 +189,28 @@ test.describe('the moment of contact', () => {
     ).toBeGreaterThan(0);
     await spend(game, 'strike-contact');
   });
+
+  test('the sparks of a blow are one draw however many of them fly', async ({ game }) => {
+    // Each spark was its own mesh, so the frame a blow landed on drew one more call per spark - the
+    // most expensive frame in the game paying for grit - and every one was drawn again by GTAO.
+    await game.enter();
+    await game.step(120);
+    const floor = await game.floor();
+    const target = { x: 0, z: 0 };
+    const stance = strikeStance(floor, target);
+    await game.teleport(stance.x, stance.z);
+    await game.page.keyboard.down(stance.key);
+    await game.step(16);
+    await game.page.keyboard.up(stance.key);
+    await game.configureCombat({ enemies: [{ index: 0, x: target.x, z: target.z, hp: 1, cooldown: 10, windup: 0 }] });
+    await game.step(0, true);
+    const before = (await game.state()).render.calls;
+    await game.act('attack');
+    await game.step(130, true);
+    const hit = await game.state();
+    expect(hit.effects.sparks, 'the blow threw its sparks, blood mist and bone dust').toBeGreaterThan(25);
+    expect(hit.render.calls - before, `${hit.effects.sparks} sparks, a trail, a bar and a splat`).toBeLessThan(15);
+  });
 });
 
 /**

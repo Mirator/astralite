@@ -2790,3 +2790,21 @@ drops a multisampled drawing buffer and its resolve every frame. The frame is pi
 drawn full-quality frame is ~3.5 s either way, reduced ~2.4 s): the software rasteriser's cost is
 elsewhere. The saving is real work removed on a GPU - one shadow pass and one MSAA resolve per frame
 - but it has not been timed on one here; `GAME_TEST_GL=d3d11` with `npm run perf:boot` is the way to.
+
+## 2026-09-26 - Sparks in one draw, and less thrown away per frame
+
+**Sparks.** Every spark was its own `THREE.Mesh`, and every burst in a non-default colour made a new
+material. A sword blow through a body threw 3 + 22 + 12 of them, and the most expensive frame in the
+game paid a draw call per spark in the scene pass and again in GTAO's pre-pass. `dungeon-sparks.ts`
+keeps one instanced batch of 512 with per-instance colour; the motion is the same arithmetic and draws
+`Math.random` in the same order, so the boon draft and everything else seeded off it is unchanged (the
+four gameplay characterization traces from `d41061e` replay identically). The landed-blow budget frame
+went from 371 to 347 scene calls; `frame-budget.spec.ts` now holds a blow's sparks to under 15 extra
+calls with more than 25 alive (`effects.sparks`).
+
+**Per frame.** Each enemy's lit materials are found once at spawn instead of walking the whole rig every
+frame to rewrite them. The four torches and four lent anchor lights nearest the knight are picked
+(`nearestFirst`, `dungeon-nearest.ts`, node-tested against a stable sort) instead of copying and sorting
+every sconce on the floor. The fill light, the camera lead, the shake and a blow's shove reuse scratch
+vectors. The canvas rect is read once per layout instead of on every pointermove. None of this is
+measurable on SwiftShader; it removes work and garbage, and has not been timed on a GPU.
