@@ -2,11 +2,13 @@ import {
   CAPTURING,
   expect,
   type Game,
+  type GameWindow,
   openSpot,
   roomCentre,
   strikeStance,
   test,
   TILE,
+  WARM_UP,
 } from './helpers.ts';
 
 /**
@@ -228,5 +230,36 @@ test.describe('the light budget', () => {
   test('a software rasteriser draws the reduced post chain, a GPU the full one', async ({ game }) => {
     await game.step(16, true);
     expect((await game.state()).render.quality).toBe(CAPTURING ? 'full' : process.env.GAME_TEST_GL ? 'full' : 'reduced');
+  });
+});
+
+// The full post chain is where GTAO runs its own render of the scene, which is what used to draw the
+// moon's shadow map a second time every frame. Software GL gets the reduced chain with GTAO off, so this
+// scenario asks for full quality explicitly and needs a page of its own to do it.
+test.describe('the full post chain', () => {
+  test.use({ isolate: true });
+  test.describe.configure({ timeout: 240_000 });
+  test('draws the shadow map once a frame and never multisamples a canvas it only copies to', async ({ page }) => {
+    await page.goto('/?quality=full&boot=eager');
+    await page.waitForFunction(() => {
+      const hook = (window as GameWindow).render_game_to_text;
+      return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
+    }, undefined, { timeout: WARM_UP });
+    await page.evaluate(() => (window as GameWindow).advanceTime!(0, false));
+    await page.locator('.intro-screen .primary-action').click({ timeout: WARM_UP });
+    await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
+    const frame = await page.evaluate(() => {
+      (window as GameWindow).advanceTime!(16, true);
+      const canvas = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
+      const state = JSON.parse((window as GameWindow).render_game_to_text!()) as { render: { quality: string; passes: string[]; shadow: { draws: number; calls: number } } };
+      return { ...state.render, antialias: canvas.getContext('webgl2')!.getContextAttributes()!.antialias };
+    });
+    expect(frame.quality).toBe('full');
+    expect(frame.passes, 'GTAO is in the chain, so the scene is rendered twice a frame').toContain('GTAOPass');
+    expect(frame.shadow.draws, 'the shadow map is drawn by the scene pass and not again by GTAO').toBe(1);
+    expect(frame.shadow.calls, 'and that one draw still covers the casters').toBeGreaterThan(0);
+    // The scene is drawn into the composer's own targets, so the canvas only ever receives the last
+    // full-screen pass: a multisampled one bought a resolve per frame and not one smoothed edge.
+    expect(frame.antialias).toBe(false);
   });
 });

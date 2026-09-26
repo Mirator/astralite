@@ -159,6 +159,24 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
     sceneCost.calls = renderer.info.render.calls; sceneCost.triangles = renderer.info.render.triangles;
   };
   composer.addPass(renderPass);
+  // The moon's shadow map is drawn once a frame, by the scene pass. three.js redraws it inside every
+  // `renderer.render` while `autoUpdate` is on, and GTAO's normal/depth pre-pass is a second full render
+  // of the scene - so on the full chain every shadow caster in the keep went through the 1536² shadow
+  // pass twice a frame, and the second copy was thrown away unread. Each frame asks for exactly one
+  // (`needsUpdate`, below), and the first render of the frame - always the scene pass - spends it.
+  renderer.shadowMap.autoUpdate = false;
+  // How many times the last frame actually drew the shadow map, and the draw calls that cost; a driver
+  // holds the first to one.
+  let shadowDraws = 0, shadowCalls = 0, frameShadow = { draws: 0, calls: 0 };
+  const drawShadows = renderer.shadowMap.render.bind(renderer.shadowMap);
+  renderer.shadowMap.render = (...args: Parameters<typeof drawShadows>) => {
+    // Every `renderer.render` passes through here, the post chain's full-screen quads included; only a
+    // render with a shadow-casting light in it, and permission to redraw, actually draws the map.
+    const map = renderer.shadowMap, from = renderer.info.render.calls, [lights] = args;
+    if (map.enabled && (map.autoUpdate || map.needsUpdate) && lights.length > 0) shadowDraws++;
+    drawShadows(...args);
+    shadowCalls += renderer.info.render.calls - from;
+  };
   // Plan 014 round 6 (lever 2): grout lines, wall bases, pillar/floor contact and the paving under a
   // parapet were all reading one flat lit value - nothing in the render pipeline darkened a surface
   // for standing close to another one, only for standing in shadow of a light. GTAO is a genuine
@@ -250,6 +268,8 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
     quality,
     pinPrograms,
     get frames() { return frames; },
+    /** The last frame's shadow-map draws and the draw calls they cost. */
+    get shadow() { return frameShadow; },
     bloomPass,
     gtaoPass,
     // Exposed for plan 015 Stage C's boot-time precompile: each pass's own material(s), which
@@ -270,9 +290,10 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
      * keep reads, so grain and the game's other time-driven motion never drift apart. */
     render(t: number) {
       uniforms.uTime.value = t;
+      renderer.shadowMap.needsUpdate = true; shadowDraws = 0; shadowCalls = 0;
       composer.render();
       pinPrograms();
-      frames++;
+      frames++; frameShadow = { draws: shadowDraws, calls: shadowCalls };
     },
     /** Plan 015 Stage C: the same frame as `render`, one pass per step, so a caller can yield between
      * passes and whatever each pass still compiles on first use lands in its own task. For a warm-up
@@ -282,6 +303,7 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
      * does not use. Counts as a frame once every pass has drawn. */
     *renderSteps(t: number): Generator<void> {
       uniforms.uTime.value = t;
+      renderer.shadowMap.needsUpdate = true; shadowDraws = 0; shadowCalls = 0;
       const enabled = composer.passes.filter((pass) => pass.enabled);
       for (const pass of enabled) {
         pass.renderToScreen = pass === enabled[enabled.length - 1];
@@ -289,7 +311,7 @@ export function createPostChain(renderer: THREE.WebGLRenderer, scene: THREE.Scen
         pinPrograms();
         yield;
       }
-      frames++;
+      frames++; frameShadow = { draws: shadowDraws, calls: shadowCalls };
     },
     dispose() {
       gtaoPass.dispose();
