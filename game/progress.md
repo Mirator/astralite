@@ -2858,3 +2858,18 @@ against the new look" and were out of scope:
   loudest-colour claim for keep and ruins, and hold the flood to a fire hue distinct from the other two.
 
 All five `@nightly` scenarios in the two specs pass under `GAME_TEST_ISOLATE=1` locally.
+
+## 2026-09-26 - Hit resolution is a pure module
+
+Steel, bolts and fire each wrote out what a landed blow does inline in `update()`, the sword and the bolt
+line for line the same. That sequence - damage, flash, whether it broke a windup, the cooldown it leaves,
+the shove, whether it killed - is `landBlow` and `burn` in `dungeon-hits.ts` now, node-tested in
+`tests/dungeon-hits.test.ts`, and each call site keeps only its sparks, sound, shake and the kill payout.
+Behaviour is unchanged: the melee and ranged characterization traces from the earlier split, recorded on
+the file before this change and replayed after it, match to 1e-6 (the traces were not re-committed).
+
+Brazier halos take the chamber's fire again. Plan 014 gave each halo its own material clone so it could
+fade beside the knight, and the recolour kept writing to the template the clones came from, so every
+halo stayed the build's orange in every chamber. `mood.halos` now reports the colours the halos burn,
+and `theme-flames.spec.ts` holds them to `mood.fire` on both sides of a threshold. (Frame state, so it sits
+beside `mood.fire` rather than in `graphics`, which a sliced and a synchronous build must agree on.)

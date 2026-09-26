@@ -273,6 +273,8 @@ export type Snapshot = {
     key: string;
     fog: string;
     banner: string;
+    /** Every colour a brazier halo burns this frame, distinct and sorted: one, `fire`, once a frame has run. */
+    halos: string[];
   };
   /** What the floor's own motif geometry actually attached, not a recomputation of the planner. */
   graphics: {
