@@ -97,6 +97,25 @@ export function flyShot(shot: Shot, cells: Set<string>, marks: readonly Mark[], 
 }
 
 /**
+ * A bolt an archer looses at the knight: from where it stands, along the heading its lane locked on, at
+ * its own speed and range. It pierces nothing - it is stopped by the knight or by stone, and it flies
+ * through the archer's own side, because friendly fire would make a pack thin itself for the player.
+ */
+export const hostileBolt = (from: { x: number; z: number }, heading: { x: number; z: number }, bolt: { speed: number; flight: number }, damage: number): Shot =>
+  ({ x: from.x, z: from.z, dx: heading.x, dz: heading.z, speed: bolt.speed, life: bolt.flight, pierce: 0, damage, spent: new Set<number>() });
+
+/**
+ * One frame of a hostile bolt against the knight. While he is immune (a dash's opening frames) he is not
+ * a mark at all, so the bolt flies on through him rather than being spent on a blow that cannot land:
+ * that is what makes dashing through a volley the answer rather than a way to waste it. `hit` says it
+ * reached him this frame; what that costs is the caller's (`hurt` in dungeon-sim.ts).
+ */
+export function flyHostile(shot: Shot, cells: Set<string>, knight: { x: number; z: number }, immune: boolean, frameDt: number) {
+  const flight = flyShot(shot, cells, immune ? [] : [{ x: knight.x, z: knight.z, index: 0 }], frameDt);
+  return { ...flight, hit: flight.hits.length > 0 };
+}
+
+/**
  * Bolts come back on their own clock rather than on a cooldown. A cooldown still lets the knight back
  * away and fire forever — he outruns every body in the keep, a guard by more than two to one — so what
  * limits a ranged arm has to be a quiver that runs dry, not a wait between shots.

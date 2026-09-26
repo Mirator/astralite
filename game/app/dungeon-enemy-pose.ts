@@ -73,6 +73,25 @@ export function enemyPose(kind: EnemyKind, windup: number, tell: number, cooldow
     };
   }
 
+  if (style === 'draw') {
+    // A bow is raised, not swung. Over the tell it comes up from the hip to level while both arms reach
+    // out to it and the body turns side-on; the release is a short kick back, and then it lowers again on
+    // the same recovery a guard's blade settles on. No ribbon: nothing sweeps, and the bolt is its own mark.
+    const drawn = winding ? charge : hasAttackAge ? 1 - smooth(age / .45) : 0;
+    const kick = !winding && hasAttackAge ? Math.sin(Math.PI * clamp01(age / .12)) : 0;
+    return {
+      pitch: .05 * drawn + .08 * kick,
+      height: 0,
+      weapon: mix(-1, 0, drawn),
+      arms: 1.3 * drawn - .18 * kick,
+      recovery,
+      weaponYaw: 0,
+      weaponRoll: 0,
+      bodyYaw: -.22 * drawn,
+      trail: false,
+    };
+  }
+
   const restWeapon = warden ? .45 : .1;
   const raisedWeapon = restWeapon + charge * (warden ? 1.85 : 1.55);
   // The final few tell frames are the cut itself. Its start is exactly the same raised pose as the

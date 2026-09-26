@@ -25,7 +25,7 @@ import { awayFrom, burn as burnBody, landBlow } from './dungeon-hits';
 import { playerAttackPose } from './dungeon-attack-pose';
 import { chainLength, STARTING_WEAPON, TIDEBLADE, weaponById, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
-import { flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
+import { flyHostile, flyShot, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
 import { borrowedLight } from './dungeon-radiance';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
@@ -35,7 +35,7 @@ import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, read
 import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resolveKill, STAIR_RADIUS, takeBoon, tickRun, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapLabel, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, resetControl, startDash, startSwing, steer, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
-import { dropMarks, hideMarks, markEnemy, poseEnemy, type Enemy } from './dungeon-enemy-view';
+import { dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, type Enemy, type EnemyKind } from './dungeon-enemy-view';
 import { createFloorStage, raiseFloor, type FloorArt } from './dungeon-floor-scene';
 import { createMood } from './dungeon-mood';
 import { driveSliced as driveSlicedSteps, linkedPrograms, pollProgramsReady as pollPrograms, precompilePost } from './dungeon-warmup';
@@ -587,9 +587,15 @@ export default function DungeonGame() {
     // Burning silt the knight left behind, and the rings that show it. Pooled like everything else.
     const pools: { pool: Pool; mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> }[] = [];
     const poolMeshes = Array.from({ length: 6 }, () => { const mesh = makePoolMesh(); world.add(mesh); return mesh; });
+    // Bolts loosed at the knight, and the pool they come out of. Their own list, because they resolve
+    // against him rather than against the bodies, and they never pierce.
+    const hostile: { shot: Shot; mesh: THREE.Group; kind: EnemyKind }[] = [];
+    const arrowPool = Array.from({ length: 12 }, () => { const arrow = makeArrow(); world.add(arrow); return arrow; });
     const clearShots = () => {
       for (const live of shots) live.mesh.visible = false;
       shots.length = 0;
+      for (const live of hostile) live.mesh.visible = false;
+      hostile.length = 0;
       for (const live of pools) live.mesh.visible = false;
       pools.length = 0;
     };
@@ -1442,6 +1448,14 @@ export default function DungeonGame() {
         // eligible hit and its exactly-once reward is resolved above; from here the world is frozen, so the
         // skeletons must not get one more move out of this tick.
         if (run.choosing || gameStatus !== 'playing') return;
+        // A blow reaching the knight, from a body's swing or from its bolt. Which kind landed the killing
+        // blow is the one thing only this call site knows.
+        const hurtBy = (kind: EnemyKind, damage: number) => {
+          if (gameStatus !== 'playing' || !hurt(run, damage, { dashing: dashImmune(pc.dashTime), warded: true })) return;
+          setHealth(run.hp);
+          audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4529,8);impacts.emit(player.position,0xff8763,BESTIARY[kind].look.heavy);
+          if(run.hp===0)endRun(kind);
+        };
         stage.enemies.forEach((enemy, index) => {
           if (!enemy.awake) { hideMarks(enemy); return; }
           // A neighbour's noticing beat can pull a still-dormant body in early; scripts/balance/sim.ts
@@ -1449,13 +1463,6 @@ export default function DungeonGame() {
           if (enemy.alertIn < Infinity) { enemy.alertIn -= dt; if (enemy.alertIn <= 0) { if (enemy.notice <= 0) enemy.notice = dt; enemy.alertIn = Infinity; } }
           // Its bar, its glyph and its telegraph, off the state the last decision left; a corpse only falls.
           if (!markEnemy(enemy, camera, dt)) return;
-          const hurtPlayer = () => {
-            if (gameStatus !== 'playing' || !hurt(run, enemy.damage, { dashing: dashImmune(pc.dashTime), warded: true })) return;
-            setHealth(run.hp);
-            audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4529,8);impacts.emit(player.position,0xff8763,BESTIARY[enemy.kind].look.heavy);
-            // Which kind landed the killing blow is the one thing only this call site knows.
-            if(run.hp===0)endRun(enemy.kind);
-          };
           // Everything about where this body goes and whether its blow lands is decided in dungeon-enemy;
           // what is left here is the part a node test could never see — poses, sound, flashes, particles.
           const previousWindup=enemy.windup;
@@ -1477,7 +1484,13 @@ export default function DungeonGame() {
           else if(previousWindup<=0&&enemy.windup>0)enemy.attackAge=Infinity;
           enemy.group.position.x = intent.x; enemy.group.position.z = intent.z;
           if (intent.sound) audio.play(intent.sound);
-          if (intent.hit) hurtPlayer();
+          if (intent.hit) hurtBy(enemy.kind, enemy.damage);
+          // A volley becomes a bolt in the air; whether it finds the knight is decided as it flies, below.
+          const bolt = BESTIARY[enemy.kind].bolt, arrow = intent.loose && bolt ? arrowPool.find(a => !a.visible) : undefined;
+          if (intent.loose && bolt && arrow) {
+            arrow.visible = true; arrow.position.set(enemy.group.position.x, .95, enemy.group.position.z); arrow.rotation.y = Math.atan2(-intent.loose.x, -intent.loose.z);
+            hostile.push({ mesh: arrow, kind: enemy.kind, shot: hostileBolt(enemy.group.position, intent.loose, bolt, enemy.damage) });
+          }
           // What the decision looks like: pose, gait, the landed blow's flash and its trails (dungeon-enemy-view).
           poseEnemy(enemy, intent, dt, t, elapsed);
         });
@@ -1485,6 +1498,16 @@ export default function DungeonGame() {
         // dungeon-enemy, and only the write back into the scene graph belongs here.
         const spread = separateCrowd(floor.cells, stage.enemies.map(e => ({ x: e.group.position.x, z: e.group.position.z, windup: e.windup, dead: e.dead })), dt);
         stage.enemies.forEach((e, i) => { e.group.position.x = spread[i].x; e.group.position.z = spread[i].z; });
+        // Bolts at the knight. The rule - stone stops them, a dash's opening frames let them through - is
+        // dungeon-projectile's; the mesh, the sparks off stone and the hurt are what is left here.
+        for (let i = hostile.length - 1; i >= 0; i--) {
+          const live = hostile[i], flight = flyHostile(live.shot, floor.cells, player.position, dashImmune(pc.dashTime), dt);
+          live.shot.x = flight.x; live.shot.z = flight.z; live.shot.life = flight.life; live.shot.pierce = flight.pierce;
+          live.mesh.position.set(flight.x, .95, flight.z);
+          if (flight.hit) hurtBy(live.kind, live.shot.damage);
+          if (flight.struck) burst(new THREE.Vector3(flight.x, .95, flight.z), 0xbfa781, 4);
+          if (flight.done) { live.mesh.visible = false; hostile.splice(i, 1); }
+        }
         // Fire on the ground bites what stands in it: the only thing the knight owns that goes on working
         // after he has stopped paying attention to it. The rule is in dungeon-projectile.
         for (let i = pools.length - 1; i >= 0; i--) {
@@ -1690,7 +1713,7 @@ export default function DungeonGame() {
     };
     const renderText = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, fault: faulted, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
-      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - stage.enemies.filter(e => e.dead).length,
+      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - stage.enemies.filter(e => e.dead).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, onStair: stairOpen && onStair, deadEndsPlundered: loot },
       stair: { x: stage.stairSpot.x, z: stage.stairSpot.z, radius: STAIR_RADIUS },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered: offered === 'stair' ? null : offered } : null,

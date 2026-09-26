@@ -12,6 +12,7 @@ import {
   type Point,
   type Snapshot,
 } from './helpers.ts';
+import { enemyStats } from '../../app/dungeon-enemy.ts';
 
 type Enemy = Snapshot['enemies'][number];
 
@@ -285,6 +286,81 @@ test.describe('committed enemy attacks', () => {
     }
     expect(pounced, 'the stalker never pounced, so the dodge was never tested').toBe(true);
     expect((await game.state()).health).toBe(before);
+  });
+
+  // The rule - the lane locks, the bolt flies, a dash's opening frames let it through - is held in node
+  // (dungeon-enemy.test.ts, dungeon-projectile.test.ts). This is the wiring: the running game turns an
+  // archer's volley into a bolt in the air, bills the knight when it lands, and hands the bolt his dash.
+  // One floor build, two bolts: the second is the one he dashes into.
+  test('an archer\'s bolt finds a knight standing still, and a dash into the next one passes through it', async ({
+    game,
+    page,
+  }) => {
+    await game.enter();
+    await game.buildFloor(2);
+    const floor = await game.floor();
+    const opening = await game.state();
+    expect(floor.level, 'archers are dealt from floor two').toBe(2);
+    const archer = isolated(opening, 'archer');
+    const anchor = { x: archer.x, z: archer.z };
+    // Everything else in its room goes on a long cooldown, so a bolt is the only thing that can hurt him.
+    const others = opening.enemies
+      .map((enemy, index) => ({ enemy, index }))
+      .filter(({ enemy }) => enemy !== archer && enemy.room === archer.room);
+    if (others.length) await game.configureCombat({ enemies: others.map(({ index }) => ({ index, cooldown: 60 })) });
+    const spot = laneSpot(floor, anchor, 5, {
+      avoid: opening.features.map((f) => ({ x: f.x, z: f.z })),
+      clearance: 4,
+    });
+    await game.teleport(spot.x, spot.z);
+    await game.step(16);
+
+    // Loosed at the end of its tell, then flown until it lands.
+    const loose = async () => {
+      const { enemy } = await waitForWindup(game, 'archer', anchor);
+      for (let t = 0; t < enemy.windup * 1000 + 100; t += 16) {
+        await game.step(16);
+        const state = await game.state();
+        if (state.hostileBolts.length) return state;
+      }
+      throw new Error(`the archer finished its tell without loosing a bolt\n${await game.report()}`);
+    };
+
+    const first = await loose();
+    const bolt = first.hostileBolts[0];
+    expect(bolt.kind).toBe('archer');
+    expect(bolt.damage, 'the bolt does not carry the floor-two archer\'s blow').toBe(enemyStats('archer', 2).damage);
+    const before = first.health;
+    let landed = first;
+    for (let t = 0; t < 1000 && landed.hostileBolts.length; t += 16) { await game.step(16); landed = await game.state(); }
+    expect(landed.hostileBolts, 'the bolt never finished its flight').toEqual([]);
+    expect(landed.health, 'a bolt that reached a knight standing still cost him nothing').toBe(before - Math.round(bolt.damage * landed.boons.guardAgainst));
+
+    // The next one: let it come to within a stride, then dash straight at the archer, through the bolt.
+    let second = await loose();
+    const unhurt = second.health;
+    const along = (state: Snapshot) => {
+      const b = state.hostileBolts[0];
+      return b ? (state.player.x - b.x) * b.dx + (state.player.z - b.z) * b.dz : null;
+    };
+    for (let t = 0; t < 600 && (along(second) ?? 0) > 1.3; t += 16) { await game.step(16); second = await game.state(); }
+    expect(along(second), 'the bolt never closed on the knight').not.toBeNull();
+    const key = keyToward({ x: anchor.x - second.player.x, z: anchor.z - second.player.z }).key;
+    await page.keyboard.down(key);
+    await game.act('dash');
+    // Unhurt proves nothing on its own: a bolt that missed leaves him unhurt too. It has to be seen past
+    // him - ahead of him along its own heading - while still in the air.
+    let passed = false;
+    for (let t = 0; t < 700; t += 16) {
+      await game.step(16);
+      const state = await game.state();
+      if (t === 160) await page.keyboard.up(key);
+      if ((along(state) ?? 1) < -0.3) passed = true;
+      if (!state.hostileBolts.length) break;
+    }
+    await page.keyboard.up(key);
+    expect(passed, 'the bolt was never seen past the knight: it stopped on him mid-dash, or never reached him').toBe(true);
+    expect((await game.state()).health, 'a dash into the bolt was hurt by it').toBe(unhurt);
   });
 
   test('a warden reaches past the range a guard can strike from', async ({

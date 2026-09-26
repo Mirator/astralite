@@ -13,7 +13,7 @@
         "floor1.medianHpLeft": 100,
         "floor2.medianHpLeft": 100,
         "floor3.medianHpLeft": 100,
-        "medianRunSeconds": 266.1
+        "medianRunSeconds": 268.5
       },
       "bands": {
         "escapeRate": { "min": 85, "max": 100 },
@@ -29,14 +29,14 @@
     "weak": {
       "policy": { "dodge": 0, "reaction": 0.6 },
       "measured": {
-        "escapeRate": 93.3,
+        "escapeRate": 90,
         "floor1.deathRate": 0,
-        "floor2.deathRate": 3.3,
-        "floor3.deathRate": 3.4,
+        "floor2.deathRate": 6.7,
+        "floor3.deathRate": 3.6,
         "floor1.medianHpLeft": 92,
         "floor2.medianHpLeft": 88,
         "floor3.medianHpLeft": 73.6,
-        "medianRunSeconds": 241.4
+        "medianRunSeconds": 236
       },
       "bands": {
         "escapeRate": { "min": 75, "max": 100 },

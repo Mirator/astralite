@@ -35,6 +35,22 @@ export type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: n
  */
 export const THREAT = 0xff4529, COMMIT = 0xffd6c2;
 
+/**
+ * An archer's bolt in flight, pooled for the life of the mount - loosing one must never allocate. A pale
+ * shaft carrying a head in the threat colour: the only red thing in the keep that moves on its own, so
+ * what is coming reads before its shape does. Unlit and untouched by fog for the same reason the tell is;
+ * the same material settings as the health bar, so it links no shader program of its own mid-fight.
+ */
+export const makeArrow = () => {
+  const group = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, .7, 5), new THREE.MeshStandardMaterial({ color: 0xcfc3a8, roughness: .8 }));
+  shaft.rotation.x = Math.PI / 2; group.add(shaft);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(.075, .2, 4), new THREE.MeshBasicMaterial({ color: THREAT, fog: false, toneMapped: false }));
+  head.rotation.x = -Math.PI / 2; head.position.z = -.44; group.add(head);
+  group.position.y = .95; group.visible = false;
+  return group;
+};
+
 /** The shared art every body on a floor is drawn with. */
 export type EnemyArt = { telegraph: THREE.Texture; lane: THREE.Texture; alert: THREE.SpriteMaterial };
 
@@ -73,7 +89,7 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   // 94 of a possible 100 while a brazier's core clips at 100, which is the one thing a signal
   // carrying a deadline may not do: be dimmer than the furniture. `toneMapped: false` buys the
   // headroom and the opacity was giving it straight back.
-  const cueGeometry = look.cue === 'lane' ? new THREE.PlaneGeometry(5,1.7).translate(2.5,0,0) : BONES.cue;
+  const cueGeometry = look.cue.shape === 'lane' ? new THREE.PlaneGeometry(look.cue.length,look.cue.width).translate(look.cue.length/2,0,0) : BONES.cue;
   // Plan 014 round 2: toneMapped is true here now (it was false). `THREAT` was drawn
   // above the tone-mapped range on purpose while the mark was an opaque slab that had to win
   // against any floor under it; translucent, it only needs to read as red, and a
@@ -84,7 +100,7 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   // crossing the room. Back to `NormalBlending` (the default - no `blending` key at all) with a
   // texture that carries its own soft, capped-alpha gradient (see `telegraphTexture`), which is
   // what actually keeps the stone visible without needing additive's unbounded stacking.
-  const cueMap = look.cue === 'lane' ? art.lane : art.telegraph;
+  const cueMap = look.cue.shape === 'lane' ? art.lane : art.telegraph;
   const cue = new THREE.Mesh(cueGeometry,new THREE.MeshBasicMaterial({color:THREAT,map:cueMap,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,fog:false}));cue.rotation.x=-Math.PI/2;cue.renderOrder=9;group.add(cue);
   const ghost = new THREE.Mesh(cueGeometry,new THREE.MeshBasicMaterial({color:THREAT,map:cueMap,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,depthTest:false,fog:false}));ghost.renderOrder=8;cue.add(ghost);
   const bar = new THREE.Mesh(BONES.bar,new THREE.MeshBasicMaterial({color:look.barColor,depthTest:false,toneMapped:false,fog:false}));bar.renderOrder=10;group.add(bar);

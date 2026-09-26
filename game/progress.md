@@ -2912,3 +2912,39 @@ On CI, summed browser test time per PR run went from 2,687 s to 1,642 s. The thr
 10.2 minutes before the audit and 5.2, 5.9 and 8.2 on part C's run with the old split; durations.json is
 refreshed from that run and now plans 515 / 563 / 564 s. The node suite grew from 214 to 235 tests and
 still runs in about half a minute.
+
+## 2026-09-26 - A bestiary table, a weighted roster, and the archer
+
+Adding a fourth enemy kind used to mean finding every `kind === 'warden'` in a dozen files, with the kind
+union restated in six. Every per-kind value now lives in one `Record<EnemyKind, Archetype>` row in
+`app/dungeon-bestiary.ts`; the rest of the code reads properties off it (`steadfast`, `attack`, `look.*`),
+and the compiler refuses a new kind until its row, its skeleton palette and its cutaway ellipse exist. The
+header of that file lists the steps the compiler cannot see. The refactor changed no behaviour, and that
+was checked, not assumed: identical `npm run balance -- --json --runs 120`, identical spawns and weapon drops
+for 399 seeds x 3 floors, identical skeleton fingerprints. The balance sim now calls `landBlow` instead of
+restating it twice. (It still shoves with the base weapon's knockback where the game uses the chain beat's;
+that was already the case and is left alone.)
+
+Packs are dealt from `PACK_MIX`, shares per encounter in draw order with guards taking the remainder, and a
+kind whose `firstFloor` has not come yet passes its share to guards. One roll per body whatever the mix, so
+a new kind changes which bodies a seed deals and never how many numbers it draws: adding the archer turned
+1,441 guards into archers on floors 2 and 3 across those 1,197 floors and moved nothing else.
+
+The archer (floor 2 on, path rooms only, never in an ambush or a branch - a branch is always an ambush,
+which the placement test caught). It holds off at up to 7 units, looses a bolt at 13 u/s for 0.7 s, and
+gives ground inside 3.5 while it recovers. Its lane follows the knight until the last `AIM_LOCK` (0.25 s)
+of its 0.75 s tell and then holds, so the dodge is a read. A dash's i-frames let the bolt fly through him
+rather than being spent on him. 6 HP against a guard's 8. The niche is punishing a knight rooted mid-swing.
+
+Bot numbers (scripts/balance, 30 runs, same seeds): default policy unchanged at 100% escaped and full HP,
+median run 266.1 -> 268.5 s; weak policy 93.3% -> 90.0% escaped, floor 2 death rate 3.3 -> 6.7%. Over 200
+default runs archers dealt 7.9% of the damage the knight took. The default bot walks at 8.5 all the time and
+so rarely stands in a lane; this says the archer is not broken, not that it is tuned.
+
+Tests, each proven by planting the bug it names: the lane tracks before the lock and holds after it; a
+volley never lands a melee hit and looses along the locked lane; the keep-away; floor one never deals an
+archer and ambushes never do; a bolt stops on the knight, passes through him mid-dash, and stops at stone;
+the sim bills bolts to the archer. In the browser, on pinned floor 2 (seed 7, one isolated archer): a bolt
+costs a standing knight exactly its warded damage, and a dash into the next bolt is seen passing him
+unhurt. Planted there: the dash not handed to the bolt, the volley never becoming a bolt, a landed bolt
+billing nothing - each failed with its own message.

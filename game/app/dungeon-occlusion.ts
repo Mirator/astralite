@@ -42,6 +42,7 @@ export const CUTAWAY_ELLIPSE: Record<SlotOwner, { radii: [number, number]; yOffs
   guard: { radii: [0.65, 1.0], yOffset: 1.0 },
   stalker: { radii: [0.65, 1.0], yOffset: 1.0 },
   warden: { radii: [0.92, 1.35], yOffset: 1.25 },
+  archer: { radii: [0.65, 1.0], yOffset: 1.0 },
 };
 
 // ------------------------------------------------------------------------------- shader injection

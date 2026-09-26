@@ -14,12 +14,14 @@ export type Spawn = { x: number; z: number; kind: EnemyKind; room: number; ambus
 export type PackMix = Partial<Record<EnemyKind, number>>;
 export const PACK_MIX = {
   /** Dead-end branches: packed, and the reason a detour is worth its walk. */
+  // No archers in either of these. A branch is always sprung as an ambush, and an ambush is bodies coming
+  // out of hiding at arm's length - a bow has no business in one.
   branch: { stalker: .35 },
   ambush: { stalker: .85 },
   /** A path room by how far along the floor it sits: under .35 of the way, under .7, and past it. */
-  opening: { stalker: .15 },
-  middle: { stalker: .4 },
-  late: { stalker: .5 },
+  opening: { stalker: .15, archer: .1 },
+  middle: { stalker: .4, archer: .2 },
+  late: { stalker: .5, archer: .2 },
 } satisfies Record<string, PackMix>;
 
 /**

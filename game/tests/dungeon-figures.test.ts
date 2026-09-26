@@ -102,6 +102,7 @@ const FIGURES: Record<string, () => THREE.Object3D> = {
   guard: () => makeSkeleton('guard'),
   stalker: () => makeSkeleton('stalker'),
   warden: () => makeSkeleton('warden'),
+  archer: () => makeSkeleton('archer'),
 };
 
 // dungeon-bake.ts caches baked geometry per cacheKey at module scope; a second build of the same figure

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { WEAPONS } from '../../app/dungeon-weapon.ts';
+import { ENEMY_KINDS } from '../../app/dungeon-bestiary.ts';
 import { CAPTURING } from './helpers.ts';
 
 // The figure bench (plan 012 Stage C) is not the pooled game page - it is a different route entirely, with
@@ -62,7 +63,7 @@ test('the bench renders every figure at every facing', async ({ page }) => {
   await page.goto('/bench');
   await page.waitForFunction(() => (window as unknown as { __bench?: string }).__bench === 'ready', { timeout: 15_000 });
 
-  const rows = 4, cols = 8; // the default grid: knight, guard, stalker, warden x 8 facings
+  const rows = 1 + ENEMY_KINDS.length, cols = 8; // the default grid: the knight and every enemy kind x 8 facings
   const result = await everyCellHasAFigure(page, rows, cols);
   expect(result.ok, `cell pixel counts (min ${result.min}): ${JSON.stringify(result.cells)}; pixels differing from the facing before: ${JSON.stringify(result.turned)}`).toBe(true);
 

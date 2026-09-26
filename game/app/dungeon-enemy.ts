@@ -39,6 +39,11 @@ export const HOLD_RANGE = byKind(a => a.holdRange);
 // Recovery after a swing lands or misses. A stalker pays most for its pounce.
 export const RECOVERY = byKind(a => a.recovery);
 export const LUNGE_SPEED = 13, LUNGE_TIME = 0.32, LUNGE_CONTACT = 0.85;
+// A volley's lane follows the knight until this much of the tell is left, then holds: the bolt goes where
+// the lane pointed when it locked. Tracking to the last frame made the bolt a homing coin flip; never
+// tracking made it miss anything that walked, which is everything. A quarter second is just over a human
+// reaction, so the lock is the cue and a step or a dash after it is the answer.
+export const AIM_LOCK = 0.25;
 // Bodies hold each other this far apart, corrected gently rather than snapped.
 export const CROWD_SPACING = 0.82, CROWD_PUSH_RATE = 3;
 // Past this the enemy stops walking straight at the knight and follows the flood instead, which is what
@@ -109,7 +114,8 @@ export type World = {
 //   dozing   — has not noticed the knight. Paces near `anchor`; `notice` reads 0.
 //   noticing — has just noticed: turned to `face` him and holding, a beat before it commits to anything.
 //   lunge    — mid-pounce. Already moved; the trailing walk/idle animation is skipped for it.
-//   windup   — committed to a swing, weapon rising. `hit` on the frame the tell runs out.
+//   windup   — committed to a swing, weapon rising. `hit` on the frame the tell runs out, or `loose` for
+//              a volley, which the caller turns into a bolt (dungeon-projectile.ts) rather than a hit.
 //   ready    — on guard: turned to `face`, and stepped if it had room to.
 export type EnemyIntent = {
   act: 'dozing' | 'noticing' | 'lunge' | 'windup' | 'ready';
@@ -123,7 +129,9 @@ export type EnemyIntent = {
   face: number | null;
   // This frame's blow connects. The caller decides what the knight's invulnerability makes of it.
   hit: boolean;
-  sound: 'warn' | 'dash' | null;
+  // A volley let go this frame, along this heading; null on every other frame and for every other attack.
+  loose: Point | null;
+  sound: 'warn' | 'dash' | 'slash' | null;
   // Range to the knight before this frame's movement, which is what the gait and the poses read.
   // Not computed for a dozing body, which nothing looks at again this frame.
   distance: number;
@@ -233,7 +241,7 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   // Ticked before the activation cutoff, so a body that has been standing in a far room still comes out
   // of its recovery: reaching it must not hand the player a free swing it never earned.
   const hitFlash = Math.max(0, enemy.hitFlash - dt), cooldown = enemy.cooldown - dt;
-  const rest = { x: enemy.x, z: enemy.z, cooldown, hitFlash, windup: enemy.windup, lunge: enemy.lunge, aim: { x: enemy.aim.x, z: enemy.aim.z }, notice: enemy.notice, face: null, hit: false, sound: null } satisfies Omit<EnemyIntent, 'act' | 'distance'>;
+  const rest = { x: enemy.x, z: enemy.z, cooldown, hitFlash, windup: enemy.windup, lunge: enemy.lunge, aim: { x: enemy.aim.x, z: enemy.aim.z }, notice: enemy.notice, face: null, hit: false, loose: null, sound: null } satisfies Omit<EnemyIntent, 'act' | 'distance'>;
   const cellX = Math.round(enemy.x / TILE), cellZ = Math.round(enemy.z / TILE);
   const nearby = isActive(world.pathDistance(cellX, cellZ), enemy.room === world.activeRoom);
   // A beat already under way - its own or one caught from a neighbour - runs to completion even on a
@@ -261,14 +269,16 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   }
 
   if (enemy.windup > 0) {
+    const attack = BESTIARY[enemy.kind].attack, pounce = attack === 'pounce', volley = attack === 'volley';
     const windup = Math.max(0, enemy.windup - dt);
-    if (windup > 0) return { ...rest, act: 'windup', windup, distance };
+    // A volley's lane is still following the knight until the lock; a swing's aim was fixed when it began.
+    const aim = volley && windup > AIM_LOCK ? unit(toX, toZ, distance) : rest.aim;
+    if (windup > 0) return { ...rest, act: 'windup', windup, aim, distance };
     // The tell has run out and the swing is committed: it is tested against where the knight is *now*,
     // along the direction it aimed at when it started, which is what makes stepping around it work.
-    const pounce = BESTIARY[enemy.kind].attack === 'pounce';
-    const aimed = (toX * enemy.aim.x + toZ * enemy.aim.z) / (distance || 1);
-    const hit = !pounce && distance < STRIKE_RANGE[enemy.kind] && hasClearPath(world.cells, enemy, player) && aimed > 0.45;
-    return { ...rest, act: 'windup', windup: 0, cooldown: RECOVERY[enemy.kind], lunge: pounce ? LUNGE_TIME : enemy.lunge, hit, sound: pounce ? 'dash' : null, distance };
+    const aimed = (toX * aim.x + toZ * aim.z) / (distance || 1);
+    const hit = attack === 'swing' && distance < STRIKE_RANGE[enemy.kind] && hasClearPath(world.cells, enemy, player) && aimed > 0.45;
+    return { ...rest, act: 'windup', windup: 0, aim, cooldown: RECOVERY[enemy.kind], lunge: pounce ? LUNGE_TIME : enemy.lunge, hit, loose: volley ? aim : null, sound: pounce ? 'dash' : volley ? 'slash' : null, distance };
   }
 
   // On guard. Turning is free and happens even while flinching, so a hit never leaves a body facing the
@@ -277,6 +287,14 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   if (hitFlash > 0) return { ...rest, act: 'ready', face, distance };
   const clearAttackLine = distance <= ATTACK_RANGE[enemy.kind] && hasClearPath(world.cells, enemy, player);
   if (clearAttackLine && cooldown <= 0) return { ...rest, act: 'ready', face, windup: enemy.tell, aim: unit(toX, toZ, distance), sound: 'warn', distance };
+  // A body that fights at range gives ground while it recovers, rather than standing to be cut down. It
+  // backs straight away and lets the walls stop it: a cornered archer is the knight's reward for closing.
+  const keepAway = BESTIARY[enemy.kind].keepAway;
+  if (distance < keepAway) {
+    const away = unit(-toX, -toZ, distance), landed = { x: enemy.x, z: enemy.z };
+    moveOnFloor(world.cells, landed, away.x * enemy.speed * dt, away.z * enemy.speed * dt);
+    return { ...rest, act: 'ready', face, x: landed.x, z: landed.z, distance };
+  }
   // Hold position when already in place with a clear line, and let a stalker stand still late in its
   // recovery rather than trotting in with a swing it cannot throw yet.
   if (!(distance > HOLD_RANGE[enemy.kind] || !clearAttackLine)) return { ...rest, act: 'ready', face, distance };

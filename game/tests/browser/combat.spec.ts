@@ -16,6 +16,7 @@ import {
   type Snapshot,
 } from './helpers.ts';
 import type { Page } from '@playwright/test';
+import { BESTIARY } from '../../app/dungeon-bestiary.ts';
 
 /** Melee damage by kind, mirrored from dungeon-game.tsx. */
 const MELEE = { guard: 12, stalker: 8, warden: 20 } as const;
@@ -422,13 +423,13 @@ test('a boon draft opened mid-swing freezes the world before anything else can l
     (enemy) => enemy.room === room!.id && enemy.awake,
   );
   const [victim, witness] = crowd;
-  // A stalker pounces instead of striking, so the attacker must be neither.
+  // A stalker pounces and an archer shoots instead of striking, so the attacker must swing.
   const attacker = opening.enemies.find(
     (enemy) =>
       enemy !== victim &&
       enemy !== witness &&
       enemy.awake &&
-      enemy.kind !== 'stalker',
+      BESTIARY[enemy.kind].attack === 'swing',
   );
   expect(
     attacker,
@@ -517,7 +518,7 @@ test('a boon draft opened mid-swing freezes the world before anything else can l
   await game.step(120);
   const struck = await game.state();
   expect(struck.health).toBe(
-    60 - Math.round(MELEE[attacker!.kind] * resumed.boons.guardAgainst),
+    60 - Math.round(MELEE[attacker!.kind as keyof typeof MELEE] * resumed.boons.guardAgainst),
   );
 });
 

@@ -13,6 +13,7 @@ import {
   hasClearPath,
   TILE,
 } from '../../app/dungeon-floor.ts';
+import type { EnemyKind } from '../../app/dungeon-bestiary.ts';
 
 export { canStand, expect, hasClearPath, TILE };
 
@@ -162,6 +163,8 @@ export type Snapshot = {
     inFlight: number;
     fires: number;
   };
+  /** Bolts loosed at the knight, still in the air. */
+  hostileBolts: { kind: EnemyKind; x: number; z: number; dx: number; dz: number; damage: number }[];
   boons: {
     strike: number;
     reach: number;
@@ -316,7 +319,7 @@ export type Snapshot = {
     x: number;
     z: number;
     hp: number;
-    kind: 'guard' | 'stalker' | 'warden';
+    kind: EnemyKind;
     windup: number;
     lunge: number;
     cooldown: number;
@@ -344,7 +347,7 @@ export type FootstepParticle = { x: number; y: number; z: number; ox: number; oy
 
 /** Plan 007: one slot's read-only state, as `dungeonTest.cutawayDiagnostics()` reports it. */
 export type CutawaySlotDiagnostic = {
-  owner: 'player' | 'guard' | 'stalker' | 'warden' | null;
+  owner: 'player' | EnemyKind | null;
   id: number | 'player' | null;
   strength: number;
   radii: [number, number];
@@ -397,7 +400,7 @@ export type GameWindow = Window & {
  */
 export type ActorStats = {
   knight: { meshes: number; triangles: number; shadowless: number; height: number; disposedMaterials: number };
-  enemies: { kind: 'guard' | 'stalker' | 'warden'; meshes: number; triangles: number; shadowless: number; height: number }[];
+  enemies: { kind: EnemyKind; meshes: number; triangles: number; shadowless: number; height: number }[];
   drop: { kind: string; meshes: number; triangles: number } | null;
 };
 

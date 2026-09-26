@@ -291,3 +291,18 @@ test('a pack mix deals each kind its share in draw order, and guards whatever is
     assert.equal(drawKind(PACK_MIX[name], 1, odds), 'guard', `${name} at its odds`);
   }
 });
+
+test('archers are dealt from floor two on, never into an ambush, and floor one never draws one', () => {
+  const archers = (level: number) => floors(level).flatMap(floor => floor.spawns.filter(s => s.kind === 'archer').map(s => ({ s, floor })));
+  assert.equal(archers(1).length, 0, 'floor one dealt an archer before anything has taught the knight to read one');
+  for (const level of [2, 3]) {
+    const dealt = archers(level);
+    assert.ok(dealt.length >= SEEDS.length / 2, `floor ${level} dealt only ${dealt.length} archers across ${SEEDS.length} seeds`);
+    for (const { s, floor } of dealt) assert.notEqual(floor.rooms[s.room].encounter, 'ambush', `seed ${floor.seed} hid an archer in an ambush`);
+  }
+  // On floor one the archer's share falls through to the guard, so the stalker's odds are untouched;
+  // from floor two the same roll deals an archer.
+  const roll = PACK_MIX.middle.stalker + PACK_MIX.middle.archer / 2;
+  assert.deepEqual([drawKind(PACK_MIX.middle, 1, roll), drawKind(PACK_MIX.middle, 2, roll)], ['guard', 'archer']);
+  assert.equal(drawKind(PACK_MIX.middle, 1, PACK_MIX.middle.stalker - 1e-9), 'stalker');
+});

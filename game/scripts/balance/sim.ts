@@ -13,12 +13,12 @@
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength } from '../../app/dungeon-weapon.ts';
 import { canAbortSwing, DASH_TIME, dashImmune, playerSpeed, swordContacts } from '../../app/dungeon-combat.ts';
-import { ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, nearbyDozers, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
+import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, nearbyDozers, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
-import { flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
+import { flyHostile, flyShot, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { clearRoomReward, createRun, draftBoons, heal, hurt, resolveKill, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
@@ -313,6 +313,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   let chainBeat = 0, chainIdle = Infinity, swing: Weapon = weapon;
   const swingHits = new Set<Body>();
   const shots: Shot[] = [];
+  // Bolts loosed at the knight, with the kind that loosed them for the damage split.
+  const hostile: { shot: Shot; kind: EnemyKind }[] = [];
   let quiver = weapon.ranged ? weapon.ranged.capacity : 0, reload = 0;
   const pools: Pool[] = [];
   const cleared = new Set<number>([0]);
@@ -381,13 +383,20 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     const live = bodies.filter(b => !b.dead && b.awake);
 
     // --- the knight's turn ---------------------------------------------------------------------
-    // A tell it has had time to read, from something close enough to land, is worth a dodge.
-    const threat = live.find(b => b.windup > 0 && b.tell - b.windup >= policy.reaction
+    // A tell it has had time to read, from something close enough to land, is worth a dodge. A volley is
+    // read from its lock rather than its start - dodging a lane that is still following him only moves
+    // the lane - and the bolt's flight to him is reaction time too.
+    const readable = (b: Body) => {
+      const bolt = BESTIARY[b.kind].bolt;
+      if (!bolt) return b.tell - b.windup >= policy.reaction;
+      return b.windup <= AIM_LOCK && AIM_LOCK - b.windup + Math.hypot(b.x - player.x, b.z - player.z) / bolt.speed >= policy.reaction;
+    };
+    const threat = live.find(b => b.windup > 0 && readable(b)
       && Math.hypot(b.x - player.x, b.z - player.z) < STRIKE_RANGE[b.kind] + (BESTIARY[b.kind].attack === 'pounce' ? 2.6 : 0.4));
     if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, swing) && nerve() < policy.dodge) {
-      // A pounce is out-run sideways; a swing is out-run backwards.
+      // A pounce or a bolt is out-run sideways; a swing is out-run backwards.
       const away = unit(player.x - threat.x, player.z - threat.z);
-      const step = BESTIARY[threat.kind].attack === 'pounce' ? { x: -away.z, z: away.x } : away;
+      const step = BESTIARY[threat.kind].attack !== 'swing' ? { x: -away.z, z: away.x } : away;
       facing.x = step.x; facing.z = step.z;
       dashTime = DASH_TIME; dashCooldown = run.dashSpan; attackTime = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; swingHits.clear();
     }
@@ -521,6 +530,22 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         if (dealt && live.filter(b => Math.hypot(b.x - player.x, b.z - player.z) < 4).length >= 3) surrounded += dealt;
         if (run.hp <= 0) return endFloor('died');
       }
+      // dungeon-game.tsx looses the same bolt on the same frame.
+      const bolt = BESTIARY[body.kind].bolt;
+      if (intent.loose && bolt) hostile.push({ kind: body.kind, shot: hostileBolt(body, intent.loose, bolt, body.damage) });
+    }
+
+    // Bolts at the knight fly after the bodies have moved, as the game flies them.
+    for (let i = hostile.length - 1; i >= 0; i--) {
+      const { shot, kind } = hostile[i];
+      const flight = flyHostile(shot, floor.cells, player, dashImmune(dashTime), DT);
+      shot.x = flight.x; shot.z = flight.z; shot.life = flight.life; shot.pierce = flight.pierce;
+      if (flight.done) hostile.splice(i, 1);
+      if (!flight.hit) continue;
+      const dealt = hurt(run, shot.damage, { dashing: dashImmune(dashTime), warded: true });
+      damage[kind] += dealt;
+      if (dealt && live.filter(b => Math.hypot(b.x - player.x, b.z - player.z) < 4).length >= 3) surrounded += dealt;
+      if (run.hp <= 0) return endFloor('died');
     }
 
     // Bolts fly after the bodies have moved, against where they actually are this frame.
