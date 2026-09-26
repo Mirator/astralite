@@ -86,13 +86,16 @@ for(const kind of ['guard','stalker','warden'] as const){
     if(bystanders.length)await game.configureCombat({enemies:bystanders.map(e=>({index:e.index,cooldown:999}))});
     let current:Snapshot['enemies'][number]=enemy;
     for(let i=0;i<100;i++){await game.step(16);current=trackEnemy(await game.state(),kind,current);if(current.windup>0)break;}
-    expect(current.windup).toBeGreaterThan(.15);const health=(await game.state()).health;
-    await game.step(current.windup*1000-40);current=trackEnemy(await game.state(),kind,current);
+    expect(current.windup).toBeGreaterThan(.16);const health=(await game.state()).health;
+    // The silhouette of the tell, read off a real encounter (these used to be a second, identically staged
+    // test per kind in polish.spec.ts): 0.16 s before release the blade is raised, or the stalker coiled.
+    // By 40 ms before release, where the trail is checked below, the blade has already begun to fall.
+    const release=current.windup*1000;
+    await game.step(release-160);current=trackEnemy(await game.state(),kind,current);
+    if(kind==='stalker')expect(enemyPose(current).pitch,'the stalker is not coiled late in its tell').toBeLessThan(-.5);
+    else expect(enemyPose(current).weapon,`the ${kind} blade is not raised late in its tell`).toBeGreaterThan(1);
+    await game.step(120);current=trackEnemy(await game.state(),kind,current);
     expect((await game.state()).health).toBe(health);
-    // The silhouette of the tell, read off a real encounter (these used to be a second, identically
-    // staged test per kind in polish.spec.ts): the blade raised, or the stalker coiled.
-    if(kind==='stalker')expect(enemyPose(current).pitch,'the stalker is not coiled at the end of its tell').toBeLessThan(-.5);
-    else expect(enemyPose(current).weapon,`the ${kind} blade is not raised at the end of its tell`).toBeGreaterThan(1);
     if(kind!=='stalker')expect(enemyPose(current).trails).toBe(1);
     await game.capture(`${kind}-cut-before-contact`);
     await game.step(current.windup*1000+1);current=trackEnemy(await game.state(),kind,current);
