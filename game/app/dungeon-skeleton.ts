@@ -14,8 +14,9 @@ import { contactShadow } from './dungeon-characters.ts';
 import { bakeStatic } from './dungeon-bake.ts';
 import { buildSpec, type Node, type Part, type V3 } from './dungeon-figure-spec.ts';
 import { weatherBone } from './dungeon-motion.ts';
+import type { EnemyKind } from './dungeon-bestiary.ts';
 
-export type SkeletonKind = 'guard' | 'stalker' | 'warden';
+export type SkeletonKind = EnemyKind;
 
 const shared = <T extends THREE.BufferGeometry>(geometry: T) => { geometry.userData.shared = true; return geometry; };
 
@@ -89,6 +90,8 @@ function trim(target: (Part | Node)[], name: string, geom: Geom, material: strin
  * to the frozen fixture - see the file header before reordering anything.
  */
 function skeletonSpec(kind: SkeletonKind): Node {
+  // The one place a kind is still a name rather than a row: this is each body's own geometry, authored
+  // part by part, and a new kind's figure is new parts rather than new numbers.
   const stalker = kind === 'stalker', warden = kind === 'warden';
   const rigParts: (Part | Node)[] = [];
   const weaponParts: (Part | Node)[] = [];
@@ -248,8 +251,19 @@ function skeletonSpec(kind: SkeletonKind): Node {
   return { name: 'rig', at: [0, stalker ? -.18 : 0, 0], rot: [stalker ? -.38 : 0, 0, 0], parts: rigParts };
 }
 
+/**
+ * Each kind's materials and the size of the pool at its feet. A row per kind, so a kind added to the
+ * bestiary does not build until it has been given its own colours; the reasoning behind each value is
+ * with the material that reads it, in makeSkeleton() below.
+ */
+const PALETTE: Record<SkeletonKind, { bone: number; iron: number; ironRoughness: number; brass: number; eye: number; cloth: number; pool: number }> = {
+  guard: { bone: 0x9ca39a, iron: 0x3f4a53, ironRoughness: 0.5, brass: 0x6f6244, eye: 0xff8a2a, cloth: 0x5c2430, pool: .58 },
+  stalker: { bone: 0x6f9084, iron: 0x3f4a53, ironRoughness: 0.5, brass: 0x6f6244, eye: 0xd6ff5e, cloth: 0x334b43, pool: .62 },
+  warden: { bone: 0x776e5d, iron: 0x1c201f, ironRoughness: 0.58, brass: 0x5c4a2c, eye: 0xffd23a, cloth: 0x2a3a33, pool: .82 },
+};
+
 export function makeSkeleton(kind: SkeletonKind) {
-  const stalker = kind === 'stalker', warden = kind === 'warden';
+  const palette = PALETTE[kind];
   // Bone used to sit at the knight's own value, which is why four figures in one hall read as four of the
   // same thing. It comes down and goes cold, and the three kinds part company: the guard a flat grey, the
   // stalker greener and dimmer for something that waits. No gold on any of them outshines the knight's.
@@ -268,24 +282,24 @@ export function makeSkeleton(kind: SkeletonKind) {
   // own plate, cool violet at b=-8.5, and the warden's warm bone at b=+9 was carrying most of the distance
   // between them. Neutralising the warden spent the hue axis to buy value, and the two do not trade at
   // par. The warm-tan bone stays and only its value moves, which is the axis the reviewer named.
-  const bone = new THREE.MeshStandardMaterial({ color: warden ? 0x776e5d : stalker ? 0x6f9084 : 0x9ca39a, roughness: 0.84 });
+  const bone = new THREE.MeshStandardMaterial({ color: palette.bone, roughness: 0.84 });
   weatherBone(bone);
   // The other half of the cluster. The warden's plate was a dark navy three units of Lab from the knight's
   // own iron, and in the stair chamber that plate is most of the warden's torso and the breastplate is most
   // of the knight's - two figures carrying the same dark mass in the same hue. It leaves navy for the
   // drowned green the rest of the keep's dead already wear, and comes up three points of L on the way out
   // so the warden is not simply a hole.
-  const iron = new THREE.MeshStandardMaterial({ color: warden ? 0x1c201f : 0x3f4a53, roughness: warden ? 0.58 : 0.5, metalness: 0.5 });
+  const iron = new THREE.MeshStandardMaterial({ color: palette.iron, roughness: palette.ironRoughness, metalness: 0.5 });
   // The warden's gold was the warmest thing on any skeleton and the nearest any of them came to the
   // knight's own accent. Six points of value off it: still a crown, no longer a second brass figure.
-  const brass = new THREE.MeshStandardMaterial({ color: warden ? 0x5c4a2c : 0x6f6244, roughness: .52, metalness: .55 });
+  const brass = new THREE.MeshStandardMaterial({ color: palette.brass, roughness: .52, metalness: .55 });
   // Eye colour is the cheapest rank badge there is: one unlit speck already being drawn, and it names the
   // kind from across the room before the silhouette has resolved. Fog stays on, unlike the tell.
   // Plan 014 round 2 (lever D10): pushed over 1 per channel (a Color multiplied past white rather
   // than a plain hex) so a bloom pass has something to actually catch here - a hex colour alone tops
   // out at (1,1,1) and, at these small a socket's screen size, that read as merely "pale" rather than
   // "lit from within" once the post chain went in.
-  const eye = new THREE.MeshBasicMaterial({ color: new THREE.Color(warden ? 0xffd23a : stalker ? 0xd6ff5e : 0xff8a2a).multiplyScalar(1.7), toneMapped: false });
+  const eye = new THREE.MeshBasicMaterial({ color: new THREE.Color(palette.eye).multiplyScalar(1.7), toneMapped: false });
   const shadow = new THREE.MeshStandardMaterial({ color: 0x101b1c, roughness: 1 });
   // Plan 014 round B: the guard's blade took the dark armour iron and read as an unshaded black plane
   // through the torso. Bright, fairly smooth steel, so it catches the key and the torches as a blade.
@@ -298,7 +312,7 @@ export function makeSkeleton(kind: SkeletonKind) {
   // reasoning about them (drowned green, "no gold outshines the knight's") still depends on: a guard's
   // own dark red is muted and desaturated enough - closer to old blood than to the knight's own bright
   // red plume - that it reads as heraldry on an undead thing, not as a second knight.
-  const cloth = new THREE.MeshStandardMaterial({ color: warden ? 0x2a3a33 : stalker ? 0x334b43 : 0x5c2430, roughness: 1, side: THREE.DoubleSide });
+  const cloth = new THREE.MeshStandardMaterial({ color: palette.cloth, roughness: 1, side: THREE.DoubleSide });
   const crest = new THREE.MeshStandardMaterial({ color: 0xcfc3a8, roughness: .88 });
 
   const { root: rig, byName } = buildSpec(skeletonSpec(kind), { bone, iron, brass, eye, shadow, cloth, crest, steel });
@@ -326,6 +340,6 @@ export function makeSkeleton(kind: SkeletonKind) {
   bakeStatic(shield, { cacheKey: `${kind}:shield` });
   // Weaker than the knight's, and sized to the actor: the reference grounds the enemies too, but the
   // player's own pool has to stay the darkest thing at his feet.
-  g.add(contactShadow(warden ? .82 : stalker ? .62 : .58, .64));
+  g.add(contactShadow(palette.pool, .64));
   return g;
 }

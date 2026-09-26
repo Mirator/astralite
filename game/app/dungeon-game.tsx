@@ -20,7 +20,7 @@ import { animateCloth } from './dungeon-motion';
 import { canStand, generateFloor, hasClearPath, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
 import { dashImmune, swordContacts } from './dungeon-combat';
-import { ALERT_STAGGER, decideEnemy, nearbyDozers, separateCrowd, type Wakeable } from './dungeon-enemy';
+import { ALERT_STAGGER, BESTIARY, decideEnemy, nearbyDozers, separateCrowd, type Wakeable } from './dungeon-enemy';
 import { awayFrom, burn as burnBody, landBlow } from './dungeon-hits';
 import { playerAttackPose } from './dungeon-attack-pose';
 import { chainLength, STARTING_WEAPON, TIDEBLADE, weaponById, type WeaponId } from './dungeon-weapon';
@@ -1421,8 +1421,8 @@ export default function DungeonGame() {
               // spray of droplets off a struck body. 14 is inside the "10-20" the plan asked for and
               // still cheap: each is a pooled mesh already paid for by the spark burst beside it.
               burst(enemy.group.position, 0xe0202c, 22);
-              blood.spawn(enemy.group.position, enemy.kind === 'warden' ? 1.4 : 1);
-              impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,enemy.kind==='warden');
+              blood.spawn(enemy.group.position, BESTIARY[enemy.kind].look.blood);
+              impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,BESTIARY[enemy.kind].look.heavy);
               // Three sparks rather than seven. Each one is its own mesh and so its own draw call, and
               // next to a crescent, a bloom and a shockwave they were paying four calls at the most
               // expensive frame in the game for grit nobody could pick out.
@@ -1452,7 +1452,7 @@ export default function DungeonGame() {
           const hurtPlayer = () => {
             if (gameStatus !== 'playing' || !hurt(run, enemy.damage, { dashing: dashImmune(pc.dashTime), warded: true })) return;
             setHealth(run.hp);
-            audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4529,8);impacts.emit(player.position,0xff8763,enemy.kind==='warden');
+            audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4529,8);impacts.emit(player.position,0xff8763,BESTIARY[enemy.kind].look.heavy);
             // Which kind landed the killing blow is the one thing only this call site knows.
             if(run.hp===0)endRun(enemy.kind);
           };
@@ -1519,7 +1519,7 @@ export default function DungeonGame() {
               audio.play('hit');
               const hit = landBlow(floor.cells, enemy, enemy.group.position, { ...pc.weapon, damage: live.shot.damage }, { x: live.shot.dx, z: live.shot.dz });
               if (hit.broke) { enemy.attackAge = Infinity; enemy.trails.forEach(trail => trail.effect.clear()); }
-              burst(enemy.group.position, 0xffb24a, 7); burst(enemy.group.position, 0xe0202c, 22); blood.spawn(enemy.group.position, enemy.kind === 'warden' ? 1.4 : 1); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffedbb, enemy.kind === 'warden');
+              burst(enemy.group.position, 0xffb24a, 7); burst(enemy.group.position, 0xe0202c, 22); blood.spawn(enemy.group.position, BESTIARY[enemy.kind].look.blood); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffedbb, BESTIARY[enemy.kind].look.heavy);
               shake = 0.05; pc.hitStop = 0.025;
               if (hit.killed) {
                 fell(enemy);

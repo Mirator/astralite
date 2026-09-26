@@ -1,6 +1,8 @@
 // Between-run memory is a nicety, never a dependency. Storage is absent in a webview, throws in
 // Safari private mode and can hold anything a previous version (or a user) left behind, so every
 // value that comes back is re-validated and every failure degrades to "nothing remembered".
+import { ENEMY_KINDS, type EnemyKind } from './dungeon-bestiary.ts';
+
 export type BestRun = { floor: number; xp: number; kills: number; won: boolean };
 
 // What one finished run leaves behind, and nothing more: this list is what turns "floor 2 feels too
@@ -8,7 +10,7 @@ export type BestRun = { floor: number; xp: number; kills: number; won: boolean }
 // keep's own embers — and is null exactly when the run was won. `seed` is floor 1's, so an interesting
 // run can be taken again with `restart:<seed>`. Boons are ids, not names: shorter, and they are what
 // the `boon:<id>` console hook speaks.
-export type RunCause = 'guard' | 'stalker' | 'warden' | 'hazard';
+export type RunCause = EnemyKind | 'hazard';
 export type RunEnd = { at: number; floor: number; won: boolean; cause: RunCause | null; seconds: number; rank: number; xp: number; kills: number; boons: string[]; seed: number };
 
 // What the player has asked the game to be, as opposed to what one run left behind. Every default here
@@ -51,7 +53,7 @@ export const bindKey = (binds: Binds, action: Action, code: string): Binds | nul
 };
 
 const BEST_KEY = 'drowned-keep:best', SEED_KEY = 'drowned-keep:seed', RUNS_KEY = 'drowned-keep:runs', SETTINGS_KEY = 'drowned-keep:settings';
-const CAUSES = ['guard', 'stalker', 'warden', 'hazard'];
+const CAUSES: readonly string[] = [...ENEMY_KINDS, 'hazard'];
 
 // An entry is ~150 bytes of JSON, so the whole log is ~15 KB — a few hundred times under the smallest
 // localStorage quota in the wild (5 MB), and small enough that a quota error here is only ever somebody

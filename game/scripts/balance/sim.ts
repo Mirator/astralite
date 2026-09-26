@@ -13,7 +13,8 @@
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength } from '../../app/dungeon-weapon.ts';
 import { canAbortSwing, DASH_TIME, dashImmune, playerSpeed, swordContacts } from '../../app/dungeon-combat.ts';
-import { ALERT_STAGGER, decideEnemy, enemyStats, hitCooldown, interruptsWindup, nearbyDozers, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
+import { ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, nearbyDozers, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
+import { landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
@@ -27,7 +28,7 @@ const DT = 1 / 60;
 /** A floor that has not resolved in this much simulated time is reported stuck rather than scored. */
 const FLOOR_TIMEOUT = 480;
 
-export type Cause = 'guard' | 'stalker' | 'warden' | 'hazard';
+export type Cause = EnemyKind | 'hazard';
 
 /** How well the knight plays. One policy across a batch is what makes two batches comparable. */
 export type Policy = {
@@ -261,7 +262,7 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
 function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number): FloorReport {
   const floor = generateFloor(seed, level);
   const weapon = policy.weapon;
-  const damage: Record<Cause, number> = { guard: 0, stalker: 0, warden: 0, hazard: 0 };
+  const damage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
   let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0;
   let idle = 0, aloneRun = 0, aloneMax = 0, firstContactSum = 0, firstContactCount = 0;
   // Rooms already given a first-contact measurement (whether it resolved or the knight walked on), so a
@@ -382,11 +383,11 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     // --- the knight's turn ---------------------------------------------------------------------
     // A tell it has had time to read, from something close enough to land, is worth a dodge.
     const threat = live.find(b => b.windup > 0 && b.tell - b.windup >= policy.reaction
-      && Math.hypot(b.x - player.x, b.z - player.z) < STRIKE_RANGE[b.kind] + (b.kind === 'stalker' ? 2.6 : 0.4));
+      && Math.hypot(b.x - player.x, b.z - player.z) < STRIKE_RANGE[b.kind] + (BESTIARY[b.kind].attack === 'pounce' ? 2.6 : 0.4));
     if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, swing) && nerve() < policy.dodge) {
       // A pounce is out-run sideways; a swing is out-run backwards.
       const away = unit(player.x - threat.x, player.z - threat.z);
-      const step = threat.kind === 'stalker' ? { x: -away.z, z: away.x } : away;
+      const step = BESTIARY[threat.kind].attack === 'pounce' ? { x: -away.z, z: away.x } : away;
       facing.x = step.x; facing.z = step.z;
       dashTime = DASH_TIME; dashCooldown = run.dashSpan; attackTime = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; swingHits.clear();
     }
@@ -478,13 +479,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         if (body.dead || !body.awake || swingHits.has(body)) continue;
         if (!swordContacts(floor.cells, player, attackFacing, body, run.reach, swing)) continue;
         swingHits.add(body);
-        body.hp -= swing.damage + run.strike;
-        body.hitFlash = 0.2;
-        const broke = interruptsWindup(body.kind, body.windup, swing.stagger);
-        if (broke) body.windup = 0;
-        body.cooldown = Math.max(body.cooldown, hitCooldown(body.kind, broke, swing.stagger));
-        const push = unit(body.x - player.x, body.z - player.z), shove = body.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
-        moveOnFloor(floor.cells, body, push.x * shove, push.z * shove);
+        // The game's own blow: damage, flash, broken tell, cooldown and shove, in dungeon-hits.
+        landBlow(floor.cells, body, body, { damage: swing.damage + run.strike, stagger: swing.stagger, knockback: weapon.knockback, wardenKnockback: weapon.wardenKnockback }, unit(body.x - player.x, body.z - player.z));
         if (body.hp <= 0) {
           body.dead = true;
           resolveKill(run);
@@ -538,13 +534,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           const body = bodies[index];
           if (body.dead) continue;
           landedCount += 1;
-          body.hp -= shot.damage;
-          body.hitFlash = 0.2;
-          const broke = interruptsWindup(body.kind, body.windup, weapon.stagger);
-          if (broke) body.windup = 0;
-          body.cooldown = Math.max(body.cooldown, hitCooldown(body.kind, broke, weapon.stagger));
-          const push = unit(body.x - player.x, body.z - player.z), shove = body.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
-          moveOnFloor(floor.cells, body, push.x * shove, push.z * shove);
+          landBlow(floor.cells, body, body, { ...weapon, damage: shot.damage }, unit(body.x - player.x, body.z - player.z));
           if (body.hp <= 0) {
             body.dead = true;
             resolveKill(run);

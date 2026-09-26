@@ -1,4 +1,4 @@
-import { LUNGE_TIME, RECOVERY, type EnemyKind } from './dungeon-enemy.ts';
+import { BESTIARY, LUNGE_TIME, RECOVERY, type EnemyKind } from './dungeon-enemy.ts';
 
 // Presentation only: read the combat clock, never advance it or decide a hit. `attackAge` is
 // deliberately separate from cooldown: cooldown also exists at spawn and after a flinch, neither of
@@ -22,7 +22,8 @@ export type EnemyPose = {
 };
 
 export function enemyPose(kind: EnemyKind, windup: number, tell: number, cooldown: number, lunge: number, attackAge = Infinity): EnemyPose {
-  const stalker = kind === 'stalker', warden = kind === 'warden';
+  // `stalker` and `warden` name the two bodies these styles were drawn for; any kind wearing the style moves the same way.
+  const style = BESTIARY[kind].look.pose, stalker = style === 'pounce', warden = style === 'overhead';
   const safeWindup = Math.max(0, finiteOr(windup, 0));
   const safeTell = Math.max(0.001, finiteOr(tell, .5));
   const safeCooldown = Math.max(0, finiteOr(cooldown, 0));
@@ -44,7 +45,7 @@ export function enemyPose(kind: EnemyKind, windup: number, tell: number, cooldow
     : 1;
   const lungeEase = smooth(lungeProgress);
   const followthrough = warden ? .16 : .12;
-  const recoveryLength = warden ? .72 : stalker ? Math.max(.01, RECOVERY.stalker - LUNGE_TIME) : .34;
+  const recoveryLength = warden ? .72 : stalker ? Math.max(.01, RECOVERY[kind] - LUNGE_TIME) : .34;
   const landedAge = stalker ? Math.max(0, age - LUNGE_TIME) : age;
   const recovery = !winding && hasAttackAge && !airborne
     ? 1 - smooth(landedAge / recoveryLength)
