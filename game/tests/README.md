@@ -17,7 +17,7 @@ modules:
   spawn on walkable floor, the gate is safe, quiet halls never come in pairs, deeper floors are meaner,
   and generation stays fast enough to rebuild a floor mid-run.
 - **The run simulation** (`dungeon-sim.ts`): the rank ladder, every boon, the damage and
-  invulnerability rules, kill rewards, the boon draft and the stair dwell.
+  invulnerability rules, kill rewards and the boon draft.
 - **The spatial rules** (`dungeon-enemy.ts`): the activation cutoff, pursuit steps off the flood map,
   when a windup starts and whether the committed swing connects, the stalker pounce and its swept
   contact test, and the crowd-separation pass. Collision itself (`canStand`, `moveOnFloor`) is covered
@@ -200,8 +200,8 @@ window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'start' }));
 const stair = S().floor.rooms[S().floor.goal];
 window.dungeonTest.teleport(stair.x * 1.48, stair.z * 1.48);
 window.advanceTime(200, false);
-S().objective; // { floor, halls, goalDepth, atStair, stairClear, stairOpen, stairDwell, … }
-S().stair;     // { x, z, radius, dwell } — the open stair takes the knight after `dwell` seconds standing on it
+S().objective; // { floor, halls, goalDepth, atStair, stairClear, stairOpen, onStair, … }
+S().stair;     // { x, z, radius } — the open stair takes the knight when he stands within `radius` and presses the swap key
 ```
 
 Open the boon draft (it freezes the world until a card is clicked, so yield to React first):

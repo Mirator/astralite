@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BOONS, createRun, draftBoons, dwellStep, grantXp, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
+import { BOONS, createRun, draftBoons, grantXp, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
 
 // A run with the draft already open, since every boon needs that gate held down.
 const drafting = (patch: Partial<Run> = {}): Run => Object.assign(createRun(), { choosing: true, pendingRanks: 1 }, patch);
@@ -180,14 +180,3 @@ test('the draft shuffle is uniform: every card is equally likely to be offered',
   }
 });
 
-test('a dwell fills by standing, drains twice as fast, and a dash never counts', () => {
-  // The stair runs on this: a floor must never end because the knight ran across the way down.
-  assert.equal(dwellStep(0, 1, true, false, 0.25), 0.25);
-  assert.equal(dwellStep(0.9, 1, true, false, 0.5), 1, 'never past the cap');
-  assert.ok(Math.abs(dwellStep(0.6, 1, false, false, 0.1) - 0.4) < 1e-9, 'stepping off drains double');
-  assert.equal(dwellStep(0.1, 1, false, false, 0.5), 0, 'never below nothing');
-  assert.equal(dwellStep(0.5, 1, true, true, 0.25), 0, 'a dash across it does not count');
-  // Junk frame deltas are dropped rather than subtracted, as everywhere else in this module.
-  assert.equal(dwellStep(0.4, 1, true, false, Number.NaN), 0.4);
-  assert.equal(dwellStep(0.4, 1, true, false, -1), 0.4);
-});

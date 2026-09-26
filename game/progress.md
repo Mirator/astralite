@@ -2808,3 +2808,16 @@ frame to rewrite them. The four torches and four lent anchor lights nearest the 
 every sconce on the floor. The fill light, the camera lead, the shake and a blow's shove reuse scratch
 vectors. The canvas rect is read once per layout instead of on every pointermove. None of this is
 measurable on SwiftShader; it removes work and garbage, and has not been timed on a GPU.
+
+## 2026-09-26 - The stair waits on the swap key
+
+The open stair no longer takes the knight after a 0.4 s dwell. It behaves like a weapon rack: standing
+on it lights the ring and shows the prompt ("Press E to take the stair down", with the floor it leads
+to), and only the swap binding - E by default, the pad's swap button, or a tap on the prompt - ends the
+floor. If the knight ever stands in a rack's ring and on the stair at once the rack wins, because the
+prompt names the arm; floor generation never puts the rack in the goal room, so that is defensive.
+`STAIR_DWELL`, `stairDwellStep` and `dwellStep` are gone from `dungeon-sim.ts` with their unit test;
+the state hook reports `objective.onStair` instead of `stairDwell`, and `stair.dwell` is dropped. The
+balance sim's policy now ends a floor the frame it reaches the stair, which is what a player pressing
+E on arrival does; its batches read about 0.4 s shorter per floor than before this change.
+`progression.spec.ts` holds that standing on the stair for two seconds ends nothing and E does.
