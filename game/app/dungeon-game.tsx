@@ -38,13 +38,11 @@ import { dropMarks, hideMarks, markEnemy, poseEnemy, type Enemy } from './dungeo
 import { createFloorStage, raiseFloor, type FloorArt } from './dungeon-floor-scene';
 import { createMood } from './dungeon-mood';
 import { driveSliced as driveSlicedSteps, linkedPrograms, pollProgramsReady as pollPrograms, precompilePost } from './dungeon-warmup';
+import { veilProgress } from './dungeon-veil';
 import { applyCombatFixture } from './dungeon-fixture';
 import { actorStat, countDisposals, drainGpu, lightDiagnostics, pointLightCount, textureHash, type GameToolContext, type HookedWindow, type TestHooks } from './dungeon-test-hooks';
 
 const FLOORS = 3;
-/** Plan 014 round C: what the veil says is happening, one label per stage of `stagedBuild`. The label
- *  shown is the stage now running, so index 0 names the first one before it has finished. */
-const VEIL_STAGES = ['Charting the halls', 'Cutting the stone', 'Raising the walls', 'Lighting the braziers', 'Flooding the halls'] as const;
 /** Short in-world lines, crossfaded one at a time under the bar (CSS only). */
 const VEIL_LORE = [
   'Braziers mark the rooms the warden still watches.',
@@ -111,7 +109,7 @@ export default function DungeonGame() {
   // What the keep is busy doing while the player waits on it, or null when it is not busy. Only ever set
   // for work that blocks the main thread long enough to be felt — which in this game is a floor build.
   const [loading, setLoading] = useState<string | null>(null);
-  // Plan 014 round C: what the veil reports while a keep is raised - the stage reached (an index into
+  // Plan 014 round C: what the veil reports while a keep is raised - the number of stages finished (of
   // VEIL_STAGES; 0 is "not started"), the floor being built and, once the layout is charted, its name.
   const [veilStage, setVeilStage] = useState(0), [veilFloor, setVeilFloor] = useState(1), [veilPlace, setVeilPlace] = useState<string | null>(null);
   // True on a CPU rasteriser (the reduced post chain, `dungeon-post.ts`): the veil then drops its fog
@@ -1839,6 +1837,7 @@ export default function DungeonGame() {
   // before the menu: nothing builds until ENTER is pressed (plan 015), and the bar goes up for that first
   // press, or for any floor build the player has asked for since.
   const veil = displayFailed || fault ? null : loading ?? (entering ? 'Waking the keep' : null);
+  const veilShown = veilProgress(veilStage);
   return (
     <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}${ready ? ' world-ready' : ''}${plainVeil ? ' plain-chrome' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
@@ -1959,8 +1958,8 @@ export default function DungeonGame() {
         <span className="veil-emblem" aria-hidden="true"><i className="veil-ring" /><i className="veil-diamond" /><i className="veil-glow" /><i className="veil-flame" /><i className="veil-flame veil-flame-core" /></span>
         <b>{veil}</b>
         <em className="veil-sub">Floor {veilFloor} of {FLOORS}{veilPlace ? ` · toward ${veilPlace}` : ''}</em>
-        <span className="veil-bar" aria-hidden="true"><i style={{ transform: `scaleX(${Math.max(.04, veilStage / VEIL_STAGES.length)})` }} /></span>
-        <span className="veil-stage">{VEIL_STAGES[Math.min(veilStage, VEIL_STAGES.length - 1)]}<small>{Math.min(veilStage + 1, VEIL_STAGES.length)} / {VEIL_STAGES.length}</small></span>
+        <span className="veil-bar" aria-hidden="true"><i style={{ transform: `scaleX(${veilShown.fill})` }} /></span>
+        <span className="veil-stage">{veilShown.label}<small>{veilShown.step} / {veilShown.total}</small></span>
         <span className="veil-lore" aria-hidden="true">{VEIL_LORE.map((line) => <i key={line}>{line}</i>)}</span>
       </output>}
       {/* The alternative layout, not a fallback bolted onto the stick: four buttons a screen reader can name
