@@ -330,7 +330,8 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
    the bar's shimmer, the lore crossfade, and the bar's own step - moves by transform or opacity and nothing
    else, so it runs on the compositor: each build stage is still a synchronous block on the main thread, and
    anything driven from there would freeze in the same breath. The bar's length is not an animation: it is
-   the stage `stagedBuild` has actually finished, eased between steps by a transform transition. */
+   the end of the step `stagedBuild` is now running, the same number as the "3 / 5" beneath it
+   (`veilProgress`), eased between steps by a transform transition. */
 .loading-veil { position: absolute; inset: 0; z-index: 14; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; padding: 24px; overflow: hidden; background: radial-gradient(ellipse 80% 70% at 50% 44%, #0e232a 0%, #081419 46%, var(--ink-deep) 100%); text-align: center; }
 /* A vignette over everything but the text, so the frame's edge falls away into black like the game's. */
 .loading-veil::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 75% 70% at 50% 46%, transparent 45%, #000000b8 100%); }
