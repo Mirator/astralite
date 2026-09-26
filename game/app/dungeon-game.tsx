@@ -68,7 +68,7 @@ const noSubscription = () => () => {};
 // three.js throws outright when the browser will not hand out a context at all — no GPU, WebGL off by
 // policy or setting, a browser too old. That is not the same as losing a context mid-run, which three.js
 // gets back by itself: nothing is coming back here, so the throw is caught and answered with a screen.
-const makeRenderer = () => { try { return new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' }); } catch { return null; } };
+const makeRenderer = () => { try { return new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' }); } catch { return null; } };
 
 export default function DungeonGame() {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -1686,7 +1686,7 @@ export default function DungeonGame() {
       stair: { x: stage.stairSpot.x, z: stage.stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
-      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: pointLightCount(scene), programs: linkedPrograms(renderer), warmUp, quality: post.quality },
+      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, shadow: post.shadow, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: pointLightCount(scene), programs: linkedPrograms(renderer), warmUp, quality: post.quality },
       effects: { impacts: impacts.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.

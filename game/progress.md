@@ -2769,3 +2769,24 @@ and a stopped world refuses further steps.
 real frame loop, under the driver clock and inside a floor build - all three fail on the old code - and
 covers the GPU context being lost and restored, which had no test: the descent pauses, the notice
 lifts on restore, and the restored context draws the keep rather than a black frame.
+
+## 2026-09-26 - One shadow pass a frame, and no multisampled canvas
+
+**Shadow map.** three.js redraws a shadow map inside every `renderer.render` while
+`shadowMap.autoUpdate` is on, and on the full post chain GTAO's normal/depth pre-pass is a second full
+render of the scene. So every frame drew the moon's 1536² map twice and threw the second copy away:
+92 draw calls of shadow casters, measured on floor 1 of seed 1. `createPostChain` now turns
+`autoUpdate` off and sets `needsUpdate` at the start of each frame, which the scene pass - always the
+first render of a frame - spends. `render.shadow` reports the last frame's draws and their calls;
+`frame-budget.spec.ts` loads `?quality=full` on its own page and holds the draws to one (it reads 2 with
+`autoUpdate` back on). Software GL runs the reduced chain without GTAO, so it never paid for this.
+
+**Antialiasing.** The renderer asked for a multisampled canvas, but the scene is drawn into the
+composer's own targets and the canvas only receives the last full-screen pass. `antialias: false`
+drops a multisampled drawing buffer and its resolve every frame. The frame is pixel-identical: 0 of
+700,000 pixels differ on a deterministic reduced-quality frame, repeated.
+
+**What this does and does not show.** On SwiftShader neither change moves frame time measurably (a
+drawn full-quality frame is ~3.5 s either way, reduced ~2.4 s): the software rasteriser's cost is
+elsewhere. The saving is real work removed on a GPU - one shadow pass and one MSAA resolve per frame
+- but it has not been timed on one here; `GAME_TEST_GL=d3d11` with `npm run perf:boot` is the way to.
