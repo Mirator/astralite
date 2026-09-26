@@ -29,12 +29,15 @@ there they run as parallel jobs, with the browser suite split across three
 shards at two workers each, and its Chromium restored from cache.
 
 A worker boots one page and resets it between scenarios rather than loading one
-per test, which is where most of the suite's time used to go. Three specs opt
-out with `test.use({ isolate: true })` because they assert on what a boot does,
-and a scenario that changes context options - a phone viewport, touch, a stored
+per test, which is where most of the suite's time used to go. A few scenarios
+opt out with `test.use({ isolate: true })` because they assert on what a boot
+does or break the page on purpose (loading, frame-clock, robustness), and a
+scenario that changes context options - a phone viewport, touch, a stored
 settings blob - gets its own page automatically. Every pooled scenario ends by
 resetting back to the booted state and holding the whole snapshot against it, so
-state left behind fails the scenario that left it rather than the next one along.
+state left behind fails the scenario that left it rather than the next one along;
+a scenario on the default seeds then starts from that proven state without
+paying for a second reset.
 If you need something reset, reset it in `dungeonTest.reset`; widening `DRIFTS`
 in `tests/browser/helpers.ts` hides the problem instead of fixing it.
 

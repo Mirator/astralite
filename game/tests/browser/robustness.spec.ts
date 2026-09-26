@@ -52,19 +52,6 @@ test('a throw inside the real frame loop stops the world once and says so', asyn
   expect(errors.filter((line) => line.startsWith('uncaught')), 'and never escapes as an uncaught error').toEqual([]);
 });
 
-test('a throw under the driver clock reaches the driver and the same screen', async ({ game, page }) => {
-  await game.step(0);
-  await game.enter();
-  await game.step(100);
-  await plantFault(page);
-  await expect(game.step(16), 'the stepped test fails where the throw happened').rejects.toThrow(/planted fault/);
-  await expect(page.locator('.fault-screen')).toBeVisible();
-  // A stopped world refuses to be stepped rather than stepping a half-run tick again.
-  await expect(game.step(16)).rejects.toThrow(/the keep has stopped/);
-  expect((await game.state()).fault).toBe(true);
-  expectOneReport(game);
-});
-
 test('a throw out of a floor build lifts the veil onto the same screen', async ({ game, page }) => {
   // A fresh keep draws its seed from `crypto.getRandomValues` inside the staged build. Before the build
   // chain caught its throws, one there left the loading veil up for good with nothing said.
@@ -81,7 +68,7 @@ test('a throw out of a floor build lifts the veil onto the same screen', async (
   expectOneReport(game);
 });
 
-test('a lost GPU context pauses the descent, and a restored one draws the keep again', async ({ game, page }) => {
+test('a lost GPU context pauses the descent and a restored one draws the keep again; then a throw under the driver clock reaches the driver and the same screen', async ({ game, page }) => {
   await game.step(0);
   await game.enter();
   await game.step(200);
@@ -109,4 +96,14 @@ test('a lost GPU context pauses the descent, and a restored one draws the keep a
   // Every texture, target and program is rebuilt on the new context, or the frame comes back black.
   expect(after, 'the restored context draws the keep, not a black frame').toBeGreaterThan(before * 0.6);
   expect((await game.state()).fault).toBe(false);
+
+  // Then, on the same page, a throw under the driver clock: a context loss leaves the world playing, and a
+  // fault ends the page, so the two share one fresh boot in that order rather than paying for two.
+  await plantFault(page);
+  await expect(game.step(16), 'the stepped test fails where the throw happened').rejects.toThrow(/planted fault/);
+  await expect(page.locator('.fault-screen')).toBeVisible();
+  // A stopped world refuses to be stepped rather than stepping a half-run tick again.
+  await expect(game.step(16)).rejects.toThrow(/the keep has stopped/);
+  expect((await game.state()).fault).toBe(true);
+  expectOneReport(game);
 });

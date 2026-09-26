@@ -2898,3 +2898,17 @@ exemption stays.
 
 `npm run build:check` now runs in CI after the build and fails if a development-only hook or the
 `?boot=eager` switch reaches the production bundle; it was proven by building with each guard removed.
+
+## 2026-09-26 - The test audit, in numbers
+
+Three PRs came out of reading every browser test for whether it could fail. Part A fixed about twenty that
+could not. Part B restored the node tests 24cfebd had pruned where they were the more direct check, added
+tests for gaps nothing covered, and then removed or merged the browser tests that only duplicated them.
+Part C stopped paying for resets and boots nothing needed (a proven-fresh pooled page is no longer reset
+again, and five scenarios left their own boot for the pooled page). "Writing tests that can fail" in
+AGENTS.md is the rule set that came out of it.
+
+On CI, summed browser test time per PR run went from 2,687 s to 1,642 s. The three shards ran 9.7, 8.6 and
+10.2 minutes before the audit and 5.2, 5.9 and 8.2 on part C's run with the old split; durations.json is
+refreshed from that run and now plans 515 / 563 / 564 s. The node suite grew from 214 to 235 tests and
+still runs in about half a minute.

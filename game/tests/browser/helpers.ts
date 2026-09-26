@@ -651,7 +651,14 @@ export class Game {
   static async adopt(page: Page, info: TestInfo, seeds: number[], pool: Pool) {
     const game = new Game(page, info, seeds);
     pool.sink = game;
-    await game.reset(seeds);
+    pool.adopted = true;
+    // The page is already exactly a fresh boot on the default seeds when the pool has just booted it, or
+    // when the last scenario's `prove` reset it to them and held the whole snapshot equal to that boot. A
+    // second reset would rebuild the same floor for nothing, so only a page not known to be fresh, or a
+    // scenario asking for other seeds, pays for one.
+    const known = pool.fresh && seeds.length === DEFAULT_SEEDS.length && seeds.every((seed, i) => seed === DEFAULT_SEEDS[i]);
+    pool.fresh = false;
+    if (!known) await game.reset(seeds);
     return game;
   }
 
@@ -679,6 +686,8 @@ export class Game {
         'matches a freshly booted one. Either reset it in `dungeonTest.reset`, or mark the spec ' +
         '`test.use({ isolate: true })` and say why.',
     ).toBe(pool.baseline);
+    // Only now, with the whole snapshot shown equal to a boot, may the next scenario skip its own reset.
+    pool.fresh = true;
   }
 
   /** The snapshot as the leak guard compares it: everything but the fields in `DRIFTS`. */
@@ -1082,6 +1091,10 @@ class Pool {
   page: Page | null = null;
   /** Whole-snapshot state a boot leaves behind, which every reset is then held against. */
   baseline: string | null = null;
+  /** The page is known to be a fresh boot on DEFAULT_SEEDS: just booted, or reset and proven so. */
+  fresh = false;
+  /** Whether the scenario now holding the page drove it through a `Game`, which proves it at the end. */
+  adopted = false;
   sink: {
     pageErrors: string[];
     consoleErrors: string[];
@@ -1109,6 +1122,7 @@ class Pool {
     const game = await Game.open(page, info, DEFAULT_SEEDS, false);
     this.baseline = await game.comparable();
     this.page = page;
+    this.fresh = true;
     return page;
   }
 
@@ -1143,8 +1157,8 @@ export const test = base.extend<
 >({
   seeds: [DEFAULT_SEEDS, { option: true }],
   /**
-   * Opts a scenario out of the pool. Three specs need it and say why at their own `test.use`: they
-   * assert on what a boot does, so a page that is already booted is not the thing under test.
+   * Opts a scenario out of the pool. The few that need it say why at their own `test.use`: they assert on
+   * what a boot does, or break the page on purpose, so a page that is already booted will not do.
    */
   isolate: [false, { option: true }],
   pool: [
@@ -1166,7 +1180,12 @@ export const test = base.extend<
     if (
       !needsOwnPage({ isolate, hasTouch, isMobile, storageState, viewport })
     ) {
-      await runTest(await pool.take(info));
+      const pooled = await pool.take(info);
+      pool.adopted = false;
+      await runTest(pooled);
+      // A scenario that drove the pooled page without a `Game` never proved it clean, so the next one must
+      // not trust it to be a fresh boot.
+      if (!pool.adopted) pool.fresh = false;
       return;
     }
     const context = await browser.newContext({
