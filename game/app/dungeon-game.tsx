@@ -20,17 +20,16 @@ import { animateCloth } from './dungeon-motion';
 import { canStand, generateFloor, hasClearPath, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
 import { dashImmune, swordContacts } from './dungeon-combat';
-import { chainLength } from './dungeon-weapon';
 import { ALERT_STAGGER, decideEnemy, hitCooldown, interruptsWindup, nearbyDozers, separateCrowd, type Wakeable } from './dungeon-enemy';
 import { playerAttackPose } from './dungeon-attack-pose';
-import { STARTING_WEAPON, TIDEBLADE, weaponById, type WeaponId } from './dungeon-weapon';
+import { chainLength, STARTING_WEAPON, TIDEBLADE, weaponById, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
 import { flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
 import { borrowedLight } from './dungeon-radiance';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
-import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapLabel, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameStep, haltControl, resetControl, startDash, startSwing, steer, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
 import { dropMarks, hideMarks, markEnemy, poseEnemy, type Enemy } from './dungeon-enemy-view';
@@ -106,7 +105,7 @@ export default function DungeonGame() {
   const reduceMotion = settings.reducedMotion ?? osReduce;
   const [roomName, setRoomName] = useState('The Tide Gate'), [plundered, setPlundered] = useState(0);
   const [advance, setAdvance] = useState(0);
-  const [notice, setNotice] = useState(''), [, setNoticeDetail] = useState(''), [ready, setReady] = useState(false);
+  const [notice, setNotice] = useState(''), [ready, setReady] = useState(false);
   // What the keep is busy doing while the player waits on it, or null when it is not busy. Only ever set
   // for work that blocks the main thread long enough to be felt — which in this game is a floor build.
   const [loading, setLoading] = useState<string | null>(null);
@@ -304,7 +303,7 @@ export default function DungeonGame() {
       if (stage.stairRing) stage.stairRing.visible = true;
       if (stage.stairGlow) stage.stairGlow.visible = true;
       burst(stage.stairSpot, 0xfbc956, 24);
-      setNotice('The stair opens'); setNoticeDetail('step onto it to descend'); noticeTime = 4;
+      setNotice('The stair opens'); noticeTime = 4;
     };
     const offerBoon = () => {
       run.choosing = true; keys.clear();
@@ -326,12 +325,29 @@ export default function DungeonGame() {
       enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind); dropMarks(enemy);
       award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
     };
+    // The last body in a room has fallen, whatever brought it down: the room is cleansed or, if it is a dead
+    // end, plundered - paid, counted, announced and marked on the map - and the stair opens under the last
+    // warden. Steel, bolts and fire all come through here. Bolts and fire used to settle a room on a path of
+    // their own that paid the reward but never counted a dead end as plundered or marked the map, so a
+    // detour cleared with a crossbow was one the HUD said the player had never taken.
+    const settleRoom = (id: number) => {
+      if (!cleared.has(id) && stage.enemies.every(e => e.room !== id || e.dead)) {
+        cleared.add(id);
+        const room = floor.rooms[id], detour = room.role === 'branch';
+        award(clearRoomReward(run, detour));
+        if (detour) { loot++; setPlundered(loot); }
+        setNotice(`${room.name} · ${detour ? 'dead end plundered' : 'cleansed'}`);
+        noticeTime = 3.5; rewardTime = 1.4; audio.play('clear'); burst(player.position,0x71f4c4,18);
+        document.getElementById(`map-room-${id}`)?.setAttribute('fill', detour ? '#c2b273' : '#a8d5b0');
+      }
+      if (id === floor.goal && stairClear()) openStair();
+    };
     const chooseBoon = (id: string) => {
       const boon = takeBoon(run, id);
       if (!boon) return;
       setMaxHealth(run.maxHp); setHealth(run.hp); setBoonChoice([]);
       setTaken((list) => [...list, boon.name]);
-      setNotice(`${boon.name} taken`); setNoticeDetail(boon.detail); noticeTime = 3;
+      setNotice(`${boon.name} taken`); noticeTime = 3;
       boonsTaken.push(boon.id);
       if (run.pendingRanks > 0) offerBoon();
     };
@@ -886,7 +902,7 @@ export default function DungeonGame() {
       setRank(1); setRankXp(0); setRankNeed(rankCost(1)); setTaken([]); setBoonChoice([]);
       if (pc.weapon.id !== STARTING_WEAPON) equip(STARTING_WEAPON);
       setHeldWeapon(TIDEBLADE.name);
-      setNotice(''); setNoticeDetail(''); setFloorResult({ kills: 0, xp: 0, seconds: 0 });
+      setNotice(''); setFloorResult({ kills: 0, xp: 0, seconds: 0 });
       setPaused(false); setMapOpen(false);
       await driveSliced(buildFloorSteps(1, seed), token);
       player.rotation.set(0, Math.atan2(-pc.facing.x, -pc.facing.z), 0); player.userData.sword.rotation.y = 0;
@@ -995,7 +1011,7 @@ export default function DungeonGame() {
       // Standing still after the swap, so the prompt comes straight back naming the arm just set down.
       overDrop = true; showOffer(set);
       audio.play('clear'); burst(player.position, 0xfbc956, 14);
-      setNotice(`${taken.name} in hand`); setNoticeDetail(taken.detail); noticeTime = 3.5;
+      setNotice(`${taken.name} in hand`); noticeTime = 3.5;
       setHeldWeapon(taken.name);
     };
     const togglePause = () => {
@@ -1216,11 +1232,11 @@ export default function DungeonGame() {
           if (!visited.has(roomId)) { visited.add(roomId); setVisitedCount(visited.size); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#6a9995'); }
           // Only the trunk counts as progress; a dead end must never read as ground gained.
           if (spineRooms.has(currentRoom.id) && currentRoom.depth > reached) { reached = currentRoom.depth; setAdvance(reached); }
-          if (currentRoom.id === floor.goal && !stairClear()) { setNotice(`${goalRoom().name} · wardens bar the stair`); setNoticeDetail('Break them to leave the keep'); noticeTime = 4; }
+          if (currentRoom.id === floor.goal && !stairClear()) { setNotice(`${goalRoom().name} · wardens bar the stair`); noticeTime = 4; }
           const sprung = stage.enemies.filter(e => e.room === currentRoom.id && !e.awake && !e.dead);
           if (sprung.length) {
             sprung.forEach(e => { e.awake = true; e.group.visible = true; e.cooldown = Math.max(e.cooldown, 0.9); burst(e.group.position, 0xff4529, 10); });
-            setNotice(`${currentRoom.name} · ambush`); setNoticeDetail(`${sprung.length} rise from the silt`); noticeTime = 3; audio.play('warn'); shake = 0.12;
+            setNotice(`${currentRoom.name} · ambush`); noticeTime = 3; audio.play('warn'); shake = 0.12;
           }
         }
         // The stair opens when the last warden falls and takes the knight down only once he has stood on it a
@@ -1271,7 +1287,7 @@ export default function DungeonGame() {
             // frame however much better the shrine looks. At this strength the
             // inverse square has the light spent by the time it reaches him.
             if (!feature.used) ember.bid(crystal.position, near, 4.4 + Math.sin(t*2)*.7, 0x71f4c4);
-            if (!feature.used && near < 1.5 && run.hp < run.maxHp) { feature.used = true; heal(run, 35); setHealth(run.hp); audio.play('clear'); burst(player.position,0x71f4c4,20); setNotice('+35 vitality'); setNoticeDetail(''); noticeTime = 2; }
+            if (!feature.used && near < 1.5 && run.hp < run.maxHp) { feature.used = true; heal(run, 35); setHealth(run.hp); audio.play('clear'); burst(player.position,0x71f4c4,20); setNotice('+35 vitality'); noticeTime = 2; }
           } else {
             const wasFiring = feature.phase > 2.6;
             feature.phase = (t + feature.room*.7) % 3.6;
@@ -1393,16 +1409,7 @@ export default function DungeonGame() {
               // pause rather than the pose. It also freezes the cut mid-arc now that the curve launches
               // early, so what is held is a blade across the body rather than one behind the shoulder.
               shake = 0.085; pc.hitStop = 0.07;
-              if (enemy.hp <= 0) { fell(enemy); if (!cleared.has(enemy.room) && stage.enemies.every(e => e.room !== enemy.room || e.dead)) {
-                cleared.add(enemy.room);
-                const room = floor.rooms[enemy.room], detour = room.role === 'branch';
-                award(clearRoomReward(run, detour));
-                if (detour) { loot++; setPlundered(loot); }
-                setNotice(`${room.name} · ${detour ? 'dead end plundered' : 'cleansed'}`);
-                setNoticeDetail(detour ? `+${XP_DEAD_END} XP · +30 vitality` : '+12 vitality restored');
-                noticeTime = 3.5; rewardTime = 1.4; audio.play('clear'); burst(player.position,0x71f4c4,18);
-                document.getElementById(`map-room-${enemy.room}`)?.setAttribute('fill', detour ? '#c2b273' : '#a8d5b0');
-              } if (enemy.room === floor.goal && stairClear()) openStair(); }
+              if (enemy.hp <= 0) { fell(enemy); settleRoom(enemy.room); }
             }
           });
         } else { posePlayer(0);slash.update(dt,false,player.userData.sword,bladeInner,bladeTip); }
@@ -1468,12 +1475,7 @@ export default function DungeonGame() {
             burst(enemy.group.position, 0xff8c38, 5);
             if (enemy.hp <= 0) {
               fell(enemy);
-              if (!cleared.has(enemy.room) && stage.enemies.every(other => other.room !== enemy.room || other.dead)) {
-                cleared.add(enemy.room);
-                const room = floor.rooms[enemy.room];
-                award(clearRoomReward(run, room.role === 'branch'));
-                setNotice(`${room.name} · cleansed`); setNoticeDetail(room.role === 'branch' ? 'The detour pays' : ''); noticeTime = 2.5; audio.play('clear');
-              }
+              settleRoom(enemy.room);
             }
           }
           if (live.pool.life <= 0) { live.mesh.visible = false; pools.splice(i, 1); }
@@ -1500,12 +1502,7 @@ export default function DungeonGame() {
               shake = 0.05; pc.hitStop = 0.025;
               if (enemy.hp <= 0) {
                 fell(enemy);
-                if (!cleared.has(enemy.room) && stage.enemies.every(other => other.room !== enemy.room || other.dead)) {
-                  cleared.add(enemy.room);
-                  const room = floor.rooms[enemy.room];
-                  award(clearRoomReward(run, room.role === 'branch'));
-                  setNotice(`${room.name} · cleansed`); setNoticeDetail(room.role === 'branch' ? 'The detour pays' : ''); noticeTime = 2.5; audio.play('clear');
-                }
+                settleRoom(enemy.room);
               }
             }
             // Stone stops a bolt as surely as it stops steel, and says so.
