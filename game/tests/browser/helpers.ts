@@ -375,6 +375,8 @@ export type GameWindow = Window & {
     /** Plan 015 Stage C.2: a checksum of the shared stone textures' actual pixels; absent from a
      * production build. */
     textureHash?: () => { flagstone: number; masonry: number };
+    /** Blocks until the GPU process has run everything already submitted; returns the wait in ms. Dev-only. */
+    drainGpu?: () => number;
   };
 };
 
@@ -577,6 +579,8 @@ export class Game {
     // Manual time before anything else: the rAF loop stops on the first call,
     // so every later assertion reads a simulation this test stepped itself.
     await game.step(0);
+    // The boot's cold links and warm-up frames are still queued on the GPU when `building` drops.
+    await game.settle();
     const first = await game.state();
     expect(
       first.floor.seed,
@@ -681,7 +685,11 @@ export class Game {
     });
   }
 
-  /** Steps the simulation by `ms` of game time. Drawing is opt-in: it is slow. */
+  /**
+   * Steps the simulation by `ms` of game time. Drawing is opt-in: it is slow, and a drawn step waits
+   * for its own frame to finish on the GPU (see `settle`) so the cost lands here rather than on
+   * whichever click comes next.
+   */
   async step(ms: number, draw = false) {
     await this.page.evaluate(
       (input: { ms: number; draw: boolean }) => {
@@ -691,6 +699,47 @@ export class Game {
       },
       { ms, draw },
     );
+    if (draw) await this.settle();
+  }
+
+  /**
+   * Waits until the GPU process has caught up with this page, then for two animation frames.
+   *
+   * A driver's clock submits work far faster than frames would: one drawn step is ~2 s of SwiftShader
+   * time, a rebuild's uploads another one or two, a cold boot's links tens of seconds - and none of it
+   * blocks the page, so it queues. The compositor shares that queue, so no animation frame can start
+   * until it drains, and every Playwright click waits on two of them for "stable". Undrained, the
+   * backlog was billed to the next click, often in the next scenario: on CI that was a Descend or
+   * ENTER click timing out at 25 s on a page whose script answered in milliseconds. Draining where
+   * the work is submitted keeps every action's budget its own.
+   */
+  async settle() {
+    const drained = this.page.evaluate(
+      () =>
+        new Promise<number>((done, fail) => {
+          const hook = (window as GameWindow).dungeonTest;
+          if (!hook?.drainGpu) {
+            fail(new Error('dungeonTest.drainGpu is gone'));
+            return;
+          }
+          const waited = hook.drainGpu();
+          requestAnimationFrame(() => requestAnimationFrame(() => done(waited)));
+        }),
+    );
+    // Lost the race below, it may still reject when the scenario tears the page down.
+    drained.catch(() => {});
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, fail) => {
+      timer = setTimeout(
+        () => fail(new GameError(`the GPU had not caught up with the page after ${WARM_UP / 1000}s`)),
+        WARM_UP,
+      );
+    });
+    try {
+      await Promise.race([drained, late]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -749,6 +798,7 @@ export class Game {
       if (!hook) throw new Error('dungeonTest is gone');
       hook.buildFloor(value);
     }, level);
+    await this.settle();
   }
 
   /**
@@ -879,6 +929,9 @@ export class Game {
     await enterButton.click({ timeout: WARM_UP });
     // A page whose floor 1 is built but still warming answers the press behind the veil.
     await expect(this.page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
+    // Lifting the menu repaints most of the screen, and on a software rasteriser that repaint is
+    // the GPU process's to finish before the scenario's first click can see a frame.
+    await this.settle();
   }
 
   /**
@@ -898,6 +951,8 @@ export class Game {
         timeout: WARM_UP,
       })
       .toBe(false);
+    // `building` drops when the page is done, not when the GPU is: the new floor's uploads are queued.
+    await this.settle();
   }
 
   /** The pure floor behind the live one, for legal fixture positions. */

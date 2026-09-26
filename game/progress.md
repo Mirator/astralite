@@ -2668,3 +2668,48 @@ at about 90 ms, `surface` at about 54 ms) and a poll slice (85 ms cold).
 Gates: typecheck and lint are clean, and `npm test` passes 176/176. With `GAME_TEST_GL=d3d11
 GAME_TEST_PORT=3200`, all specs pass: loading 9/9, frame-clock 3/3, frame-budget 6/6, smoke 1/1 and
 progression 2/2. `git diff -w --stat` matches `git diff --stat` for `dungeon-game.tsx` (318/65).
+
+## 2026-09-25 - CI frame stall: the GPU queue a driver's clock leaves behind
+
+**Symptom.** On CI, Playwright clicks timed out at 25 s on "waiting for element to be visible, enabled
+and stable". This hit the Descend button on the floor-complete screen, ENTER on the menu, and in main's
+merge run a fresh page whose ENTER never enabled. The page's script answered evaluates in milliseconds
+throughout. A temporary diagnostic (`70ccd27`) saw one animation frame in 5 s on the complete screen. Its
+own 5 s wait was what let that run pass. It is removed here.
+
+**Cause.** Shader compiles were not it: `programs` held at 64 and `building` was false through the stall.
+Under SwiftShader the GPU process runs one queue for the page's WebGL work and the compositor's
+rasterising, and a driver's clock fills that queue faster than frames would. Nothing waited for it to
+drain, and no animation frame can start until it does. Every Playwright click waits for two frames. A
+1x1 `readPixels`, which cannot return until the queue ahead of it drains, measured it locally with shard
+1 at two workers:
+
+- A drawn step costs about 2.2 s.
+- A pooled reset costs 1.2-2.4 s, although it draws nothing (texture uploads).
+- The first scenario after a boot inherited 27-33 s of links and warm-up frames. One run hit 61 s.
+- Draw-heavy scenarios handed 5-22 s to the next one.
+- Opening the complete card cost 0.6-1.7 s with no WebGL call from the page at all. That is the
+  compositor rasterising its full-screen backdrop blur, 100px shadow and title shadow.
+
+CI is slower again, which pushed these waits past the 25 s action budget. The failing trace fits: the
+ENTER click waited 12.5 s for "stable" and the Descend click 25 s, and closing that browser took 30 s.
+
+**Fix.**
+1. `Game.settle()` in `tests/browser/helpers.ts` calls a new dev-only `dungeonTest.drainGpu()`, which
+   does that 1x1 `readPixels` on the default framebuffer, then waits two animation frames, bounded by
+   `WARM_UP`. It runs where the work is submitted: after the boot, at the end of `built()` (so after
+   every reset and sliced descent), after `buildFloor`, after `enter()`, and after every drawn `step`.
+   Each click's budget is now its own. The total GPU work is unchanged.
+2. On the reduced post chain (software GL), the shell carries `plain-chrome`, on the same switch as
+   `veil-plain`. It drops the end screen's backdrop blur, the card's shadow, the title's text shadow and
+   the frosted blur on the touch controls and swap prompt. The flat fills stay. Reference captures run
+   at `?quality=full`, so they are unaffected. Regression: `hud.spec.ts` holds the class and the three
+   computed styles against `render.quality`.
+
+**Follow-up in the same PR.** The first CI run went green on shards 1 and 2, progression included, with
+the diagnostic gone. Shard 3 then failed `frame-clock.spec.ts:47` at "a paused frame was redrawn" (10 ->
+11). The test settled its paused baseline with `expect.poll`, whose first check runs at once. So "two
+reads a quarter-second apart" were really two reads 15 ms apart, both taken before the pause's one allowed
+frame drew. It now counts animation frames instead: three in a row with no new draw. Locally, all 112
+scenarios in the gate set pass on SwiftShader at two workers, and frame-clock passes 9/9 with
+`--repeat-each=3`.

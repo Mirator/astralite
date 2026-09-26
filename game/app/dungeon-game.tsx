@@ -2311,7 +2311,7 @@ export default function DungeonGame() {
     const hooks = window as Window & {
       advanceTime?: (ms: number, draw?: boolean) => void;
       render_game_to_text?: () => string;
-      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number, seed?: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void; footstepParticles?: () => ReturnType<typeof footsteps.particles>; setFootstepsEnabled?: (enabled: boolean) => void; actorStats?: () => { knight: ReturnType<typeof actorStat> & { disposedMaterials: number }; enemies: ({ kind: Enemy['kind'] } & ReturnType<typeof actorStat>)[]; drop: { kind: WeaponId; meshes: number; triangles: number } | null }; lightDiagnostics?: (index: number, radius?: number) => unknown; textureHash?: () => { flagstone: number; masonry: number } };
+      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number, seed?: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void; footstepParticles?: () => ReturnType<typeof footsteps.particles>; setFootstepsEnabled?: (enabled: boolean) => void; actorStats?: () => { knight: ReturnType<typeof actorStat> & { disposedMaterials: number }; enemies: ({ kind: Enemy['kind'] } & ReturnType<typeof actorStat>)[]; drop: { kind: WeaponId; meshes: number; triangles: number } | null }; lightDiagnostics?: (index: number, radius?: number) => unknown; drainGpu?: () => number; textureHash?: () => { flagstone: number; masonry: number } };
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     const testHooks: NonNullable<typeof hooks.dungeonTest> = {
@@ -2395,6 +2395,18 @@ export default function DungeonGame() {
           return h;
         };
         return { flagstone: hash(getFlagstoneTextures().albedo), masonry: hash(getMasonryTextures().albedo) };
+      };
+      // A barrier, not a measurement a test asserts on: returns once the GPU process has run everything
+      // this page already handed it, and says how long that took. A driver's clock hands it work far
+      // faster than frames would - a drawn step, a rebuild's uploads - and on a software rasteriser that
+      // queue can run to tens of seconds that nothing waits on, until the next animation frame (which
+      // every Playwright click needs two of) sits behind all of it. A 1x1 readPixels of the canvas is the
+      // one WebGL call that cannot return before the queue ahead of it has drained. The default
+      // framebuffer is bound for it, so a render target three.js left bound can never make it a no-op.
+      testHooks.drainGpu = () => {
+        const gl = renderer.getContext(), bound = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null, started = performance.now();
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.bindFramebuffer(gl.FRAMEBUFFER, bound);
+        return performance.now() - started;
       };
       // Plan 014 round 5 (lever A3): a real answer to "what is overbright here" instead of another
       // guess. Enumerates every material on a live enemy's own group, plus every light and every
@@ -2644,7 +2656,7 @@ export default function DungeonGame() {
   // press, or for any floor build the player has asked for since.
   const veil = displayFailed ? null : loading ?? (entering ? 'Waking the keep' : null);
   return (
-    <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}${ready ? ' world-ready' : ''}`}>
+    <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}${ready ? ' world-ready' : ''}${plainVeil ? ' plain-chrome' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
       {/* Plan 015 Stage A.3: a static frame of the keep (npm run backdrop), standing in for the live one
           that used to build behind the menu. Pre-start only, under the intro gradient, never over a
