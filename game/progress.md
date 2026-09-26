@@ -2821,3 +2821,12 @@ the state hook reports `objective.onStair` instead of `stairDwell`, and `stair.d
 balance sim's policy now ends a floor the frame it reaches the stair, which is what a player pressing
 E on arrival does; its batches read about 0.4 s shorter per floor than before this change.
 `progression.spec.ts` holds that standing on the stair for two seconds ends nothing and E does.
+
+## 2026-09-26 - The veil's bar and its "3 / 5" agree
+
+The loading veil's counter named the step `stagedBuild` was running (`veilStage + 1`) while the bar
+showed the steps it had finished (`veilStage / 5`), so every counter drew one fifth short of itself:
+"3 / 5" sat at 40%. Both now come from `veilProgress` (`dungeon-veil.ts`, pure, node-tested): the bar
+fills to the end of the step the counter names, so "3 / 5" is 60%. The cost of that choice is that the
+bar opens at 20% and reads full during the last step (one ordinary frame); the alternative, a counter of
+finished steps, would open on "0 / 5" beside a label for step one.
