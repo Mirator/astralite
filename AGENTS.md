@@ -73,9 +73,11 @@ reference.
 - **Match the surrounding code.** `dungeon-game.tsx` is deliberately dense.
   Edit it in place; do not reformat it, and do not run a repository-wide
   formatter pass as part of an unrelated change.
-- **Keep pure rules pure.** `dungeon-floor.ts` and `dungeon-combat.ts` must
-  stay free of React, DOM and Three.js imports so node's type stripping can
-  execute them directly in tests.
+- **Keep pure rules pure.** `dungeon-floor.ts`, `dungeon-combat.ts`,
+  `dungeon-player.ts`, `dungeon-input.ts` and `dungeon-fixture.ts` must stay
+  free of React, DOM and Three.js imports so node's type stripping can execute
+  them directly in tests. A rule that decides something belongs in one of them
+  (or a sibling like `dungeon-sim.ts`), not in the world closure.
 - **Add regressions alongside behaviour changes.** A gameplay fix without a
   test in `tests/` or `tests/browser/` is not finished.
 
