@@ -73,6 +73,38 @@ export function enemyPose(kind: EnemyKind, windup: number, tell: number, cooldow
     };
   }
 
+  if (style === 'spin') {
+    // The scythe comes up and the body winds back over the tell; on release the whole body turns once,
+    // blade flat, and settles. The turn ends where it began (a full circle), which is why the yaw drops
+    // back to zero after it rather than easing there.
+    const spinTime = .28;
+    const spinning = !winding && hasAttackAge && age < spinTime;
+    const windYaw = -.6 * charge;
+    const bodyYaw = winding ? windYaw : spinning ? -.6 + (Math.PI * 2 + .6) * smooth(age / spinTime) : 0;
+    const settle = hasAttackAge ? smooth(age / .7) : 1;
+    const weapon = winding ? mix(.2, 1.0, charge) : hasAttackAge ? (age < .08 ? mix(1.0, -.2, smooth(age / .08)) : mix(-.2, .2, settle)) : .2;
+    const arms = winding ? .4 * charge : hasAttackAge ? .4 * (1 - settle) : 0;
+    return { pitch: winding ? -.06 * charge : hasAttackAge ? -.06 * (1 - settle) : 0, height: 0, weapon, arms, recovery, weaponYaw: 0, weaponRoll: 0, bodyYaw, trail: spinning };
+  }
+
+  if (style === 'channel') {
+    // Both arms and the staff go up over the tell; the call itself is a small start back, and then they
+    // come down.
+    const raised = winding ? charge : hasAttackAge ? 1 - smooth(age / .5) : 0;
+    const kick = !winding && hasAttackAge ? Math.sin(Math.PI * clamp01(age / .15)) : 0;
+    return { pitch: .08 * raised + .06 * kick, height: 0, weapon: mix(.1, 1.0, raised), arms: 2.4 * raised, recovery, weaponYaw: 0, weaponRoll: 0, bodyYaw: 0, trail: false };
+  }
+
+  if (style === 'sink') {
+    // It goes down into the floor over the tell, blade already raised, and comes up on its mark cutting:
+    // every channel ends the tell where the rise begins, so the arrival is one motion and not a pop.
+    const under = winding ? smooth(charge) : hasAttackAge ? 1 - smooth(age / .14) : 0;
+    const settle = hasAttackAge ? smooth(age / .34) : 1;
+    const weapon = winding ? mix(.1, 1.4, charge) : hasAttackAge ? (age < .1 ? mix(1.4, -.7, smooth(age / .1)) : mix(-.7, .1, settle)) : .1;
+    const arms = winding ? .5 * charge : hasAttackAge ? .5 * (1 - settle) : 0;
+    return { pitch: -.2 * under, height: -1.7 * under, weapon, arms, recovery, weaponYaw: 0, weaponRoll: 0, bodyYaw: 0, trail: !winding && hasAttackAge && age < .12 };
+  }
+
   if (style === 'draw') {
     // A bow is raised, not swung. Over the tell it comes up from the hip to level while both arms reach
     // out to it and the body turns side-on; the release is a short kick back, and then it lowers again on

@@ -17,6 +17,10 @@ export type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: n
   // kick a neighbour scheduled for it, or Infinity while none is pending. scripts/balance/sim.ts carries
   // the identical bookkeeping so a room wakes the same way in both sims.
   anchor: { x: number; z: number }; notice: number; alertIn: number;
+  // Where a blink tell will come up (null otherwise); whether this body is still a summoner's buried reserve,
+  // and which spawn index raises it (-1 for none); and how many blows its shield has turned aside, which
+  // only diagnostics read.
+  mark: { x: number; z: number } | null; buried: boolean; summoner: number; blocked: number;
   // Every lit material on the body, found once at spawn: the flare and the tell are written to these
   // each frame rather than by walking the whole rig to find them again.
   skins: THREE.MeshStandardMaterial[] };
@@ -58,7 +62,7 @@ export type EnemyArt = { telegraph: THREE.Texture; lane: THREE.Texture; alert: T
 export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: THREE.Group, art: EnemyArt, tile: number): Enemy => {
   const kind = spawn.kind, look = BESTIARY[kind].look;
   const stats = enemyStats(kind, level), maxHp = stats.hp, tell = stats.tell;
-  const body = makeSkeleton(kind); body.position.set(spawn.x * tile,0.03,spawn.z * tile); body.visible = !spawn.ambush; group.add(body);
+  const body = makeSkeleton(kind); body.position.set(spawn.x * tile,0.03,spawn.z * tile); body.visible = !spawn.ambush && !spawn.buried; group.add(body);
   body.scale.set(...look.scale);
   // One colour for all three kinds. Which body is winding up is already answered by the shape —
   // the stalker's long lane against the others' arc — and by the eye it is answered with, so the
@@ -89,7 +93,8 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   // 94 of a possible 100 while a brazier's core clips at 100, which is the one thing a signal
   // carrying a deadline may not do: be dimmer than the furniture. `toneMapped: false` buys the
   // headroom and the opacity was giving it straight back.
-  const cueGeometry = look.cue.shape === 'lane' ? new THREE.PlaneGeometry(look.cue.length,look.cue.width).translate(look.cue.length/2,0,0) : BONES.cue;
+  // A sweep's mark is the whole circle it reaches, which no arc can say.
+  const cueGeometry = look.cue.shape === 'lane' ? new THREE.PlaneGeometry(look.cue.length,look.cue.width).translate(look.cue.length/2,0,0) : look.cue.shape === 'ring' ? new THREE.RingGeometry(look.cue.radius*.84,look.cue.radius,48) : BONES.cue;
   // Plan 014 round 2: toneMapped is true here now (it was false). `THREAT` was drawn
   // above the tone-mapped range on purpose while the mark was an opaque slab that had to win
   // against any floor under it; translucent, it only needs to read as red, and a
@@ -114,7 +119,7 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   const trails=anchors.map(anchor=>{const effect=weaponTrail(look.trail.color,look.trail.width);group.add(effect.mesh);return {effect,anchor,inner:new THREE.Vector3(...look.trail.inner),tip:new THREE.Vector3(...look.trail.tip)};});
   const skins: THREE.MeshStandardMaterial[] = [];
   body.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial && !skins.includes(o.material)) skins.push(o.material); });
-  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity };
+  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush && !spawn.buried, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity, mark:null, buried:!!spawn.buried, summoner:spawn.summoner ?? -1, blocked:0 };
 };
 
 /** A body that has gone quiet, whether dormant or unrendered this frame: no mark, no bar, no glyph. */
@@ -153,7 +158,9 @@ export const markEnemy = (enemy: Enemy, camera: THREE.Camera, dt: number) => {
   // to stop doing. The mark arrives at full strength and the only thing that changes is its size.
   const close = enemy.windup > 0 ? 1 - enemy.windup / enemy.tell : 1;
   enemy.cue.scale.setScalar(BESTIARY[enemy.kind].look.cueScale * (1.9 - .9 * close));
-  enemy.cue.position.copy(enemy.group.position); enemy.cue.position.y = 0.055; enemy.cue.rotation.z = Math.atan2(-enemy.aim.z,enemy.aim.x);
+  // A blink is told where it will arrive, not where the body sank.
+  const cueAt = enemy.mark ?? enemy.group.position;
+  enemy.cue.position.set(cueAt.x, 0.055, cueAt.z); enemy.cue.rotation.z = Math.atan2(-enemy.aim.z,enemy.aim.x);
   const cueSkin = enemy.cue.material as THREE.MeshBasicMaterial;
   // Plan 014 round 2: this was 1 - a fully opaque slab, drawn for the whole tell, wide enough
   // in the stalker's case to cover half a room and swallow every body standing on it. The

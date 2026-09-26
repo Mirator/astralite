@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { COMMITTED_WINDUP, HIT_COOLDOWN, RECOVERY } from '../app/dungeon-enemy.ts';
 import { canStand, cellKey, TILE } from '../app/dungeon-floor.ts';
-import { awayFrom, burn, HIT_FLASH, landBlow, type Blow, type Struck } from '../app/dungeon-hits.ts';
+import { awayFrom, blocks, burn, HIT_FLASH, landBlow, type Blow, type Struck } from '../app/dungeon-hits.ts';
 import { TIDEBLADE, weaponById } from '../app/dungeon-weapon.ts';
 
 // What steel, a bolt and fire each do to the body they land on - the sequence the frame loop used to
@@ -19,7 +19,7 @@ const blow = (over: Partial<Blow> = {}): Blow => ({ damage: 3, stagger: false, k
 
 test('a blow takes its damage, flashes the body, and reports a kill only at zero', () => {
   const cells = floor(5, 5), guard = body('guard', { hp: 4 }), at = { x: 2 * TILE, z: 2 * TILE };
-  assert.deepEqual(landBlow(cells, guard, at, blow(), { x: 1, z: 0 }), { broke: false, killed: false });
+  assert.deepEqual(landBlow(cells, guard, at, blow(), { x: 1, z: 0 }), { broke: false, killed: false, blocked: false });
   assert.equal(guard.hp, 1);
   assert.equal(guard.hitFlash, HIT_FLASH);
   assert.equal(landBlow(cells, guard, at, blow(), { x: 1, z: 0 }).killed, true);
@@ -85,4 +85,30 @@ test('fire bites for its damage and flashes, with no stagger and no shove', () =
   assert.equal(burn(guard, 1), false);
   assert.deepEqual(guard, body('guard', { hp: 1, windup: COMMITTED_WINDUP + 0.2, cooldown: 0.1, hitFlash: HIT_FLASH }));
   assert.equal(burn(guard, 1), true);
+});
+
+test('a shieldbearer turns a blow aside from the front, and only while its shield is up', () => {
+  const cells = floor(5, 5), at = () => ({ x: 2 * TILE, z: 2 * TILE });
+  // Facing -z; the knight stands at -z, so his blow drives the body toward +z: head on.
+  const facing = { x: 0, z: -1 }, headOn = { x: 0, z: 1 }, fromBehind = { x: 0, z: -1 };
+  const shielded = body('shieldbearer', { hp: 12, windup: 0.5 });
+  shielded.windup = 0;
+  const turned = landBlow(cells, shielded, at(), blow(), headOn, facing);
+  assert.deepEqual([turned.blocked, shielded.hp, shielded.hitFlash], [true, 12, 0], 'a frontal blow wounded the shieldbearer');
+  // The same blow from behind lands in full.
+  const back = body('shieldbearer', { hp: 12 });
+  assert.equal(landBlow(cells, back, at(), blow(), fromBehind, facing).blocked, false);
+  assert.equal(back.hp, 9);
+  // The opening: its own tell, and its recovery from its own swing.
+  assert.equal(blocks(body('shieldbearer', { windup: 0.3 }), facing, headOn, false), false, 'the shield stayed up through its own tell');
+  assert.equal(blocks(body('shieldbearer', { cooldown: RECOVERY.shieldbearer }), facing, headOn, false), false, 'the shield stayed up while it recovered');
+  assert.equal(blocks(body('shieldbearer', { cooldown: HIT_COOLDOWN }), facing, headOn, false), true, 'a plain flinch dropped the shield');
+  // A stagger arm breaks the guard, and nothing without a shield ever blocks.
+  assert.equal(blocks(body('shieldbearer'), facing, headOn, true), false);
+  assert.equal(blocks(body('guard'), facing, headOn, false), false);
+  // Off to the side, past the shield's arc, gets through.
+  assert.equal(blocks(body('shieldbearer'), facing, { x: 1, z: 0 }, false), false);
+  // Without a facing to judge by (the balance sim's bodies carry none) nothing is ever turned aside.
+  const blind = body('shieldbearer', { hp: 12 });
+  assert.equal(landBlow(cells, blind, at(), blow(), headOn).blocked, false);
 });

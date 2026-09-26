@@ -6,7 +6,7 @@
 // Pure, like the floor generator it wraps: no React, no DOM, no three.js. It ships: `?arena=` works on the
 // published game, so a kind can be played anywhere the game runs. The menu page that picks a roster and the
 // `dungeonTest.buildArena` hook are development only, and an arena run is never recorded (dungeon-game.tsx).
-import { ENEMY_KINDS, type EnemyKind } from './dungeon-bestiary.ts';
+import { BESTIARY, ENEMY_KINDS, type EnemyKind } from './dungeon-bestiary.ts';
 import { cellKey, generateFloor, TILE, type Spawn } from './dungeon-floor.ts';
 
 export type Floor = ReturnType<typeof generateFloor>;
@@ -80,5 +80,12 @@ export function arenaFloor(seed: number, level: number, roster: readonly EnemyKi
     if (!tile) break;
     spawns.push({ x: tile.x, z: tile.z, kind: roster[i], room: gate.id, ambush: false });
   }
-  return { ...floor, spawns, guardCount: spawns.length };
+  // A summoner's reserve goes in buried under it, after everything standing, so the standing bodies keep
+  // the spawn indices the roster gave them. `guardCount` still counts only what stands.
+  const standing = spawns.length;
+  for (let i = 0; i < standing; i++) {
+    const summons = BESTIARY[spawns[i].kind].summons;
+    for (let n = 0; n < (summons?.count ?? 0); n++) spawns.push({ x: spawns[i].x, z: spawns[i].z, kind: summons!.kind, room: gate.id, ambush: false, buried: true, summoner: i });
+  }
+  return { ...floor, spawns, guardCount: standing };
 }

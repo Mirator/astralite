@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey } from '../app/dungeon-floor.ts';
-import { BOLT_RADIUS, flyHostile, flyShot, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../app/dungeon-projectile.ts';
+import { BOLT_RADIUS, deathPool, flyHostile, flyShot, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../app/dungeon-projectile.ts';
 import { chainLength, WEAPONS } from '../app/dungeon-weapon.ts';
 
 const openFloor = (half = 10) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
@@ -178,4 +178,15 @@ test("stone stops an archer's bolt short of a knight behind it", () => {
     flight = flyHostile(shot, walled, { x: 0, z: -4 }, false, 1 / 60);
   }
   assert.deepEqual([flight.struck, flight.hit], [true, false]);
+});
+
+test('a pyre leaves fire where it falls, and no other kind leaves any', () => {
+  const at = { x: 3, z: -2 };
+  const fire = deathPool('pyre', at);
+  assert.ok(fire, 'a pyre left no fire');
+  assert.deepEqual([fire!.x, fire!.z], [3, -2]);
+  assert.ok(poolCatches(fire!, 3.5, -2) && !poolCatches(fire!, 3 + fire!.radius + 0.1, -2), 'the fire is not where the pyre fell');
+  // It bites on its first frame rather than a full interval later.
+  assert.equal(poolStep(fire!, 1 / 60).bites, 1);
+  for (const kind of ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'bonecaller', 'wraith', 'rattler'] as const) assert.equal(deathPool(kind, at), null, `${kind} left fire`);
 });

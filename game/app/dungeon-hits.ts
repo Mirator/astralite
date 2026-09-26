@@ -5,7 +5,7 @@
 // booting WebGL. It lives here now, free of three.js, React and the DOM so node's type stripping can run
 // it; what a kill pays, and every spark, sound and shake around a blow, stays with the game.
 
-import { BESTIARY, hitCooldown, interruptsWindup, type EnemyKind } from './dungeon-enemy.ts';
+import { BESTIARY, HIT_COOLDOWN, hitCooldown, interruptsWindup, type EnemyKind } from './dungeon-enemy.ts';
 import { moveOnFloor } from './dungeon-floor.ts';
 import { normalise, type Heading } from './dungeon-player.ts';
 
@@ -22,19 +22,37 @@ export const HIT_FLASH = 0.2;
 export const awayFrom = (from: Heading, to: Heading) => normalise({ x: to.x - from.x, z: to.z - from.z });
 
 /**
+ * Whether a blow is turned aside by a shield. Only a kind that carries one (`shield` in the bestiary), only
+ * from the front - the blow's heading `push` runs from the knight to the body, so a body facing him meets
+ * it head on - and only while the shield is up: not while the body winds up, and not while it recovers
+ * from its own swing, which leaves more than a plain blow's HIT_COOLDOWN on the clock. A stagger arm
+ * breaks the guard outright. `facing` is the unit heading the body looks along.
+ */
+export const blocks = (target: Pick<Struck, 'kind' | 'windup' | 'cooldown'>, facing: Heading, push: Heading, stagger: boolean) => {
+  const shield = BESTIARY[target.kind].shield;
+  if (!shield || stagger || target.windup > 0 || target.cooldown > HIT_COOLDOWN) return false;
+  return facing.x * push.x + facing.z * push.z < -shield.arc;
+};
+
+/**
  * Steel or a bolt landing. `at` is the body's position and is moved in place, stopped by walls the same
  * way a step is; `push` is the unit heading it is driven along. A steadfast body (the warden) takes its
  * own, smaller shove.
  * `broke` says the blow cut a windup short, which the game answers by dropping the swing's trails.
  */
-export const landBlow = (cells: Set<string>, target: Struck, at: Heading, blow: Blow, push: Heading) => {
+export const landBlow = (cells: Set<string>, target: Struck, at: Heading, blow: Blow, push: Heading, facing?: Heading) => {
+  // Turned aside: no wound, no flinch, the tell untouched and only a third of the shove.
+  if (facing && blocks(target, facing, push, blow.stagger)) {
+    moveOnFloor(cells, at, push.x * blow.knockback / 3, push.z * blow.knockback / 3);
+    return { broke: false, killed: false, blocked: true };
+  }
   target.hp -= blow.damage; target.hitFlash = HIT_FLASH;
   const broke = interruptsWindup(target.kind, target.windup, blow.stagger);
   if (broke) target.windup = 0;
   target.cooldown = Math.max(target.cooldown, hitCooldown(target.kind, broke, blow.stagger));
   const shove = BESTIARY[target.kind].steadfast ? blow.wardenKnockback : blow.knockback;
   moveOnFloor(cells, at, push.x * shove, push.z * shove);
-  return { broke, killed: target.hp <= 0 };
+  return { broke, killed: target.hp <= 0, blocked: false };
 };
 
 /** Fire on the ground biting: damage and a flash, no stagger and no shove. Returns whether it killed. */

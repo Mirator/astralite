@@ -15,7 +15,7 @@
 // that the running game is wired to it; then `npm run figures` to look at it, `?arena=<kind>:3` to fight it
 // (tests/README.md, The arena), and `npm run balance:check`.
 
-export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer'] as const;
+export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'wraith', 'rattler'] as const;
 export type EnemyKind = typeof ENEMY_KINDS[number];
 
 /** Vitality, damage per blow, seconds of tell, and walking speed - the floor-one values. */
@@ -24,12 +24,19 @@ export type EnemyStats = { hp: number; damage: number; tell: number; speed: numb
 /**
  * How a tell resolves. `swing` tests the knight against the blow's reach on the frame the tell runs out;
  * `pounce` turns the tell into a lunge that connects on contact; `volley` looses a bolt along the aim,
- * which then has to fly to him (dungeon-projectile.ts) and can be stepped out of or dashed through.
+ * which then has to fly to him (dungeon-projectile.ts) and can be stepped out of or dashed through;
+ * `sweep` is a swing with no aim - everything inside its reach, all the way round; `summon` hurts no one
+ * and raises one of its buried reserve instead; `blink` fixes a mark behind the knight when the tell
+ * starts, sinks out of reach for the tell, and comes up on the mark with a blow that lands if he is
+ * still standing there.
  */
-export type Attack = 'swing' | 'pounce' | 'volley';
+export type Attack = 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon' | 'blink';
 
-/** Which body the pose drives: a cut across the body, a hammer over the crown, a crouch and leap, or a bow drawn. */
-export type PoseStyle = 'cut' | 'overhead' | 'pounce' | 'draw';
+/**
+ * Which body the pose drives: a cut across the body, a hammer over the crown, a crouch and leap, a bow
+ * drawn, a full turn with a long blade, both arms raised to call, or a sink into the floor and back up.
+ */
+export type PoseStyle = 'cut' | 'overhead' | 'pounce' | 'draw' | 'spin' | 'channel' | 'sink';
 
 export type Archetype = {
   stats: EnemyStats;
@@ -55,13 +62,25 @@ export type Archetype = {
   keepAway: number;
   /** What a `volley` looses: units a second and seconds of flight. Absent for every other attack. */
   bolt?: { speed: number; flight: number };
+  /**
+   * A shield carried square to the front: a blow whose heading meets the body's facing at worse than this
+   * cosine is turned aside (dungeon-hits.ts `blocks`), unless the arm staggers. It is down while the body
+   * winds up or recovers from its own swing, which is the opening.
+   */
+  shield?: { arc: number };
+  /** Fire it leaves where it falls, which bites the knight (dungeon-projectile.ts `deathPool`). */
+  deathPool?: { radius: number; life: number; damage: number; interval: number };
+  /** Bodies it arrives with buried at its feet, raised one per `summon` tell; they crumble when it falls. */
+  summons?: { kind: EnemyKind; count: number };
+  /** How far past the knight a `blink` sets its mark, on the far side from where it stood. */
+  blink?: { beyond: number };
   /** What the renderer needs to draw it - plain numbers, so this file stays free of three.js. */
   look: {
     pose: PoseStyle;
     /** The body's scale, which the corpse keeps. */
     scale: [number, number, number];
     /** The telegraph on the floor: an arc that closes on the body, or a lane (length, width) along the line it attacks down. */
-    cue: { shape: 'arc' } | { shape: 'lane'; length: number; width: number };
+    cue: { shape: 'arc' } | { shape: 'lane'; length: number; width: number } | { shape: 'ring'; radius: number };
     /** Multiplies the telegraph's size, so a longer reach draws a larger mark. */
     cueScale: number;
     /** Heights above the feet of the health bar and of the alert glyph. */
@@ -133,6 +152,89 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
       pose: 'draw', scale: [.96, 1, .96], cue: { shape: 'lane', length: 7, width: 1.1 }, cueScale: 1, barLift: 2.05, alertLift: 2.55, barColor: 0xe89a79, gait: .48, blood: .9, heavy: false,
       trail: { from: 'weapon', color: 0xffd39b, width: .07, inner: [0, 0, 0], tip: [0, 0, -.5] },
       death: { duration: .65, prone: false, weaponX: .53 }, shieldArm: false,
+    },
+  },
+
+  // Arena only, for now: `firstFloor: Infinity` and no share in PACK_MIX, so the floor generator never
+  // deals any of the six below and the keep plays exactly as it did. Each asks for a response nothing
+  // above asks for; which of them earn a place in the descent is a playtest question.
+
+  // Turns ordinary steel aside from the front. The opening is its own swing: the shield is down while it
+  // winds up and while it recovers, so the answer is to bait the blow, step out of it and punish - or to
+  // carry one of the two arms that stagger, which break the guard outright.
+  shieldbearer: {
+    stats: { hp: 3 * 4, damage: 10, tell: 0.6, speed: 1.9 },
+    strikeRange: 1.55, attackRange: 1.5, holdRange: 1.15, recovery: 1.5,
+    attack: 'swing', steadfast: false, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    shield: { arc: 0.3 },
+    look: {
+      pose: 'cut', scale: [1.05, 1.05, 1.05], cue: { shape: 'arc' }, cueScale: 1, barLift: 2.15, alertLift: 2.65, barColor: 0xe89a79, gait: .4, blood: 1, heavy: false,
+      trail: { from: 'weapon', color: 0xffd39b, width: .095, inner: [0, 0, -.24], tip: [0, 0, -.86] },
+      death: { duration: .8, prone: false, weaponX: .53 }, shieldArm: true,
+    },
+  },
+  // A long tell and then everything within reach, all the way round. Circling it - the answer to every
+  // other swing - is walking into it; the answer is distance, and the dash covers exactly enough.
+  reaper: {
+    stats: { hp: 3 * 4, damage: 18, tell: 1.0, speed: 1.9 },
+    strikeRange: 2.3, attackRange: 1.9, holdRange: 1.5, recovery: 1.8,
+    attack: 'sweep', steadfast: false, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    look: {
+      pose: 'spin', scale: [1.1, 1.1, 1.1], cue: { shape: 'ring', radius: 2.3 }, cueScale: 1, barLift: 2.3, alertLift: 2.8, barColor: 0xe89a79, gait: .36, blood: 1.1, heavy: true,
+      trail: { from: 'weapon', color: 0xffc58a, width: .14, inner: [0, 0, -.6], tip: [0, 0, -1.35] },
+      death: { duration: .85, prone: false, weaponX: .62 }, shieldArm: false,
+    },
+  },
+  // Weak in its own right; the threat is where it dies. Killing one at arm's length leaves the knight
+  // standing in its fire, so the answer is to kill it and step away, or kill it where he is not.
+  pyre: {
+    stats: { hp: 1.5 * 4, damage: 8, tell: 0.5, speed: 2.4 },
+    strikeRange: 1.55, attackRange: 1.5, holdRange: 1.15, recovery: 1.3,
+    attack: 'swing', steadfast: false, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    deathPool: { radius: 1.7, life: 3.5, damage: 8, interval: 0.6 },
+    look: {
+      pose: 'cut', scale: [1, 1, 1], cue: { shape: 'arc' }, cueScale: 1, barLift: 2.2, alertLift: 2.7, barColor: 0xffb65f, gait: .48, blood: .9, heavy: false,
+      trail: { from: 'weapon', color: 0xff9a4a, width: .1, inner: [0, 0, -.2], tip: [0, 0, -.7] },
+      death: { duration: .7, prone: true, weaponX: .53 }, shieldArm: false,
+    },
+  },
+  // Hangs back and calls up the rattlers buried at its feet, one per tell. It never strikes; it is the
+  // reason a fight keeps growing. The answer is to reach it first - and when it falls, whatever it had
+  // not yet raised crumbles with it.
+  bonecaller: {
+    stats: { hp: 2 * 4, damage: 0, tell: 1.2, speed: 2.2 },
+    strikeRange: 0, attackRange: 9, holdRange: 9, recovery: 2.5,
+    attack: 'summon', steadfast: false, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 5,
+    summons: { kind: 'rattler', count: 3 },
+    look: {
+      pose: 'channel', scale: [1, 1.05, 1], cue: { shape: 'ring', radius: 1.1 }, cueScale: 1, barLift: 2.25, alertLift: 2.75, barColor: 0xe89a79, gait: .4, blood: 1, heavy: false,
+      trail: { from: 'weapon', color: 0xbfe8ff, width: .07, inner: [0, 0, 0], tip: [0, 0, -.5] },
+      death: { duration: .75, prone: false, weaponX: .53 }, shieldArm: false,
+    },
+  },
+  // Sinks out of reach and comes up behind the knight. The mark it will rise on is on the floor for the
+  // whole tell; the answer is to be off it when it arrives. Nothing touches it while it is under.
+  wraith: {
+    stats: { hp: 2 * 4, damage: 14, tell: 0.8, speed: 2.0 },
+    strikeRange: 1.4, attackRange: 7, holdRange: 7, recovery: 1.8,
+    attack: 'blink', steadfast: false, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    blink: { beyond: 1.1 },
+    look: {
+      pose: 'sink', scale: [1, 1, 1], cue: { shape: 'arc' }, cueScale: 1, barLift: 2.05, alertLift: 2.55, barColor: 0xe89a79, gait: .44, blood: .8, heavy: false,
+      trail: { from: 'weapon', color: 0xc9f2ff, width: .095, inner: [0, 0, -.24], tip: [0, 0, -.86] },
+      death: { duration: .6, prone: false, weaponX: .53 }, shieldArm: false,
+    },
+  },
+  // Small, quick and gone in one blow of a starting blade; dangerous only in numbers. The answer is an arm
+  // with a wide arc. Also what a bonecaller raises.
+  rattler: {
+    stats: { hp: 1 * 4, damage: 5, tell: 0.38, speed: 3.6 },
+    strikeRange: 1.2, attackRange: 1.1, holdRange: .9, recovery: 1.0,
+    attack: 'swing', steadfast: false, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    look: {
+      pose: 'cut', scale: [.72, .72, .72], cue: { shape: 'arc' }, cueScale: .8, barLift: 1.55, alertLift: 1.95, barColor: 0xe89a79, gait: .55, blood: .6, heavy: false,
+      trail: { from: 'weapon', color: 0xffd39b, width: .07, inner: [0, 0, -.1], tip: [0, 0, -.5] },
+      death: { duration: .5, prone: true, weaponX: .45 }, shieldArm: false,
     },
   },
 };
