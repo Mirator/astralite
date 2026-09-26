@@ -156,17 +156,19 @@ window.dispatchEvent(new CustomEvent('dungeon-action', { detail: `restart:${seed
 
 ### The arena
 
-Development only. `?arena=guard:2,archer:1&level=2` (counts optional, `level` 1-3, default 1), the menu's
-**Arena · dev** page, or `window.dungeonTest.buildArena(['warden', 'archer'], 2)` charts every floor as an
+`?arena=guard:2,archer:1&level=2` (counts optional, `level` 1-3, default 1) works in every build, the published
+one included, and the menu's kicker then reads `ARENA · 3 FOES · FLOOR 2`. In development the menu's
+**Arena · dev** page and `window.dungeonTest.buildArena(['warden', 'archer'], 2)` do the same. Either way it charts every floor as an
 arena: the floor that seed would have laid, with every spawn cleared and the roster awake on a ring in the
 gate, clear of where the knight arrives and of the rack (`app/dungeon-arena.ts`). The stair is open from the
 start, since no warden bars it, and taking it brings the same roster a floor deeper; a restart keeps it.
 The menu page's **Ordinary keep**, or `dungeonTest.reset`, leaves it. `render_game_to_text().arena` reports
 `{ roster, level }` or null, which is also how the pooled suite notices a scenario that forgot to leave it.
-A link that names an unknown kind or a bad count is ignored whole rather than half-obeyed.
+A link that names an unknown kind or a bad count is ignored whole rather than half-obeyed. An arena run is never
+recorded: no run log entry, no best run, and its seed does not become LAST KEEP.
 
-It is the quickest way to look at a new kind in the game rather than on the bench. None of it ships:
-`npm run build:check` fails if the arena's event name or menu label reaches the production bundle.
+It is the quickest way to look at a new kind in the game rather than on the bench. Only the link ships:
+`npm run build:check` fails if the menu page's event name or its menu label reaches the production bundle.
 
 ### Staging a fight
 
