@@ -142,23 +142,12 @@ export const clearRoomReward = (run: Run, detour: boolean): Reward => {
   return { xp, ranks, healed: heal(run, detour ? 30 : 12) };
 };
 
-// The way down. A cleared stair opens but does not take the knight until he has stood on it this long, so a
-// floor ends on a step he chose and never in the middle of a swing; a dash across it does not count, and
-// stepping off drains the dwell twice as fast as standing fills it.
+// The way down. A cleared stair opens but only offers, like a rack: it takes the knight when he stands
+// within this of its heart and answers with the `swap` key, so a floor ends on a choice he made and never
+// because he ran across the stair mid-swing.
 export const STAIR_RADIUS = 1.25;
-export const STAIR_DWELL = 0.4;
-/**
- * Standing still fills, moving off drains twice as fast, and a dash never counts: a floor should never
- * end because the knight ran across the stair.
- */
-export const dwellStep = (dwell: number, cap: number, standing: boolean, dashing: boolean, dt: number) => {
-  const step = amount(dt);
-  return standing && !dashing ? Math.min(cap, dwell + step) : Math.max(0, dwell - step * 2);
-};
-export const stairDwellStep = (dwell: number, onStair: boolean, dashing: boolean, dt: number) =>
-  dwellStep(dwell, STAIR_DWELL, onStair, dashing, dt);
 
 // A shade wider than the stair, because an arm on a rack is a thing the knight walks up to rather than
-// stands on. There is no dwell to go with it: the rack only offers, and the swap waits on the `swap` key,
-// so taking the wrong arm is a decision rather than a place the knight stood too long.
+// stands on. The rack only offers, and the swap waits on the `swap` key, so taking the wrong arm is a
+// decision rather than a place the knight stood too long.
 export const PICKUP_RADIUS = 1.4;

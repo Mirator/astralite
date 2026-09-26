@@ -188,7 +188,8 @@ export type Snapshot = {
     atStair: boolean;
     stairClear: boolean;
     stairOpen: boolean;
-    stairDwell: number;
+    /** Whether the knight stands on the open stair, where the swap key takes him down. */
+    onStair: boolean;
     deadEndsPlundered: number;
   };
   drop: {
@@ -201,7 +202,7 @@ export type Snapshot = {
     /** The arm the swap prompt is currently naming, or null when it is not on screen. */
     offered: string | null;
   } | null;
-  stair: { x: number; z: number; radius: number; dwell: number };
+  stair: { x: number; z: number; radius: number };
   experience: {
     total: number;
     perEnemy: number;

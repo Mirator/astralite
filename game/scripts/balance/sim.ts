@@ -18,7 +18,7 @@ import { playerAttackPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
-import { clearRoomReward, createRun, draftBoons, heal, hurt, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
+import { clearRoomReward, createRun, draftBoons, heal, hurt, resolveKill, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
 export const FLOORS = 3;
@@ -305,7 +305,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const player = { x: floor.rooms[0].x * TILE, z: floor.rooms[0].z * TILE };
   const facing = { x: 0, z: 1 };
   let attackFacing = { x: 0, z: 1 };
-  let attackTime = 0, dashTime = 0, dashCooldown = 0, stairDwell = 0, t = 0;
+  let attackTime = 0, dashTime = 0, dashCooldown = 0, t = 0;
   // The attack string, exactly as dungeon-game.tsx keeps it. Without this the batch measures a
   // chainless sword against a game that chains, which is the same class of mistake as the
   // navigator aiming perfectly while the player could not.
@@ -627,9 +627,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     }
 
     if (stairClear()) {
-      const onStair = Math.hypot(player.x - stair.x, player.z - stair.z) < STAIR_RADIUS;
-      stairDwell = stairDwellStep(stairDwell, onStair, dashTime > 0, DT);
-      if (stairDwell >= STAIR_DWELL) return endFloor('cleared');
+      // The stair waits on the swap key, and the policy presses it the frame it arrives.
+      if (Math.hypot(player.x - stair.x, player.z - stair.z) < STAIR_RADIUS) return endFloor('cleared');
     }
   }
   return endFloor('stuck');

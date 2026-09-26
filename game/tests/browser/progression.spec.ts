@@ -129,15 +129,21 @@ test('killing the last warden ends a floor, freezes it, and waits for a real Con
     expect((await game.state()).mode).toBe('playing');
     await expect(page.locator('.success-screen')).toBeHidden();
     await game.capture(`floor-${level}-stair-open`);
-    // A brief pass over the stair is not a descent; standing on it is.
-    await game.teleport(opened.stair.x, opened.stair.z);
-    await game.step(200);
-    expect((await game.state()).mode).toBe('playing');
+    // Off the stair the swap key does nothing; on it, standing is not a descent however long it lasts.
     await game.teleport(opened.stair.x + opened.stair.radius * 2, opened.stair.z);
-    await game.step(300);
-    expect((await game.state()).objective.stairDwell).toBe(0);
+    await game.step(64);
+    await page.keyboard.press('KeyE');
+    await game.step(64);
+    expect((await game.state()).mode).toBe('playing');
     await game.teleport(opened.stair.x, opened.stair.z);
-    await game.step(opened.stair.dwell * 1000 + 100);
+    await game.step(2000);
+    const standing = await game.state();
+    expect(standing.objective.onStair).toBe(true);
+    expect(standing.mode, 'standing on the stair took the knight down by itself').toBe('playing');
+    await expect(page.locator('.swap-prompt')).toContainText('take the stair down', { ignoreCase: true });
+    // Only the key takes it, the same one that answers a rack.
+    await page.keyboard.press('KeyE');
+    await game.step(32);
     const cleared = await game.state();
     expect(cleared.mode).toBe('complete');
     await expect(page.locator('.success-screen')).toBeVisible();
@@ -252,9 +258,11 @@ test('a rank-up on the last warden opens its boon before the floor results, and 
   expect(opened.boonOffer).toBe(false);
   expect(opened.mode).toBe('playing');
   expect(opened.objective.stairOpen).toBe(true);
-  // Only the stair itself ends the floor, once the knight has stood on it.
+  // Only the stair itself ends the floor, once the knight stands on it and answers the prompt.
   await game.teleport(opened.stair.x, opened.stair.z);
-  await game.step(opened.stair.dwell * 1000 + 100);
+  await game.step(64);
+  await page.keyboard.press('KeyE');
+  await game.step(32);
   const complete = await game.state();
   expect(complete.boonOffer).toBe(false);
   expect(complete.mode).toBe('complete');
