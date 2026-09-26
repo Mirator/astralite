@@ -115,3 +115,35 @@ for (const [name, build] of Object.entries(FIGURES)) {
     assertSameFingerprint(`${name} (second build)`, first, second);
   });
 }
+
+// What `dungeonTest.actorStats()` reads off the live knight (dungeon-test-hooks.ts, which node cannot
+// import): visible meshes walking visible nodes, triangles per draw range, and the height of everything
+// but the multiply-blended contact pool, which lies on the floor. Restated so the budget holds without a
+// browser; models.spec.ts still reads the same numbers off the running game.
+function drawCost(root: THREE.Object3D) {
+  let meshes = 0, triangles = 0;
+  const box = new THREE.Box3(), part = new THREE.Box3();
+  root.updateWorldMatrix(true, true);
+  const walk = (o: THREE.Object3D) => {
+    if (o instanceof THREE.Mesh) {
+      const g = o.geometry as THREE.BufferGeometry, n = g.index ? g.index.count : g.getAttribute('position').count;
+      meshes++; triangles += Math.floor(Math.min(n, g.drawRange.count) / 3);
+      if ((o.material as THREE.Material).blending !== THREE.MultiplyBlending) { if (!g.boundingBox) g.computeBoundingBox(); box.union(part.copy(g.boundingBox!).applyMatrix4(o.matrixWorld)); }
+    }
+    for (const child of o.children) if (child.visible) walk(child);
+  };
+  walk(root);
+  return { meshes, triangles, height: box.max.y - box.min.y };
+}
+
+test('the knight is baked within his budgets and stands where he did', () => {
+  // Plan 010's "before", the same numbers models.spec.ts holds the live knight to.
+  const BEFORE = { meshes: 53, triangles: 3990, height: 1.8243 };
+  const knight = drawCost(makeKnight());
+  // Torso <= 7 batches, cape 1, pivot <= 2, arm <= 4, arm joint <= 5, hips 2, knees <= 10, pool 1.
+  assert.ok(knight.meshes <= 32, `the knight is drawn as ${knight.meshes} meshes`);
+  // Owner decision for the model round: a figure's triangles may rise by at most a quarter.
+  assert.ok(knight.triangles <= Math.floor(BEFORE.triangles * 1.25), `the knight costs ${knight.triangles} triangles against ${BEFORE.triangles}`);
+  // The helmet grows; nothing else should, so he stands within 0.08 of where he did.
+  assert.ok(Math.abs(knight.height - BEFORE.height) <= 0.08, `the knight stands ${knight.height.toFixed(4)} tall against ${BEFORE.height}`);
+});

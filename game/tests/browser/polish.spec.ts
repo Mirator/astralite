@@ -1,45 +1,12 @@
-import { canStand, expect, hasClearPath, test, trackEnemy } from './helpers.ts';
+import { CAPTURING, canStand, expect, test } from './helpers.ts';
 import { generateFloor, TILE } from '../../app/dungeon-floor.ts';
 
-// Real encounters drive poses; no visual clock or fake attack fixture can mask a timing regression.
-for(const kind of ['guard','stalker','warden'] as const){
-  test(`${kind} silhouette animates through anticipation and contact`,async({game})=>{
-    await game.enter();
-    const initial=await game.state(),floor=generateFloor(initial.floor.seed,initial.floor.level);
-    const distance=kind==='stalker'?3:kind==='warden'?1.8:1;
-    const candidates=initial.enemies.filter(e=>e.kind===kind).flatMap(enemy=>Array.from({length:16},(_,i)=>{
-      const angle=i*Math.PI/8,spot={x:enemy.x+Math.cos(angle)*distance,z:enemy.z+Math.sin(angle)*distance};
-      return {enemy,spot};
-    })).filter(({enemy,spot})=>canStand(floor.cells,spot.x,spot.z)&&hasClearPath(floor.cells,enemy,spot));
-    expect(candidates.length).toBeGreaterThan(0);
-    const {enemy,spot}=candidates[0];
-    await game.teleport(spot.x,spot.z);
-    let current=enemy;
-    for(let i=0;i<90;i++){
-      await game.step(16);
-      current=trackEnemy(await game.state(),kind,current);
-      if(current.windup>0&&current.windup<.18)break;
-    }
-    expect(current.windup).toBeGreaterThan(0);
-    expect(current.windup).toBeLessThan(.18);
-    const readPose=async()=>{
-      const state=await game.state();
-      return trackEnemy(state,kind,current) as typeof current & {pose:{pitch:number;height:number;weapon:number}};
-    };
-    const tell=await readPose();
-    if(kind==='stalker')expect(tell.pose.pitch).toBeLessThan(-.5);
-    else expect(tell.pose.weapon).toBeGreaterThan(1);
-    await game.capture(`${kind}-anticipation`);
-    await game.step(current.windup*1000+18);
-    const contact=await readPose();
-    expect(contact.windup).toBe(0);
-    if(kind==='stalker')expect(contact.lunge).toBeGreaterThan(0);
-    else expect(contact.pose.weapon).toBeLessThan(0);
-    await game.capture(`${kind}-contact`);
-  });
-}
+// The enemy silhouettes through anticipation and contact are held by slash.spec.ts's release tests, which
+// stage the same real encounter per kind and read the pose at the same two moments.
 
-test('wet masonry and water render across floor rebuilds without growing texture allocations',async({game})=>{
+// Staged for the reference frames only: the rebuild leak this used to check alongside is held, strictly, by
+// floor-motifs.spec.ts on the same floor.
+test('wet masonry and water are captured for review',{tag:'@capture'},async({game})=>{
   await game.enter();
   await game.buildFloor(3);
   await game.step(0,true);
@@ -51,17 +18,6 @@ test('wet masonry and water render across floor rebuilds without growing texture
   await game.teleport(edge.x*TILE,edge.z*TILE);
   await game.step(1000,true);
   await game.capture('wet-stone-water');
-  await game.buildFloor(3);
-  await game.step(0,true);
-  const rebuilt=await game.state();
-  expect(rebuilt.render.textures).toBeLessThanOrEqual(first.render.textures);
-  // Pinned seed repeats the same room geometry: carved niches, foliage, and shared paving
-  // must release their GPU buffers when a floor is replaced.
-  await game.buildFloor(3);
-  await game.step(0,true);
-  const repeated=await game.state();
-  expect(repeated.render.geometries).toBe(rebuilt.render.geometries);
-  expect(repeated.render.textures).toBe(rebuilt.render.textures);
 });
 
 test('carved chambers keep distant architecture out of the rendered frame',async({game})=>{
@@ -72,14 +28,16 @@ test('carved chambers keep distant architecture out of the rendered frame',async
   // Covers the accidental all-floor instancing that submitted nearly a million triangles
   // at the gate. This leaves room for art detail while bounding invisible geometry.
   expect(gate.render.triangles).toBeLessThan(400_000);
-  for(const theme of ['keep','ruins','flooded']){
+  // The three chambers are staged for the reference frames only. They used to assert more than 1000
+  // triangles, which the knight alone satisfies, so outside a capture run they cost three drawn frames for
+  // nothing.
+  if(CAPTURING)for(const theme of ['keep','ruins','flooded']){
     const floor=await game.floor(),room=floor.rooms.find(r=>r.theme===theme)!;
     expect(room).toBeDefined();
     const spot=floor.tiles.find(t=>t.room===room.id&&canStand(floor.cells,t.x*TILE,t.z*TILE))!;
     await game.teleport(spot.x*TILE,spot.z*TILE);
     await game.step(500,true);
     await game.capture(`carved-${theme}`);
-    expect((await game.state()).render.triangles).toBeGreaterThan(1000);
   }
 });
 

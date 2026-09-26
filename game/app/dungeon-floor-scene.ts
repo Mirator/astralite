@@ -142,6 +142,9 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
     return matrix;
   };
   const variants:Record<'groove'|'dish',typeof stoneTiles>={groove:[],dish:[]};
+  // What the scene actually placed, counted as it is placed, for `pavingSummary` - so a test comparing it
+  // with the planner compares the scene with the plan, not the plan with itself.
+  let placedPairs=0,placedSettled=0;
   // Spatial batches let both the view and shadow camera reject distant carved paving.
   const paving=new Map<string,typeof stoneTiles>();for(const tile of stoneTiles){const key=`${Math.floor(tile.x/12)},${Math.floor(tile.z/12)}`;const batch=paving.get(key);if(batch)batch.push(tile);else paving.set(key,[tile]);}
   for(const local of paving.values()){
@@ -156,7 +159,7 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
     local.forEach(({x,z,room},i)=>{const{mood,wear}=slabTint(x,z,room);matrix.makeTranslation(x*TILE,-1.485,z*TILE);foundations.setMatrixAt(i,matrix);foundations.setColorAt(i,tint.setHex(mood.foundation).multiplyScalar(.86+wear*.24));});
     plain.forEach(({x,z,room},i)=>{
       slabTint(x,z,room);tiles.setColorAt(i,tint);
-      const settledNew=pavingPlan.settledCells.has(`${x},${z}`);
+      const settledNew=pavingPlan.settledCells.has(`${x},${z}`);if(settledNew)placedSettled++;
       tiles.setMatrixAt(i,settledNew?macroSettle(x,z):seat(x,z,pavingKind(x,z)==='settled'));
     });
     foundations.receiveShadow=tiles.receiveShadow=true;tiles.userData.walkingSurface=true;floorGroup.add(foundations,tiles);
@@ -189,7 +192,7 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
         slabTint(pair.bx,pair.bz,pair.room);const b=tint.clone();
         patches.setColorAt(i,a.lerp(b,.5));
       });
-      patches.receiveShadow=true;patches.userData.walkingSurface=true;floorGroup.add(patches);
+      patches.receiveShadow=true;patches.userData.walkingSurface=true;floorGroup.add(patches);placedPairs+=patches.count;
     }
   }
   yield 'tiles';
@@ -290,7 +293,7 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
     const cellMeta = new Map<string, CellSurface>();
     for (const t of floor.tiles) cellMeta.set(cellKey(t.x, t.z), { theme: themeOf(t.x, t.z, t.room), wood: t.wood });
     stage.surfaceIndex = buildSurfaceIndex(triangles, cellMeta);
-    stage.pavingSummary = { pairs: pavingPlan.pairs.length, settled: pavingPlan.settled.length, surfaceCells: stage.surfaceIndex.cells.size };
+    stage.pavingSummary = { pairs: placedPairs, settled: placedSettled, surfaceCells: stage.surfaceIndex.cells.size };
   }
   yield 'surface';
   for (const room of floor.rooms) {

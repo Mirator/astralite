@@ -75,43 +75,9 @@ test.describe('a brazier attaches its owning room\'s theme, not the floor\'s', (
     for (const f of state.graphics.flames) expect(f.y, `${f.theme} flame sits below the bowl rim`).toBeGreaterThanOrEqual(1.03);
   });
 
-  test('the same instant redraws identically, and pausing freezes every source\'s pose', async ({ game }) => {
-    await game.enter();
-    await game.step(SETTLE);
-    const settled = (await game.state()).graphics.flames;
-
-    // Zero-time draws must not animate: a second draw at the same simulated instant is pixel-for-
-    // pixel the same call, so its reported bounds have to match exactly.
-    await game.step(0, true);
-    const redrawn = (await game.state()).graphics.flames;
-    expect(redrawn, 'a zero-time redraw at the same instant changed a flame\'s reported pose').toEqual(settled);
-
-    await game.act('pause');
-    await game.step(400, true);
-    const paused = (await game.state()).graphics.flames;
-    expect(paused, 'pausing did not freeze every source\'s pose').toEqual(settled);
-    await game.act('pause');
-  });
-
-  test('crossing into another theme\'s room never swaps an old brazier\'s shape', async ({ game }) => {
-    await game.enter();
-    const floor = await game.floor();
-    await game.step(SETTLE);
-    const before = (await game.state()).graphics.flames.map((f) => f.theme);
-
-    const startTheme = floor.rooms[0].theme;
-    const elsewhere = floor.rooms.find((room) => room.theme !== startTheme);
-    if (elsewhere) {
-      const centre = roomCentre(floor, elsewhere.id);
-      await game.teleport(centre.x, centre.z);
-      await game.step(SETTLE);
-    }
-    const after = (await game.state()).graphics.flames.map((f) => f.theme);
-    expect(
-      after,
-      'a brazier changed which theme built it once the mood crossed into another room, rather than keeping the shape its own room owns',
-    ).toEqual(before);
-  });
+  // The redraw/pause and threshold-crossing checks that used to sit here compared `graphics.flames`,
+  // which is fixed when the floor is built, so neither could fail. The redraw property is held in
+  // tests/dungeon-flame.test.ts; a brazier's theme is fixed data, held by the test above.
 
   test('every halo burns the chamber\'s fire, and follows it across a threshold', async ({ game }) => {
     await game.enter();

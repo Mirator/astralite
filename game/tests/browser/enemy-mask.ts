@@ -167,30 +167,3 @@ export const measureMasks = (page: Page, targets: Target[]) =>
 /** CIE76 distance between two mean colours. */
 export const deltaE = (p: [number, number, number], q: [number, number, number]) =>
   Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
-
-/**
- * The windup flash, read off the materials themselves: the emissive on the first mesh drawn directly
- * under the rig (a baked batch, after plan 011), under the skull and under the shield arm, for the
- * living enemy standing at (x, z).
- */
-export const readFlash = (page: Page, at: { x: number; z: number }) =>
-  page.evaluate((point: { x: number; z: number }) => {
-    type Node = { userData: Record<string, unknown>; children: Node[]; isMesh?: boolean; position: { x: number; z: number }; material?: { emissive?: { getHex: () => number } } };
-    const win = window as unknown as { __probedScenes?: Node[] };
-    const walk = (node: Node, visit: (node: Node) => void) => { visit(node); for (const child of node.children) walk(child, visit); };
-    let body: Node | null = null;
-    for (const scene of win.__probedScenes ?? []) walk(scene, (node) => {
-      if (node.userData.skull && node.userData.limbs && Math.hypot(node.position.x - point.x, node.position.z - point.z) < 0.05) body = node;
-    });
-    if (!body) throw new Error('no enemy stands at the point asked about');
-    const found = body as Node;
-    const lit = (node: Node) => node.isMesh && node.material?.emissive ? node.material.emissive.getHex() : null;
-    const rig = found.userData.rig as Node, skull = found.userData.skull as Node, arm = (found.userData.limbs as Node[])[0];
-    const first = (root: Node, direct: boolean) => {
-      if (direct) return root.children.map(lit).find((hex) => hex !== null) ?? null;
-      let hex: number | null = null;
-      walk(root, (node) => { if (hex === null) hex = lit(node); });
-      return hex;
-    };
-    return { rig: first(rig, true), skull: first(skull, false), arm: first(arm, false) };
-  }, at);

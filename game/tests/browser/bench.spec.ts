@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { WEAPONS } from '../../app/dungeon-weapon.ts';
 import { CAPTURING } from './helpers.ts';
 
 // The figure bench (plan 012 Stage C) is not the pooled game page - it is a different route entirely, with
@@ -23,8 +24,9 @@ async function everyCellHasAFigure(page: import('@playwright/test').Page, rows: 
     const ctx = off.getContext('2d')!;
     ctx.drawImage(canvas, 0, 0);
     const cellW = Math.floor(canvas.width / cols), cellH = Math.floor(canvas.height / rows);
-    const counts: number[] = [];
+    const counts: number[] = [], turned: number[] = [];
     const THRESHOLD = 18, MIN_PIXELS = 300;
+    let previous: Uint8ClampedArray | null = null;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const x0 = c * cellW, y0 = r * cellH;
@@ -40,9 +42,18 @@ async function everyCellHasAFigure(page: import('@playwright/test').Page, rows: 
           if (Math.max(dr, dg, db) > THRESHOLD) changed++;
         }
         counts.push(changed);
+        // Against the facing drawn just left of it: a figure present in every cell but never turned (one
+        // pose repeated eight times) fills every cell and fails only this.
+        if (c > 0 && previous) {
+          let differ = 0;
+          for (let i = 0; i < data.length; i += 4) if (Math.max(Math.abs(data[i]! - previous[i]!), Math.abs(data[i + 1]! - previous[i + 1]!), Math.abs(data[i + 2]! - previous[i + 2]!)) > THRESHOLD) differ++;
+          turned.push(differ);
+        }
+        previous = data;
       }
+      previous = null;
     }
-    return { ok: counts.every((n) => n >= MIN_PIXELS), reason: '', cells: counts, min: MIN_PIXELS };
+    return { ok: counts.every((n) => n >= MIN_PIXELS) && turned.every((n) => n >= MIN_PIXELS / 3), reason: '', cells: counts, turned, min: MIN_PIXELS };
   }, { rows, cols });
 }
 
@@ -53,7 +64,7 @@ test('the bench renders every figure at every facing', async ({ page }) => {
 
   const rows = 4, cols = 8; // the default grid: knight, guard, stalker, warden x 8 facings
   const result = await everyCellHasAFigure(page, rows, cols);
-  expect(result.ok, `cell pixel counts (min ${result.min}): ${JSON.stringify(result.cells)}`).toBe(true);
+  expect(result.ok, `cell pixel counts (min ${result.min}): ${JSON.stringify(result.cells)}; pixels differing from the facing before: ${JSON.stringify(result.turned)}`).toBe(true);
 
   if (CAPTURING) {
     await page.locator('canvas').screenshot({ path: `test-results/bench-capture.png` });
@@ -65,7 +76,7 @@ test('the bench honours figures= and weapon=all in the URL', async ({ page }) =>
   await page.goto('/bench?figures=knight&weapon=all');
   await page.waitForFunction(() => (window as unknown as { __bench?: string }).__bench === 'ready', { timeout: 15_000 });
 
-  // Seven arms (dungeon-weapon.ts's WEAPONS), one row each, still eight facings.
-  const result = await everyCellHasAFigure(page, 7, 8);
-  expect(result.ok, `cell pixel counts (min ${result.min}): ${JSON.stringify(result.cells)}`).toBe(true);
+  // Every arm in dungeon-weapon.ts's WEAPONS, one row each, still eight facings.
+  const result = await everyCellHasAFigure(page, Object.keys(WEAPONS).length, 8);
+  expect(result.ok, `cell pixel counts (min ${result.min}): ${JSON.stringify(result.cells)}; pixels differing from the facing before: ${JSON.stringify(result.turned)}`).toBe(true);
 });

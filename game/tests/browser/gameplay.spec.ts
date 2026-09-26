@@ -203,15 +203,17 @@ test('pause and the expanded map freeze the world, and losing focus drops held i
   await page.evaluate(() => window.dispatchEvent(new Event('blur')));
   // Current behaviour: losing focus clears input and requires a manual resume.
   expect((await game.state()).mode).toBe('paused');
-  await page.keyboard.up('ArrowLeft');
+  // The key stays down through the resume. Releasing it first would clear it through keyup whatever blur
+  // did, and the test would pass with the blur handler's input clear deleted.
   await page.locator('.intro-screen .primary-action').click();
   const resumed = await game.state();
   expect(resumed.mode).toBe('playing');
   await game.step(300);
   const after = await game.state();
-  expect(speedOf(after)).toBe(0);
+  expect(speedOf(after), 'a key held across the lost focus still walks the knight').toBe(0);
   expect(after.player.x).toBeCloseTo(resumed.player.x, 6);
   expect(after.player.z).toBeCloseTo(resumed.player.z, 6);
+  await page.keyboard.up('ArrowLeft');
 });
 
 test.describe('committed enemy attacks', () => {
@@ -273,9 +275,15 @@ test.describe('committed enemy attacks', () => {
     await game.step(Math.max(0, enemy.windup * 1000 - 70));
     await page.keyboard.down(key);
     await game.act('dash');
-    await game.step(200);
-    await page.keyboard.up(key);
-    await game.step(500);
+    // Unhurt proves nothing on its own: a pounce that never fired leaves the knight unhurt too. So the
+    // lunge has to be seen in flight while he gets out of its way.
+    let pounced = false;
+    for (let t = 0; t < 700; t += 50) {
+      await game.step(50);
+      if (t === 150) await page.keyboard.up(key);
+      if ((await game.state()).enemies.some((e) => e.kind === 'stalker' && e.lunge > 0)) pounced = true;
+    }
+    expect(pounced, 'the stalker never pounced, so the dodge was never tested').toBe(true);
     expect((await game.state()).health).toBe(before);
   });
 

@@ -34,7 +34,7 @@ import { nearestFirst } from './dungeon-nearest';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
 import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resolveKill, STAIR_RADIUS, takeBoon, tickRun, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapLabel, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
-import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameStep, haltControl, resetControl, startDash, startSwing, steer, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
+import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, resetControl, startDash, startSwing, steer, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
 import { dropMarks, hideMarks, markEnemy, poseEnemy, type Enemy } from './dungeon-enemy-view';
 import { createFloorStage, raiseFloor, type FloorArt } from './dungeon-floor-scene';
 import { createMood } from './dungeon-mood';
@@ -1662,6 +1662,9 @@ export default function DungeonGame() {
       // touches a particle.
       testHooks.footstepParticles = () => footsteps.particles();
       testHooks.setFootstepsEnabled = (enabled) => footsteps.setEnabled(enabled);
+      // Hides one body's rig and nothing else - its ground mark is drawn outside it - so a pixel test of
+      // the telegraph can difference the mark alone, not the mark plus a body flashing the same red.
+      testHooks.setEnemyRigVisible = (index, visible) => { const rig = stage.enemies[index]?.group.userData.rig as THREE.Object3D | undefined; if (!rig) throw new Error(`no enemy at spawn index ${index}`); rig.visible = visible; };
       // Plan 009: the model round's shared diagnostic - meshes, triangles and height per figure, read off
       // the live scene - with every dispose that has reached one of the knight's run-scoped materials.
       const knightDisposals = countDisposals(player);
@@ -1728,7 +1731,7 @@ export default function DungeonGame() {
       // isolated scenario steps it by hand. `stagedBuild`'s own two warm-up `post.render` calls are
       // direct, not gated here, and are unaffected.
       if (built && warmed && !building && !manualTime && !document.hidden) {
-        try { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); }
+        try { update(frameDelta(now, last)); }
         catch (error) { fail(error); return; }
         // Plan 015 Stage B: a frozen frame (paused, drafting, complete, or simply nothing since invalidated)
         // matches the one already on screen, so it is not redrawn. `update` sets `dirty` itself whenever it

@@ -7,7 +7,6 @@ import {
   keyToward,
   openSpot,
   SCREEN_DIRECTIONS,
-  strikeStance,
   test,
   TILE,
   trackEnemy,
@@ -158,6 +157,7 @@ test('the sword respects the same walls a skeleton does, and an open lane still 
       (prop) => quiet.has(prop.room) && !floor.cells.has(`${prop.x},${prop.z}`),
     )
     .map((prop) => ({
+      prop,
       knight: { x: prop.x * TILE - 1.07, z: prop.z * TILE + 0.25 },
       skeleton: { x: prop.x * TILE - 0.25, z: prop.z * TILE + 1.07 },
     }))
@@ -172,7 +172,7 @@ test('the sword respects the same walls a skeleton does, and an open lane still 
     'the pinned floor has no carved prop with a blocked diagonal beside it',
   ).toBeDefined();
 
-  const { knight, skeleton } = corner!;
+  const { prop, knight, skeleton } = corner!;
   const separation = Math.hypot(skeleton.x - knight.x, skeleton.z - knight.z);
   const toward = keyToward({
     x: skeleton.x - knight.x,
@@ -184,6 +184,11 @@ test('the sword respects the same walls a skeleton does, and an open lane still 
     swordContacts(floor.cells, knight, facing, skeleton, 0),
     'the fixture must be a contact the rule rejects only because of the prop',
   ).toBe(false);
+  // "Only because of the prop" is only true if filling the prop's cell back in lets the same blow land.
+  expect(
+    swordContacts(new Set([...floor.cells, `${prop.x},${prop.z}`]), knight, facing, skeleton, 0),
+    'the blow misses even without the prop, so the miss is not the wall',
+  ).toBe(true);
 
   // A guard can be parked by its windup. A stalker can retain a pounce from
   // the previous swing even after the fixture resets its windup and position.
@@ -240,53 +245,9 @@ test('the sword respects the same walls a skeleton does, and an open lane still 
   );
 });
 
-test('one swing takes exactly one hit off an enemy, however long the blade is on it', async ({
-  game,
-  page,
-}) => {
-  await game.enter();
-  const floor = await game.floor();
-  const opening = await game.state();
-  assertNothingDeadYet(opening, floor);
-  const warden = opening.enemies.find((enemy) => enemy.kind === 'warden');
-  expect(warden).toBeDefined();
-  const index = spawnIndex(opening, warden!);
-
-  const spot = openSpot(
-    floor,
-    { x: warden!.x, z: warden!.z },
-    {
-      avoid: [
-        ...hazardsOf(opening),
-        ...opening.enemies
-          .filter((enemy) => enemy !== warden)
-          .map((enemy) => ({ x: enemy.x, z: enemy.z })),
-      ],
-      clearance: 5,
-    },
-  );
-  const stance = strikeStance(floor, spot);
-  await game.teleport(stance.x, stance.z);
-  await game.step(16);
-  await game.configureCombat({
-    enemies: [
-      { index, x: spot.x, z: spot.z, windup: 0.72, aim: { x: 0, z: 1 } },
-    ],
-  });
-  // A floor-one warden is four blows of the starting blade; vitality is quoted in quarter-hits.
-  const armed = await game.state();
-  expect(trackEnemy(armed, 'warden', spot, 1).hp).toBe(4 * armed.weapon.strikeDamage);
-
-  // The blade is in contact from 0.065s to 0.175s — seven frames of overlap.
-  // 0.38s of swing plus the 0.035s of hitstop a landed blow adds.
-  await swing(page, stance.key);
-  await game.step(500);
-  const after = await game.state();
-  expect(after.player.attackTime).toBe(0);
-  expect(trackEnemy(after, 'warden', spot, 1).hp).toBe(
-    4 * armed.weapon.strikeDamage - after.weapon.strikeDamage,
-  );
-});
+// One swing taking exactly one hit, however long the blade is in contact, is held by gameplay.spec.ts's
+// held-strike test: it reads the warden's exact vitality after each full swing through the contact window,
+// so a second hit in one swing fails there.
 
 test('two kills in one swing pay out in full even when the first crosses a rank', async ({
   game,
