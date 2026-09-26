@@ -37,7 +37,7 @@ import { createFloorStage, raiseFloor, type FloorArt } from './dungeon-floor-sce
 import { createMood } from './dungeon-mood';
 import { driveSliced as driveSlicedSteps, linkedPrograms, pollProgramsReady as pollPrograms, precompilePost } from './dungeon-warmup';
 import { applyCombatFixture } from './dungeon-fixture';
-import { actorStat, countDisposals, drainGpu, lightDiagnostics, pointLightCount, sceneDigest, textureHash, type GameToolContext, type HookedWindow, type TestHooks } from './dungeon-test-hooks';
+import { actorStat, countDisposals, drainGpu, lightDiagnostics, pointLightCount, textureHash, type GameToolContext, type HookedWindow, type TestHooks } from './dungeon-test-hooks';
 
 const FLOORS = 3;
 /** Plan 014 round C: what the veil says is happening, one label per stage of `stagedBuild`. The label
@@ -1650,7 +1650,6 @@ export default function DungeonGame() {
         return { knight: { ...actorStat(player), disposedMaterials: knightDisposals() }, enemies: stage.enemies.filter(e => !e.dead).map(e => ({ kind: e.kind, ...actorStat(e.group) })), drop: drop && held ? { kind: drop.kind, meshes: held.meshes, triangles: held.triangles } : null };
       };
       testHooks.textureHash = textureHash;
-      testHooks.sceneDigest = () => sceneDigest(world);
       testHooks.drainGpu = () => drainGpu(renderer);
       testHooks.lightDiagnostics = (index, radius = 2) => lightDiagnostics(scene, stage.enemies[index], index, radius);
       // Moves actors the floor already spawned and nothing else; the refusals are in dungeon-fixture.ts.
