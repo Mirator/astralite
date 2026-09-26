@@ -2808,3 +2808,31 @@ frame to rewrite them. The four torches and four lent anchor lights nearest the 
 every sconce on the floor. The fill light, the camera lead, the shake and a blow's shove reuse scratch
 vectors. The canvas rect is read once per layout instead of on every pointermove. None of this is
 measurable on SwiftShader; it removes work and garbage, and has not been timed on a GPU.
+
+## 2026-09-26 - The nightly isolated run is green again
+
+It had failed every day since 23 Sep. Its last run failed three `@nightly` scenarios, all left behind by
+plan 014, whose commit said frame-budget, pixel-diff and art-direction specs were "expected to fail
+against the new look" and were out of scope:
+
+- **The cast (`models.spec.ts`).** Plan 014 added a material to every rig (the dark `shadow` trim that
+  gives the ribs depth) and cloth and a crest to the guard, so each kind draws one more baked batch (the
+  guard two): 18/11/19 meshes became 20/12/20. The warden's crown became four tall uneven spikes and the
+  guard gained a crest, so their heights moved 2.339 -> 2.8144 and 1.6744 -> 1.7785. Re-set to those, with
+  the reason at each number.
+- **The knight from above (`models.spec.ts`).** Plan 014 round A took the lantern from 27 to 46 and hung
+  it toward the camera so the cape catches it, and doubled the ambient floor. From the three facings that
+  turn him away, his darkest quarter is lit cape now (p25 36.2 / 54.7 / 35.4 over a ~25.5 surround), and
+  the median head-over-shoulders delta fell from 17.7 to 16.5. Those three facings are held where plan 014
+  left them (+2) and the median at 15.5 (before less one, the spec's own rule); the five facings that show
+  his front keep the original property.
+- **Each family burns its own fire (`art-direction.spec.ts`).** Two findings. The measurement averaged Lab
+  a/b across everything in the top half per cent of chroma, so violet fire plus the gold ring of an arm
+  rack reported 356° - a red no pixel in the frame had. It now takes the loudest 60° hue family and
+  averages within it; the keep passes on that. The flood genuinely fails: plan 014 round B made every
+  chamber's sconces burn amber "so even a teal chamber holds a warm pool", and bright cyan cannot out-chroma
+  amber, so no teal reaches the top half per cent. Tinting the flame core toward teal was tried and moved
+  nothing (3,328 amber px against 3,331). Decided with the owner: accept plan 014's look, keep the
+  loudest-colour claim for keep and ruins, and hold the flood to a fire hue distinct from the other two.
+
+All five `@nightly` scenarios in the two specs pass under `GAME_TEST_ISOLATE=1` locally.
