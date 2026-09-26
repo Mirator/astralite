@@ -20,7 +20,8 @@ import { animateCloth } from './dungeon-motion';
 import { canStand, generateFloor, hasClearPath, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
 import { dashImmune, swordContacts } from './dungeon-combat';
-import { ALERT_STAGGER, decideEnemy, hitCooldown, interruptsWindup, nearbyDozers, separateCrowd, type Wakeable } from './dungeon-enemy';
+import { ALERT_STAGGER, decideEnemy, nearbyDozers, separateCrowd, type Wakeable } from './dungeon-enemy';
+import { awayFrom, burn as burnBody, landBlow } from './dungeon-hits';
 import { playerAttackPose } from './dungeon-attack-pose';
 import { chainLength, STARTING_WEAPON, TIDEBLADE, weaponById, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
@@ -466,7 +467,7 @@ export default function DungeonGame() {
     const lampAt = new THREE.Vector3();
     // Scratch for the frame's own arithmetic, so a frame allocates nothing it throws away: the fill
     // light's hang, the camera's lead, the shake, a blow's shove, and the lamps nearest the knight.
-    const FILL_OFFSET = new THREE.Vector3(1.4,3.2,2.2), focusAhead = new THREE.Vector3(), shakeBy = new THREE.Vector3(), struckBy = new THREE.Vector3();
+    const FILL_OFFSET = new THREE.Vector3(1.4,3.2,2.2), focusAhead = new THREE.Vector3(), shakeBy = new THREE.Vector3();
     const nearTorches: THREE.Vector3[] = [], nearAnchors: LightAnchor[] = [];
     const player = makeKnight(); world.add(player);
     // Every transform the rig is born with, so a reset can put it back. The pose is reached by
@@ -1406,17 +1407,14 @@ export default function DungeonGame() {
           }
           if (!pc.weapon.ranged && active) stage.enemies.forEach((enemy) => {
             if (gameStatus !== 'playing' || enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
-            const delta = struckBy.copy(enemy.group.position).sub(player.position); delta.y = 0;
             // The same rule the node suite runs: inside the arc, and with no wall between the blade and the body.
             if (swordContacts(floor.cells, player.position, pc.attackFacing, enemy.group.position, run.reach, pc.swing)) {
-              delta.normalize();
               audio.play('hit');
-              swingHits.add(enemy); enemy.hp -= pc.swing.damage + run.strike; enemy.hitFlash = 0.2;
-              const broke = interruptsWindup(enemy.kind, enemy.windup, pc.swing.stagger);
-              if (broke) {enemy.windup = 0;enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
-              enemy.cooldown = Math.max(enemy.cooldown, hitCooldown(enemy.kind, broke, pc.swing.stagger));
-              const shove = enemy.kind === 'warden' ? pc.swing.wardenKnockback : pc.swing.knockback;
-              moveOnFloor(floor.cells, enemy.group.position, delta.x * shove, delta.z * shove); burst(enemy.group.position, 0xffb24a, 3);
+              swingHits.add(enemy);
+              // What the blow does to the body is dungeon-hits'; what is left here is how it looks.
+              const hit = landBlow(floor.cells, enemy, enemy.group.position, { ...pc.swing, damage: pc.swing.damage + run.strike }, awayFrom(player.position, enemy.group.position));
+              if (hit.broke) {enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
+              burst(enemy.group.position, 0xffb24a, 3);
               // Plan 014 round 2: a blade landing was amber sparks alone, which is a spark's colour and
               // not a wound's - the reference always throws a red mist off a struck body.
               // Plan 014 round 8 (lever 3): 6 read as a puff, not a burst - the reference throws a real
@@ -1436,7 +1434,7 @@ export default function DungeonGame() {
               // pause rather than the pose. It also freezes the cut mid-arc now that the curve launches
               // early, so what is held is a blade across the body rather than one behind the shoulder.
               shake = 0.085; pc.hitStop = 0.07;
-              if (enemy.hp <= 0) { fell(enemy); settleRoom(enemy.room); }
+              if (hit.killed) { fell(enemy); settleRoom(enemy.room); }
             }
           });
         } else { posePlayer(0);slash.update(dt,false,player.userData.sword,bladeInner,bladeTip); }
@@ -1498,9 +1496,9 @@ export default function DungeonGame() {
           if (burn.bites) for (const enemy of stage.enemies) {
             if (enemy.dead || !enemy.awake || gameStatus !== 'playing') continue;
             if (!poolCatches(live.pool, enemy.group.position.x, enemy.group.position.z)) continue;
-            enemy.hp -= live.pool.damage; enemy.hitFlash = 0.2;
+            const killed = burnBody(enemy, live.pool.damage);
             burst(enemy.group.position, 0xff8c38, 5);
-            if (enemy.hp <= 0) {
+            if (killed) {
               fell(enemy);
               settleRoom(enemy.room);
             }
@@ -1519,15 +1517,11 @@ export default function DungeonGame() {
               const enemy = stage.enemies[index];
               if (enemy.dead || gameStatus !== 'playing') continue;
               audio.play('hit');
-              enemy.hp -= live.shot.damage; enemy.hitFlash = 0.2;
-              const broke = interruptsWindup(enemy.kind, enemy.windup, pc.weapon.stagger);
-              if (broke) { enemy.windup = 0; enemy.attackAge = Infinity; enemy.trails.forEach(trail => trail.effect.clear()); }
-              enemy.cooldown = Math.max(enemy.cooldown, hitCooldown(enemy.kind, broke, pc.weapon.stagger));
-              const shove = enemy.kind === 'warden' ? pc.weapon.wardenKnockback : pc.weapon.knockback;
-              moveOnFloor(floor.cells, enemy.group.position, live.shot.dx * shove, live.shot.dz * shove);
+              const hit = landBlow(floor.cells, enemy, enemy.group.position, { ...pc.weapon, damage: live.shot.damage }, { x: live.shot.dx, z: live.shot.dz });
+              if (hit.broke) { enemy.attackAge = Infinity; enemy.trails.forEach(trail => trail.effect.clear()); }
               burst(enemy.group.position, 0xffb24a, 7); burst(enemy.group.position, 0xe0202c, 22); blood.spawn(enemy.group.position, enemy.kind === 'warden' ? 1.4 : 1); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffedbb, enemy.kind === 'warden');
               shake = 0.05; pc.hitStop = 0.025;
-              if (enemy.hp <= 0) {
+              if (hit.killed) {
                 fell(enemy);
                 settleRoom(enemy.room);
               }

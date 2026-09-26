@@ -33,6 +33,10 @@ modules:
   `dungeon-action` detail, the cursor's NDC and the pad's deadzone.
 - **The combat fixture** (`dungeon-fixture.ts`): what the dev-only `configureCombatFixture` accepts and
   the message each refusal names.
+- **Landed blows** (`dungeon-hits.ts`): what steel, a bolt and fire each do to the body they land on -
+  damage, the flash, which windups a blow breaks and which it cannot, the cooldown it leaves, how far it
+  shoves a guard and a warden, and whether it killed. What a kill pays stays with the game's `fell` and
+  `settleRoom`.
 
 Anything involving three.js, the DOM or the event listeners themselves is **not** covered here — use
 the browser hooks. The world closure in `dungeon-game.tsx` still owns the listeners and decides *when*
