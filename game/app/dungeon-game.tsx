@@ -132,6 +132,9 @@ export default function DungeonGame() {
   const [menuView, setMenuView] = useState<'main' | 'controls' | 'settings' | 'arena'>('main');
   // The arena page's counts and floor (development only), kept here so they survive leaving the page.
   const [arenaChoice, setArenaChoice] = useState<ArenaChoice>({ pick: { guard: 1 }, level: 1 });
+  // The arena the world closure is charting floors as, mirrored for the card that names it and for the
+  // best-run record, which an arena run must not touch.
+  const [arenaOn, setArenaOn] = useState<Arena | null>(null);
   const returnTo = useRef<string | null>(null);
   const dashMeter = useRef<HTMLProgressElement>(null);
   // Plan 014 round 5 (lever C8): the dash icon's own radial sweep, driven the same imperative way the
@@ -205,10 +208,12 @@ export default function DungeonGame() {
   // settle every HUD value before `status` flips, which makes this the one honest place to read the run.
   useEffect(() => {
     if (status !== 'won' && status !== 'lost') return;
+    // An arena is a chosen fight, not a descent: it sets no record.
+    if (arenaOn) return;
     const record = (run: BestRun) => { setBest(run); writeBest(run); };
     const next = betterRun(best, { floor: floorLevel, xp: experience, kills: defeated, won: status === 'won' });
     if (next && next !== best) record(next);
-  }, [status, floorLevel, experience, defeated, best]);
+  }, [status, floorLevel, experience, defeated, best, arenaOn]);
 
   useEffect(() => {
     const context = (document as Document & { modelContext?: GameToolContext }).modelContext;
@@ -370,6 +375,7 @@ export default function DungeonGame() {
       slash.clear();stage.enemies.forEach(enemy=>enemy.trails.forEach(trail=>trail.effect.clear()));footsteps.clear();
       // Re-read instead of holding a snapshot: a second tab may have logged its own runs since this one
       // began, and the log is cheap enough to reread once per run that guessing is not worth it.
+      if (arena) return;
       const log = appendRun(readRuns(), { at: Date.now(), floor: level, won: !cause, cause, seconds: Math.max(0, Math.round(elapsed - runStart)), rank: run.rankLevel, xp: run.totalXp, kills: run.kills, boons: [...boonsTaken], seed: firstSeed });
       writeRuns(log); setRunLog(log);
     };
@@ -708,13 +714,16 @@ export default function DungeonGame() {
     // on it - only what shows the floor (the frame loop, the canvas fade-in, a waiting press) does.
     // `dungeonTest.buildFloor`/`reset` never come through here: they stay synchronous and deterministic.
     let pendingFloor: { level: number; floor: ReturnType<typeof generateFloor> } | null = null;
-    // Development only: the arena (dungeon-arena.ts), a chosen roster standing in the gate of an otherwise
-    // empty floor. While one is set, every floor this closure charts - the boot, a restart, a descent, the
-    // test hooks - is charted as that arena, so taking the stair meets the same roster a floor deeper. Set
-    // from `?arena=`, the arena page of the menu or `dungeonTest.buildArena`; cleared by `reset`. The chart
-    // branch is inside the NODE_ENV check, so a production build never reaches arenaFloor.
-    let arena: Arena | null = process.env.NODE_ENV !== 'production' ? parseArena(new URLSearchParams(window.location.search).get('arena'), new URLSearchParams(window.location.search).get('level'), FLOORS) : null;
-    const chart = (seed: number, nextLevel: number) => process.env.NODE_ENV !== 'production' && arena ? arenaFloor(seed, nextLevel, arena.roster) : generateFloor(seed, nextLevel);
+    // The arena (dungeon-arena.ts), a chosen roster standing in the gate of an otherwise empty floor. While
+    // one is set, every floor this closure charts - the boot, a restart, a descent, the test hooks - is
+    // charted as that arena, so taking the stair meets the same roster a floor deeper. `?arena=` sets it in
+    // every build, the published one included, so a kind can be played anywhere the game is; the menu's
+    // arena page and `dungeonTest.buildArena` are development only. Cleared by `reset`. An arena run is
+    // never recorded: no run log entry, no best run, no LAST KEEP seed.
+    let arena: Arena | null = null;
+    const setArena = (next: Arena | null) => { arena = next; setArenaOn(next); };
+    setArena(parseArena(new URLSearchParams(window.location.search).get('arena'), new URLSearchParams(window.location.search).get('level'), FLOORS));
+    const chart = (seed: number, nextLevel: number) => arena ? arenaFloor(seed, nextLevel, arena.roster) : generateFloor(seed, nextLevel);
     // A frame boundary the browser has painted: a rAF callback runs before its own frame's paint, so
     // it takes two. A hidden tab runs no animation frames, and a build must not wait on it. Nor does a
     // build under a driver's clock (`advanceTime` stopped the frame loop): the stages then only have to
@@ -849,7 +858,7 @@ export default function DungeonGame() {
       phase('generate'); yield;
       // Floor 1 is the run's fingerprint: keeping its seed is what lets a lost run be taken again, and it
       // is what a logged entry carries, so the log is held here rather than read off the current floor.
-      if (level === 1) { firstSeed = floor.seed; runStart = elapsed; setRunSeed(floor.seed); writeSeed(floor.seed); }
+      if (level === 1) { firstSeed = floor.seed; runStart = elapsed; setRunSeed(floor.seed); if (!arena) writeSeed(floor.seed); }
       floorGroup = new THREE.Group(); world.add(floorGroup);
       swingHits.clear();slash.clear();clearShots();blood.clear();posePlayer(0);
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
@@ -1673,7 +1682,7 @@ export default function DungeonGame() {
       // by field name rather than letting it leak. `manualTime` is not cleared on purpose - the driver
       // owns the clock from its first `advanceTime` and must keep owning it across a reset.
       reset: (seed) => {
-        arena = null;
+        setArena(null);
         hasStarted = false; setStarted(false); setCapturing(null); enterWhenBuilt = false; setEntering(false);
         elapsed = 0; runStart = 0; floorStart = 0; activeRoom = 0;
         // A fresh page has never seen the cursor. The veil used to clear this by covering the canvas for a few
@@ -1706,14 +1715,14 @@ export default function DungeonGame() {
       testHooks.setEnemyRigVisible = (index, visible) => { const rig = stage.enemies[index]?.group.userData.rig as THREE.Object3D | undefined; if (!rig) throw new Error(`no enemy at spawn index ${index}`); rig.visible = visible; };
       // The arena (dungeon-arena.ts), synchronous and deterministic like `buildFloor`: this roster, awake in
       // the gate of this floor, until `reset`.
-      testHooks.buildArena = (roster, arenaLevel = 1) => { arena = roster.length ? { roster: [...roster], level: arenaLevel } : null; buildFloor(arenaLevel); };
+      testHooks.buildArena = (roster, arenaLevel = 1) => { setArena(roster.length ? { roster: [...roster], level: arenaLevel } : null); buildFloor(arenaLevel); };
       // The menu's arena page asks through this event, never through `dungeon-action`, so nothing about it
       // exists in a production build. Before the first floor exists it is a press of ENTER with the arena
       // set, which the boot then charts; once the keep is up it is a restart into the arena, entering it if
       // the knight was still on the menu. An empty roster leaves the arena for an ordinary keep.
       const arenaRequest = (e: Event) => {
         const asked = (e as CustomEvent<Arena | null>).detail;
-        arena = asked && asked.roster.length ? { roster: [...asked.roster], level: asked.level } : null;
+        setArena(asked && asked.roster.length ? { roster: [...asked.roster], level: asked.level } : null);
         if (building || booting || (built && !warmed)) return;
         if (!built) { window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'start' })); return; }
         audio.start();
@@ -1956,7 +1965,7 @@ export default function DungeonGame() {
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      {menuOpen && <div className="intro-screen"><section className={`intro-card${menuView === 'main' ? '' : ' sub-view'}`} role="dialog" aria-modal="true" aria-labelledby="intro-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : 'THE DROWNED KEEP'}</span><h1 id="intro-title">{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
+      {menuOpen && <div className="intro-screen"><section className={`intro-card${menuView === 'main' ? '' : ' sub-view'}`} role="dialog" aria-modal="true" aria-labelledby="intro-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : arenaOn ? `ARENA · ${arenaOn.roster.length} ${arenaOn.roster.length === 1 ? 'FOE' : 'FOES'} · FLOOR ${arenaOn.level}` : 'THE DROWNED KEEP'}</span><h1 id="intro-title">{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
         {menuView === 'main' ? <>
         {paused && <p>{advance} / {goalDepth} halls · {visitedCount} / {roomCount} explored · {plundered} / {deadEnds} plundered<br />Rank {rank} · {experience} XP · {rankXp} / {rankNeed} to next boon{xpReward > 0 ? ` · +${xpReward} XP` : ''}</p>}
         {!paused && best && <p className="best-run">Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</p>}

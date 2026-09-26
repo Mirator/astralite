@@ -3,8 +3,9 @@
 // any other everywhere else (paving, props, the rack on floor one, an open stair since no warden bars it), so
 // the fight happens under the game's own lighting, camera and rules rather than on a test stage.
 //
-// Pure, like the floor generator it wraps: no React, no DOM, no three.js. Development only - dungeon-game.tsx
-// reaches this solely from inside its `NODE_ENV !== 'production'` branches, so a production build drops it.
+// Pure, like the floor generator it wraps: no React, no DOM, no three.js. It ships: `?arena=` works on the
+// published game, so a kind can be played anywhere the game runs. The menu page that picks a roster and the
+// `dungeonTest.buildArena` hook are development only, and an arena run is never recorded (dungeon-game.tsx).
 import { ENEMY_KINDS, type EnemyKind } from './dungeon-bestiary.ts';
 import { cellKey, generateFloor, TILE, type Spawn } from './dungeon-floor.ts';
 

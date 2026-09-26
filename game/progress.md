@@ -2971,3 +2971,14 @@ removed. Planted and caught: hidden bodies, spawns left elsewhere, no spacing (a
 clear zone round the knight's arrival is redundant at today's room sizes (the ring leaves 3.6 at the closest)
 and a planted removal survives; it is kept for a smaller gate. One manual first-visit run on a just-started dev
 server never reached the arena and did not reproduce in four more runs, cold cache included.
+
+## 2026-09-26 - The arena link ships
+
+`?arena=` now works on the published game, so a kind can be played on a phone or anywhere else the game runs;
+the menu's arena page and `dungeonTest.buildArena` stay development only and `build:check` still guards them.
+With a link the menu's kicker reads `ARENA · 3 FOES · FLOOR 2`. An arena run records nothing - no run log
+entry, no best run, no LAST KEEP seed - since a floor-three arena would otherwise stand as the deepest descent.
+Checked against the real Pages output (the production build after pages-relative-paths.mjs, served under
+/astralite/): the link deals exactly its roster on its floor, the plain URL an ordinary floor one, and neither
+page has the arena button or the hook. Planted and caught in arena.spec.ts: the run log, the best run and the
+seed each written for an arena death, and a kicker that never names the arena.
