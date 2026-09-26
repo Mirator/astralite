@@ -1,4 +1,4 @@
-import { expect, test } from './helpers.ts';
+import { expect, strikeStance, test, TILE } from './helpers.ts';
 
 // The crossbow is the only arm that can be left useless, and the only one whose damage happens some
 // frames after the button. Both of those are what these cover.
@@ -128,4 +128,39 @@ test('a new floor starts with nothing of the last one still burning', async ({ g
   const fresh = await game.state();
   expect(fresh.weapon.fires).toBe(0);
   expect(fresh.weapon.inFlight).toBe(0);
+});
+
+test('a dead end cleared with bolts is plundered, counted and marked like one cleared with steel', async ({ game, page }) => {
+  // Kills by bolt and by fire used to settle a cleared room on a path of their own, which paid the reward
+  // but never counted the dead end as plundered or marked it on the map. One path serves all three now.
+  await game.enter();
+  await game.step(120);
+  const floor = await game.floor();
+  const branch = floor.rooms.find((room) => room.role === 'branch' && floor.spawns.some((spawn) => spawn.room === room.id));
+  expect(branch, 'this floor has a dead end with bodies in it').toBeDefined();
+  const bodies = floor.spawns.map((spawn, index) => ({ spawn, index })).filter(({ spawn }) => spawn.room === branch!.id);
+  // One bolt apiece, and no blow back while the knight lines each one up.
+  await game.configureCombat({ enemies: bodies.map(({ index }) => ({ index, hp: 1, cooldown: 30 })) });
+  await game.equip('crossbow');
+  await game.teleport(branch!.x * TILE, branch!.z * TILE);
+  await game.step(200);
+  for (let shot = 0; shot < 16; shot++) {
+    const state = await game.state();
+    const left = state.enemies.filter((enemy) => enemy.room === branch!.id);
+    if (!left.length) break;
+    const others = state.enemies.filter((enemy) => enemy !== left[0]).map((enemy) => ({ x: enemy.x, z: enemy.z }));
+    let stance;
+    try { stance = strikeStance(floor, left[0], { distance: 2.5, avoid: others, clearance: 0.8 }); } catch { stance = strikeStance(floor, left[0], { distance: 2 }); }
+    await game.teleport(stance.x, stance.z);
+    await page.keyboard.down(stance.key);
+    await page.keyboard.down('Space');
+    await page.keyboard.up(stance.key);
+    await page.keyboard.up('Space');
+    await game.step(900);
+  }
+  const after = await game.state();
+  expect(after.enemies.filter((enemy) => enemy.room === branch!.id), 'every body in the dead end fell to a bolt').toEqual([]);
+  expect(after.floor.cleared).toContain(branch!.id);
+  expect(after.objective.deadEndsPlundered, 'the dead end counts as plundered').toBe(1);
+  await expect(page.locator(`#map-room-${branch!.id}`), 'and is marked on the map as one').toHaveAttribute('fill', '#c2b273');
 });

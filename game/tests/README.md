@@ -9,8 +9,8 @@ console (or an automated driver) can steer a run without playing it by hand.
 npm test
 ```
 
-Runs `tests/*.test.ts` through node's type stripping — no build step, no DOM. It covers the four
-pure modules:
+Runs `tests/*.test.ts` through node's type stripping — no build step, no DOM. It covers the pure
+modules:
 
 - **The floor generator** (`dungeon-floor.ts`): the room graph is a tree, every room is reachable, the
   stair sits at the end of the trunk, dead ends are stubs, corridors never bypass the trunk, guards
@@ -24,18 +24,32 @@ pure modules:
   alongside the generator in `dungeon-floor.test.ts`: sliding, diagonal gaps, tunnelling and body
   radius.
 - **Persistence** (`dungeon-save.ts`), described under Persistence below.
+- **The knight's clocks** (`dungeon-player.ts`): when a strike buffers and when it fires, how a string
+  links, stays open and closes, a dash buffered behind a live blade and what a dash cancels, which way
+  the knight turns and travels, hit-stop, and what a reset, a halt, a new arm and a dropped buffer each
+  clear.
+- **Input decoding** (`dungeon-input.ts`): key legends, which device slot holds an action, the screen
+  basis a push becomes a heading on, what a keydown asks for against the bindings, every
+  `dungeon-action` detail, the cursor's NDC and the pad's deadzone.
+- **The combat fixture** (`dungeon-fixture.ts`): what the dev-only `configureCombatFixture` accepts and
+  the message each refusal names.
 
-Anything involving three.js, the DOM or input is **not** covered here — use the browser hooks.
+Anything involving three.js, the DOM or the event listeners themselves is **not** covered here — use
+the browser hooks. The world closure in `dungeon-game.tsx` still owns the listeners and decides *when*
+each of these rules is asked; the modules above decide what the answer is.
 
 ### Where an enemy decision lives
 
-`dungeon-enemy.ts` decides *what* a body does; `dungeon-game.tsx` does it. `decideEnemy` takes a plain
+`dungeon-enemy.ts` decides *what* a body does; `dungeon-game.tsx` does it, and `dungeon-enemy-view.ts`
+draws it. `decideEnemy` takes a plain
 snapshot of one enemy (kind, position, room, cooldown, hitFlash, windup, lunge, tell, speed, aim), the
 knight's position, the floor's walkable cells plus the flood distances, and a frame delta, and returns an
 `EnemyIntent` — `act` (`inert` / `lunge` / `windup` / `ready`), the new position and timers, the yaw to
 face, whether the blow connects and which cue to sound. It mutates nothing. The renderer keeps the
 `THREE.Group`, limb and weapon poses, audio, particles, emissive flashes, health bars and telegraphs —
-all of which consume the intent rather than deciding it. `separateCrowd` is the same deal for the
+all of which consume the intent rather than deciding it. `spawnEnemy`, `markEnemy` and `poseEnemy` in
+`dungeon-enemy-view.ts` build a body and put its marks and its decision on screen; the loop in the game
+file keeps the gameplay between them (noticing, the contagion wake-up, the blow landing). `separateCrowd` is the same deal for the
 crowd pass: bodies in, fresh points out.
 
 ### Invulnerability

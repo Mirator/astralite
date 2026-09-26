@@ -2713,3 +2713,45 @@ reads a quarter-second apart" were really two reads 15 ms apart, both taken befo
 frame drew. It now counts animation frames instead: three in a row with no new draw. Locally, all 112
 scenarios in the gate set pass on SwiftShader at two workers, and frame-clock passes 9/9 with
 `--repeat-each=3`.
+
+## 2026-09-26 - Splitting the world closure out of dungeon-game.tsx
+
+**Why.** `DungeonGame`'s one effect ran about 2,300 lines: input, the knight's clocks, the floor build,
+enemy presentation, lighting, warm-up and every test hook, all sharing closure `let`s. Anything that
+lived only there - when a strike buffers, when a buffered dash cuts in, what a keydown means - could
+only be checked by booting WebGL on SwiftShader, which is most of why the browser suite costs what it
+does and why the last several rounds were spent on frame-timing flakes.
+
+**Oracle first.** Before anything moved, a golden-master browser spec recorded five scenarios on the
+unchanged code - melee strings and buffered dashes, touch/pad/action-event input, ranged arms and the
+rack, a boon/hazard/shrine/stair run, and six floor builds - with a dev-only scene digest (every mesh's
+kind, material, transform and instance matrices) so a floor built differently at the same counts would
+show. It replayed identically pooled and isolated at one and two workers, and failed on two planted
+mutations (a 10 ms buffer change at step 6; one more broken merlon in a hundred). Commits `d41061e` and
+`5657f95` hold it; see "What was removed" for why it is no longer in the tree.
+
+**The split.** Eight modules, every write kept in the order the closure made it:
+- `dungeon-player.ts`, `dungeon-input.ts`, `dungeon-fixture.ts` - pure, with node tests
+  (`tests/dungeon-player.test.ts`, `dungeon-input.test.ts`, `dungeon-fixture.test.ts`).
+- `dungeon-floor-scene.ts` (the build, into one `FloorStage`), `dungeon-enemy-view.ts` (spawn, marks,
+  pose), `dungeon-mood.ts`, `dungeon-warmup.ts`, `dungeon-test-hooks.ts`.
+`dungeon-game.tsx` is 2,801 -> ~1,960 lines. The five traces and the digest replayed unchanged, and the
+gate suite went 112/112 before and 117/117 after (the extra five being the traces).
+
+**Found on the way.** Bolt and fire kills settled a cleared room on their own path: the reward paid,
+but a dead end was never counted as plundered, never marked on the minimap, and the stair waited a
+frame. One `settleRoom` now serves all three kill paths; `ranged.spec.ts` clears a dead end with bolts
+and fails on the old path (plundered 0, want 1). `setNoticeDetail` was set in ten places and never read,
+so it is gone.
+
+**What was removed.** The golden-master spec and its digest hook. They were the oracle for this one
+refactor; kept, they would need re-recording on every intentional gameplay or art change, and a 950 KB
+fixture diff is not something a reviewer can read. `git show d41061e 5657f95` brings them back for the
+next large move. Four of the five `chain.spec.ts` scenarios are now node tests; the one left checks the
+running game is wired to the rules. `scripts/shards/durations.json` has the chain weight scaled down to
+match until the next refresh.
+
+**Not done here.** The render-pipeline costs from the same audit (a multisampled canvas the composer
+never uses, a shadow map that is probably drawn twice a frame - unverified - and a mesh per spark),
+and a guard around `update` so an exception stops the loop with a screen rather than failing silently
+every frame.
