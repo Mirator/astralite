@@ -273,6 +273,8 @@ export type Snapshot = {
     key: string;
     fog: string;
     banner: string;
+    /** Every colour a brazier halo burns this frame, distinct and sorted: one, `fire`, once a frame has run. */
+    halos: string[];
   };
   /** What the floor's own motif geometry actually attached, not a recomputation of the planner. */
   graphics: {
@@ -282,8 +284,6 @@ export type Snapshot = {
     flames: {
       theme: 'keep' | 'ruins' | 'flooded';
       y: number;
-      /** The halo sprite's live colour, which follows the chamber's fire as `mood.fire` does. */
-      halo: string;
     }[];
     /** Realized macro paving (plan 006), derived from the actual batches rather than recomputed. */
     paving: { pairs: number; settled: number; surfaceCells: number };

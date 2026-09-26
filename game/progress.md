@@ -2870,5 +2870,6 @@ the file before this change and replayed after it, match to 1e-6 (the traces wer
 
 Brazier halos take the chamber's fire again. Plan 014 gave each halo its own material clone so it could
 fade beside the knight, and the recolour kept writing to the template the clones came from, so every
-halo stayed the build's orange in every chamber. `graphics.flames` now reports each halo's colour, and
-`theme-flames.spec.ts` holds it to `mood.fire` on both sides of a threshold.
+halo stayed the build's orange in every chamber. `mood.halos` now reports the colours the halos burn,
+and `theme-flames.spec.ts` holds them to `mood.fire` on both sides of a threshold. (Frame state, so it sits
+beside `mood.fire` rather than in `graphics`, which a sliced and a synchronous build must agree on.)

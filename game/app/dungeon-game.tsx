@@ -1707,7 +1707,7 @@ export default function DungeonGame() {
       // tell reads against the stone it is drawn on needs to know which family it is standing in, and
       // the room graph cannot tell it: the lights cross a threshold on the approach rather than on the
       // doorway, so for a third of a second the answer is genuinely neither room's.
-      mood: { theme: mood.theme, fire: '#' + mood.fire.getHexString(), key: '#' + mood.key.getHexString(), fog: '#' + mood.fog.getHexString(), banner: '#' + mood.banner.getHexString() },
+      mood: { theme: mood.theme, fire: '#' + mood.fire.getHexString(), key: '#' + mood.key.getHexString(), fog: '#' + mood.fog.getHexString(), banner: '#' + mood.banner.getHexString(), halos: stage.atmosphere?.halos ?? [] },
       // What actually got attached to the floor's own group, not a second recomputation of the
       // planner's own descriptors - a driver checking the real scene reads this, not `floor.rooms`.
       graphics: { motifs: stage.atmosphere?.motifs ?? [], flames: stage.atmosphere?.flames ?? [], paving: stage.pavingSummary },

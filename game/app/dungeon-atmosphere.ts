@@ -658,9 +658,10 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     // more (three quads, each its own draw). A driver that wants a brazier's footprint reads
     // `FLAME_FOOTPRINT`/`FLAME_BASE_Y` directly (both exported from their own modules) instead of
     // this diagnostic recomputing them; this just says which theme is burning where.
-    // Each halo's live colour rides along, off its own material: the halos are clones (round 8, below),
-    // so recolouring the template they were cloned from reached none of them.
-    get flames(){return flames.map((f,i)=>({theme:f.theme,y:f.y,halo:'#'+(halos[i].material as THREE.SpriteMaterial).color.getHexString()}));},
+    flames:flames.map(f=>({theme:f.theme,y:f.y})),
+    // Every colour a halo is burning this frame, off each one's own material: the halos are clones (round
+    // 8, below), so recolouring the template they were cloned from reached none of them.
+    get halos(){return [...new Set(halos.map(h=>'#'+(h.material as THREE.SpriteMaterial).color.getHexString()))].sort();},
     update(t:number,player:THREE.Vector3,cleared:Set<number>,fire:THREE.Color,banner:THREE.Color,masonry:THREE.Color,bed:THREE.Color){
     shore.time.value=t;
     // What burns is the chamber's, not the floor's. The flame body takes the mood colour straight, the
