@@ -283,6 +283,9 @@ test.describe('footfalls on real stone', () => {
     expect(Math.hypot(pushing.player.x - stopped.player.x, pushing.player.z - stopped.player.z)).toBeLessThan(0.001);
     expect(steps(pushing).contacts, 'pushing a wall kept planting feet').toBe(steps(stopped).contacts);
     expect(steps(pushing).active).toBe(0);
+    // The stride itself stops too, not just the footfalls it plants (this was sprint.spec.ts's own test).
+    expect(pushing.player.locomotion.phase, 'the stride kept cycling against the wall').toBe(stopped.player.locomotion.phase);
+    expect(pushing.player.locomotion.speed).toBeLessThan(.01);
     await page.keyboard.up('ArrowLeft');
   });
 
@@ -364,7 +367,9 @@ test.describe('the surface decides the feedback', () => {
     expect(after.skipped - before.skipped).toBe(after.contacts - before.contacts);
   });
 
-  test('16 ms steps and one subdivided call give the same footfalls, and repeat runs hold resource counts', async ({ game, page }) => {
+  // Determinism (reset replays the same scatter) is held by tests/dungeon-footsteps.test.ts and rebuild leaks by
+  // floor-motifs.spec.ts, so the third, repeat run this used to make is gone.
+  test('16 ms steps and one subdivided call give the same footfalls', async ({ game, page }) => {
     const run = async (walk: () => Promise<void>) => {
       await game.enter();
       const floor = await game.floor();
@@ -376,7 +381,7 @@ test.describe('the surface decides the feedback', () => {
       await page.keyboard.up(ARROW_KEYS[lanes[0]]);
       await game.step(500, true);
       const state = await game.state();
-      return { feet: steps(state), phase: state.player.locomotion.phase, render: state.render };
+      return { feet: steps(state), phase: state.player.locomotion.phase };
     };
     const fine = await run(async () => { for (let i = 0; i < 25; i++) await game.step(16); });
     await game.reset([SEED]);
@@ -386,14 +391,6 @@ test.describe('the surface decides the feedback', () => {
     expect(Math.abs(fine.feet.emitted - coarse.feet.emitted)).toBeLessThanOrEqual(1);
     for (const r of [fine, coarse]) expect(r.feet.contacts).toBe(contactCount(r.phase));
     expect([coarse.feet.active, coarse.feet.drawn]).toEqual([0, false]);
-    await game.reset([SEED]);
-    const repeat = await run(async () => { for (let i = 0; i < 25; i++) await game.step(16); });
-    expect(repeat.feet, 'an identical run did not replay the identical footfalls').toEqual(fine.feet);
-    // A leak only ever grows. The first run can hold a couple of geometries more than a run made after
-    // `reset`, because it inherits whatever the pooled page had already drawn before this scenario began
-    // (three.js uploads geometry the first time it is on screen), so equality would fail on a shrink too.
-    expect(repeat.render.geometries, 'repeat runs grew GPU geometries').toBeLessThanOrEqual(fine.render.geometries);
-    expect(repeat.render.textures, 'repeat runs grew GPU textures').toBeLessThanOrEqual(fine.render.textures);
   });
 
   // One scenario per theme on the pooled page, so no single test carries every theme's draws.
@@ -408,10 +405,13 @@ test.describe('the surface decides the feedback', () => {
       await game.step(SETTLE);
       const key = ARROW_KEYS[lanes[0]];
       await walkToContact(game, key);
-      const contact = await footstepFrames(game);
-      console.log(`FOOTSTEP ${kind}-contact-instant particles=${contact.particles.length} changed=${contact.changed}px peakDelta=${contact.peak}`);
-      const at = project(await game.state(), contact.width, contact.height, contact.particles[0]);
-      await captureContact(game, `footsteps-${kind}-contact`, at);
+      // The contact instant itself is drawn for the reference frames only; what this asserts is the
+      // pixel proof at +60 ms below. Drawing it on every gate run cost two frames for a log line.
+      if (CAPTURING) {
+        const contact = await footstepFrames(game);
+        console.log(`FOOTSTEP ${kind}-contact-instant particles=${contact.particles.length} changed=${contact.changed}px peakDelta=${contact.peak}`);
+        await captureContact(game, `footsteps-${kind}-contact`, project(await game.state(), contact.width, contact.height, contact.particles[0]));
+      }
       // The same stride, held: +60/+120/+240 ms after the contact, each drawn and reviewed at native size.
       for (const [ms, label] of [[60, '60'], [60, '120'], [120, '240']] as const) {
         await game.step(ms);
@@ -425,7 +425,9 @@ test.describe('the surface decides the feedback', () => {
   });
 });
 
-test.describe('footfalls on a phone', () => {
+// Nightly: reduced motion's own rules are held by tests/dungeon-footsteps.test.ts, and the flooded desktop case
+// proves a contact is on screen on every pull request; this adds the phone aspect and the settings card.
+test.describe('footfalls on a phone', { tag: '@nightly' }, () => {
   test.use({ seeds: [SEED], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   /**
    * One isolated context for every phone case (see `needsOwnPage` in helpers.ts): the ordinary look on

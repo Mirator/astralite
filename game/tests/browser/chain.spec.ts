@@ -14,13 +14,14 @@ test('a held strike walks the string and loops it', async ({ game, page }) => {
   expect((await game.state()).player.chain.beats, 'the sword swings three').toBe(chainLength(TIDEBLADE));
 
   await page.keyboard.down('Space');
-  const seen = new Set<number>();
-  for (let i = 0; i < 160; i++) {
+  // The order beats came up in, not just which: beat 0 is where a string opens anyway, so only a return
+  // to it after the finish shows the string looping rather than stalling on its last beat.
+  const order: number[] = [];
+  for (let i = 0; i < 160 && order.length < 4; i++) {
     await game.step(16);
     const state = await game.state();
-    if (state.player.attackTime > 0) seen.add(state.player.chain.beat);
+    if (state.player.attackTime > 0 && order[order.length - 1] !== state.player.chain.beat) order.push(state.player.chain.beat);
   }
   await page.keyboard.up('Space');
-  expect([...seen].sort((a, b) => a - b), 'every beat of the string came up under a held key')
-    .toEqual([0, 1, 2]);
+  expect(order, 'a held key walks every beat of the string and opens it again').toEqual([0, 1, 2, 0]);
 });

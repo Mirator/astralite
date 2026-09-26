@@ -79,7 +79,9 @@ test('one dash carries the knight past a warden’s reach', async ({ game, page 
     .toBeGreaterThan(STRIKE_RANGE.warden * 0.9);
 });
 
-test('a woken body nearby no longer slows the knight down', async ({ game, page }) => {
+// Nightly: the threat speed tax this guards against can only return through a deliberate change to how the
+// knight's speed is computed (playerSpeed takes no threat input), so it does not need every pull request.
+test('a woken body nearby no longer slows the knight down', { tag: '@nightly' }, async ({ game, page }) => {
   await game.enter();
   await game.step(120);
 

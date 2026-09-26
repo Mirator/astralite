@@ -107,7 +107,10 @@ test('killing the last warden ends a floor, freezes it, and waits for a real Con
   test.slow();
   await game.enter();
 
-  for (let level = 1; level <= 3; level++) {
+  // Floor one (a descent to two, and its top-up) and floor three (the win). Floor two is the same path as
+  // floor one, so it is built past rather than fought through.
+  for (const level of [1, 3]) {
+    if (level === 3) await game.buildFloor(3);
     expect((await game.state()).floor.level).toBe(level);
     const stair = (await game.state()).floor.rooms[
       (await game.state()).floor.goal

@@ -25,6 +25,7 @@ export type TestHooks = {
   setCutawayEnabled?: (enabled: boolean) => void;
   footstepParticles?: () => unknown;
   setFootstepsEnabled?: (enabled: boolean) => void;
+  setEnemyRigVisible?: (index: number, visible: boolean) => void;
   actorStats?: () => { knight: ActorStat & { disposedMaterials: number }; enemies: ({ kind: EnemyKind } & ActorStat)[]; drop: { kind: WeaponId; meshes: number; triangles: number } | null };
   lightDiagnostics?: (index: number, radius?: number) => unknown;
   drainGpu?: () => number;

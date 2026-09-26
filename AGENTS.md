@@ -79,7 +79,46 @@ reference.
   them directly in tests. A rule that decides something belongs in one of them
   (or a sibling like `dungeon-sim.ts`), not in the world closure.
 - **Add regressions alongside behaviour changes.** A gameplay fix without a
-  test in `tests/` or `tests/browser/` is not finished.
+  test in `tests/` or `tests/browser/` is not finished, and the test has to
+  fail without the fix (see "Writing tests that can fail" below).
+
+## Writing tests that can fail
+
+A September 2026 audit found about twenty tests that passed with the behaviour they named deleted, one that
+had skipped on every run for months, and a pruning that replaced fast node tests with slower browser tests
+that could not fail. These rules are what it took to fix them; follow them for every test you add or change.
+
+- **Prove it fails.** Before a test counts as done, plant the bug it names (temporarily, then restore) and
+  watch it fail with its own message, not some other assertion's. Say in the commit or PR which bug you
+  planted. A test that passes with the feature removed is worse than no test: it reports coverage that
+  is not there. If a planted bug survives, either the test is weak or your bug was not a real break (the
+  blur's `clearInput` is redundant with the pause's `keys.clear()`). Find out which.
+- **Assert the precondition.** Check that the thing that makes the assertion meaningful actually happened:
+  the pounce fired before "the dodge evaded it", the blow landed before the budget frame is measured, the
+  race window was hit, the cape had settled before the dash moved it, the knight stood in the enemies'
+  room. An outcome that also holds when nothing happened proves nothing.
+- **No silent skips and no conditional expects.** A pinned seed that no longer stages the fixture is a
+  failure that says "pick another seed", never `test.skip` at runtime. No `if (x) expect(...)`, no loop over
+  a list that can be empty without a length check first.
+- **Observe, don't recompute.** A snapshot or diagnostic field must report what the game did (what the
+  scene placed, what was drawn, which material a mesh wears), not what a planner or the same formula says it
+  should have done. Comparing the planner with itself, or build-time data with itself, cannot fail.
+  `graphics` in the snapshot is build output; per-frame state belongs elsewhere (`mood.halos`).
+- **Test the rule where it lives.** A decision belongs in a pure module with a node test in `tests/`; the
+  browser suite checks that the running game is wired to it: real keyboard, pointer and touch, drawing,
+  boot. Do not delete a node test because a browser test also touches the behaviour; the node test is
+  faster, more direct and easier to make fail. Only remove a test when you can name what else catches the
+  same regression at the same level, and say so in a comment where it was.
+- **Bound both sides, from measurements.** A ceiling alone passes an empty frame. Set thresholds from
+  measured values and write the measurement, renderer and date beside them. Before loosening a threshold to
+  get green, show the failure is not a real bug (the flooded fire check was loosened fourteen minutes before
+  the halo bug it was flagging was found and fixed).
+- **Isolate what a pixel test measures.** Difference two frames that differ only in the thing under test,
+  and remove confounds (the telegraph test hides the enemy's body, which flashes the same red). Log the
+  numbers so a failure can be read without re-running it.
+- **One story per page.** A pooled reset costs a floor rebuild; stepping the clock is nearly free. Merge
+  scenarios that share their setup instead of paying for the setup twice. An expensive repeat of a path the
+  gate already covers once (a phone aspect, the other enemy kinds) can be `@nightly`; say why in a comment.
 
 ## Shared and generated files
 

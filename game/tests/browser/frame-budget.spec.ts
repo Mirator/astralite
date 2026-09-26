@@ -106,6 +106,10 @@ const spend = async (game: Game, scene: keyof typeof BUDGET) => {
     triangles,
     `${scene} pushes more triangles than the budget allows; say what bought it and raise the number deliberately`,
   ).toBeLessThanOrEqual(BUDGET[scene].triangles);
+  // And a floor under each: a ceiling alone passes a frame that drew nothing, or a scene whose pack never
+  // came into view. Every staged scene measured at 73-84% of its call budget and 30-42% of its triangles.
+  expect(calls, `${scene} drew far fewer calls than it was measured at; the scene is not the one this budget was set on`).toBeGreaterThanOrEqual(BUDGET[scene].calls * 0.6);
+  expect(triangles, `${scene} drew far fewer triangles than it was measured at`).toBeGreaterThanOrEqual(BUDGET[scene].triangles * 0.2);
 };
 
 test.describe('the busiest fight', () => {
@@ -187,6 +191,8 @@ test.describe('the moment of contact', () => {
       state.player.attackTime,
       'the frame this budget covers is not inside a swing',
     ).toBeGreaterThan(0);
+    // A swing that missed would put a cheaper frame under this budget than the one it is named for.
+    expect(state.enemies[0].hp, 'the blow this frame is budgeted for never landed').toBeLessThan(Math.min(8, blade * 2));
     await spend(game, 'strike-contact');
   });
 
@@ -251,7 +257,8 @@ test.describe('the light budget', () => {
 
   test('a software rasteriser draws the reduced post chain, a GPU the full one', async ({ game }) => {
     await game.step(16, true);
-    expect((await game.state()).render.quality).toBe(CAPTURING ? 'full' : process.env.GAME_TEST_GL ? 'full' : 'reduced');
+    // Only `d3d11` selects a GPU (playwright.config.ts); any other value, a typo included, is still SwiftShader.
+    expect((await game.state()).render.quality).toBe(CAPTURING ? 'full' : process.env.GAME_TEST_GL === 'd3d11' ? 'full' : 'reduced');
   });
 });
 

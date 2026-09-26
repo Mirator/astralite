@@ -50,3 +50,22 @@ test('a flame billboard keeps the height and scale its caller gave it through ev
   assert.ok(box.min.y > .95 && box.max.y > 2.2, `flame spans y ${box.min.y.toFixed(2)}..${box.max.y.toFixed(2)}, expected it to stand above its base`);
   flame.dispose();
 });
+
+// A redraw at the same instant, or a paused frame, must draw the same flame: everything a flame shows is
+// a function of the clock it is handed, with nothing carried between calls. The browser test that claimed
+// this compared build-time data that could never change; this is the property itself.
+test('a flame is a function of the clock alone: the same instant draws the same flame, whatever came before', async () => {
+  const THREE = await import('three');
+  const { makeFlameBillboard } = await import('../app/dungeon-flame-fx.ts');
+  const flame = makeFlameBillboard(.6, 1.5, 1.3), colour = new THREE.Color(0xff8c3f);
+  const body = flame.group.children[0];
+  const read = () => {
+    const shader = (body.children[0] as InstanceType<typeof THREE.Mesh>).material as InstanceType<typeof THREE.ShaderMaterial>;
+    return JSON.stringify({ p: body.position.toArray(), s: body.scale.toArray(), time: shader.uniforms.uTime.value });
+  };
+  flame.update(2.5, colour); const first = read();
+  flame.update(2.5, colour); assert.equal(read(), first, 'a second draw at the same instant moved the flame');
+  flame.update(7.1, colour); assert.notEqual(read(), first, 'the flame does not move at all, so this proves nothing');
+  flame.update(2.5, colour); assert.equal(read(), first, 'the flame remembered a later instant');
+  flame.dispose();
+});

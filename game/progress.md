@@ -2873,3 +2873,28 @@ fade beside the knight, and the recolour kept writing to the template the clones
 halo stayed the build's orange in every chamber. `mood.halos` now reports the colours the halos burn,
 and `theme-flames.spec.ts` holds them to `mood.fire` on both sides of a threshold. (Frame state, so it sits
 beside `mood.fire` rather than in `graphics`, which a sliced and a synchronous build must agree on.)
+
+## 2026-09-26 - Tests that could not fail
+
+An audit read every browser test for whether it would fail if the behaviour it names broke. About twenty
+would not: conditional expects, a test skipped on every run since plan 007 (the enemy cutaway), counts read
+in a room that holds no enemies, build-time data compared with itself (flame redraw, macro paving),
+assertions that held before and after the action (the rack dash, the new arm, the cursor leaving, the blur,
+the chain's loop, the dodge, the cloak), `expect(true)` (zz-pixel-diff), and a stale-timestamp check that
+fired before `update` ever ran. Each is now fixed to observe the behaviour, moved to a node test that can
+(`frameDelta`, the flame billboard), or removed where another test covers it.
+
+Each fix was proven by planting the bug it should catch and watching the test fail with its own message.
+Two first attempts at that were wrong in instructive ways: the blur's own `clearInput` is redundant with
+the pause's `keys.clear()`, so deleting it alone breaks nothing (both together do, and the test catches
+it); and the telegraph's always-on-top ghost copy hid an additive mark. On today's darker stone an
+additive mark is still red (10 degrees off against 8), so the telegraph test now guards what it can -
+a mark that stops being hot and legible - with thresholds tightened to the measured margins after a
+washed-out stone-coloured mark passed the old ones.
+
+The flooded fire-hue exemption was re-tested with the halo fix in: flooded still fails without it (amber at
+68 degrees over 3,310 px against the 212-degree fire), so it is the warm sconces, not the halos, and the
+exemption stays.
+
+`npm run build:check` now runs in CI after the build and fails if a development-only hook or the
+`?boot=eager` switch reaches the production bundle; it was proven by building with each guard removed.

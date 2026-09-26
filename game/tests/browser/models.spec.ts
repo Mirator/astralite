@@ -1,6 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import type { Page, TestInfo } from '@playwright/test';
-import { deltaE, measureMasks, probeScene, readFlash } from './enemy-mask.ts';
+import { deltaE, measureMasks, probeScene } from './enemy-mask.ts';
 import { type FigureLightness, knightLightness, probeScenes, settleFacing } from './figure-mask.ts';
 import { CAPTURING, canStand, expect, Game, openSpot, roomCentre, SCREEN_DIRECTIONS, speedOf, test, WARM_UP } from './helpers.ts';
 
@@ -9,7 +9,6 @@ import { CAPTURING, canStand, expect, Game, openSpot, roomCentre, SCREEN_DIRECTI
 // (`npm run shots:compare`, the `models` scenes in shots.spec.ts); what is held here is what a figure
 // costs to draw and that swapping arms leaves nothing behind.
 
-const ARMS = ['tideblade', 'fangs', 'spear', 'cleaver', 'maul', 'crossbow', 'flask'];
 /** The eight facings of `models-knight-strip` in shots.spec.ts: clockwise on screen from facing the lens. */
 const FACINGS = [['ArrowDown'], ['ArrowDown', 'ArrowLeft'], ['ArrowLeft'], ['ArrowUp', 'ArrowLeft'], ['ArrowUp'], ['ArrowUp', 'ArrowRight'], ['ArrowRight'], ['ArrowDown', 'ArrowRight']];
 
@@ -30,16 +29,23 @@ test('actorStats reads the knight, every living enemy and the rack off the live 
   expect(stats.drop!.meshes, 'the rack is drawn as more than eight meshes').toBeLessThanOrEqual(8);
 });
 
-test('swapping through every arm and back to the Tideblade leaks no geometry', async ({ game }) => {
+test('swapping arms and back to the Tideblade leaks no geometry, and every arm taken up casts a shadow', async ({ game }) => {
   await game.enter();
-  // Drawn after every swap, so each arm's merged geometry is actually uploaded and counted before the
-  // next swap releases it.
+  const start = await game.actorStats();
+  expect(start.knight.shadowless, 'the knight as built has a part that casts no shadow').toBe(0);
+  // Drawn after every swap, so each arm's merged geometry is actually uploaded and counted before the next
+  // swap releases it. Four arms rather than all seven: a heavy melee arm, the bolt pool, the flask's ember
+  // and the sword again - what each arm builds and releases is held per arm in tests/dungeon-armory.test.ts,
+  // and each drawn swap costs a shader compile on software GL.
   await game.step(0, true);
   const before = await game.state();
-  for (const id of [...ARMS.slice(1), 'tideblade']) {
+  for (const id of ['maul', 'crossbow', 'flask', 'tideblade']) {
     await game.equip(id);
     await game.step(0, true);
     expect((await game.state()).weapon.id).toBe(id);
+    // The knight's shadow flags are set once, over the figure he is built as; an arm built later has to
+    // carry its own or the moon draws him empty-handed.
+    expect((await game.actorStats()).knight.shadowless, `the ${id} casts no shadow`).toBe(0);
   }
   const after = await game.state();
   expect(after.render.geometries, 'a swap left merged geometry behind').toBe(before.render.geometries);
@@ -62,18 +68,6 @@ test('tearing a floor down leaves the knight his own materials', async ({ game }
   const after = await game.actorStats();
   expect(after.knight.disposedMaterials - before.knight.disposedMaterials, 'floor teardown disposed a material the knight still wears').toBe(0);
   expect(after.drop, 'the new floor laid no rack').not.toBeNull();
-});
-
-test('an arm taken up after the start casts a shadow like the one he started with', async ({ game }) => {
-  // The knight's shadow flags are set once, over the figure he is built as; an arm built later has
-  // to carry its own or the moon draws him empty-handed.
-  await game.enter();
-  const start = await game.actorStats();
-  expect(start.knight.shadowless, 'the knight as built has a part that casts no shadow').toBe(0);
-  for (const id of [...ARMS.slice(1), 'tideblade']) {
-    await game.equip(id);
-    expect((await game.actorStats()).knight.shadowless, `the ${id} casts no shadow`).toBe(0);
-  }
 });
 
 test.describe('knight', () => {
@@ -264,17 +258,6 @@ test.describe('enemies', () => {
     await game.finish();
   });
 
-  test('a windup still flashes the whole body of every kind', async ({ page }, info) => {
-    const { game, staged } = await stageCast(page, info);
-    for (const { kind, index } of staged) {
-      await game.configureCombat({ enemies: [{ index, windup: 0.3 }] });
-      await game.step(16);
-      const enemy = (await game.state()).enemies[index];
-      expect(enemy.windup, `the ${kind} is not winding up`).toBeGreaterThan(0);
-      const flash = await readFlash(page, enemy);
-      // THREAT, on the rig's own batch, on the skull and on the shield arm alike.
-      expect(flash, `the ${kind}'s flash missed part of the body`).toEqual({ rig: 0xff4529, skull: 0xff4529, arm: 0xff4529 });
-    }
-    await game.finish();
-  });
+  // A windup flashing the whole body the threat colour is held by tests/dungeon-enemy-view.test.ts, which
+  // drives the same spawnEnemy/poseEnemy the game does without paying for a page of its own.
 });

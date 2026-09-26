@@ -23,19 +23,15 @@ test('travel uses a running rig, freezes on pause, settles on release and yields
   const attack=await game.state();expect(attack.player.attackTime).toBeGreaterThan(0);
   expect(attack.player.locomotion.pitch).toBe(0);
   await page.keyboard.up('ArrowLeft');await game.step(400);
-  await page.keyboard.press('ShiftLeft');await game.step(60);
-  expect((await game.state()).player.dashTime).toBeGreaterThan(0);
-  await game.step(600);expect((await game.state()).player.locomotion.speed).toBeLessThan(.01);
+  // The dodge has to cut into a stride to show it yields: sampled from a standstill, as this used to be, a
+  // stride that ran straight through the dash would pass. Running, dash, and read the gait mid-dash.
+  await page.keyboard.down('ArrowLeft');await game.step(320);
+  const striding=(await game.state()).player.locomotion.speed;expect(striding).toBeGreaterThan(.5);
+  await page.keyboard.press('ShiftLeft');await game.step(80);
+  const dodging=await game.state();expect(dodging.player.dashTime).toBeGreaterThan(0);
+  expect(dodging.player.locomotion.speed,'the stride kept going through the dash').toBeLessThan(striding*.6);
+  await page.keyboard.up('ArrowLeft');await game.step(600);expect((await game.state()).player.locomotion.speed).toBeLessThan(.01);
 });
 
-test('holding movement into a wall stops the stride when the knight stops travelling',async({game,page})=>{
-  await game.enter();await game.step(120);await page.keyboard.down('ArrowLeft');
-  // The starting room is safe. Keep driving into its outer wall until both
-  // collision axes have settled, including the initial slide along the wall.
-  await game.step(5000);const stopped=await game.state();await game.step(500);
-  const held=await game.state();
-  expect(Math.hypot(held.player.x-stopped.player.x,held.player.z-stopped.player.z)).toBeLessThan(.001);
-  expect(held.player.locomotion.speed).toBeLessThan(.01);
-  expect(held.player.locomotion.phase).toBe(stopped.player.locomotion.phase);
-  await page.keyboard.up('ArrowLeft');
-});
+// Holding into a wall stopping the stride is held by footsteps.spec.ts's wall push, which checks the stride
+// phase and speed alongside the footfalls it already watched.

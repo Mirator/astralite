@@ -3,7 +3,7 @@ import test from 'node:test';
 import { DASH_BUFFER, DASH_SPEED, DASH_TIME, WALK_SPEED } from '../app/dungeon-combat.ts';
 import {
   armWith, ATTACK_BUFFER, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers,
-  frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingReady, swingStep,
+  frameDelta, frameStep, haltControl, MAX_FRAME_STEP, normalise, resetControl, startDash, startSwing, steer, swingReady, swingStep,
   tickBuffers, travelHeading, travelSpeed, type PlayerControl,
 } from '../app/dungeon-player.ts';
 import { chainLength, TIDEBLADE, weaponById } from '../app/dungeon-weapon.ts';
@@ -211,4 +211,16 @@ test('an arm without a string swings the same cut every time', () => {
   armWith(p, maul);
   startSwing(p, null);
   for (let i = 0; i < 180; i++) { frame(p, 1 / 60, true); assert.equal(p.chainBeat, 0); }
+});
+
+test('a frame hands the world nothing first, nothing backwards and never more than one capped step', () => {
+  assert.equal(frameDelta(1000, null), 0, 'the first frame only establishes the clock');
+  assert.ok(Math.abs(frameDelta(1016, 1000) - 0.016) < 1e-12);
+  assert.equal(frameDelta(0, 1000), 0, 'an older timestamp runs no time backwards');
+  assert.equal(frameDelta(5000, 1000), MAX_FRAME_STEP, 'a stall is not replayed');
+  assert.equal(frameDelta(NaN, 1000), 0, 'a timestamp that is not a number hands on nothing');
+  // What the clamp protects: a negative step through frameStep would raise hit-stop by its own size.
+  const p = createPlayerControl();
+  frameStep(p, frameDelta(0, 1000));
+  assert.equal(p.hitStop, 0);
 });

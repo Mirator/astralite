@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey } from '../app/dungeon-floor.ts';
 import { BOLT_RADIUS, flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../app/dungeon-projectile.ts';
+import { chainLength, WEAPONS } from '../app/dungeon-weapon.ts';
 
 const openFloor = (half = 10) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
 const cells = openFloor();
@@ -54,6 +55,19 @@ test('piercing spends itself on the nearest body first', () => {
   assert.deepEqual(single.hits, [4], 'without pierce only the near one');
 });
 
+test('two bodies brushed in one step: a spent bolt stops in the nearer, whatever the caller\'s order', () => {
+  // One frame at 19 u/s is a single step of about 0.32, so both bodies sit inside the same swept segment.
+  // Only the order along the path can decide between them; the caller lists the far one first.
+  const far = mark(0, -.3, 7), near = mark(.2, -.05, 4);
+  const shot = bolt();
+  const flight = flyShot(shot, cells, [far, near], 1 / 60);
+  assert.deepEqual(flight.hits, [4], 'the bolt went through the near body to bill the far one');
+  assert.ok(flight.done);
+  assert.deepEqual([...shot.spent], [4], 'the far body was marked as billed by a bolt that never reached it');
+  // With one pierce left over it takes both, still nearest first.
+  assert.deepEqual(flyShot(bolt({ pierce: 1 }), cells, [far, near], 1 / 60).hits, [4, 7]);
+});
+
 test('a body off to the side of the line is missed', () => {
   assert.deepEqual(flyShot(bolt(), cells, [mark(BOLT_RADIUS + .3, -.3)], 1 / 60).hits, []);
   assert.deepEqual(flyShot(bolt(), cells, [mark(BOLT_RADIUS - .2, -.3)], 1 / 60).hits, [0]);
@@ -79,6 +93,31 @@ test('the quiver refills on its own clock and never past full', () => {
   const long = reloadStep(0, 4, 0, 1.8, 60);
   assert.equal(long.spare, 4);
   for (const bad of [0, -1, Number.NaN]) assert.deepEqual(reloadStep(1, 4, .5, 1.8, bad), { spare: 1, timer: .5 });
+});
+
+test('held fire outpaces the refill on every ranged arm, so the quiver drains and stays drained', () => {
+  // The relation ranged.spec.ts's "sustained fire" depends on. Held, the trigger restarts the swing the
+  // frame the last one ends and the shot leaves at its anticipation, so one leaves every `duration`
+  // seconds while one comes back every `refill`: a quiver that refilled faster than it fires would let
+  // the knight back away shooting forever.
+  const ranged = Object.values(WEAPONS).filter(weapon => weapon.ranged);
+  assert.ok(ranged.length >= 2, 'the crossbow and the flask are both ranged');
+  for (const weapon of ranged) {
+    const { capacity, refill } = weapon.ranged!;
+    assert.equal(chainLength(weapon), 1, `${weapon.id} is a string, so its cadence is not one duration`);
+    assert.ok(weapon.duration < refill, `${weapon.id} fires every ${weapon.duration}s but refills every ${refill}s`);
+    // Thirteen seconds of held fire at 60 fps, as the game's loop drives the quiver and the reload clock.
+    let spare = capacity, timer = 0, swing = 0, loosed = false;
+    const dt = 1 / 60;
+    for (let frame = 0; frame < 13 * 60; frame++) {
+      if (spare < capacity) ({ spare, timer } = reloadStep(spare, capacity, timer, refill, dt));
+      swing += dt;
+      if (!loosed && swing >= weapon.anticipation) { loosed = true; if (spare > 0) spare -= 1; }
+      if (swing >= weapon.duration) { swing -= weapon.duration; loosed = false; }
+      // After nine seconds, as the browser samples it: at the bottom, oscillating between none and one.
+      if (frame >= 9 * 60) assert.ok(spare <= 1, `${weapon.id} climbed back to ${spare} under held fire`);
+    }
+  }
 });
 
 test('fire on the ground bites on its own clock, once a frame at most', () => {
