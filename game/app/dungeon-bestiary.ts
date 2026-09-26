@@ -12,7 +12,8 @@
 // (dungeon-occlusion.ts). It does not find the rest: a share in `PACK_MIX` (dungeon-floor.ts) or it is
 // never dealt; a branch in `decideEnemy` and `enemyPose` if its attack or pose style is new; the balance
 // sim's dodge policy for that attack (scripts/balance/sim.ts); node tests for the rule, and a browser test
-// that the running game is wired to it; then `npm run figures` to look at it, and `npm run balance:check`.
+// that the running game is wired to it; then `npm run figures` to look at it, `?arena=<kind>:3` to fight it
+// (tests/README.md, The arena), and `npm run balance:check`.
 
 export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer'] as const;
 export type EnemyKind = typeof ENEMY_KINDS[number];

@@ -163,6 +163,8 @@ export type Snapshot = {
     inFlight: number;
     fires: number;
   };
+  /** The development arena this page is charting floors as, or null for an ordinary keep. */
+  arena: { roster: EnemyKind[]; level: number } | null;
   /** Bolts loosed at the knight, still in the air. */
   hostileBolts: { kind: EnemyKind; x: number; z: number; dx: number; dz: number; damage: number }[];
   boons: {

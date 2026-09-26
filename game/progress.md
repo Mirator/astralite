@@ -2949,7 +2949,25 @@ costs a standing knight exactly its warded damage, and a dash into the next bolt
 unhurt. Planted there: the dash not handed to the bolt, the volley never becoming a bolt, a landed bolt
 billing nothing - each failed with its own message.
 
-PR-gate browser suite on SwiftShader, two workers: 131 of 132 passed in 20.4 minutes. The one failure was
-the first scenario of the run, `a11y.spec.ts:62` (the menu's Back button never took focus within 25 s),
-which touches no enemy code. It did not reproduce: 1 of 1 alone and 6 of 6 from a cold server with two
-workers on this branch, 3 of 3 on the commit before it. Cause unknown, so noted here rather than called a flake.
+PR-gate browser suite on SwiftShader, two workers: 131 of 132 passed in 20.4 minutes. The one failure,
+`a11y.spec.ts:62` (the menu's Back button never took focus within 25 s), was caused by editing
+`dungeon-bestiary.ts` while the suite ran: the server log shows `page reload app/dungeon-bestiary.ts`,
+`hmr update /app/dungeon-game.tsx` and `program reload` at the moment that scenario sat on the Settings page,
+and hot reload re-rendered the menu out from under it. The suite's own dev server now runs with no watcher
+and no hot reload (`GAME_TEST_SERVER=1`, set by playwright.config.ts, read by vite.config.ts). Proven with a
+loop editing that file every 3 s during `a11y.spec.ts --repeat-each=3`: 6/6 with the flag, 4 failures without.
+
+## 2026-09-26 - The development arena
+
+`?arena=guard:2,archer:1&level=2`, the menu's **Arena · dev** page, or `dungeonTest.buildArena(roster, level)`
+charts floors as `arenaFloor` (app/dungeon-arena.ts): the floor the seed would lay, every spawn cleared, the
+roster awake on a ring in the gate. Everything else is the generated floor, asserted in node for 5 seeds x 3
+floors, so the fight happens under the game's own lighting and rules. The stair is open (nothing bars it) and
+leads to the same roster a floor deeper. The listener, the hook and the menu entry sit behind NODE_ENV;
+`build:check` now also fails on the arena's event name or menu label, and did when the menu entry's guard was
+removed. Planted and caught: hidden bodies, spawns left elsewhere, no spacing (a full gate then packs bodies
+1.41 tiles apart against 2.0), a link that skips unknown kinds; in the browser, a reset that keeps the arena
+(the pool's snapshot check names `arena`), a chart that ignores it, a menu request that never builds. The
+clear zone round the knight's arrival is redundant at today's room sizes (the ring leaves 3.6 at the closest)
+and a planted removal survives; it is kept for a smaller gate. One manual first-visit run on a just-started dev
+server never reached the arena and did not reproduce in four more runs, cold cache included.
