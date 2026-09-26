@@ -2948,3 +2948,8 @@ the sim bills bolts to the archer. In the browser, on pinned floor 2 (seed 7, on
 costs a standing knight exactly its warded damage, and a dash into the next bolt is seen passing him
 unhurt. Planted there: the dash not handed to the bolt, the volley never becoming a bolt, a landed bolt
 billing nothing - each failed with its own message.
+
+PR-gate browser suite on SwiftShader, two workers: 131 of 132 passed in 20.4 minutes. The one failure was
+the first scenario of the run, `a11y.spec.ts:62` (the menu's Back button never took focus within 25 s),
+which touches no enemy code. It did not reproduce: 1 of 1 alone and 6 of 6 from a cold server with two
+workers on this branch, 3 of 3 on the commit before it. Cause unknown, so noted here rather than called a flake.
