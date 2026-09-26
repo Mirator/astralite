@@ -228,24 +228,19 @@ test.describe('the moment of contact', () => {
  */
 test.describe('the light budget', () => {
   test.use({ seeds: [0x60] });
-  test('every floor draws with the same small, fixed set of point lights', async ({ game }) => {
-    const counts: number[] = [];
-    for (const level of [1, 2, 3]) {
-      await game.buildFloor(level);
-      await game.step(16, true);
-      counts.push((await game.state()).render.pointLights);
-    }
-    expect(counts[0], 'more point lights than the torches, the fill and the anchor pool').toBeLessThanOrEqual(9);
-    expect(counts, 'a floor changed the point-light count, which recompiles every lit shader').toEqual([counts[0], counts[0], counts[0]]);
-  });
-
-  test('a rebuild reuses the shader programs the last floor compiled instead of recompiling them', async ({ game }) => {
-    const programs: number[] = [];
+  // One walk down and back for both claims: each rebuild is the expensive part, and both are read off the
+  // same drawn frame after it.
+  test('every floor draws with the same small, fixed set of point lights, and a rebuild reuses the programs the last one compiled', async ({ game }) => {
+    const lights: number[] = [], programs: number[] = [];
     for (const level of [1, 2, 3, 1]) {
       await game.buildFloor(level);
       await game.step(16, true);
-      programs.push((await game.state()).render.programs);
+      const { render } = await game.state();
+      lights.push(render.pointLights);
+      programs.push(render.programs);
     }
+    expect(lights[0], 'more point lights than the torches, the fill and the anchor pool').toBeLessThanOrEqual(9);
+    expect(lights, 'a floor changed the point-light count, which recompiles every lit shader').toEqual([lights[0], lights[0], lights[0], lights[0]]);
     // three.js destroys a program when its last material is disposed, and every rebuild disposes the old
     // floor's materials - so without pinning the count dips after each rebuild and the same programs compile
     // again, seconds of stall per floor under software GL.

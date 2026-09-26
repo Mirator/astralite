@@ -43,7 +43,9 @@ test('carved chambers keep distant architecture out of the rendered frame',async
 
 test.describe('polish on a phone',()=>{
   test.use({viewport:{width:390,height:844},hasTouch:true,isMobile:true});
-  test('materials remain readable while the thumbstick and held strike work',async({game})=>{
+  // One phone page for everything that needs one on the gate: each such scenario pays for a page of its own,
+  // so a11y.spec.ts's inert-controls check rides at the end of this one rather than booting another.
+  test('materials remain readable while the thumbstick and held strike work, and the controls go inert under a card',async({game,page})=>{
     await game.enter();
     const before=await game.state(),stick=await game.centreOf('.touch-stick');
     await game.touch('touchStart',[{...stick,id:1}]);
@@ -61,5 +63,13 @@ test.describe('polish on a phone',()=>{
     await game.touch('touchEnd',[]);
     await game.step(500);
     expect((await game.state()).player.attackTime).toBe(0);
+    // The touch controls are inert while a card is open and live again once it closes.
+    const actions=page.locator('.touch-actions');
+    await expect(actions).not.toHaveAttribute('inert');
+    await page.keyboard.press('Escape');await game.step(16);
+    await expect(actions).toHaveAttribute('inert');
+    await expect(page.locator('.touch-stick')).toHaveAttribute('inert');
+    await page.keyboard.press('Escape');await game.step(16);
+    await expect(actions).not.toHaveAttribute('inert');
   });
 });

@@ -96,23 +96,5 @@ test('the menu opens its pages in place and always comes back to the list', asyn
   await game.step(16);
 });
 
-test.describe('on a phone', () => {
-  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-
-  test('the touch controls are inert while a card is open and live again once it closes', async ({
-    game,
-    page,
-  }) => {
-    await game.enter();
-    await game.step(120);
-    const actions = page.locator('.touch-actions');
-    await expect(actions).not.toHaveAttribute('inert');
-    await page.keyboard.press('Escape');
-    await game.step(16);
-    await expect(actions).toHaveAttribute('inert');
-    await expect(page.locator('.touch-stick')).toHaveAttribute('inert');
-    await page.keyboard.press('Escape');
-    await game.step(16);
-    await expect(actions).not.toHaveAttribute('inert');
-  });
-});
+// The touch controls going inert under a card is checked at the end of polish.spec.ts's phone scenario, which
+// already has a phone page open; a second one here cost a page of its own for four assertions.
