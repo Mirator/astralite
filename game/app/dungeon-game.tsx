@@ -34,6 +34,7 @@ import { flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type 
 import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
+import { sceneDigest } from './dungeon-test-hooks';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
 import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
@@ -2311,7 +2312,7 @@ export default function DungeonGame() {
     const hooks = window as Window & {
       advanceTime?: (ms: number, draw?: boolean) => void;
       render_game_to_text?: () => string;
-      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number, seed?: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void; footstepParticles?: () => ReturnType<typeof footsteps.particles>; setFootstepsEnabled?: (enabled: boolean) => void; actorStats?: () => { knight: ReturnType<typeof actorStat> & { disposedMaterials: number }; enemies: ({ kind: Enemy['kind'] } & ReturnType<typeof actorStat>)[]; drop: { kind: WeaponId; meshes: number; triangles: number } | null }; lightDiagnostics?: (index: number, radius?: number) => unknown; drainGpu?: () => number; textureHash?: () => { flagstone: number; masonry: number } };
+      dungeonTest?: { teleport: (x: number, z: number) => void; equip: (id: string) => void; descend: () => void; buildFloor: (level: number, seed?: number) => void; grantXp: (amount: number) => void; reset: (seed?: number) => void; runLog: () => RunEnd[]; configureCombatFixture?: (fixture: CombatFixture) => void; cutawayDiagnostics?: () => ReturnType<typeof cutaway.diagnostics>; setCutawayEnabled?: (enabled: boolean) => void; footstepParticles?: () => ReturnType<typeof footsteps.particles>; setFootstepsEnabled?: (enabled: boolean) => void; actorStats?: () => { knight: ReturnType<typeof actorStat> & { disposedMaterials: number }; enemies: ({ kind: Enemy['kind'] } & ReturnType<typeof actorStat>)[]; drop: { kind: WeaponId; meshes: number; triangles: number } | null }; lightDiagnostics?: (index: number, radius?: number) => unknown; drainGpu?: () => number; textureHash?: () => { flagstone: number; masonry: number }; sceneDigest?: () => unknown };
     };
     // Drive the run from the console or a browser test: see tests/README.md for the usual recipes.
     const testHooks: NonNullable<typeof hooks.dungeonTest> = {
@@ -2387,6 +2388,7 @@ export default function DungeonGame() {
       // wrong place or skips one shows up here even though nothing about the material or the floor it
       // skins would otherwise reveal it. Read-only, dropped from a production build with the rest of
       // this block.
+      testHooks.sceneDigest = () => sceneDigest(world);
       testHooks.textureHash = () => {
         const hash = (texture: THREE.Texture) => {
           const canvas = texture.image as HTMLCanvasElement;

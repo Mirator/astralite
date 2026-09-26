@@ -409,7 +409,8 @@ test.describe('characterization of the floor build', () => {
       const extra = await page.evaluate(() => {
         const hooks = (window as GameWindow).dungeonTest!;
         const cutaway = hooks.cutawayDiagnostics!();
-        return { actors: hooks.actorStats!(), textures: hooks.textureHash!(), cutaway: { meshes: cutaway.registeredMeshCount, materials: cutaway.registeredMaterialCount } };
+        const digest = (hooks as { sceneDigest?: () => unknown }).sceneDigest!();
+        return { actors: hooks.actorStats!(), textures: hooks.textureHash!(), cutaway: { meshes: cutaway.registeredMeshCount, materials: cutaway.registeredMaterialCount }, digest };
       });
       const built = await game.floor();
       const walkable = built.tiles.filter((t) => canStand(built.cells, t.x * TILE, t.z * TILE)).length;
