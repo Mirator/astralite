@@ -7,7 +7,6 @@ import {
   keyToward,
   openSpot,
   SCREEN_DIRECTIONS,
-  strikeStance,
   test,
   TILE,
   trackEnemy,
@@ -246,53 +245,9 @@ test('the sword respects the same walls a skeleton does, and an open lane still 
   );
 });
 
-test('one swing takes exactly one hit off an enemy, however long the blade is on it', async ({
-  game,
-  page,
-}) => {
-  await game.enter();
-  const floor = await game.floor();
-  const opening = await game.state();
-  assertNothingDeadYet(opening, floor);
-  const warden = opening.enemies.find((enemy) => enemy.kind === 'warden');
-  expect(warden).toBeDefined();
-  const index = spawnIndex(opening, warden!);
-
-  const spot = openSpot(
-    floor,
-    { x: warden!.x, z: warden!.z },
-    {
-      avoid: [
-        ...hazardsOf(opening),
-        ...opening.enemies
-          .filter((enemy) => enemy !== warden)
-          .map((enemy) => ({ x: enemy.x, z: enemy.z })),
-      ],
-      clearance: 5,
-    },
-  );
-  const stance = strikeStance(floor, spot);
-  await game.teleport(stance.x, stance.z);
-  await game.step(16);
-  await game.configureCombat({
-    enemies: [
-      { index, x: spot.x, z: spot.z, windup: 0.72, aim: { x: 0, z: 1 } },
-    ],
-  });
-  // A floor-one warden is four blows of the starting blade; vitality is quoted in quarter-hits.
-  const armed = await game.state();
-  expect(trackEnemy(armed, 'warden', spot, 1).hp).toBe(4 * armed.weapon.strikeDamage);
-
-  // The blade is in contact from 0.065s to 0.175s — seven frames of overlap.
-  // 0.38s of swing plus the 0.035s of hitstop a landed blow adds.
-  await swing(page, stance.key);
-  await game.step(500);
-  const after = await game.state();
-  expect(after.player.attackTime).toBe(0);
-  expect(trackEnemy(after, 'warden', spot, 1).hp).toBe(
-    4 * armed.weapon.strikeDamage - after.weapon.strikeDamage,
-  );
-});
+// One swing taking exactly one hit, however long the blade is in contact, is held by gameplay.spec.ts's
+// held-strike test: it reads the warden's exact vitality after each full swing through the contact window,
+// so a second hit in one swing fails there.
 
 test('two kills in one swing pay out in full even when the first crosses a rank', async ({
   game,

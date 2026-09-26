@@ -82,14 +82,18 @@ test.describe('the floor realizes exactly the motifs the planner plans', () => {
     }
   });
 
+  // The one rebuild-leak test in the suite (polish.spec.ts and footsteps.spec.ts each used to keep a weaker
+  // copy). Floor three, because it carries everything a floor can hold: water, wet masonry, niches, foliage.
   test('repeated rebuilds of the same floor settle at stable geometry and texture counts', async ({ game }) => {
     await game.enter();
     await game.step(SETTLE);
     const counts: { geometries: number; textures: number }[] = [];
     for (let i = 0; i < 4; i++) {
-      await game.buildFloor(1);
+      await game.buildFloor(3);
       await game.step(0, true);
-      const { geometries, textures } = (await game.state()).render;
+      const state = await game.state();
+      if (i === 0) expect((state.floor as typeof state.floor & { waterfalls: unknown[] }).waterfalls.length, 'floor three lost its water, so this no longer rebuilds it').toBeGreaterThan(0);
+      const { geometries, textures } = state.render;
       counts.push({ geometries, textures });
     }
     const last = counts[counts.length - 1];

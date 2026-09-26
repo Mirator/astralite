@@ -218,6 +218,7 @@ test('a frame hands the world nothing first, nothing backwards and never more th
   assert.ok(Math.abs(frameDelta(1016, 1000) - 0.016) < 1e-12);
   assert.equal(frameDelta(0, 1000), 0, 'an older timestamp runs no time backwards');
   assert.equal(frameDelta(5000, 1000), MAX_FRAME_STEP, 'a stall is not replayed');
+  assert.equal(frameDelta(NaN, 1000), 0, 'a timestamp that is not a number hands on nothing');
   // What the clamp protects: a negative step through frameStep would raise hit-stop by its own size.
   const p = createPlayerControl();
   frameStep(p, frameDelta(0, 1000));

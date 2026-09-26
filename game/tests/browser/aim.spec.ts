@@ -97,7 +97,7 @@ test('a cursor that leaves the canvas stops aiming', async ({ game, page }) => {
   await page.keyboard.up('ArrowDown');
 });
 
-test('the left mouse button strikes and holds a strike going', async ({ game, page }) => {
+test('the left mouse button strikes and holds a strike going, and the right one dodges', async ({ game, page }) => {
   await game.enter();
   await game.step(120);
 
@@ -120,12 +120,8 @@ test('the left mouse button strikes and holds a strike going', async ({ game, pa
   await page.mouse.up({ button: 'left' });
   await game.step(700);
   expect((await game.state()).player.attackTime, 'releasing the button stops it').toBe(0);
-});
 
-test('the right mouse button dodges', async ({ game, page }) => {
-  await game.enter();
-  await game.step(120);
-  const box = await canvasBox(page);
+  // And the right button dodges.
   await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
   await page.mouse.down({ button: 'right' });
   await page.mouse.up({ button: 'right' });
@@ -133,7 +129,7 @@ test('the right mouse button dodges', async ({ game, page }) => {
   expect((await game.state()).player.dashTime).toBeGreaterThan(0);
 });
 
-test('the aim follows the cursor as it moves, not just where it first was', async ({ game, page }) => {
+test('the aim follows the cursor as it moves, with or without a click, not just where it first was', async ({ game, page }) => {
   // The gap this closes: every other test here puts the cursor somewhere once and strikes. That passes
   // just as well if the aim latched onto the first position it ever saw and never updated again, which
   // is exactly the failure a player would notice within one fight.
@@ -141,6 +137,16 @@ test('the aim follows the cursor as it moves, not just where it first was', asyn
   await game.step(120);
 
   const box = await canvasBox(page);
+  // Moving the cursor alone re-aims, with no click at all: a click could supply the position itself.
+  await page.mouse.move(box.x + box.width * 0.85, box.y + box.height * 0.5);
+  await game.step(48);
+  const right = await game.state();
+  expect(right.aim.device, 'the pointer owns the aim once it has moved').toBe('pointer');
+  expect(right.aim.ndc, 'and the game knows where it is').not.toBeNull();
+  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.5);
+  await game.step(48);
+  expect((await game.state()).aim.ndc!.x, 'the cursor position tracks across the screen').toBeLessThan(right.aim.ndc!.x - 0.5);
+
   const strikeAt = async (fraction: number) => {
     await page.mouse.move(box.x + box.width * fraction, box.y + box.height * 0.5);
     await game.step(48);
@@ -157,22 +163,4 @@ test('the aim follows the cursor as it moves, not just where it first was', asyn
   expect(await strikeAt(0.1), 'cut to the left of the picture').toBeLessThan(-0.5);
   expect(await strikeAt(0.9), 'then to the right, without touching a key').toBeGreaterThan(0.5);
   expect(await strikeAt(0.1), 'and back to the left again').toBeLessThan(-0.5);
-});
-
-test('moving the cursor alone re-aims, with no click at all', async ({ game, page }) => {
-  await game.enter();
-  await game.step(120);
-  const box = await canvasBox(page);
-
-  await page.mouse.move(box.x + box.width * 0.85, box.y + box.height * 0.5);
-  await game.step(48);
-  const right = await game.state();
-  expect(right.aim.device, 'the pointer owns the aim once it has moved').toBe('pointer');
-  expect(right.aim.ndc, 'and the game knows where it is').not.toBeNull();
-  const wasX = right.aim.ndc!.x;
-
-  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.5);
-  await game.step(48);
-  const left = await game.state();
-  expect(left.aim.ndc!.x, 'the cursor position tracks across the screen').toBeLessThan(wasX - 0.5);
 });

@@ -1,4 +1,4 @@
-import { canStand, expect, hasClearPath, strikeStance, test, trackEnemy, type Snapshot } from './helpers.ts';
+import { canStand, expect, hasClearPath, SCREEN_DIRECTIONS, strikeStance, test, trackEnemy, type Snapshot } from './helpers.ts';
 import { generateFloor } from '../../app/dungeon-floor.ts';
 
 type PlayerPose = { bodyYaw:number; trail:boolean; trailTriangles:number };
@@ -25,12 +25,17 @@ test('impact accents come from real hits, freeze with pause, and expire without 
   expect((await game.state()).enemies[0].hp).toBe(blade);
 });
 
-for(const key of ['ArrowRight','ArrowLeft','ArrowUp','ArrowDown']){
-  test(`player blade trail follows the ${key} cut and expires after a miss`,async({game,page})=>{
-    await game.enter();await game.step(120);
+// One knight, four cuts: the trail's rules do not depend on which way he faces, so the four keys share one
+// boot and one reset rather than paying for four. Each cut is checked to point where its key did, which the
+// four separate copies never asserted.
+test('the player blade trail follows every cut and expires after a miss',async({game,page})=>{
+  await game.enter();await game.step(120);
+  for(const [key,screen] of [['ArrowRight','right'],['ArrowLeft','left'],['ArrowUp','up'],['ArrowDown','down']] as const){
     await page.keyboard.down(key);await game.step(16);await page.keyboard.up(key);
     await page.keyboard.press('Space');await game.step(40);
     const anticipation=await game.state();
+    const aim=SCREEN_DIRECTIONS[screen];
+    expect(anticipation.player.facing.x*aim.x+anticipation.player.facing.z*aim.z,`the ${key} cut does not face its key`).toBeGreaterThan(.99);
     expect(anticipation.player.swordAngle).toBeLessThan(0);
     expect(playerPose(anticipation).trail).toBe(false);
     await game.step(90);const contact=await game.state();
@@ -42,8 +47,10 @@ for(const key of ['ArrowRight','ArrowLeft','ArrowUp','ArrowDown']){
     await game.step(280);const recovered=await game.state();
     expect(recovered.player.attackTime).toBe(0);expect(recovered.player.swordAngle).toBe(0);
     expect(playerPose(recovered).trail).toBe(false);expect(playerPose(recovered).bodyYaw).toBe(0);
-  });
-}
+    // Past the string's link window, so the next key opens a fresh cut rather than the next beat.
+    await game.step(400);
+  }
+});
 
 test('pause freezes a slash, dodge clears it, and held strikes settle on release',async({game,page})=>{
   await game.enter();await game.step(120);await page.keyboard.press('Space');await game.step(130);
@@ -82,6 +89,10 @@ for(const kind of ['guard','stalker','warden'] as const){
     expect(current.windup).toBeGreaterThan(.15);const health=(await game.state()).health;
     await game.step(current.windup*1000-40);current=trackEnemy(await game.state(),kind,current);
     expect((await game.state()).health).toBe(health);
+    // The silhouette of the tell, read off a real encounter (these used to be a second, identically
+    // staged test per kind in polish.spec.ts): the blade raised, or the stalker coiled.
+    if(kind==='stalker')expect(enemyPose(current).pitch,'the stalker is not coiled at the end of its tell').toBeLessThan(-.5);
+    else expect(enemyPose(current).weapon,`the ${kind} blade is not raised at the end of its tell`).toBeGreaterThan(1);
     if(kind!=='stalker')expect(enemyPose(current).trails).toBe(1);
     await game.capture(`${kind}-cut-before-contact`);
     await game.step(current.windup*1000+1);current=trackEnemy(await game.state(),kind,current);
@@ -91,6 +102,7 @@ for(const kind of ['guard','stalker','warden'] as const){
       expect(enemyPose(current).weapon).toBeLessThan(0);
       expect(enemyPose(current).trails).toBe(1);
     }else{
+      expect(current.lunge,'the stalker did not pounce on release').toBeGreaterThan(0);
       await game.step(96);current=trackEnemy(await game.state(),kind,current);
       expect(enemyPose(current).trails).toBe(2);expect(enemyPose(current).cue).toBe(false);
     }

@@ -33,14 +33,5 @@ test('travel uses a running rig, freezes on pause, settles on release and yields
   await page.keyboard.up('ArrowLeft');await game.step(600);expect((await game.state()).player.locomotion.speed).toBeLessThan(.01);
 });
 
-test('holding movement into a wall stops the stride when the knight stops travelling',async({game,page})=>{
-  await game.enter();await game.step(120);await page.keyboard.down('ArrowLeft');
-  // The starting room is safe. Keep driving into its outer wall until both
-  // collision axes have settled, including the initial slide along the wall.
-  await game.step(5000);const stopped=await game.state();await game.step(500);
-  const held=await game.state();
-  expect(Math.hypot(held.player.x-stopped.player.x,held.player.z-stopped.player.z)).toBeLessThan(.001);
-  expect(held.player.locomotion.speed).toBeLessThan(.01);
-  expect(held.player.locomotion.phase).toBe(stopped.player.locomotion.phase);
-  await page.keyboard.up('ArrowLeft');
-});
+// Holding into a wall stopping the stride is held by footsteps.spec.ts's wall push, which checks the stride
+// phase and speed alongside the footfalls it already watched.

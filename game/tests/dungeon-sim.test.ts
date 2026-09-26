@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BOONS, createRun, draftBoons, grantXp, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
+import { BOONS, clearRoomReward, createRun, draftBoons, grantXp, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
 
 // A run with the draft already open, since every boon needs that gate held down.
 const drafting = (patch: Partial<Run> = {}): Run => Object.assign(createRun(), { choosing: true, pendingRanks: 1 }, patch);
@@ -180,3 +180,31 @@ test('the draft shuffle is uniform: every card is equally likely to be offered',
   }
 });
 
+
+test('a dead end pays XP and a real heal; the trunk only tops you up', () => {
+  // Detours are optional, so they are what pays: 60 XP and 30 vitality against the trunk's 12.
+  const detour = createRun();
+  detour.hp = 40;
+  assert.deepEqual(clearRoomReward(detour, true), { xp: XP_DEAD_END, ranks: 0, healed: 30 });
+  assert.deepEqual([detour.totalXp, detour.hp], [60, 70]);
+
+  const trunk = createRun();
+  trunk.hp = 40;
+  assert.deepEqual(clearRoomReward(trunk, false), { xp: 0, ranks: 0, healed: 12 });
+  assert.deepEqual([trunk.totalXp, trunk.hp], [0, 52]);
+
+  // Neither overfills: the heal reported is what was actually restored, up to the cap and no further.
+  const nearly = createRun();
+  nearly.hp = 90;
+  assert.deepEqual(clearRoomReward(nearly, true), { xp: XP_DEAD_END, ranks: 0, healed: 10 });
+  assert.equal(nearly.hp, nearly.maxHp);
+  const full = createRun();
+  assert.deepEqual(clearRoomReward(full, false), { xp: 0, ranks: 0, healed: 0 });
+  assert.deepEqual([full.totalXp, full.hp], [0, 100]);
+
+  // A dead end's XP counts toward the ladder like any other: one that crosses a rank says so.
+  const brink = createRun();
+  grantXp(brink, 150);
+  assert.equal(clearRoomReward(brink, true).ranks, 1);
+  assert.deepEqual([brink.rankLevel, brink.pendingRanks], [2, 1]);
+});

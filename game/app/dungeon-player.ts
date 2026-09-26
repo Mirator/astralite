@@ -125,7 +125,11 @@ export const MAX_FRAME_STEP = 0.04;
  * timestamp older than the last one it saw, and a negative step reaching `frameStep` would run hit-stop
  * backwards into a second-long freeze.
  */
-export const frameDelta = (now: number, last: number | null) => last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, MAX_FRAME_STEP));
+export const frameDelta = (now: number, last: number | null) => {
+  const step = last === null ? 0 : (now - last) / 1000;
+  // `Math.max(0, NaN)` is NaN, so a bad timestamp is caught here rather than handed on.
+  return Number.isFinite(step) ? Math.max(0, Math.min(step, MAX_FRAME_STEP)) : 0;
+};
 
 /**
  * The first thing a frame does with its time: a frame spent in hit-stop is time the world does not get.

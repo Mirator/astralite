@@ -3,6 +3,9 @@
 Two layers: a node suite over the pure modules, and hooks the running game exposes so a browser
 console (or an automated driver) can steer a run without playing it by hand.
 
+Before adding or changing a test, read "Writing tests that can fail" in `AGENTS.md`: every test has to be
+shown failing on the bug it names, and the rules there are what a September 2026 audit of this suite needed.
+
 ## Node suite
 
 ```bash

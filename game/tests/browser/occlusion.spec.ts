@@ -254,7 +254,9 @@ test.describe('local actor cutaway', () => {
   });
 });
 
-test.describe('local actor cutaway on a phone', () => {
+// Nightly: the cutaway's projection is covered at desktop aspect on every pull request; this repeats it at a
+// phone's, which costs a page of its own and a full occluder search.
+test.describe('local actor cutaway on a phone', { tag: '@nightly' }, () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, seeds: [0x1] });
 
   test('an occluded player still opens a window at phone size and aspect', async ({ game }) => {

@@ -3,7 +3,9 @@ import { expect, strikeStance, test, type Snapshot } from './helpers.ts';
 type Corpse={kind:string;x:number;y:number;z:number;scale:number[];rotation:number;age:number;settled:boolean;visible:boolean;cue:boolean;bar:boolean;trails:boolean};
 const corpses=(state:Snapshot)=>(state as Snapshot&{corpses:Corpse[]}).corpses;
 
-for(const kind of ['guard','stalker','warden'])test(`${kind} falls, persists, freezes on pause and cannot fight or pay rewards twice`,async({game,page})=>{
+// The corpse wiring does not depend on the kind (the per-kind fall itself is tests/dungeon-death.test.ts), so
+// the warden runs on every pull request and the other two nightly.
+for(const kind of ['guard','stalker','warden'])test(`${kind} falls, persists, freezes on pause and cannot fight or pay rewards twice`,{tag:kind==='warden'?[]:['@nightly']},async({game,page})=>{
   await game.enter();const opening=await game.state(),index=opening.enemies.findIndex(e=>e.kind===kind),floor=await game.floor(),spot={x:0,z:0},stance=strikeStance(floor,spot);
   expect(index).toBeGreaterThanOrEqual(0);await game.teleport(stance.x,stance.z);
   await game.configureCombat({enemies:[{index,x:0,z:0,hp:1,cooldown:10,windup:0}]});
