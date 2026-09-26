@@ -140,6 +140,8 @@ export type Snapshot = {
   mode: 'ready' | 'paused' | 'playing' | 'complete' | 'won' | 'lost';
   /** Whether a floor build is pending behind the loading veil. */
   building: boolean;
+  /** Whether the world stopped on a throw it could not answer and is showing the reload screen. */
+  fault: boolean;
   boonOffer: boolean;
   muted: boolean;
   roomName: string;
