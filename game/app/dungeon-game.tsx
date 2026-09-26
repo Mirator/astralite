@@ -9,7 +9,7 @@ import { impactEffects } from './dungeon-impact';
 import { footstepEffects } from './dungeon-footsteps';
 import { footfalls, footSupport, type FootstepKind } from './dungeon-footstep-rules';
 import { startDeath } from './dungeon-death';
-import { stoneTexture } from './dungeon-atmosphere';
+import { stoneTexture, type LightAnchor } from './dungeon-atmosphere';
 import { flameShaderKeeper } from './dungeon-flame-fx';
 import { createPostChain, postQuality } from './dungeon-post';
 import { bloodDecals } from './dungeon-blood';
@@ -28,6 +28,8 @@ import { flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type 
 import { borrowedLight } from './dungeon-radiance';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
+import { createSparks } from './dungeon-sparks';
+import { nearestFirst } from './dungeon-nearest';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
 import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapLabel, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
@@ -463,6 +465,10 @@ export default function DungeonGame() {
     // One scratch vector for every bid: a light hung at floor level throws a hot
     // ring and reaches no wall, so each event lifts its offer off the paving.
     const lampAt = new THREE.Vector3();
+    // Scratch for the frame's own arithmetic, so a frame allocates nothing it throws away: the fill
+    // light's hang, the camera's lead, the shake, a blow's shove, and the lamps nearest the knight.
+    const FILL_OFFSET = new THREE.Vector3(1.4,3.2,2.2), focusAhead = new THREE.Vector3(), shakeBy = new THREE.Vector3(), struckBy = new THREE.Vector3();
+    const nearTorches: THREE.Vector3[] = [], nearAnchors: LightAnchor[] = [];
     const player = makeKnight(); world.add(player);
     // Every transform the rig is born with, so a reset can put it back. The pose is reached by
     // damping, which approaches a rest value without arriving, and `advanceTime(0)` moves nothing -
@@ -512,9 +518,9 @@ export default function DungeonGame() {
     const velocity = new THREE.Vector3();
 
     player.rotation.y = Math.atan2(-pc.facing.x, -pc.facing.z);
-    const particles: { mesh: THREE.Mesh; velocity: THREE.Vector3; life: number }[] = [];
-    const sparkGeo = new THREE.TetrahedronGeometry(0.075, 0), sparkMat = new THREE.MeshBasicMaterial({ color: 0xffb24a, toneMapped: false });
-    const burst = (at: THREE.Vector3, color = 0xffb24a, amount = 12) => { for (let i = 0; i < amount; i++) { const mesh = new THREE.Mesh(sparkGeo, color === 0xffb24a ? sparkMat : new THREE.MeshBasicMaterial({ color, toneMapped: false })); mesh.position.copy(at).add(new THREE.Vector3(0, 0.8, 0)); const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 3.5; particles.push({ mesh, velocity: new THREE.Vector3(Math.cos(a) * s, 1.5 + Math.random() * 3, Math.sin(a) * s), life: 0.35 + Math.random() * 0.3 }); world.add(mesh); } };
+    // Every spark in the keep, in one pooled instanced draw (dungeon-sparks.ts).
+    const sparks = createSparks(); world.add(sparks.mesh);
+    const burst = (at: THREE.Vector3, color = 0xffb24a, amount = 12) => sparks.burst(at, color, amount);
     // The knight's ribbon is drawn from inside his grip out past the tip, towards
     // the distance the arc actually reaches: the blade mesh runs to 1.17 and the
     // Tideblade cuts at 1.8, so a trail sampled at the steel undersold the swing
@@ -663,8 +669,7 @@ export default function DungeonGame() {
       impacts.clear(); footsteps.clear();
       floorGroup.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); } });
       (floorGroup.userData.floorDetail as THREE.Texture | null | undefined)?.dispose(); world.remove(floorGroup);
-      particles.forEach(p => { world.remove(p.mesh); if (p.mesh.material !== sparkMat) (p.mesh.material as THREE.Material).dispose(); });
-      particles.length = 0;
+      sparks.clear();
       dashTrails.forEach(m=>{m.userData.life=0;m.visible=false;(m.material as THREE.MeshBasicMaterial).opacity=0;});
     };
     // Building a floor is the one thing here that blocks the main thread long enough to be felt — a tenth
@@ -1108,9 +1113,12 @@ export default function DungeonGame() {
     // Mouse only. The touch controls sit over this same canvas and speak their own protocol, and a
     // finger that also moved the aim would fight the thumbstick it was resting on.
     const canvas = renderer.domElement;
+    // Read once per layout rather than on every pointermove: after the frame's own style writes, each
+    // read forced a synchronous layout. `resize` forgets it, and the next move reads it again.
+    let canvasRect: DOMRect | null = null;
     const pointerMove = (e: PointerEvent) => {
       if (e.pointerType !== 'mouse') return;
-      const at = toNdc(e.clientX, e.clientY, canvas.getBoundingClientRect());
+      const at = toNdc(e.clientX, e.clientY, canvasRect ??= canvas.getBoundingClientRect());
       if (!at) return;
       pointerNdc = at;
       aimDevice = 'pointer';
@@ -1393,7 +1401,7 @@ export default function DungeonGame() {
           }
           if (!pc.weapon.ranged && active) stage.enemies.forEach((enemy) => {
             if (gameStatus !== 'playing' || enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
-            const delta = enemy.group.position.clone().sub(player.position); delta.y = 0;
+            const delta = struckBy.copy(enemy.group.position).sub(player.position); delta.y = 0;
             // The same rule the node suite runs: inside the arc, and with no wall between the blade and the body.
             if (swordContacts(floor.cells, player.position, pc.attackFacing, enemy.group.position, run.reach, pc.swing)) {
               delta.normalize();
@@ -1538,8 +1546,7 @@ export default function DungeonGame() {
       }
       if (noticeTime > 0) { noticeTime = Math.max(0,noticeTime-frameDt); if (noticeTime === 0) setNotice(''); }
       if (rewardTime > 0) { rewardTime = Math.max(0, rewardTime - frameDt); if (rewardTime === 0) setXpReward(0); }
-      particles.forEach((p) => { p.life -= dt; p.velocity.y -= dt * 7; p.mesh.position.addScaledVector(p.velocity, dt); p.mesh.scale.setScalar(Math.max(0, p.life * 2)); });
-      for (let i = particles.length - 1; i >= 0; i--) if (particles[i].life <= 0) { world.remove(particles[i].mesh); if (particles[i].mesh.material !== sparkMat) (particles[i].mesh.material as THREE.Material).dispose(); particles.splice(i, 1); }
+      sparks.update(dt);
       hurtFlash = Math.max(0, hurtFlash - dt); shake = Math.max(0, shake - dt); tickRun(run, dt);
       stage.atmosphere?.update(t,player.position,cleared,mood.fire,mood.banner,mood.masonry,mood.bed);
       // Plan 007: the atmosphere pass just wrote the animated colour every eligible material carries;
@@ -1548,25 +1555,25 @@ export default function DungeonGame() {
       cutaway.syncMaterials();
       // The parapet is carved work too, built here rather than in the atmosphere pass but lit the same.
       stage.parapetSkin?.color.copy(mood.masonry);
-      const nearest = [...(stage.atmosphere?.torchPositions ?? [])].sort((a,b)=>a.distanceToSquared(player.position)-b.distanceToSquared(player.position));
+      const nearest = nearestFirst(stage.atmosphere?.torchPositions ?? [], torchLights.length, (a) => a.distanceToSquared(player.position), nearTorches);
       // Three of the four go to their sconces. The fourth is settled below, once
       // the accents have had their chance to ask for it.
       for (let i = 0; i < torchLights.length - 1; i++) if (nearest[i]) torchLights[i].position.copy(nearest[i]);
       const anchors = stage.atmosphere?.lightAnchors ?? [];
-      const lent = anchors.length <= ANCHOR_LIGHTS ? anchors : [...anchors].sort((a,b)=>((a.x-player.position.x)**2+(a.z-player.position.z)**2)-((b.x-player.position.x)**2+(b.z-player.position.z)**2));
+      const lent = anchors.length <= ANCHOR_LIGHTS ? anchors : nearestFirst(anchors, ANCHOR_LIGHTS, (a) => (a.x-player.position.x)**2+(a.z-player.position.z)**2, nearAnchors);
       anchorLights.forEach((light, i) => { const a = lent[i]; if (!a) { light.intensity = 0; return; } light.position.set(a.x, a.y, a.z); light.color.setHex(a.color); light.intensity = a.intensity; light.distance = a.distance; });
-      fill.position.copy(player.position).add(new THREE.Vector3(1.4,3.2,2.2));
+      fill.position.copy(player.position).add(FILL_OFFSET);
       mood.move(1 - Math.exp(-6 * frameDt), floor, player.position.x, player.position.z);
       playerRing.position.set(player.position.x,0.04,player.position.z); (playerRing.material as THREE.MeshBasicMaterial).opacity = pc.dashTime > 0 ? 0.85 : 0.14; ringTime.value = t;
       moon.position.copy(player.position).setY(0).add(MOONRISE); moon.target.position.set(player.position.x,0,player.position.z); moon.target.updateMatrixWorld();
       mapPlayer.current?.setAttribute('cx', String(player.position.x / TILE)); mapPlayer.current?.setAttribute('cy', String(player.position.z / TILE));
       if (dashMeter.current) dashMeter.current.value = Math.max(0,1-pc.dashCooldown/run.dashSpan);
       if (dashSweep.current) dashSweep.current.style.setProperty('--ready', String(Math.max(0,Math.min(1,1-pc.dashCooldown/run.dashSpan))));
-      const target = player.position.clone().addScaledVector(velocity,0.12); cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
+      const target = focusAhead.copy(player.position).addScaledVector(velocity,0.12); cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
       camera.position.set(cameraFocus.x + 9.2,12.5,cameraFocus.z + 11.5);
       // Reduced motion drops the shake outright: it is ~90 Hz camera translation that carries nothing the
       // particles, the sound and the health bar do not already say, so nothing is lost by not moving at all.
-      if (shake > 0 && !easeMotion) camera.position.add(new THREE.Vector3(Math.sin(t*95)*shake,0,Math.cos(t*83)*shake));
+      if (shake > 0 && !easeMotion) camera.position.add(shakeBy.set(Math.sin(t*95)*shake,0,Math.cos(t*83)*shake));
       camera.lookAt(cameraFocus.x,0,cameraFocus.z);
       // Plan 007: resolve this frame's cutaway targets after the camera has its final position for the
       // frame, so the view-space centres this writes are never a frame stale. Eligibility mirrors the
@@ -1687,7 +1694,7 @@ export default function DungeonGame() {
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, shadow: post.shadow, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: pointLightCount(scene), programs: linkedPrograms(renderer), warmUp, quality: post.quality },
-      effects: { impacts: impacts.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
+      effects: { impacts: impacts.active, sparks: sparks.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.
       aim: { device: aimDevice, ndc: pointerNdc, span: viewSpan, aspect: viewAspect, pad: padLook },
@@ -1738,7 +1745,7 @@ export default function DungeonGame() {
     // Plan 014: zoomed in close to the reference's framing - the knight fills much more of the
     // frame than the old 7.2/6.3 span left him. Ratio kept the same between the two breakpoints.
     // Then eased back out a fifth twice (4.3/3.76 -> 5.16/4.51 -> 6.19/5.41): the tight frame hid too much of the room.
-    const resize = () => { const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 5.41 : 6.19; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); dirty = true; };
+    const resize = () => { canvasRect = null; const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 5.41 : 6.19; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); dirty = true; };
     window.addEventListener('resize', resize); resize();
     // Plan 015: the keep is raised on the press that asks for it (`enterWhenBuilt`/`bootSeed` below),
     // never at mount, so the hydrated menu's button is live from the first frame and a press before the

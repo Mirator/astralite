@@ -230,6 +230,8 @@ export type Snapshot = {
    * surface emissions, and the last actual support cell/height an emission used. */
   effects: {
     impacts: number;
+    /** Live sparks in the pooled batch. */
+    sparks: number;
     footsteps: {
       active: number;
       drawn: boolean;

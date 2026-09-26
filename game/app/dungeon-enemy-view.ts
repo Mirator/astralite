@@ -16,7 +16,10 @@ export type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: n
   // Where it spawned, for a dozing body's pace; how far into noticing it is; a countdown to a contagion
   // kick a neighbour scheduled for it, or Infinity while none is pending. scripts/balance/sim.ts carries
   // the identical bookkeeping so a room wakes the same way in both sims.
-  anchor: { x: number; z: number }; notice: number; alertIn: number };
+  anchor: { x: number; z: number }; notice: number; alertIn: number;
+  // Every lit material on the body, found once at spawn: the flare and the tell are written to these
+  // each frame rather than by walking the whole rig to find them again.
+  skins: THREE.MeshStandardMaterial[] };
 
 /**
  * The two colours a blow is told in, and the only two in the keep no chamber is allowed to take.
@@ -94,7 +97,9 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   const alert = new THREE.Sprite(art.alert);alert.scale.set(.55,.55,1);alert.visible=false;alert.renderOrder=10;group.add(alert);
   const anchors:THREE.Object3D[]=kind==='stalker'?body.userData.limbs.slice(0,2):[body.userData.weapon];
   const trails=anchors.map(anchor=>{const effect=weaponTrail(kind==='warden'?0xffa15c:kind==='stalker'?0xffcc90:0xffd39b,kind==='warden'?.13:.095);group.add(effect.mesh);return {effect,anchor,inner:kind==='stalker'?new THREE.Vector3(0,-.72,-.12):new THREE.Vector3(0,0,-.24),tip:kind==='stalker'?new THREE.Vector3(0,-.87,-.5):new THREE.Vector3(0,0,kind==='warden'?-1.2:-.86)};});
-  return { group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity };
+  const skins: THREE.MeshStandardMaterial[] = [];
+  body.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial && !skins.includes(o.material)) skins.push(o.material); });
+  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity };
 };
 
 /** A body that has gone quiet, whether dormant or unrendered this frame: no mark, no bar, no glyph. */
@@ -207,5 +212,6 @@ export const poseEnemy = (enemy: Enemy, intent: EnemyIntent, dt: number, t: numb
   // term, and round 3's own halving of it was still an order of magnitude too hot for a body
   // standing this close to a real light source. Cut hard, not halved again: legible as a tint,
   // not a wash, on the frame it peaks.
-  enemy.group.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial) { o.material.emissive.setHex(struck > 0 ? COMMIT : enemy.windup > 0 ? THREAT : 0x000000); o.material.emissiveIntensity = struck > 0 ? 0.015 + struck * 0.05 : enemy.windup > 0 ? 0.01 + closing * 0.06 : 0.5; } });
+  const glow = struck > 0 ? COMMIT : enemy.windup > 0 ? THREAT : 0x000000, strength = struck > 0 ? 0.015 + struck * 0.05 : enemy.windup > 0 ? 0.01 + closing * 0.06 : 0.5;
+  for (const skin of enemy.skins) { skin.emissive.setHex(glow); skin.emissiveIntensity = strength; }
 };
