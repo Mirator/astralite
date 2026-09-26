@@ -78,6 +78,8 @@ export default defineConfig({
     command: `npm run dev -- --hostname ${HOST} --port ${PORT}`,
     url: baseURL,
     reuseExistingServer: false,
+    // No watcher and no hot reload: the run tests the tree as it was when it started (vite.config.ts).
+    env: { GAME_TEST_SERVER: '1' },
     timeout: 240_000,
     stdout: 'pipe',
     stderr: 'pipe',

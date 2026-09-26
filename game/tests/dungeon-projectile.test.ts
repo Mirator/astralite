@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey } from '../app/dungeon-floor.ts';
-import { BOLT_RADIUS, flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../app/dungeon-projectile.ts';
+import { BOLT_RADIUS, flyHostile, flyShot, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../app/dungeon-projectile.ts';
 import { chainLength, WEAPONS } from '../app/dungeon-weapon.ts';
 
 const openFloor = (half = 10) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
@@ -143,4 +143,39 @@ test('fire catches what stands in it and nothing outside it', () => {
   assert.equal(poolCatches(pool, 3, -2), true);
   assert.equal(poolCatches(pool, 3 + 2.1, -2), true);
   assert.equal(poolCatches(pool, 3 + 2.3, -2), false);
+});
+
+test("an archer's bolt stops on the knight it reaches, and flies on through one mid-dash", () => {
+  const loose = () => hostileBolt({ x: 0, z: 0 }, { x: 0, z: -1 }, { speed: 13, flight: .7 }, 10);
+  const knight = { x: 0, z: -2 };
+  // Walked until it either reaches him or runs out of air.
+  const fly = (immune: boolean) => {
+    const shot = loose();
+    for (let frame = 0; frame < 60; frame++) {
+      const flight = flyHostile(shot, cells, knight, immune, 1 / 60);
+      shot.x = flight.x; shot.z = flight.z; shot.life = flight.life; shot.pierce = flight.pierce;
+      if (flight.hit || flight.done) return { ...flight, frame };
+    }
+    throw new Error('the bolt neither landed nor finished in a second');
+  };
+  const landed = fly(false);
+  assert.deepEqual([landed.hit, landed.done], [true, true], 'a bolt that reached the knight did not stop on him');
+  assert.ok(landed.z > -2 && landed.z < -2 + BOLT_RADIUS + .3, `it stopped at z ${landed.z}, not at the knight`);
+  // Immune, he is not there to hit: the same bolt passes him and falls out of the air further on.
+  const through = fly(true);
+  assert.equal(through.hit, false, 'an immune knight was hit');
+  assert.ok(through.z < knight.z - 1, `the bolt was spent on an immune knight at z ${through.z}`);
+  // It carries what the archer dealt it, and passes through nobody.
+  assert.deepEqual([loose().damage, loose().pierce], [10, 0]);
+});
+
+test("stone stops an archer's bolt short of a knight behind it", () => {
+  const walled = new Set(cells); walled.delete(cellKey(0, -1));
+  const shot = hostileBolt({ x: 0, z: 0 }, { x: 0, z: -1 }, { speed: 13, flight: .7 }, 10);
+  let flight = flyHostile(shot, walled, { x: 0, z: -4 }, false, 1 / 60);
+  for (let frame = 0; frame < 60 && !flight.done; frame++) {
+    shot.x = flight.x; shot.z = flight.z; shot.life = flight.life; shot.pierce = flight.pierce;
+    flight = flyHostile(shot, walled, { x: 0, z: -4 }, false, 1 / 60);
+  }
+  assert.deepEqual([flight.struck, flight.hit], [true, false]);
 });

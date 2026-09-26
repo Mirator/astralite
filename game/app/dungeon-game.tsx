@@ -18,14 +18,16 @@ import { createDungeonAudio } from './dungeon-audio';
 import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidate } from './dungeon-occlusion';
 import { animateCloth } from './dungeon-motion';
 import { canStand, generateFloor, hasClearPath, moveOnFloor, cellKey, TILE } from './dungeon-floor';
+import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
+import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
 import { dashImmune, swordContacts } from './dungeon-combat';
-import { ALERT_STAGGER, decideEnemy, nearbyDozers, separateCrowd, type Wakeable } from './dungeon-enemy';
+import { ALERT_STAGGER, BESTIARY, decideEnemy, nearbyDozers, separateCrowd, type Wakeable } from './dungeon-enemy';
 import { awayFrom, burn as burnBody, landBlow } from './dungeon-hits';
 import { playerAttackPose } from './dungeon-attack-pose';
 import { chainLength, STARTING_WEAPON, TIDEBLADE, weaponById, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
-import { flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
+import { flyHostile, flyShot, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
 import { borrowedLight } from './dungeon-radiance';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
@@ -35,7 +37,7 @@ import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, read
 import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resolveKill, STAIR_RADIUS, takeBoon, tickRun, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapLabel, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, resetControl, startDash, startSwing, steer, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
-import { dropMarks, hideMarks, markEnemy, poseEnemy, type Enemy } from './dungeon-enemy-view';
+import { dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, type Enemy, type EnemyKind } from './dungeon-enemy-view';
 import { createFloorStage, raiseFloor, type FloorArt } from './dungeon-floor-scene';
 import { createMood } from './dungeon-mood';
 import { driveSliced as driveSlicedSteps, linkedPrograms, pollProgramsReady as pollPrograms, precompilePost } from './dungeon-warmup';
@@ -127,7 +129,9 @@ export default function DungeonGame() {
   const hydrated = useSyncExternalStore(noSubscription, () => true, () => false);
   // Which page of the menu card is showing. Controls and Settings open in place of the menu list, with a
   // way back, rather than unfolding beneath it and pushing ENTER THE KEEP off a short screen.
-  const [menuView, setMenuView] = useState<'main' | 'controls' | 'settings'>('main');
+  const [menuView, setMenuView] = useState<'main' | 'controls' | 'settings' | 'arena'>('main');
+  // The arena page's counts and floor (development only), kept here so they survive leaving the page.
+  const [arenaChoice, setArenaChoice] = useState<ArenaChoice>({ pick: { guard: 1 }, level: 1 });
   const returnTo = useRef<string | null>(null);
   const dashMeter = useRef<HTMLProgressElement>(null);
   // Plan 014 round 5 (lever C8): the dash icon's own radial sweep, driven the same imperative way the
@@ -587,9 +591,15 @@ export default function DungeonGame() {
     // Burning silt the knight left behind, and the rings that show it. Pooled like everything else.
     const pools: { pool: Pool; mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> }[] = [];
     const poolMeshes = Array.from({ length: 6 }, () => { const mesh = makePoolMesh(); world.add(mesh); return mesh; });
+    // Bolts loosed at the knight, and the pool they come out of. Their own list, because they resolve
+    // against him rather than against the bodies, and they never pierce.
+    const hostile: { shot: Shot; mesh: THREE.Group; kind: EnemyKind }[] = [];
+    const arrowPool = Array.from({ length: 12 }, () => { const arrow = makeArrow(); world.add(arrow); return arrow; });
     const clearShots = () => {
       for (const live of shots) live.mesh.visible = false;
       shots.length = 0;
+      for (const live of hostile) live.mesh.visible = false;
+      hostile.length = 0;
       for (const live of pools) live.mesh.visible = false;
       pools.length = 0;
     };
@@ -698,6 +708,13 @@ export default function DungeonGame() {
     // on it - only what shows the floor (the frame loop, the canvas fade-in, a waiting press) does.
     // `dungeonTest.buildFloor`/`reset` never come through here: they stay synchronous and deterministic.
     let pendingFloor: { level: number; floor: ReturnType<typeof generateFloor> } | null = null;
+    // Development only: the arena (dungeon-arena.ts), a chosen roster standing in the gate of an otherwise
+    // empty floor. While one is set, every floor this closure charts - the boot, a restart, a descent, the
+    // test hooks - is charted as that arena, so taking the stair meets the same roster a floor deeper. Set
+    // from `?arena=`, the arena page of the menu or `dungeonTest.buildArena`; cleared by `reset`. The chart
+    // branch is inside the NODE_ENV check, so a production build never reaches arenaFloor.
+    let arena: Arena | null = process.env.NODE_ENV !== 'production' ? parseArena(new URLSearchParams(window.location.search).get('arena'), new URLSearchParams(window.location.search).get('level'), FLOORS) : null;
+    const chart = (seed: number, nextLevel: number) => process.env.NODE_ENV !== 'production' && arena ? arenaFloor(seed, nextLevel, arena.roster) : generateFloor(seed, nextLevel);
     // A frame boundary the browser has painted: a rAF callback runs before its own frame's paint, so
     // it takes two. A hidden tab runs no animation frames, and a build must not wait on it. Nor does a
     // build under a driver's clock (`advanceTime` stopped the frame loop): the stages then only have to
@@ -735,7 +752,7 @@ export default function DungeonGame() {
       warmUp = { precompiled: 0, firstFrame: 0, firstFrameSliceMs: 0, secondFrame: 0, sceneCompileMs: 0, postCompileMs: 0, pollSliceMs: 0, buildSliceMs: 0 };
       setVeilFloor(nextLevel); setVeilPlace(null); setVeilStage(0);
       await painted(); if (stopped) return false;
-      const charted = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
+      const charted = chart(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
       pendingFloor = { level: nextLevel, floor: charted };
       setVeilPlace(charted.rooms[charted.goal]?.name ?? null); setVeilStage(1);
       await painted(); if (stopped) return false;
@@ -825,7 +842,7 @@ export default function DungeonGame() {
       // level, and the same seed if one was asked for - so a synchronous build never sees a stale one.
       const charted = pendingFloor && pendingFloor.level === level && (seed === undefined || pendingFloor.floor.seed === seed >>> 0) ? pendingFloor.floor : null;
       pendingFloor = null;
-      floor = charted ?? generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], level);
+      floor = charted ?? chart(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], level);
       // Pure and deterministic off this floor alone: which stone cells merge into a long slab or
       // settle as a staggered strip, kept away from every 004 reservation before a single mesh exists.
       const pavingPlan = planPavingPatches(floor);
@@ -901,7 +918,8 @@ export default function DungeonGame() {
     // Everything buildFloor(1) already rebuilds (floor, level, rooms, enemies, map, status) is left to it,
     // but the run must be fresh first because it snapshots kills and XP as the floor's baseline. A whole
     // new `run` is the point of createRun(): a field added to the sim can never be forgotten here.
-    const restart = (seed?: number, then?: () => void) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', { level: 1, seed }, async (token) => {
+    // An arena restarts on its own floor rather than on floor one.
+    const restart = (seed?: number, then?: () => void, startLevel = arena?.level ?? 1) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', { level: startLevel, seed }, async (token) => {
       run = createRun(); boonsTaken = [];
       resetControl(pc); hurtFlash = 0; shake = 0; clearShots();
       walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
@@ -914,7 +932,7 @@ export default function DungeonGame() {
       setHeldWeapon(TIDEBLADE.name);
       setNotice(''); setFloorResult({ kills: 0, xp: 0, seconds: 0 });
       setPaused(false); setMapOpen(false);
-      await driveSliced(buildFloorSteps(1, seed), token);
+      await driveSliced(buildFloorSteps(startLevel, seed), token);
       player.rotation.set(0, Math.atan2(-pc.facing.x, -pc.facing.z), 0); player.userData.sword.rotation.y = 0;
       audio.pause(false);
     }, then);
@@ -927,6 +945,9 @@ export default function DungeonGame() {
     // frame is requested, the window hooks are not installed, and the press itself is what raises the
     // loading bar and is answered once the keep exists.
     let built = false, warmed = false, enterWhenBuilt = false, bootSeed: number | undefined, enterSeed: number | undefined;
+    // Takes the arena page's listener down on unmount. Installed only in development (see the test hooks),
+    // so the event's name never appears outside that block; null in production.
+    let dropArenaListener: (() => void) | null = null;
     // The thumbstick's screen-space direction while a thumb is planted, null the rest of the time. It is a
     // unit vector on the very basis the keys below build on, so analog steering is a second source of the
     // same quantity rather than a second input system.
@@ -1421,8 +1442,8 @@ export default function DungeonGame() {
               // spray of droplets off a struck body. 14 is inside the "10-20" the plan asked for and
               // still cheap: each is a pooled mesh already paid for by the spark burst beside it.
               burst(enemy.group.position, 0xe0202c, 22);
-              blood.spawn(enemy.group.position, enemy.kind === 'warden' ? 1.4 : 1);
-              impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,enemy.kind==='warden');
+              blood.spawn(enemy.group.position, BESTIARY[enemy.kind].look.blood);
+              impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,BESTIARY[enemy.kind].look.heavy);
               // Three sparks rather than seven. Each one is its own mesh and so its own draw call, and
               // next to a crescent, a bloom and a shockwave they were paying four calls at the most
               // expensive frame in the game for grit nobody could pick out.
@@ -1442,6 +1463,14 @@ export default function DungeonGame() {
         // eligible hit and its exactly-once reward is resolved above; from here the world is frozen, so the
         // skeletons must not get one more move out of this tick.
         if (run.choosing || gameStatus !== 'playing') return;
+        // A blow reaching the knight, from a body's swing or from its bolt. Which kind landed the killing
+        // blow is the one thing only this call site knows.
+        const hurtBy = (kind: EnemyKind, damage: number) => {
+          if (gameStatus !== 'playing' || !hurt(run, damage, { dashing: dashImmune(pc.dashTime), warded: true })) return;
+          setHealth(run.hp);
+          audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4529,8);impacts.emit(player.position,0xff8763,BESTIARY[kind].look.heavy);
+          if(run.hp===0)endRun(kind);
+        };
         stage.enemies.forEach((enemy, index) => {
           if (!enemy.awake) { hideMarks(enemy); return; }
           // A neighbour's noticing beat can pull a still-dormant body in early; scripts/balance/sim.ts
@@ -1449,13 +1478,6 @@ export default function DungeonGame() {
           if (enemy.alertIn < Infinity) { enemy.alertIn -= dt; if (enemy.alertIn <= 0) { if (enemy.notice <= 0) enemy.notice = dt; enemy.alertIn = Infinity; } }
           // Its bar, its glyph and its telegraph, off the state the last decision left; a corpse only falls.
           if (!markEnemy(enemy, camera, dt)) return;
-          const hurtPlayer = () => {
-            if (gameStatus !== 'playing' || !hurt(run, enemy.damage, { dashing: dashImmune(pc.dashTime), warded: true })) return;
-            setHealth(run.hp);
-            audio.play('hurt'); hurtFlash=.35; shake=.12; burst(player.position,0xff4529,8);impacts.emit(player.position,0xff8763,enemy.kind==='warden');
-            // Which kind landed the killing blow is the one thing only this call site knows.
-            if(run.hp===0)endRun(enemy.kind);
-          };
           // Everything about where this body goes and whether its blow lands is decided in dungeon-enemy;
           // what is left here is the part a node test could never see — poses, sound, flashes, particles.
           const previousWindup=enemy.windup;
@@ -1477,7 +1499,13 @@ export default function DungeonGame() {
           else if(previousWindup<=0&&enemy.windup>0)enemy.attackAge=Infinity;
           enemy.group.position.x = intent.x; enemy.group.position.z = intent.z;
           if (intent.sound) audio.play(intent.sound);
-          if (intent.hit) hurtPlayer();
+          if (intent.hit) hurtBy(enemy.kind, enemy.damage);
+          // A volley becomes a bolt in the air; whether it finds the knight is decided as it flies, below.
+          const bolt = BESTIARY[enemy.kind].bolt, arrow = intent.loose && bolt ? arrowPool.find(a => !a.visible) : undefined;
+          if (intent.loose && bolt && arrow) {
+            arrow.visible = true; arrow.position.set(enemy.group.position.x, .95, enemy.group.position.z); arrow.rotation.y = Math.atan2(-intent.loose.x, -intent.loose.z);
+            hostile.push({ mesh: arrow, kind: enemy.kind, shot: hostileBolt(enemy.group.position, intent.loose, bolt, enemy.damage) });
+          }
           // What the decision looks like: pose, gait, the landed blow's flash and its trails (dungeon-enemy-view).
           poseEnemy(enemy, intent, dt, t, elapsed);
         });
@@ -1485,6 +1513,16 @@ export default function DungeonGame() {
         // dungeon-enemy, and only the write back into the scene graph belongs here.
         const spread = separateCrowd(floor.cells, stage.enemies.map(e => ({ x: e.group.position.x, z: e.group.position.z, windup: e.windup, dead: e.dead })), dt);
         stage.enemies.forEach((e, i) => { e.group.position.x = spread[i].x; e.group.position.z = spread[i].z; });
+        // Bolts at the knight. The rule - stone stops them, a dash's opening frames let them through - is
+        // dungeon-projectile's; the mesh, the sparks off stone and the hurt are what is left here.
+        for (let i = hostile.length - 1; i >= 0; i--) {
+          const live = hostile[i], flight = flyHostile(live.shot, floor.cells, player.position, dashImmune(pc.dashTime), dt);
+          live.shot.x = flight.x; live.shot.z = flight.z; live.shot.life = flight.life; live.shot.pierce = flight.pierce;
+          live.mesh.position.set(flight.x, .95, flight.z);
+          if (flight.hit) hurtBy(live.kind, live.shot.damage);
+          if (flight.struck) burst(new THREE.Vector3(flight.x, .95, flight.z), 0xbfa781, 4);
+          if (flight.done) { live.mesh.visible = false; hostile.splice(i, 1); }
+        }
         // Fire on the ground bites what stands in it: the only thing the knight owns that goes on working
         // after he has stopped paying attention to it. The rule is in dungeon-projectile.
         for (let i = pools.length - 1; i >= 0; i--) {
@@ -1519,7 +1557,7 @@ export default function DungeonGame() {
               audio.play('hit');
               const hit = landBlow(floor.cells, enemy, enemy.group.position, { ...pc.weapon, damage: live.shot.damage }, { x: live.shot.dx, z: live.shot.dz });
               if (hit.broke) { enemy.attackAge = Infinity; enemy.trails.forEach(trail => trail.effect.clear()); }
-              burst(enemy.group.position, 0xffb24a, 7); burst(enemy.group.position, 0xe0202c, 22); blood.spawn(enemy.group.position, enemy.kind === 'warden' ? 1.4 : 1); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffedbb, enemy.kind === 'warden');
+              burst(enemy.group.position, 0xffb24a, 7); burst(enemy.group.position, 0xe0202c, 22); blood.spawn(enemy.group.position, BESTIARY[enemy.kind].look.blood); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffedbb, BESTIARY[enemy.kind].look.heavy);
               shake = 0.05; pc.hitStop = 0.025;
               if (hit.killed) {
                 fell(enemy);
@@ -1635,6 +1673,7 @@ export default function DungeonGame() {
       // by field name rather than letting it leak. `manualTime` is not cleared on purpose - the driver
       // owns the clock from its first `advanceTime` and must keep owning it across a reset.
       reset: (seed) => {
+        arena = null;
         hasStarted = false; setStarted(false); setCapturing(null); enterWhenBuilt = false; setEntering(false);
         elapsed = 0; runStart = 0; floorStart = 0; activeRoom = 0;
         // A fresh page has never seen the cursor. The veil used to clear this by covering the canvas for a few
@@ -1665,6 +1704,23 @@ export default function DungeonGame() {
       // Hides one body's rig and nothing else - its ground mark is drawn outside it - so a pixel test of
       // the telegraph can difference the mark alone, not the mark plus a body flashing the same red.
       testHooks.setEnemyRigVisible = (index, visible) => { const rig = stage.enemies[index]?.group.userData.rig as THREE.Object3D | undefined; if (!rig) throw new Error(`no enemy at spawn index ${index}`); rig.visible = visible; };
+      // The arena (dungeon-arena.ts), synchronous and deterministic like `buildFloor`: this roster, awake in
+      // the gate of this floor, until `reset`.
+      testHooks.buildArena = (roster, arenaLevel = 1) => { arena = roster.length ? { roster: [...roster], level: arenaLevel } : null; buildFloor(arenaLevel); };
+      // The menu's arena page asks through this event, never through `dungeon-action`, so nothing about it
+      // exists in a production build. Before the first floor exists it is a press of ENTER with the arena
+      // set, which the boot then charts; once the keep is up it is a restart into the arena, entering it if
+      // the knight was still on the menu. An empty roster leaves the arena for an ordinary keep.
+      const arenaRequest = (e: Event) => {
+        const asked = (e as CustomEvent<Arena | null>).detail;
+        arena = asked && asked.roster.length ? { roster: [...asked.roster], level: asked.level } : null;
+        if (building || booting || (built && !warmed)) return;
+        if (!built) { window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'start' })); return; }
+        audio.start();
+        restart(undefined, hasStarted ? undefined : enter);
+      };
+      window.addEventListener('dungeon-arena', arenaRequest);
+      dropArenaListener = () => window.removeEventListener('dungeon-arena', arenaRequest);
       // Plan 009: the model round's shared diagnostic - meshes, triangles and height per figure, read off
       // the live scene - with every dispose that has reached one of the knight's run-scoped materials.
       const knightDisposals = countDisposals(player);
@@ -1690,7 +1746,8 @@ export default function DungeonGame() {
     };
     const renderText = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, fault: faulted, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
-      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - stage.enemies.filter(e => e.dead).length,
+      arena: arena ? { roster: [...arena.roster], level: arena.level } : null,
+      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - stage.enemies.filter(e => e.dead).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, onStair: stairOpen && onStair, deadEndsPlundered: loot },
       stair: { x: stage.stairSpot.x, z: stage.stairSpot.z, radius: STAIR_RADIUS },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered: offered === 'stair' ? null : offered } : null,
@@ -1786,7 +1843,8 @@ export default function DungeonGame() {
       // The frame loop's first request, moved here from mount (plan 015): this is the one place a boot
       // actually starts, so it is also the one place a page that never enters never reaches.
       if (!raf) raf = requestAnimationFrame(animate);
-      void stagedBuild(1, bootSeed, (token) => driveSliced(buildFloorSteps(1, bootSeed), token), () => {
+      const bootLevel = arena?.level ?? 1;
+      void stagedBuild(bootLevel, bootSeed, (token) => driveSliced(buildFloorSteps(bootLevel, bootSeed), token), () => {
         built = true;
         hooks.dungeonTest = testHooks; hooks.advanceTime = advanceTime; hooks.render_game_to_text = renderText;
       }).then((ok) => {
@@ -1805,7 +1863,7 @@ export default function DungeonGame() {
     // a press; kept out of production the same way `configureCombatFixture` is, and passed on every
     // harness `goto` (`tests/browser/helpers.ts`). Scenarios that test the boot itself load the plain URL.
     if (process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('boot') === 'eager') scheduleBoot();
-    return () => { stopped = true; cancelAnimationFrame(raf); cancelAnimationFrame(bootFrame); clearTimeout(bootTimer); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); stage.atmosphere?.dispose(); texture.dispose(); telegraphTex.dispose(); laneTex.dispose(); alertTex.dispose(); alertMaterial.dispose(); environment.dispose(); impacts.dispose(); blood.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); post.dispose(); renderer.dispose(); mount.removeChild(renderer.domElement); };
+    return () => { stopped = true; dropArenaListener?.(); cancelAnimationFrame(raf); cancelAnimationFrame(bootFrame); clearTimeout(bootTimer); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); stage.atmosphere?.dispose(); texture.dispose(); telegraphTex.dispose(); laneTex.dispose(); alertTex.dispose(); alertMaterial.dispose(); environment.dispose(); impacts.dispose(); blood.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); post.dispose(); renderer.dispose(); mount.removeChild(renderer.domElement); };
   }, []);
 
   const roomCount = floorMap?.rooms.length ?? 0;
@@ -1832,7 +1890,7 @@ export default function DungeonGame() {
   // during render rather than in an effect, so a reopened card never paints the stale page for a frame.
   const [menuWasOpen, setMenuWasOpen] = useState(menuOpen);
   if (menuWasOpen !== menuOpen) { setMenuWasOpen(menuOpen); setMenuView('main'); }
-  const openView = (view: 'controls' | 'settings') => { returnTo.current = view; setMenuView(view); };
+  const openView = (view: 'controls' | 'settings' | 'arena') => { returnTo.current = view; setMenuView(view); };
   const closeView = () => { setCapturing(null); setBindNote(''); setMenuView('main'); };
   // Focus goes back to the item that opened the page, so a keyboard player lands where they left. A stable
   // callback ref runs once, when the menu list mounts again, which is exactly the moment to do it.
@@ -1911,12 +1969,14 @@ export default function DungeonGame() {
           <button data-view="settings" ref={returnFocus} className="opens" onClick={() => openView('settings')}>Settings<span aria-hidden="true">›</span></button>
         </nav>
         <div className="menu-settings"><button onClick={() => action('mute')}>{settings.muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button></div>
+        {/* Development only, and outside the menu list so the list reads the same in both builds. */}
+        {process.env.NODE_ENV !== 'production' && <div className="menu-dev"><button data-view="arena" ref={returnFocus} className="opens" disabled={!hydrated} onClick={() => openView('arena')}>Arena · dev<span aria-hidden="true">›</span></button></div>}
         </> : <div className="menu-panel">
         <button className="menu-back" ref={focusCard} onClick={closeView}><span aria-hidden="true">←</span> Back</button>
-        <h2>{menuView === 'controls' ? 'Controls & journey' : 'Settings'}</h2>
+        <h2>{menuView === 'controls' ? 'Controls & journey' : menuView === 'arena' ? 'Arena' : 'Settings'}</h2>
         {/* Read off the bindings rather than written out, or this page would go on promising WASD to a player
             who rebound it ten seconds ago — which is the exact moment they would come here to check. */}
-        {menuView === 'controls' ? <div className="menu-details"><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.swap)}</kbd> Take the arm or open stair you stand on</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><div className="intro-controls"><span><kbd>Mouse</kbd> Point where to cut</span><span><kbd>Left</kbd> Strike, held to keep striking</span><span><kbd>Right</kbd> Dodge</span><span><kbd>Gamepad</kbd> Left stick moves, right stick aims, A strikes, B dodges</span></div><p className="control-note">A cursor over the keep aims every swing, so the knight can retreat and cut behind him. Striking from the keyboard or the pad hands the aim back, and those are helped onto whatever body is nearly in front of him. Only the keys above can be rebound.</p><p>Reach {goalName}. Defeat the stair wardens, then stand on the stair they guarded and answer the prompt to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality. An arm laid out on the floor is offered, never taken: stand in its ring and answer the prompt to trade for it.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</div> : <div className="menu-details settings-panel">
+        {process.env.NODE_ENV !== 'production' && menuView === 'arena' ? <ArenaPanel floors={FLOORS} choice={arenaChoice} choose={setArenaChoice} /> : menuView === 'controls' ? <div className="menu-details"><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.swap)}</kbd> Take the arm or open stair you stand on</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><div className="intro-controls"><span><kbd>Mouse</kbd> Point where to cut</span><span><kbd>Left</kbd> Strike, held to keep striking</span><span><kbd>Right</kbd> Dodge</span><span><kbd>Gamepad</kbd> Left stick moves, right stick aims, A strikes, B dodges</span></div><p className="control-note">A cursor over the keep aims every swing, so the knight can retreat and cut behind him. Striking from the keyboard or the pad hands the aim back, and those are helped onto whatever body is nearly in front of him. Only the keys above can be rebound.</p><p>Reach {goalName}. Defeat the stair wardens, then stand on the stair they guarded and answer the prompt to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality. An arm laid out on the floor is offered, never taken: stand in its ring and answer the prompt to trade for it.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</div> : <div className="menu-details settings-panel">
           {/* Everything here persists, and everything here has a default that is the game exactly as it
               shipped, so a player who never opens this changes nothing by not opening it. */}
           <div className="setting-row"><label htmlFor="set-volume">Volume</label><input id="set-volume" type="range" min="0" max="100" step="5" value={Math.round(settings.volume * 100)} onChange={(e) => change({ volume: Number(e.target.value) / 100 })} /><small>{settings.muted ? 'muted' : `${Math.round(settings.volume * 100)}%`}</small></div>

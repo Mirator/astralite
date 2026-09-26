@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { WebGLProgramParametersWithUniforms } from 'three/src/renderers/webgl/WebGLPrograms.js';
+import type { EnemyKind } from './dungeon-bestiary.ts';
 
 /**
  * Plan 007: a small camera-facing dithered cutaway in the actual opaque architecture around an actor
@@ -13,7 +14,7 @@ import type { WebGLProgramParametersWithUniforms } from 'three/src/renderers/web
  * `tests/browser/occlusion.spec.ts`: a real WebGL draw and a before/after pixel comparison.
  */
 
-export type EnemyKind = 'guard' | 'stalker' | 'warden';
+export type { EnemyKind };
 type SlotOwner = 'player' | EnemyKind;
 
 /** Three fixed slots: player, then at most two nearest eligible enemies. */
@@ -41,6 +42,7 @@ export const CUTAWAY_ELLIPSE: Record<SlotOwner, { radii: [number, number]; yOffs
   guard: { radii: [0.65, 1.0], yOffset: 1.0 },
   stalker: { radii: [0.65, 1.0], yOffset: 1.0 },
   warden: { radii: [0.92, 1.35], yOffset: 1.25 },
+  archer: { radii: [0.65, 1.0], yOffset: 1.0 },
 };
 
 // ------------------------------------------------------------------------------- shader injection

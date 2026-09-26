@@ -450,3 +450,12 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 .menu-back { display: inline-flex; gap: 8px; padding: 7px 12px 7px 10px; border: 1px solid #96b1ab44; background: #0a181dcc; color: #c7d6d0; font: 600 10px/1.2 var(--font-geist-mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
 .menu-back:hover, .menu-back:focus-visible { border-color: var(--edge-warm); color: var(--goal); }
 @media (max-height: 620px) { .menu-list { margin-top: 16px; gap: 4px; }.menu-list > button:not(.primary-action) { padding: 9px 17px; } }
+
+/* The development arena page (dungeon-arena-panel.tsx). Never in a production build's markup. */
+.menu-dev { margin-top: 10px; }.menu-dev button { display: inline-flex; gap: 10px; padding: 7px 12px; border: 1px dashed #96b1ab55; background: transparent; color: #a9bfbb; font: 600 10px/1.2 var(--font-geist-mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+.arena-row label { text-transform: capitalize; }
+.arena-count { display: inline-flex; align-items: center; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.arena-count button { width: 28px; height: 26px; border: 1px solid #96b1ab55; background: #102329; color: #dae5df; font-size: 15px; cursor: pointer; }
+.arena-count button:disabled { opacity: .35; cursor: default; }
+.arena-count output { min-width: 18px; text-align: center; color: var(--bone); font: 600 13px/1 var(--font-geist-mono); }
+.arena-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 18px; }

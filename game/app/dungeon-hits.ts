@@ -5,7 +5,7 @@
 // booting WebGL. It lives here now, free of three.js, React and the DOM so node's type stripping can run
 // it; what a kill pays, and every spark, sound and shake around a blow, stays with the game.
 
-import { hitCooldown, interruptsWindup, type EnemyKind } from './dungeon-enemy.ts';
+import { BESTIARY, hitCooldown, interruptsWindup, type EnemyKind } from './dungeon-enemy.ts';
 import { moveOnFloor } from './dungeon-floor.ts';
 import { normalise, type Heading } from './dungeon-player.ts';
 
@@ -23,7 +23,8 @@ export const awayFrom = (from: Heading, to: Heading) => normalise({ x: to.x - fr
 
 /**
  * Steel or a bolt landing. `at` is the body's position and is moved in place, stopped by walls the same
- * way a step is; `push` is the unit heading it is driven along. A warden takes its own, smaller shove.
+ * way a step is; `push` is the unit heading it is driven along. A steadfast body (the warden) takes its
+ * own, smaller shove.
  * `broke` says the blow cut a windup short, which the game answers by dropping the swing's trails.
  */
 export const landBlow = (cells: Set<string>, target: Struck, at: Heading, blow: Blow, push: Heading) => {
@@ -31,7 +32,7 @@ export const landBlow = (cells: Set<string>, target: Struck, at: Heading, blow: 
   const broke = interruptsWindup(target.kind, target.windup, blow.stagger);
   if (broke) target.windup = 0;
   target.cooldown = Math.max(target.cooldown, hitCooldown(target.kind, broke, blow.stagger));
-  const shove = target.kind === 'warden' ? blow.wardenKnockback : blow.knockback;
+  const shove = BESTIARY[target.kind].steadfast ? blow.wardenKnockback : blow.knockback;
   moveOnFloor(cells, at, push.x * shove, push.z * shove);
   return { broke, killed: target.hp <= 0 };
 };

@@ -111,12 +111,13 @@ automated drivers; nothing in the game itself calls them.
 | `dungeonTest.teleport(x, z)` | Moves the knight in world units (`tileX * TILE`) |
 | `dungeonTest.descend()` | Takes the stair without fighting, capped at the last floor |
 | `dungeonTest.buildFloor(level)` | Rebuilds the floor at any level, including past the last one |
+| `dungeonTest.buildArena(roster, level = 1)` | Development only: rebuilds as an arena, `roster` awake in the gate (see [The arena](#the-arena)) |
 | `dungeonTest.grantXp(amount)` | Awards XP, so the boon draft can be reached in one line |
 | `dungeonTest.runLog()` | The stored history of finished runs, oldest first — re-read and re-validated on every call |
 
 `dungeonTest.runLog()` is how a balance question stops being a memory: `copy(JSON.stringify(window.dungeonTest.runLog()))`
 gives every finished run since the log was capped, each one `{ at, floor, won, cause, seconds, rank, xp, kills, boons, seed }`,
-so deaths can be counted per floor and per `cause` (`guard` / `stalker` / `warden` / `hazard`, null on a win)
+so deaths can be counted per floor and per `cause` (any enemy kind in `ENEMY_KINDS`, or `hazard`; null on a win)
 and any run worth seeing again replayed with `restart:<seed>`.
 
 `render_game_to_text().settings` reports the stored settings plus what they currently amount to:
@@ -152,6 +153,20 @@ reports the current one), which makes a deterministic run reproducible from the 
 const seed = JSON.parse(window.render_game_to_text()).floor.seed;
 window.dispatchEvent(new CustomEvent('dungeon-action', { detail: `restart:${seed}` }));
 ```
+
+### The arena
+
+Development only. `?arena=guard:2,archer:1&level=2` (counts optional, `level` 1-3, default 1), the menu's
+**Arena · dev** page, or `window.dungeonTest.buildArena(['warden', 'archer'], 2)` charts every floor as an
+arena: the floor that seed would have laid, with every spawn cleared and the roster awake on a ring in the
+gate, clear of where the knight arrives and of the rack (`app/dungeon-arena.ts`). The stair is open from the
+start, since no warden bars it, and taking it brings the same roster a floor deeper; a restart keeps it.
+The menu page's **Ordinary keep**, or `dungeonTest.reset`, leaves it. `render_game_to_text().arena` reports
+`{ roster, level }` or null, which is also how the pooled suite notices a scenario that forgot to leave it.
+A link that names an unknown kind or a bad count is ignored whole rather than half-obeyed.
+
+It is the quickest way to look at a new kind in the game rather than on the bench. None of it ships:
+`npm run build:check` fails if the arena's event name or menu label reaches the production bundle.
 
 ### Staging a fight
 

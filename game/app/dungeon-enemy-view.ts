@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { advanceDeath, type DeathAnimation } from './dungeon-death';
-import { enemyStats, NOTICE_TIME, type EnemyIntent } from './dungeon-enemy';
+import { BESTIARY, enemyStats, NOTICE_TIME, type EnemyIntent, type EnemyKind } from './dungeon-enemy';
 import { enemyPose } from './dungeon-enemy-pose';
 import type { Spawn } from './dungeon-floor';
 import { BONES, makeSkeleton } from './dungeon-skeleton';
@@ -11,7 +11,7 @@ import { weaponTrail } from './dungeon-weapon-trail';
 // decided in dungeon-enemy.ts; this file builds the body and puts the decision on screen. Both halves
 // used to sit inline in the world closure in dungeon-game.tsx.
 
-export type EnemyKind = 'guard' | 'stalker' | 'warden';
+export type { EnemyKind } from './dungeon-enemy';
 export type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; death: DeathAnimation | null; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: EnemyKind; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; alert: THREE.Sprite; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[];
   // Where it spawned, for a dozing body's pace; how far into noticing it is; a countdown to a contagion
   // kick a neighbour scheduled for it, or Infinity while none is pending. scripts/balance/sim.ts carries
@@ -35,16 +35,31 @@ export type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: n
  */
 export const THREAT = 0xff4529, COMMIT = 0xffd6c2;
 
+/**
+ * An archer's bolt in flight, pooled for the life of the mount - loosing one must never allocate. A pale
+ * shaft carrying a head in the threat colour: the only red thing in the keep that moves on its own, so
+ * what is coming reads before its shape does. Unlit and untouched by fog for the same reason the tell is;
+ * the same material settings as the health bar, so it links no shader program of its own mid-fight.
+ */
+export const makeArrow = () => {
+  const group = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.03, .03, .7, 5), new THREE.MeshStandardMaterial({ color: 0xcfc3a8, roughness: .8 }));
+  shaft.rotation.x = Math.PI / 2; group.add(shaft);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(.075, .2, 4), new THREE.MeshBasicMaterial({ color: THREAT, fog: false, toneMapped: false }));
+  head.rotation.x = -Math.PI / 2; head.position.z = -.44; group.add(head);
+  group.position.y = .95; group.visible = false;
+  return group;
+};
+
 /** The shared art every body on a floor is drawn with. */
 export type EnemyArt = { telegraph: THREE.Texture; lane: THREE.Texture; alert: THREE.SpriteMaterial };
 
 /** Builds one spawn's body, its marks and its trails into `group`, and returns the record the loop drives. */
 export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: THREE.Group, art: EnemyArt, tile: number): Enemy => {
-  const kind = spawn.kind;
+  const kind = spawn.kind, look = BESTIARY[kind].look;
   const stats = enemyStats(kind, level), maxHp = stats.hp, tell = stats.tell;
   const body = makeSkeleton(kind); body.position.set(spawn.x * tile,0.03,spawn.z * tile); body.visible = !spawn.ambush; group.add(body);
-  if (kind === 'warden') body.scale.setScalar(1.3);
-  if (kind === 'stalker') body.scale.set(.94,1,.94);
+  body.scale.set(...look.scale);
   // One colour for all three kinds. Which body is winding up is already answered by the shape —
   // the stalker's long lane against the others' arc — and by the eye it is answered with, so the
   // two amber tells this replaced were spending hue on a question nobody was asking and spending
@@ -74,7 +89,7 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   // 94 of a possible 100 while a brazier's core clips at 100, which is the one thing a signal
   // carrying a deadline may not do: be dimmer than the furniture. `toneMapped: false` buys the
   // headroom and the opacity was giving it straight back.
-  const cueGeometry = kind === 'stalker' ? new THREE.PlaneGeometry(5,1.7).translate(2.5,0,0) : BONES.cue;
+  const cueGeometry = look.cue.shape === 'lane' ? new THREE.PlaneGeometry(look.cue.length,look.cue.width).translate(look.cue.length/2,0,0) : BONES.cue;
   // Plan 014 round 2: toneMapped is true here now (it was false). `THREAT` was drawn
   // above the tone-mapped range on purpose while the mark was an opaque slab that had to win
   // against any floor under it; translucent, it only needs to read as red, and a
@@ -85,18 +100,18 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   // crossing the room. Back to `NormalBlending` (the default - no `blending` key at all) with a
   // texture that carries its own soft, capped-alpha gradient (see `telegraphTexture`), which is
   // what actually keeps the stone visible without needing additive's unbounded stacking.
-  const cueMap = kind === 'stalker' ? art.lane : art.telegraph;
+  const cueMap = look.cue.shape === 'lane' ? art.lane : art.telegraph;
   const cue = new THREE.Mesh(cueGeometry,new THREE.MeshBasicMaterial({color:THREAT,map:cueMap,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,fog:false}));cue.rotation.x=-Math.PI/2;cue.renderOrder=9;group.add(cue);
   const ghost = new THREE.Mesh(cueGeometry,new THREE.MeshBasicMaterial({color:THREAT,map:cueMap,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,depthTest:false,fog:false}));ghost.renderOrder=8;cue.add(ghost);
-  const bar = new THREE.Mesh(BONES.bar,new THREE.MeshBasicMaterial({color:kind === 'warden'?0xffb65f:0xe89a79,depthTest:false,toneMapped:false,fog:false}));bar.renderOrder=10;group.add(bar);
+  const bar = new THREE.Mesh(BONES.bar,new THREE.MeshBasicMaterial({color:look.barColor,depthTest:false,toneMapped:false,fog:false}));bar.renderOrder=10;group.add(bar);
   // Plan 014 round B: a framed bar - a dark border plate with a darker track behind the fill, as a
   // child of the fill counter-scaled every frame (below), so it stays full width while the fill
   // drains from the right.
   const barFrame = new THREE.Mesh(new THREE.PlaneGeometry(.88,.15),new THREE.MeshBasicMaterial({color:0x6b5a3e,depthTest:false,toneMapped:false,fog:false}));barFrame.renderOrder=9;barFrame.position.z=-.001;
   const barTrack = new THREE.Mesh(new THREE.PlaneGeometry(.82,.09),new THREE.MeshBasicMaterial({color:0x120b0a,depthTest:false,toneMapped:false,fog:false}));barTrack.renderOrder=9;barTrack.position.z=.0005;barFrame.add(barTrack);bar.add(barFrame);
   const alert = new THREE.Sprite(art.alert);alert.scale.set(.55,.55,1);alert.visible=false;alert.renderOrder=10;group.add(alert);
-  const anchors:THREE.Object3D[]=kind==='stalker'?body.userData.limbs.slice(0,2):[body.userData.weapon];
-  const trails=anchors.map(anchor=>{const effect=weaponTrail(kind==='warden'?0xffa15c:kind==='stalker'?0xffcc90:0xffd39b,kind==='warden'?.13:.095);group.add(effect.mesh);return {effect,anchor,inner:kind==='stalker'?new THREE.Vector3(0,-.72,-.12):new THREE.Vector3(0,0,-.24),tip:kind==='stalker'?new THREE.Vector3(0,-.87,-.5):new THREE.Vector3(0,0,kind==='warden'?-1.2:-.86)};});
+  const anchors:THREE.Object3D[]=look.trail.from==='claws'?body.userData.limbs.slice(0,2):[body.userData.weapon];
+  const trails=anchors.map(anchor=>{const effect=weaponTrail(look.trail.color,look.trail.width);group.add(effect.mesh);return {effect,anchor,inner:new THREE.Vector3(...look.trail.inner),tip:new THREE.Vector3(...look.trail.tip)};});
   const skins: THREE.MeshStandardMaterial[] = [];
   body.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial && !skins.includes(o.material)) skins.push(o.material); });
   return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity };
@@ -117,7 +132,7 @@ const barLift = new THREE.Vector3(), alertLift = new THREE.Vector3(), barRight =
  */
 export const markEnemy = (enemy: Enemy, camera: THREE.Camera, dt: number) => {
   enemy.cue.visible = !enemy.dead && (enemy.windup > 0 || enemy.lunge > 0); enemy.bar.visible = !enemy.dead && enemy.hp < enemy.maxHp;
-  enemy.bar.position.copy(enemy.group.position).add(barLift.set(0,enemy.kind === 'warden'?2.65:2.05,0)); enemy.bar.quaternion.copy(camera.quaternion); const fill = Math.max(.001, enemy.hp / enemy.maxHp); enemy.bar.scale.x = fill;
+  enemy.bar.position.copy(enemy.group.position).add(barLift.set(0,BESTIARY[enemy.kind].look.barLift,0)); enemy.bar.quaternion.copy(camera.quaternion); const fill = Math.max(.001, enemy.hp / enemy.maxHp); enemy.bar.scale.x = fill;
   // Left-anchored: the fill shifts left as it shrinks, and its frame child is counter-scaled and
   // counter-shifted so it stays put at full width.
   enemy.bar.position.addScaledVector(barRight.set(1,0,0).applyQuaternion(camera.quaternion), -(1 - fill) * .4);
@@ -127,7 +142,7 @@ export const markEnemy = (enemy: Enemy, camera: THREE.Camera, dt: number) => {
   // `decideEnemy` holds a body at before it is `awake` enough to begin its own tell. That is "just
   // seen you" as a number already in this loop, not a new timer to invent.
   enemy.alert.visible = enemy.notice > 0 && enemy.notice < NOTICE_TIME;
-  enemy.alert.position.copy(enemy.group.position).add(alertLift.set(0, enemy.kind === 'warden' ? 3.15 : 2.55, 0));
+  enemy.alert.position.copy(enemy.group.position).add(alertLift.set(0, BESTIARY[enemy.kind].look.alertLift, 0));
   // The clock. `close` runs 0 at the start of the tell to 1 on the strike, and the mark converges
   // over it: it opens at nearly twice the reach the blow actually has and shuts onto the body, so
   // what is left to run is a distance on the floor.
@@ -137,7 +152,7 @@ export const markEnemy = (enemy: Enemy, camera: THREE.Camera, dt: number) => {
   // body reads as closing at all, and the fade underneath was doing what the whole rewrite exists
   // to stop doing. The mark arrives at full strength and the only thing that changes is its size.
   const close = enemy.windup > 0 ? 1 - enemy.windup / enemy.tell : 1;
-  enemy.cue.scale.setScalar((enemy.kind === 'warden' ? 1.7 : 1) * (1.9 - .9 * close));
+  enemy.cue.scale.setScalar(BESTIARY[enemy.kind].look.cueScale * (1.9 - .9 * close));
   enemy.cue.position.copy(enemy.group.position); enemy.cue.position.y = 0.055; enemy.cue.rotation.z = Math.atan2(-enemy.aim.z,enemy.aim.x);
   const cueSkin = enemy.cue.material as THREE.MeshBasicMaterial;
   // Plan 014 round 2: this was 1 - a fully opaque slab, drawn for the whole tell, wide enough
@@ -160,7 +175,7 @@ export const poseEnemy = (enemy: Enemy, intent: EnemyIntent, dt: number, t: numb
   const pose=enemyPose(enemy.kind,enemy.windup,enemy.tell,enemy.cooldown,enemy.lunge,enemy.attackAge);
   if(!pose.trail)enemy.group.rotation.y=intent.face??enemy.group.rotation.y;
   const walking=intent.act==='dozing'||(intent.act==='ready'&&intent.distance>1.15&&enemy.hitFlash<=0&&pose.recovery===0);
-  const gait=walking?Math.sin(t*enemy.speed*5+enemy.phase)*(enemy.kind==='warden'?.28:.48):0;
+  const gait=walking?Math.sin(t*enemy.speed*5+enemy.phase)*BESTIARY[enemy.kind].look.gait:0;
   enemy.group.position.y=.03;
   enemy.group.userData.rig.position.y=pose.height+(walking?Math.abs(gait)*.07:0);
   enemy.group.userData.rig.rotation.x=pose.pitch+(enemy.hitFlash>0?.15:0);
@@ -168,12 +183,12 @@ export const poseEnemy = (enemy: Enemy, intent: EnemyIntent, dt: number, t: numb
   enemy.group.userData.weapon.rotation.set(pose.weapon,pose.weaponYaw,pose.weaponRoll);
   enemy.group.userData.limbs.forEach((limb:THREE.Group,i:number)=>{limb.rotation.x=(i<2?pose.arms:0)+(i%2?gait:-gait);});
   enemy.group.userData.skull.rotation.y=Math.sin(t*1.5+enemy.phase)*.06;
-  if(enemy.kind==='guard')enemy.group.userData.limbs[0].rotation.x=-.16+gait*.12-.1*(enemy.windup>0?1-enemy.windup/enemy.tell:pose.recovery);
+  if(BESTIARY[enemy.kind].look.shieldArm)enemy.group.userData.limbs[0].rotation.x=-.16+gait*.12-.1*(enemy.windup>0?1-enemy.windup/enemy.tell:pose.recovery);
   enemy.cue.visible=enemy.windup>0||(enemy.lunge>0&&enemy.attackAge<.09);
   // Landed. The mark is at its tightest already, so the last thing it does is stop being the
   // warning and become the blow: one frame of `COMMIT` on the floor while the body carries the
   // same flare above it, then out inside a tenth of a second.
-  if(enemy.windup<=0){const fade=Math.max(0,1-enemy.attackAge/.09);const skin=enemy.cue.material as THREE.MeshBasicMaterial;skin.color.setHex(COMMIT);skin.opacity=fade;const gh=enemy.cue.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;gh.material.color.setHex(COMMIT);gh.material.opacity=fade*.34;enemy.cue.scale.setScalar(enemy.kind==="warden"?1.7:1);}
+  if(enemy.windup<=0){const fade=Math.max(0,1-enemy.attackAge/.09);const skin=enemy.cue.material as THREE.MeshBasicMaterial;skin.color.setHex(COMMIT);skin.opacity=fade;const gh=enemy.cue.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;gh.material.color.setHex(COMMIT);gh.material.opacity=fade*.34;enemy.cue.scale.setScalar(BESTIARY[enemy.kind].look.cueScale);}
   enemy.trails.forEach(trail=>trail.effect.update(dt,pose.trail,trail.anchor,trail.inner,trail.tip));
   // A struck body flares for two frames and is back to its own colour inside six. The flat 0.8
   // this replaced held an orange tint for the whole 0.2s of hitFlash, which is fifteen frames of

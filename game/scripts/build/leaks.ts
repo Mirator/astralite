@@ -9,6 +9,13 @@ export function devOnlyHooks(source: string): string[] {
   return [...new Set([...source.matchAll(/\btestHooks\.(\w+)\s*=/g)].map((m) => m[1]))].sort();
 }
 
+/**
+ * Development-only features that are not `testHooks` entries, by a string each one cannot run without: the
+ * arena's event name (both the menu page that sends it and the listener that answers it) and its menu label.
+ * Listed by hand, since nothing in the source marks them the way `testHooks.` marks a hook.
+ */
+export const DEV_MARKERS = ['dungeon-arena', 'Arena · dev'] as const;
+
 /** Always shipped: the hooks the README documents for the console. Seeing them proves the game chunk was read. */
 export const PUBLIC_HOOKS = ['render_game_to_text', 'advanceTime', 'dungeonTest'] as const;
 
@@ -19,7 +26,7 @@ const EAGER_BOOT = /\bget\(\s*[`'"]boot[`'"]\s*\)/;
 
 export function findLeaks(bundle: string, devOnly: string[]): LeakReport {
   return {
-    leaked: [...devOnly.filter((name) => bundle.includes(name)), ...(EAGER_BOOT.test(bundle) ? ['?boot=eager'] : [])],
+    leaked: [...devOnly.filter((name) => bundle.includes(name)), ...DEV_MARKERS.filter((marker) => bundle.includes(marker)), ...(EAGER_BOOT.test(bundle) ? ['?boot=eager'] : [])],
     missingPublic: PUBLIC_HOOKS.filter((name) => !bundle.includes(name)),
   };
 }
