@@ -28,7 +28,11 @@ test('cloak stays attached while running and dodging, and the guard keeps its sh
   // The anchor and the shield's tilt are build constants nothing writes at runtime, so they are not asserted.
   // What moves is the cape's pitch: at rest it hangs near -.1, so only a swing well past that shows the dash
   // actually drove it back.
-  await page.keyboard.down('ArrowDown');await game.step(220);await page.keyboard.up('ArrowDown');await page.keyboard.press('ShiftLeft');await game.step(80);
+  // Settled first: a running cape already hangs past -.4, so a dash straight out of a run would pass with the
+  // dash's own swing deleted. From a standstill, only the dash can carry it there.
+  await page.keyboard.down('ArrowDown');await game.step(220);await page.keyboard.up('ArrowDown');await game.step(700);
+  expect((await cloak()).pitch,'the cape has not settled before the dash').toBeGreaterThan(-.3);
+  await page.keyboard.press('ShiftLeft');await game.step(80);
   expect((await cloak()).pitch,'the cape did not stream back through the dash').toBeLessThan(-.4);await game.capture('attached-cloak-dash');
   await game.step(500);const state=await game.state(),index=state.enemies.findIndex(e=>e.kind==='guard');
   await game.teleport(0,0);await game.configureCombat({enemies:[{index,x:1,z:0,cooldown:0,windup:.5,aim:{x:-1,z:0}}]});

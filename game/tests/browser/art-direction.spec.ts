@@ -336,29 +336,29 @@ test.describe('the telegraph reads against its own stone', () => {
         tell.share,
         `the tell covered ${(tell.share * 100).toFixed(2)}% of the frame, so it never drew`,
       ).toBeGreaterThan(0.0008);
-      // 25 is comfortably past the ~2.3 of a just-noticeable difference and past
-      // the ~10 of "obviously another colour": a mark the player has a third of a
-      // second to answer has to be further from its background than that.
+      // Past the ~10 of "obviously another colour" by a margin: a mark the player has a third of a second to
+      // answer has to be further from its background than that. 33 sits under the weakest chamber measured
+      // (ruins, 39.6; keep 60.6, flooded 43.1 with the body hidden, SwiftShader, 2026-09-26) and above a mark
+      // washed out to a third of its opacity in a stone colour (30), which the old 25 let through.
       expect(
         tell.mean,
         `the tell is mean ΔE ${tell.mean.toFixed(1)} (peak ${tell.peak.toFixed(1)}) from the ` +
           `${theme} stone under it — mark ${tell.mark.map(Math.round).join()}, stone ${tell.stone.map(Math.round).join()}`,
-      ).toBeGreaterThan(25);
+      ).toBeGreaterThan(33);
 
-      // And it is the same red in every chamber. This is the one that was wrong:
-      // drawn additively, the mark was floor plus red, so the paving's own green
-      // and blue set the result and the same constant came out dusty pink over
-      // the keep's violet slate and muddy orange over the flood's teal. A mark
-      // whose colour is decided by the room it is drawn in is not a signal, so
-      // the measurement is against `THREAT` itself rather than against the floor.
+      // And it is the same red in every chamber, measured against `THREAT` itself rather than the floor. It
+      // was written for an additively drawn mark, which came out dusty pink over the old violet slate; on
+      // today's darker stone floor-plus-red is still red (10 degrees off against 8, measured), so what this
+      // guards now is a mark that stops being hot, threat-red: 14 degrees and chroma 65 sit outside every
+      // chamber's measured 3-8 degrees and chroma 83+, and fail the washed-out mark (17 degrees, chroma 49).
       const lab = toLab(tell.core);
       const chroma = Math.hypot(lab.a, lab.b);
       const drift = hueGap(hueOf(tell.core), hueOf(THREAT));
       const note =
         `${theme}: core ${tell.core.map(Math.round).join()} — C ${chroma.toFixed(0)}, ` +
         `${drift.toFixed(0)}° off threat`;
-      expect(drift, `the tell is ${note}, so the paving is setting its hue`).toBeLessThan(18);
-      expect(chroma, `the tell is ${note}, which is not hot`).toBeGreaterThan(45);
+      expect(drift, `the tell is ${note}, so the paving is setting its hue`).toBeLessThan(14);
+      expect(chroma, `the tell is ${note}, which is not hot`).toBeGreaterThan(65);
     });
   }
 });
