@@ -136,6 +136,9 @@ export default function DungeonGame() {
   // Deliberately not the same flag as displayLost: that is a context taken away mid-descent and handed
   // back, this is one never granted, so there is no run to pause and nothing that could restore it.
   const [displayFailed, setDisplayFailed] = useState(false);
+  // The world stopped on a throw it could not answer (see `fail` in the world closure). Its own screen,
+  // like `displayFailed`: there is no run left to pause and nothing but a reload brings one back.
+  const [fault, setFault] = useState(false);
   const [best, setBest] = useState<BestRun | null>(null);
   const [runSeed, setRunSeed] = useState<number | null>(null), [priorSeed, setPriorSeed] = useState<number | null>(null);
   // Not derived from `best`: the record is one run, this is the distribution every balance argument in
@@ -796,7 +799,7 @@ export default function DungeonGame() {
       // caller does not change until the work this one is holding actually runs.
       if (building) return;
       building = true; setLoading(line);
-      void stagedBuild(plan.level, plan.seed, work).then((ok) => { if (!ok) return; building = false; setLoading(null); setVeilStage(0); then?.(); });
+      void stagedBuild(plan.level, plan.seed, work).then((ok) => { if (!ok) return; building = false; setLoading(null); setVeilStage(0); then?.(); }).catch(fail);
     };
     // An explicit seed replays a floor verbatim; without one the keep is new every descent.
     // Plan 015 Stage C.2: a generator, yielding once after each existing `phase()` boundary, so the
@@ -1182,6 +1185,17 @@ export default function DungeonGame() {
     renderer.domElement.addEventListener('webglcontextlost', contextLost);
     renderer.domElement.addEventListener('webglcontextrestored', contextRestored);
     let last: number | null = null, raf = 0;
+    // A throw from inside `update` or a draw used to be thrown again on every frame after it, since the
+    // loop asks for its next frame before it runs this one: the picture froze, the console filled, and
+    // nothing on screen said why. A throw out of a floor build left the veil up for good. Either one now
+    // stops the world once, says so once, and puts up a screen with the one way out.
+    let faulted = false;
+    const fail = (error: unknown) => {
+      if (faulted) return;
+      faulted = true; cancelAnimationFrame(raf); clearInput(); audio.pause(true);
+      console.error('The keep stopped:', error);
+      setLoading(null); setFault(true);
+    };
     const update = (frameDt: number) => {
       // Before anything reads an input: a button pressed this frame must be able to start a swing on
       // this frame, exactly as a key would.
@@ -1657,12 +1671,16 @@ export default function DungeonGame() {
     }
     const advanceTime = (ms: number, draw = true) => {
       manualTime = true;
+      if (faulted) throw new Error('the keep has stopped; reload to start again');
       const steps = Math.max(1, Math.ceil(ms / (1000 / 60)));
-      for (let i = 0; i < steps; i++) update(ms / steps / 1000);
-      if (draw) { post.render(elapsed); }
+      // The driver hears the throw as well as seeing the screen: a stepped test fails where it happened.
+      try {
+        for (let i = 0; i < steps; i++) update(ms / steps / 1000);
+        if (draw) { post.render(elapsed); }
+      } catch (error) { fail(error); throw error; }
     };
     const renderText = () => JSON.stringify({
-      coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
+      coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, fault: faulted, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
       health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - stage.enemies.filter(e => e.dead).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, stairDwell, deadEndsPlundered: loot },
       stair: { x: stage.stairSpot.x, z: stage.stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
@@ -1693,7 +1711,7 @@ export default function DungeonGame() {
       enemies: stage.enemies.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, pose: {shieldArm:e.group.userData.limbs[0].rotation.x,shieldTilt:e.group.userData.shield.rotation.x,pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x,weaponYaw:e.group.userData.weapon.rotation.y,attackAge:Number.isFinite(e.attackAge)?e.attackAge:null,trails:e.trails.filter(trail=>trail.effect.mesh.visible).length,cue:e.cue.visible} })),
     });
     const animate = (now: number) => {
-      if (stopped) return; raf = requestAnimationFrame(animate);
+      if (stopped || faulted) return; raf = requestAnimationFrame(animate);
       // rAF timestamps describe the frame start, which can precede effect setup.
       // Establish the clock on the first callback so startup cannot run time backwards.
       // Plan 015 Stage C fix round: `!building` too. A sliced restart or descent swaps `gameStatus` to
@@ -1704,11 +1722,12 @@ export default function DungeonGame() {
       // isolated scenario steps it by hand. `stagedBuild`'s own two warm-up `post.render` calls are
       // direct, not gated here, and are unaffected.
       if (built && warmed && !building && !manualTime && !document.hidden) {
-        update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04)));
+        try { update(last === null ? 0 : Math.max(0, Math.min((now - last) / 1000, 0.04))); }
+        catch (error) { fail(error); return; }
         // Plan 015 Stage B: a frozen frame (paused, drafting, complete, or simply nothing since invalidated)
         // matches the one already on screen, so it is not redrawn. `update` sets `dirty` itself whenever it
         // actually advances; everything else that can change the picture while frozen sets it directly.
-        if (dirty) { post.render(elapsed); dirty = false; }
+        if (dirty) { try { post.render(elapsed); } catch (error) { fail(error); return; } dirty = false; }
       }
       last = now;
     };
@@ -1768,7 +1787,7 @@ export default function DungeonGame() {
         if (!enterWhenBuilt) return;
         const seed = enterSeed; enterSeed = undefined;
         if (seed === undefined || seed === floor.seed) enter(); else restart(seed, enter);
-      });
+      }).catch(fail);
     };
     // Plan 015: no boot at mount. `scheduleBoot`'s only caller is now the press path (`enterWhenBuilt`
     // above), so a visit that never presses ENTER never builds a floor, compiles a shader or requests a
@@ -1798,8 +1817,8 @@ export default function DungeonGame() {
   // would activate on the very key a player is most likely still holding when a card opens. A dialog with
   // a name announces itself; Tab then reaches the card's own controls first.
   const focusCard = useCallback((card: HTMLElement | null) => { card?.focus({ preventScroll: true }); }, []);
-  const cardOpen = !started || (paused && !mapOpen) || (boonChoice.length > 0 && status === 'playing') || status === 'complete' || status === 'won' || status === 'lost';
-  const menuOpen = !displayFailed && (!started || (paused && !mapOpen));
+  const cardOpen = fault || !started || (paused && !mapOpen) || (boonChoice.length > 0 && status === 'playing') || status === 'complete' || status === 'won' || status === 'lost';
+  const menuOpen = !displayFailed && !fault && (!started || (paused && !mapOpen));
   // Every time the card closes it reopens on the menu list, not on whichever page it was left at. Adjusted
   // during render rather than in an effect, so a reopened card never paints the stale page for a frame.
   const [menuWasOpen, setMenuWasOpen] = useState(menuOpen);
@@ -1812,7 +1831,7 @@ export default function DungeonGame() {
   // A display that was never granted has its own screen and nothing left to wait for. Nothing is waited on
   // before the menu: nothing builds until ENTER is pressed (plan 015), and the bar goes up for that first
   // press, or for any floor build the player has asked for since.
-  const veil = displayFailed ? null : loading ?? (entering ? 'Waking the keep' : null);
+  const veil = displayFailed || fault ? null : loading ?? (entering ? 'Waking the keep' : null);
   return (
     <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}${ready ? ' world-ready' : ''}${plainVeil ? ' plain-chrome' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
@@ -1919,6 +1938,7 @@ export default function DungeonGame() {
       {(status === 'won' || status === 'lost') && <div className="end-screen result-screen"><div className="end-card result-card" role="alertdialog" aria-modal="true" aria-labelledby="result-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{status === 'won' ? 'THE KEEP IS BEHIND YOU' : `FLOOR ${floorLevel} · FAILED`}</span><h1 id="result-title">{status === 'won' ? 'You climb into the dawn.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'Three floors of the drowned watch lie still behind you.' : 'Steel yourself and enter once more.'}</p><div className="xp-summary"><strong>{experience} XP earned</strong><span>Floor {floorLevel} of {FLOORS} · rank {rank} · {defeated} guards felled · XP resets on a new run</span>{best && <small>Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</small>}</div><button onClick={() => action('restart')}>NEW DESCENT</button>{status === 'lost' && runSeed !== null && <button className="seed-retry" onClick={() => action(`restart:${runSeed}`)}>SAME KEEP</button>}</div></div>}
       {/* Plain markup on purpose: the canvas was never mounted, so this is the only thing left to look at. */}
       {displayFailed && <div className="end-screen display-failed"><div className="end-card" role="alertdialog" aria-modal="true" aria-labelledby="display-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">THE GATE STAYS SHUT</span><h1 id="display-title">No light to see by.</h1><p>This browser could not open a 3D display, so the keep cannot be drawn. That most often means hardware acceleration is switched off in the browser&rsquo;s settings.</p></div></div>}
+      {fault && <div className="end-screen display-failed fault-screen"><div className="end-card" role="alertdialog" aria-modal="true" aria-labelledby="fault-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">THE KEEP HAS STOPPED</span><h1 id="fault-title">Something in the dark gave way.</h1><p>The descent cannot go on from here. Reloading raises the keep afresh; your settings and your deepest descent are kept.</p><button onClick={() => window.location.reload()}>RELOAD</button></div></div>}
       {displayLost && <output className="display-notice">Display interrupted · the descent is paused</output>}
       {/* Not in the prerendered page: the menu is, and nothing stands between a visitor and it. The veil
           belongs to the moments that make the player wait on a floor built from nothing — ENTER THE KEEP

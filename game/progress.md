@@ -2755,3 +2755,17 @@ match until the next refresh.
 never uses, a shadow map that is probably drawn twice a frame - unverified - and a mesh per spark),
 and a guard around `update` so an exception stops the loop with a screen rather than failing silently
 every frame.
+
+## 2026-09-26 - A throw no longer freezes the keep behind a silent frame
+
+`animate` asks for its next frame before it runs this one, so a throw from `update` or a draw was
+thrown again every frame: the picture froze, the console filled, and nothing on screen said why. A
+throw out of a staged floor build left the loading veil up for good. Both now go through `fail`, which
+stops the world once, logs once, and shows a "The keep has stopped" card with a reload button
+(`fault` in `render_game_to_text`). Under the driver's clock the throw is also rethrown to the caller,
+and a stopped world refuses further steps.
+
+`tests/browser/robustness.spec.ts` (isolated pages, since each breaks its own) plants a throw in the
+real frame loop, under the driver clock and inside a floor build - all three fail on the old code - and
+covers the GPU context being lost and restored, which had no test: the descent pauses, the notice
+lifts on restore, and the restored context draws the keep rather than a black frame.
