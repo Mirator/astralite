@@ -40,6 +40,8 @@ export type Archetype = {
   steadfast: boolean;
   /** It will not walk in while its cooldown is at or above this; Infinity for a body that always closes. */
   advanceBelow: number;
+  /** The first floor it can be drawn into a pack on. Before that, its share of a pack goes to guards. */
+  firstFloor: number;
   /** What the renderer needs to draw it - plain numbers, so this file stays free of three.js. */
   look: {
     pose: PoseStyle;
@@ -73,7 +75,7 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   guard: {
     stats: { hp: 2 * 4, damage: 12, tell: 0.5, speed: 2.2 },
     strikeRange: 1.55, attackRange: 1.5, holdRange: 1.15, recovery: 1.25,
-    attack: 'swing', steadfast: false, advanceBelow: Infinity,
+    attack: 'swing', steadfast: false, advanceBelow: Infinity, firstFloor: 1,
     look: {
       pose: 'cut', scale: [1, 1, 1], cue: 'arc', cueScale: 1, barLift: 2.05, alertLift: 2.55, barColor: 0xe89a79, gait: .48, blood: 1, heavy: false,
       trail: { from: 'weapon', color: 0xffd39b, width: .095, inner: [0, 0, -.24], tip: [0, 0, -.86] },
@@ -84,7 +86,7 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
     stats: { hp: 2 * 4, damage: 8, tell: 0.58, speed: 3.2 },
     strikeRange: 1.55, attackRange: 4.2, holdRange: 1.15, recovery: 1.7,
     // Late in its recovery a stalker stands still rather than trotting in with a pounce it cannot throw.
-    attack: 'pounce', steadfast: false, advanceBelow: 0.9,
+    attack: 'pounce', steadfast: false, advanceBelow: 0.9, firstFloor: 1,
     look: {
       pose: 'pounce', scale: [.94, 1, .94], cue: 'lane', cueScale: 1, barLift: 2.05, alertLift: 2.55, barColor: 0xe89a79, gait: .48, blood: 1, heavy: false,
       trail: { from: 'claws', color: 0xffcc90, width: .095, inner: [0, -.72, -.12], tip: [0, -.87, -.5] },
@@ -94,7 +96,7 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   warden: {
     stats: { hp: 4 * 4, damage: 20, tell: 0.72, speed: 1.65 },
     strikeRange: 2.55, attackRange: 2.2, holdRange: 2.0, recovery: 1.6,
-    attack: 'swing', steadfast: true, advanceBelow: Infinity,
+    attack: 'swing', steadfast: true, advanceBelow: Infinity, firstFloor: 1,
     look: {
       pose: 'overhead', scale: [1.3, 1.3, 1.3], cue: 'arc', cueScale: 1.7, barLift: 2.65, alertLift: 3.15, barColor: 0xffb65f, gait: .28, blood: 1.4, heavy: true,
       trail: { from: 'weapon', color: 0xffa15c, width: .13, inner: [0, 0, -.24], tip: [0, 0, -1.2] },
