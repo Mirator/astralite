@@ -23,9 +23,14 @@ test('travel uses a running rig, freezes on pause, settles on release and yields
   const attack=await game.state();expect(attack.player.attackTime).toBeGreaterThan(0);
   expect(attack.player.locomotion.pitch).toBe(0);
   await page.keyboard.up('ArrowLeft');await game.step(400);
-  await page.keyboard.press('ShiftLeft');await game.step(60);
-  expect((await game.state()).player.dashTime).toBeGreaterThan(0);
-  await game.step(600);expect((await game.state()).player.locomotion.speed).toBeLessThan(.01);
+  // The dodge has to cut into a stride to show it yields: sampled from a standstill, as this used to be, a
+  // stride that ran straight through the dash would pass. Running, dash, and read the gait mid-dash.
+  await page.keyboard.down('ArrowLeft');await game.step(320);
+  const striding=(await game.state()).player.locomotion.speed;expect(striding).toBeGreaterThan(.5);
+  await page.keyboard.press('ShiftLeft');await game.step(80);
+  const dodging=await game.state();expect(dodging.player.dashTime).toBeGreaterThan(0);
+  expect(dodging.player.locomotion.speed,'the stride kept going through the dash').toBeLessThan(striding*.6);
+  await page.keyboard.up('ArrowLeft');await game.step(600);expect((await game.state()).player.locomotion.speed).toBeLessThan(.01);
 });
 
 test('holding movement into a wall stops the stride when the knight stops travelling',async({game,page})=>{

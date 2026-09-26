@@ -300,8 +300,8 @@ human looks at it.
 
 The output directory is under the root `outputs/` ignore rule rather than under `test-results/`, which the
 next `npm run test:browser` empties. It holds `before/` and `after/` (the PNGs, `costs.json`, `meta.json`
-and the run's `run.log`), `diff/`, `summary.json` and the sheet. The diff is `scripts/shots/diff.ts`, the
-same one `zz-pixel-diff.spec.ts` reports.
+and the run's `run.log`), `diff/`, `summary.json` and the sheet. The diff is `scripts/shots/diff.ts`. To diff
+two capture folders you already have, pass both: `npm run shots:compare -- --before <dir> --after <dir>`.
 
 What `--base HEAD` looks like on d3d11 (2026-09-22, `e2f49b5`), which is the floor under any real change:
 the flooded hall and the warden chamber are identical; the strike contact frame, the shrine and every strip

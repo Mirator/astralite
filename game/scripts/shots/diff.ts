@@ -1,7 +1,7 @@
 // The one pixel diff this repository has: how many pixels two captures disagree on, by how much, and where.
 //
-// Shared by `tests/browser/zz-pixel-diff.spec.ts` and the contact sheet (`compare.ts`). Both run it inside
-// Chromium, because that is where a PNG decodes for free, and they get it there as source text
+// Used by the contact sheet (`compare.ts`), which runs it inside Chromium, because that is where a PNG
+// decodes for free, and gets it there as source text
 // (`diffPixels.toString()`). That is why it is one self-contained function declaration: nothing in its body
 // may reach outside it - no imports, no module constants, no helpers - or it will throw once it is in the
 // page. `tests/shots-compare.test.ts` rebuilds it from its own source to hold it to that.

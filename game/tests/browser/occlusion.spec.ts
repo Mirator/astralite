@@ -160,84 +160,97 @@ test.describe('local actor cutaway', () => {
     const reopened = await game.cutawayFrames();
     expect(countChangedPixels(reopened.off, reopened.on), 'stepping back into the window reopens it').toBeGreaterThan(0);
 
-    // A stale enemy id must never survive into the next floor. `configureCombat` cannot itself outlive
-    // a rebuild (the whole enemy array is replaced), so what this actually checks is that
-    // `releaseFloor` really runs before the new floor's own registration, per `clearFloor`'s ordering.
+    // The new floor registers its own occluders. (Whether a rebuild can carry a stale enemy slot over is
+    // asked in the enemy test below, where an enemy actually holds one when the floor goes.)
     await game.buildFloor(2);
     await game.built();
     await game.step(SETTLE);
-    const rebuilt = await game.cutawayDiagnostics();
-    expect(rebuilt.slots.every((s) => s.owner === null || s.owner === 'player'), 'a floor rebuild must never carry a stale enemy id into the new floor').toBe(true);
-    expect(rebuilt.registeredMeshCount, 'the new floor registers its own eligible meshes').toBeGreaterThan(0);
+    expect((await game.cutawayDiagnostics()).registeredMeshCount, 'the new floor registers its own eligible meshes').toBeGreaterThan(0);
   });
 
-  test('a windup enemy is also cut, sharing a slot the player does not displace', async ({ game }) => {
+  // The game decides which bodies are candidates at all (awake, in the knight's room, within
+  // CUTAWAY_ENEMY_RANGE, attacking) in its own frame loop; the controller then caps and fades them
+  // (tests/dungeon-occlusion.test.ts). Both earlier versions of this never reached that filter: one stood
+  // the knight in the enemy-free gate room, so every count was 0, and the other skipped on every run. A
+  // pinned seed has to stage this, so a missing fixture fails rather than skips.
+  test('only attacking bodies in the knight\'s room and in range hold a slot, never more than two, and the pixels open for one', async ({ game }) => {
     await game.enter();
     const floor = await game.floor();
     const state = await game.state();
-    if (!state.enemies.length) test.skip(true, 'this seed spawned no enemies to stage a windup on');
+    const enemySlots = async () => (await game.cutawayDiagnostics()).slots.filter((s) => s.owner !== null && s.owner !== 'player');
+    const byRoom = new Map<number, number[]>();
+    state.enemies.forEach((e, i) => { if (e.awake) byRoom.set(e.room, [...(byRoom.get(e.room) ?? []), i]); });
+    const [room, members] = [...byRoom].find(([, list]) => list.length >= 3) ?? [undefined, []];
+    expect(room, 'the pinned seed no longer holds a room with three awake enemies; pick another fixture seed').toBeDefined();
+    const outsider = state.enemies.findIndex((e) => e.awake && e.room !== room);
+    expect(outsider, 'the pinned seed holds no awake enemy outside that room').toBeGreaterThanOrEqual(0);
 
-    // Any pillar in the same room as a living enemy: `configureCombat` moves the enemy, never its
-    // `room` field, so the player has to join the enemy's own room for it to stay eligible at all.
-    const pillars = floor.props.filter((p) => p.kind === 'pillar');
-    const perimeter = perimeterTiles(floor);
-    const withEnemy = (room: number) => state.enemies.some((e) => e.room === room);
-    const occluderRoom = pillars.find((p) => withEnemy(p.room))?.room ?? perimeter.find((t) => t.room >= 0 && withEnemy(t.room))?.room;
-    if (occluderRoom === undefined) test.skip(true, 'no room in this floor holds both an occluder and a living enemy');
-    const roomOccluders = [
-      ...pillars.filter((p) => p.room === occluderRoom).map((p) => ({ x: p.x * TILE, z: p.z * TILE })),
-      ...perimeter.filter((t) => t.room === occluderRoom).map((t) => ({ x: t.x * TILE, z: t.z * TILE })),
-    ];
-    const candidates = roomOccluders.flatMap((o) => behindSpots(o, floor));
-    expect(candidates.length, 'no legal camera-ray spot near this room\'s own occluders').toBeGreaterThan(0);
-
-    // Stand the player in the same room first, off to the side, so it owns `activeRoom` before the
-    // enemy is moved into its occluded spot.
-    const centre = roomCentre(floor, occluderRoom!);
-    const playerSpot = canStand(floor.cells, centre.x, centre.z) ? centre : candidates[0];
-    await game.teleport(playerSpot.x, playerSpot.z);
+    // Calm every body before the knight walks in: the room's own would otherwise notice him during the
+    // settle and wind up, and a slot fades out over several frames after its windup stops.
+    const calm = state.enemies.map((e, index) => ({ index, hp: e.hp, windup: 0, cooldown: 999 }));
+    await game.configureCombat({ health: state.maxHealth, enemies: calm });
+    const centre = roomCentre(floor, room!);
+    await game.teleport(centre.x, centre.z);
     await game.step(SETTLE);
+    expect((await enemySlots()).length, 'a calm room already holds an enemy slot').toBe(0);
+    const beside = [0, 1, 2, 3, 4, 5, 6, 7].map((k) => ({ x: centre.x + Math.cos(k * Math.PI / 4) * 1.8, z: centre.z + Math.sin(k * Math.PI / 4) * 1.8 }))
+      .filter((p) => canStand(floor.cells, p.x, p.z));
+    expect(beside.length, 'too little floor around the room centre to stand three attackers').toBeGreaterThanOrEqual(3);
 
-    const enemyIndex = state.enemies.findIndex((e) => e.room === occluderRoom);
-    let staged: { x: number; z: number } | null = null, changed = 0;
-    for (const spot of candidates.slice(0, 24)) {
-      if (Math.hypot(spot.x - playerSpot.x, spot.z - playerSpot.z) > 4) continue;
-      if (!canStand(floor.cells, spot.x, spot.z)) continue;
-      await game.configureCombat({ health: state.maxHealth, enemies: [{ index: enemyIndex, x: spot.x, z: spot.z, hp: 8, windup: 0.5, cooldown: 999 }] });
+    // A body from another room, winding up right beside the knight: the room filter alone keeps it out.
+    await game.configureCombat({ enemies: [...calm.filter((e) => e.index !== outsider), { index: outsider, x: beside[0].x, z: beside[0].z, hp: state.enemies[outsider].hp, windup: 0.5, cooldown: 999 }] });
+    await game.step(150);
+    expect((await enemySlots()).length, 'an attacking body from a neighbouring room took a slot').toBe(0);
+
+    // Three of the room's own, all attacking within range: exactly the two-slot cap, and the player keeps his.
+    await game.configureCombat({ enemies: [...calm.filter((e) => !members.slice(0, 3).includes(e.index)), ...members.slice(0, 3).map((index, k) => ({ index, x: beside[k].x, z: beside[k].z, hp: state.enemies[index].hp, windup: 0.5, cooldown: 999 }))] });
+    await game.step(150);
+    expect((await enemySlots()).length, 'three attackers in range should fill exactly the two enemy slots').toBe(2);
+    expect((await game.cutawayDiagnostics()).slots.filter((s) => s.owner === 'player').length, 'the player keeps its own slot').toBe(1);
+
+    // The pixels: one attacker behind an occluder in this room, the knight walked to within range of it
+    // (toward the room centre, staying in the room). A spot counts only if the same frame with the body
+    // calm is pixel-identical, so the window is the enemy's and not the knight's own.
+    const inRoom = (p: { x: number; z: number }) => floor.tiles.some((t) => t.room === room && t.x === Math.round(p.x / TILE) && t.z === Math.round(p.z / TILE));
+    const candidates = [
+      ...floor.props.filter((p) => p.kind === 'pillar' && p.room === room).map((p) => ({ x: p.x * TILE, z: p.z * TILE })),
+      ...perimeterTiles(floor).filter((t) => t.room === room).map((t) => ({ x: t.x * TILE, z: t.z * TILE })),
+    ].flatMap((o) => behindSpots(o, floor)).filter(inRoom);
+    let opened = 0, tried = 0;
+    for (const spot of candidates) {
+      if (tried >= 16) break;
+      const toCentre = Math.hypot(centre.x - spot.x, centre.z - spot.z) || 1, reach = Math.min(2.5, toCentre);
+      const stand = { x: spot.x + (centre.x - spot.x) / toCentre * reach, z: spot.z + (centre.z - spot.z) / toCentre * reach };
+      if (!canStand(floor.cells, stand.x, stand.z) || !inRoom(stand)) continue;
+      tried++;
+      await game.configureCombat({ enemies: [...calm.filter((e) => e.index !== members[0]), { index: members[0], x: spot.x, z: spot.z, hp: state.enemies[members[0]].hp, windup: 0, cooldown: 999 }] });
+      await game.teleport(stand.x, stand.z);
+      await game.step(300);
+      const alone = await game.cutawayFrames();
+      if (countChangedPixels(alone.off, alone.on) > 0) continue;
+      await game.configureCombat({ enemies: [{ index: members[0], windup: 0.5, cooldown: 999 }] });
       await game.step(150);
       const frames = await game.cutawayFrames();
-      const count = countChangedPixels(frames.off, frames.on);
-      if (count > 0) { staged = spot; changed = count; break; }
+      opened = countChangedPixels(frames.off, frames.on);
+      if (opened > 0) break;
     }
-    if (!staged) test.skip(true, 'no candidate spot within 4 units of the player produced a visibly occluded, in-range windup');
-
-    expect((await game.cutawayDiagnostics()).slots.filter((s) => s.owner === 'player').length, 'the player keeps its own slot').toBe(1);
-    expect(changed, 'an occluded, mid-windup enemy must also open a real window').toBeGreaterThan(0);
+    expect(opened, `none of ${tried} occluded spots in range opened a window for an attacking enemy`).toBeGreaterThan(0);
+    await game.teleport(centre.x, centre.z);
     await game.capture('occlusion-enemy-windup-behind-wall');
-  });
 
-  test('idle, dormant, dead and neighbour-room enemies never open a window; at most two enemy slots exist at once', async ({ game }) => {
-    await game.enter();
-    const state = await game.state();
-    if (!state.enemies.length) test.skip(true, 'this seed spawned no enemies');
-    // Every live enemy at once, all mid-windup, all off cooldown: the fixed slot cap has to hold even
-    // when far more than two candidates would otherwise qualify. This is a bookkeeping question - how
-    // many slots the controller allocates - which the diagnostic answers directly and correctly.
-    await game.configureCombat({
-      health: state.maxHealth,
-      enemies: state.enemies.map((e, index) => ({ index, hp: e.hp, windup: 0.5, cooldown: 999 })),
-    });
-    await game.step(150);
-    const diagnostics = await game.cutawayDiagnostics();
-    const enemySlots = diagnostics.slots.filter((s) => s.owner !== null && s.owner !== 'player');
-    expect(enemySlots.length, 'never more than two enemy slots regardless of how many attack at once').toBeLessThanOrEqual(2);
-
-    // Now park every enemy off cooldown and out of a windup: none of them - however close, however
-    // recently eligible - may hold a slot a frame later.
-    await game.configureCombat({ enemies: state.enemies.map((e, index) => ({ index, hp: e.hp, windup: 0, cooldown: 999 })) });
+    // Out of the windup, every body lets its slot go.
+    await game.configureCombat({ enemies: calm });
     await game.step(300);
-    const idleDiagnostics = await game.cutawayDiagnostics();
-    expect(idleDiagnostics.slots.filter((s) => s.owner !== null && s.owner !== 'player').length, 'an idle body (no windup, no release) must never hold a slot').toBe(0);
+    expect((await enemySlots()).length, 'an idle body (no windup, no release) must never hold a slot').toBe(0);
+
+    // A rebuild while an enemy holds a slot must not carry its id into the new floor's enemies.
+    await game.configureCombat({ enemies: [...calm.filter((e) => e.index !== members[0]), { index: members[0], x: beside[0].x, z: beside[0].z, hp: state.enemies[members[0]].hp, windup: 0.5, cooldown: 999 }] });
+    await game.step(150);
+    expect((await enemySlots()).length, 'the fixture needs an enemy holding a slot when the floor goes').toBe(1);
+    await game.buildFloor(2);
+    await game.built();
+    await game.step(SETTLE);
+    expect((await enemySlots()).length, 'a floor rebuild carried a stale enemy slot into the new floor').toBe(0);
   });
 });
 
@@ -247,8 +260,10 @@ test.describe('local actor cutaway on a phone', () => {
   test('an occluded player still opens a window at phone size and aspect', async ({ game }) => {
     await game.enter();
     const floor = await game.floor();
-    const { changed } = await findOccludedPlayerSpot(game, floor);
+    const { changed, frames } = await findOccludedPlayerSpot(game, floor);
     expect(changed, 'a camera-aspect change must not break the effect').toBeGreaterThan(0);
+    // The same ceiling as the desktop case: a projection gone wrong at this aspect opens a wall, not a window.
+    expect(changed / (frames.off.length / 4), 'the cutaway opened far more than a local window at phone aspect').toBeLessThan(0.08);
     await game.capture('occlusion-mobile-player-occluded');
   });
 });

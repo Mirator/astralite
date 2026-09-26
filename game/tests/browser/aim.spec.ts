@@ -85,6 +85,11 @@ test('a cursor that leaves the canvas stops aiming', async ({ game, page }) => {
   // wherever the pointer was when it went out.
   await page.mouse.move(box.x + box.width * 0.5, box.y - 40);
   await game.step(32);
+  // Before any key: Space claims the aim for the keys on its own, so a facing read after it passes with
+  // the pointerleave handler deleted. The release itself is what has to be seen.
+  const left = await game.state();
+  expect(left.aim.ndc, 'the cursor left the canvas but is still aiming').toBeNull();
+  expect(left.aim.device).toBe('keys');
   await page.keyboard.press('Space');
   await game.step(16);
   const swung = await game.state();

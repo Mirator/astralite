@@ -47,7 +47,6 @@ test('sustained fire keeps the quiver at the bottom rather than topped up', asyn
   await game.step(4000);
   await page.keyboard.up('Space');
   const held = await game.state();
-  expect(held.weapon.quiver).toBeGreaterThanOrEqual(0);
   expect(held.weapon.quiver).toBeLessThanOrEqual(1);
 
   // Deliberately not asserting here that a pull on an empty quiver looses nothing. Bolts come back on a

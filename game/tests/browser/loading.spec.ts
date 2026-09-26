@@ -153,7 +153,15 @@ test('a reset issued while the boot is still polling its programs does not corru
     undefined,
     { timeout: WARM_UP },
   );
-  await page.evaluate(() => (window as GameWindow).dungeonTest?.reset());
+  // Read `building` and reset in the same task: a reset that lands after the boot finished would pass
+  // everything below trivially, so the test has to see that it hit the window it is about.
+  const inWindow = await page.evaluate(() => {
+    const hooks = window as GameWindow;
+    const building = (JSON.parse(hooks.render_game_to_text!()) as { building: boolean }).building;
+    hooks.dungeonTest?.reset();
+    return building;
+  });
+  expect(inWindow, 'the reset landed after the boot had finished, so the race was never run').toBe(true);
   // The boot this interrupted still has to land, whether or not the reset above did anything.
   await page.waitForFunction(
     () => {
@@ -203,8 +211,13 @@ test('a floor built through the sliced path is identical to the synchronous one,
         floor: unknown;
         graphics: unknown;
         enemies: unknown;
+        features: unknown;
+        stair: unknown;
+        drop: unknown;
+        remaining: unknown;
       };
-      return { floor: snapshot.floor, graphics: snapshot.graphics, enemies: snapshot.enemies };
+      // Everything a build decides: the layout, its dressing, the spawns, the stair, the rack and the props.
+      return { floor: snapshot.floor, graphics: snapshot.graphics, enemies: snapshot.enemies, features: snapshot.features, stair: snapshot.stair, drop: snapshot.drop, remaining: snapshot.remaining };
     });
 
   // The sliced path: the same generator, driven incrementally by `restart` (via `dungeonTest.reset`).
@@ -236,6 +249,13 @@ test('a fresh run waits behind the veil and lifts it on the new keep', async ({
   page,
 }) => {
   await game.enter();
+  // Somewhere a restart has to undo: a deeper floor and some experience. Without them the level and
+  // experience checks below hold before the restart as well as after it.
+  await game.buildFloor(2);
+  await game.grantXp(5);
+  const deeper = await game.state();
+  expect(deeper.floor.level).toBe(2);
+  expect(deeper.experience.total).toBeGreaterThan(0);
   await page.evaluate(() => {
     const watched = window as VeilWindow;
     watched.veilSeen = null; watched.veilClass = null;

@@ -158,6 +158,7 @@ test('the sword respects the same walls a skeleton does, and an open lane still 
       (prop) => quiet.has(prop.room) && !floor.cells.has(`${prop.x},${prop.z}`),
     )
     .map((prop) => ({
+      prop,
       knight: { x: prop.x * TILE - 1.07, z: prop.z * TILE + 0.25 },
       skeleton: { x: prop.x * TILE - 0.25, z: prop.z * TILE + 1.07 },
     }))
@@ -172,7 +173,7 @@ test('the sword respects the same walls a skeleton does, and an open lane still 
     'the pinned floor has no carved prop with a blocked diagonal beside it',
   ).toBeDefined();
 
-  const { knight, skeleton } = corner!;
+  const { prop, knight, skeleton } = corner!;
   const separation = Math.hypot(skeleton.x - knight.x, skeleton.z - knight.z);
   const toward = keyToward({
     x: skeleton.x - knight.x,
@@ -184,6 +185,11 @@ test('the sword respects the same walls a skeleton does, and an open lane still 
     swordContacts(floor.cells, knight, facing, skeleton, 0),
     'the fixture must be a contact the rule rejects only because of the prop',
   ).toBe(false);
+  // "Only because of the prop" is only true if filling the prop's cell back in lets the same blow land.
+  expect(
+    swordContacts(new Set([...floor.cells, `${prop.x},${prop.z}`]), knight, facing, skeleton, 0),
+    'the blow misses even without the prop, so the miss is not the wall',
+  ).toBe(true);
 
   // A guard can be parked by its windup. A stalker can retain a pounce from
   // the previous swing even after the fixture resets its windup and position.

@@ -80,7 +80,7 @@ const tellAgainstStone = async (page: Page, index: number, windup: number) =>
     ({ index, windup }) => {
       type Hooks = {
         advanceTime: (ms: number, draw: boolean) => void;
-        dungeonTest: { configureCombatFixture: (f: unknown) => void };
+        dungeonTest: { configureCombatFixture: (f: unknown) => void; setEnemyRigVisible: (index: number, visible: boolean) => void };
       };
       const win = window as unknown as Hooks;
       const gl = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
@@ -94,7 +94,12 @@ const tellAgainstStone = async (page: Page, index: number, windup: number) =>
         ctx.drawImage(gl, 0, 0);
         return ctx.getImageData(0, 0, copy.width, copy.height).data;
       };
+      // The body is hidden for both frames: a windup also flashes the whole body the threat colour, and
+      // with it in view the "core" below could be bone rather than the mark, which would hide the very
+      // regression (an additively blended mark) this measures.
+      win.dungeonTest.setEnemyRigVisible(index, false);
       const rest = frame(0), told = frame(windup);
+      win.dungeonTest.setEnemyRigVisible(index, true);
       const lin = (v: number) => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
       const lab = (r: number, g: number, b: number) => {
         const R = lin(r), G = lin(g), B = lin(b);

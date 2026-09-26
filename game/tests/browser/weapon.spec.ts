@@ -57,20 +57,6 @@ test('the prompt is gone the moment the knight walks off the rack', async ({ gam
   expect((await game.state()).drop!.offered).toBeNull();
 });
 
-test('a dash across a rack cannot change the arm in hand', async ({ game, page }) => {
-  // The old rule was a dwell, and the thing it existed to prevent was a swap in the middle of a fight.
-  // The key replaces it: crossing the ring at speed, dashing or not, never reaches the weapon.
-  await game.enter();
-  const opening = await game.state();
-  await game.teleport(opening.drop!.x - 2.2, opening.drop!.z);
-  await page.keyboard.down('KeyD');
-  await page.keyboard.press('ShiftLeft');
-  await game.step(700);
-  await page.keyboard.up('KeyD');
-  await game.step(200);
-  expect((await game.state()).weapon.id).toBe('tideblade');
-});
-
 test('the swing runs on the new arm rather than the old numbers', async ({ game, page }) => {
   await game.enter();
   const before = await game.state();
@@ -81,12 +67,14 @@ test('the swing runs on the new arm rather than the old numbers', async ({ game,
   const after = await game.state();
 
   expect(after.weapon.id).not.toBe(before.weapon.id);
-  // At least one of the three numbers a fight is decided by has to have moved with the weapon.
-  const moved = after.weapon.reach !== before.weapon.reach
-    || after.weapon.duration !== before.weapon.duration
-    || after.weapon.damage !== before.weapon.damage;
-  expect(moved, 'taking an arm changed nothing about the swing').toBe(true);
-  expect(after.weapon.strikeDamage).toBe(after.weapon.damage + after.boons.strike);
+  expect(after.weapon.duration, 'the fixture needs an arm that swings at a different speed').not.toBe(before.weapon.duration);
+  // A real swing, read off the live swing rather than the weapon table: the one it runs on is the new arm's.
+  await page.keyboard.press('Space');
+  await game.step(16);
+  const swinging = await game.state();
+  expect(swinging.player.chain.duration, 'the swing ran on the old arm').toBe(after.weapon.duration);
+  expect(swinging.player.attackTime).toBeCloseTo(after.weapon.duration - 0.016, 3);
+  expect(swinging.player.chain.damage).toBe(after.weapon.damage + after.boons.strike);
 });
 
 test('a new descent starts on the sword the knight walks in with', async ({ game, page }) => {

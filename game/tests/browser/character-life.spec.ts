@@ -25,14 +25,16 @@ for(const kind of ['guard','stalker','warden'])test(`${kind} falls, persists, fr
 test('cloak stays attached while running and dodging, and the guard keeps its shield facing forward',async({game,page})=>{
   await game.enter();
   const cloak=async()=>((await game.state()).player as Snapshot['player']&{cloak:{anchor:number[];pitch:number}}).cloak;
-  const anchor=(await cloak()).anchor;expect(anchor[1]).toBeCloseTo(.5);
+  // The anchor and the shield's tilt are build constants nothing writes at runtime, so they are not asserted.
+  // What moves is the cape's pitch: at rest it hangs near -.1, so only a swing well past that shows the dash
+  // actually drove it back.
   await page.keyboard.down('ArrowDown');await game.step(220);await page.keyboard.up('ArrowDown');await page.keyboard.press('ShiftLeft');await game.step(80);
-  expect((await cloak()).anchor).toEqual(anchor);expect((await cloak()).pitch).toBeLessThan(0);await game.capture('attached-cloak-dash');
+  expect((await cloak()).pitch,'the cape did not stream back through the dash').toBeLessThan(-.4);await game.capture('attached-cloak-dash');
   await game.step(500);const state=await game.state(),index=state.enemies.findIndex(e=>e.kind==='guard');
   await game.teleport(0,0);await game.configureCombat({enemies:[{index,x:1,z:0,cooldown:0,windup:.5,aim:{x:-1,z:0}}]});
   for(const ms of [32,250,250,400]){
     await game.step(ms);const pose=((await game.state()).enemies[index] as Snapshot['enemies'][number]&{pose:{shieldArm:number;shieldTilt:number}}).pose;
-    expect(pose.shieldTilt).toBeCloseTo(-Math.PI/2);expect(pose.shieldArm).toBeGreaterThan(-.33);expect(pose.shieldArm).toBeLessThan(-.08);
+    expect(pose.shieldArm).toBeGreaterThan(-.33);expect(pose.shieldArm).toBeLessThan(-.08);
   }
   await game.capture('shield-recovered');
 });

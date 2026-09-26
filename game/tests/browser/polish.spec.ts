@@ -1,4 +1,4 @@
-import { canStand, expect, hasClearPath, test, trackEnemy } from './helpers.ts';
+import { CAPTURING, canStand, expect, hasClearPath, test, trackEnemy } from './helpers.ts';
 import { generateFloor, TILE } from '../../app/dungeon-floor.ts';
 
 // Real encounters drive poses; no visual clock or fake attack fixture can mask a timing regression.
@@ -72,14 +72,16 @@ test('carved chambers keep distant architecture out of the rendered frame',async
   // Covers the accidental all-floor instancing that submitted nearly a million triangles
   // at the gate. This leaves room for art detail while bounding invisible geometry.
   expect(gate.render.triangles).toBeLessThan(400_000);
-  for(const theme of ['keep','ruins','flooded']){
+  // The three chambers are staged for the reference frames only. They used to assert more than 1000
+  // triangles, which the knight alone satisfies, so outside a capture run they cost three drawn frames for
+  // nothing.
+  if(CAPTURING)for(const theme of ['keep','ruins','flooded']){
     const floor=await game.floor(),room=floor.rooms.find(r=>r.theme===theme)!;
     expect(room).toBeDefined();
     const spot=floor.tiles.find(t=>t.room===room.id&&canStand(floor.cells,t.x*TILE,t.z*TILE))!;
     await game.teleport(spot.x*TILE,spot.z*TILE);
     await game.step(500,true);
     await game.capture(`carved-${theme}`);
-    expect((await game.state()).render.triangles).toBeGreaterThan(1000);
   }
 });
 
