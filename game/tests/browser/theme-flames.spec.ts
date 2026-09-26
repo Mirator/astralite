@@ -113,6 +113,25 @@ test.describe('a brazier attaches its owning room\'s theme, not the floor\'s', (
     ).toEqual(before);
   });
 
+  test('every halo burns the chamber\'s fire, and follows it across a threshold', async ({ game }) => {
+    await game.enter();
+    const floor = await game.floor();
+    await game.step(SETTLE);
+    const inside = await game.state();
+    // Plan 014 gave each halo its own material so it could fade beside the knight, and the recolour
+    // went on reaching only the template they were cloned from: every halo stayed the build's orange.
+    expect(new Set(inside.graphics.flames.map((f) => f.halo)), 'a halo is not the colour of the fire the room burns').toEqual(new Set([inside.mood.fire]));
+
+    const elsewhere = floor.rooms.find((room) => room.theme !== floor.rooms[0].theme);
+    expect(elsewhere, 'seed 0x1 holds a second theme').toBeDefined();
+    const centre = roomCentre(floor, elsewhere!.id);
+    await game.teleport(centre.x, centre.z);
+    await game.step(SETTLE);
+    const crossed = await game.state();
+    expect(crossed.mood.fire, 'the fire did not change colour across the threshold, so this proves nothing').not.toBe(inside.mood.fire);
+    expect(new Set(crossed.graphics.flames.map((f) => f.halo)), 'the halos kept the last chamber\'s fire').toEqual(new Set([crossed.mood.fire]));
+  });
+
 });
 
 test.describe('the three profiles read as different silhouettes and rhythms', { tag: '@capture' }, () => {

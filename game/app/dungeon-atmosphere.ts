@@ -650,7 +650,6 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const embers=new THREE.Points(emberGeo,emberMaterial);embers.frustumCulled=false;world.add(embers);
   // Scratch colours for the fire and the stone, so a frame that recolours every flame and every
   // column in the keep allocates nothing.
-  const haloTint=new THREE.Color();
   const paleTint=new THREE.Color(),bowlTint=new THREE.Color(),black=new THREE.Color(0x000000);
   const inlayTint=new THREE.Color(),runnerTint=new THREE.Color(),trimTint=new THREE.Color();
   const brassCast=new THREE.Color(0xb08a4e),timberCast=new THREE.Color(0x6d523a);
@@ -659,7 +658,9 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     // more (three quads, each its own draw). A driver that wants a brazier's footprint reads
     // `FLAME_FOOTPRINT`/`FLAME_BASE_Y` directly (both exported from their own modules) instead of
     // this diagnostic recomputing them; this just says which theme is burning where.
-    flames:flames.map(f=>({theme:f.theme,y:f.y})),
+    // Each halo's live colour rides along, off its own material: the halos are clones (round 8, below),
+    // so recolouring the template they were cloned from reached none of them.
+    get flames(){return flames.map((f,i)=>({theme:f.theme,y:f.y,halo:'#'+(halos[i].material as THREE.SpriteMaterial).color.getHexString()}));},
     update(t:number,player:THREE.Vector3,cleared:Set<number>,fire:THREE.Color,banner:THREE.Color,masonry:THREE.Color,bed:THREE.Color){
     shore.time.value=t;
     // What burns is the chamber's, not the floor's. The flame body takes the mood colour straight, the
@@ -667,7 +668,6 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     // and embers sit between the two. One hue, four jobs, and it crosses a threshold with the lights.
     emberMaterial.color.copy(fire);
     coalGlow.color.copy(fire).multiplyScalar(.3);
-    haloMaterial.color.copy(haloTint.copy(fire));
     red.color.copy(banner);
     // Brass and timber were the last of the shared kit: one gold hoop and one brown rail in all three
     // families, and in a chamber committed to violet the hoops were the warmest thing in the frame.
@@ -725,7 +725,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
       const pulse=1+Math.sin(t*9+i)*.06,base=haloBases[i];
       h.scale.set(base.x*pulse,base.y*pulse,1);
       const near=Math.min(1,h.position.distanceTo(player)/3.2);
-      (h.material as THREE.SpriteMaterial).opacity=.1*(.35+near*.65);
+      const m=h.material as THREE.SpriteMaterial;m.opacity=.1*(.35+near*.65);m.color.copy(fire);
     });
     // Rising embers for ruins, slow drift for keep, short local motes for flooded - the same six
     // slots and the same buffer for every theme, so nothing here adds a draw call.

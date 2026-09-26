@@ -282,6 +282,8 @@ export type Snapshot = {
     flames: {
       theme: 'keep' | 'ruins' | 'flooded';
       y: number;
+      /** The halo sprite's live colour, which follows the chamber's fire as `mood.fire` does. */
+      halo: string;
     }[];
     /** Realized macro paving (plan 006), derived from the actual batches rather than recomputed. */
     paving: { pairs: number; settled: number; surfaceCells: number };
