@@ -2,7 +2,7 @@ import { expect, laneSpot, strikeStance, test, TILE, type Game } from './helpers
 import type { Page } from '@playwright/test';
 
 // The arena-only kinds (app/dungeon-bestiary.ts). Each rule is held in node - the shield in
-// dungeon-hits.test.ts, the fire in dungeon-projectile.test.ts, raising and blinking in dungeon-enemy.test.ts,
+// dungeon-hits.test.ts, the fire in dungeon-projectile.test.ts, raising and reassembling in dungeon-enemy.test.ts,
 // the buried reserve in dungeon-arena.test.ts. These check the running game is wired to them, with a real
 // strike where the rule is about a strike. The reaper and the rattler resolve through the same `intent.hit`
 // path every swing does, which gameplay.spec.ts already drives, so they have nothing of their own here.
@@ -70,13 +70,13 @@ test('a pyre leaves fire where it falls, and the fire burns the knight standing 
   expect(state.health, 'standing in the fire cost the knight nothing').toBe(before - Math.round(fire.damage * state.boons.guardAgainst));
 });
 
-test('a bonecaller raises its buried reserve one at a time, and what it had not raised crumbles when it falls', async ({ game, page }) => {
+test('a bonecaller raises two at a call, a rattler cut down while it stands goes back into the ground unpaid, and all of them crumble with it', async ({ game, page }) => {
   await arena(game, page, ['bonecaller']);
   const floor = await game.floor();
   const opening = await game.state();
   const caller = opening.enemies.find((e) => e.kind === 'bonecaller')!;
   const buried = () => game.state().then((s) => s.enemies.filter((e) => e.buried));
-  expect((await buried()).length, 'the caller arrived with no reserve').toBe(3);
+  expect((await buried()).length, 'the caller arrived with no reserve').toBe(4);
   expect((await buried()).every((e) => !e.visible && !e.awake), 'a buried body was on show or awake').toBe(true);
   const graves = (await buried()).map((e) => [e.x, e.z]);
   // Out of the gate and back in: the arrival springs any ambush in the room, and must not raise the dead.
@@ -89,54 +89,51 @@ test('a bonecaller raises its buried reserve one at a time, and what it had not 
   await game.step(50);
   expect((await buried()).every((e) => !e.visible && !e.awake), 'walking back into the gate raised the buried').toBe(true);
   let state = await game.state();
-  for (let t = 0; t < 5000 && state.enemies.filter((e) => e.buried).length === 3; t += 100) { await game.step(100); state = await game.state(); }
-  // Still underground, the rest have not been moved: nothing shoves a body nobody can see.
-  expect(state.enemies.filter((e) => e.buried).map((e) => [e.x, e.z]), 'a buried body was pushed about').toEqual(graves.slice(1));
+  for (let t = 0; t < 5000 && state.enemies.filter((e) => e.buried).length === 4; t += 50) { await game.step(50); state = await game.state(); }
+  // One call, two bodies, on the same frame; the two still under have not been moved: nothing shoves a
+  // body nobody can see.
+  expect(state.enemies.filter((e) => e.buried).map((e) => [e.x, e.z]), 'a call raised other than two, or a buried body was pushed about').toEqual(graves.slice(2));
   const raised = state.enemies.filter((e) => e.kind === 'rattler' && !e.buried);
-  expect(raised, 'the caller never raised anything').toHaveLength(1);
-  expect(raised[0].visible && raised[0].awake, 'a raised body stayed hidden or asleep').toBe(true);
+  expect(raised, 'the caller raised other than two').toHaveLength(2);
+  expect(raised.every((e) => e.visible && e.awake), 'a raised body stayed hidden or asleep').toBe(true);
   const standing = state.enemies.find((e) => e.kind === 'bonecaller')!;
-  expect(Math.hypot(raised[0].x - standing.x, raised[0].z - standing.z), 'the raised body did not stand beside its caller').toBeLessThan(2.5);
+  for (const body of raised) expect(Math.hypot(body.x - standing.x, body.z - standing.z), 'a raised body did not stand beside its caller').toBeLessThan(2.5);
+  expect(Math.hypot(raised[0].x - raised[1].x, raised[0].z - raised[1].z), 'the pair came up on top of each other').toBeGreaterThan(1);
 
-  // Put the caller down: the two still buried go with it, the one already up does not.
-  const stance = strikeStance(floor, { x: standing.x, z: standing.z });
+  // Cut one down with a real strike while the caller stands: it goes back under the caller, whole and
+  // hidden, and the kill pays nothing. (Were its partner caught by the same swing it would go back under
+  // too, which changes none of what follows.)
+  const target = state.enemies.indexOf(raised[0]);
+  const cut = strikeStance(floor, { x: raised[0].x, z: raised[0].z });
+  await game.teleport(cut.x, cut.z);
+  await game.step(16);
+  await game.configureCombat({ enemies: [{ index: target, hp: 1, cooldown: 3 }, { index: 0, windup: 0, cooldown: 5 }] });
+  const paid = (await game.state()).experience.total;
+  await strike(page, cut.key);
+  for (let t = 0; t < 400 && !state.enemies[target].buried; t += 16) { await game.step(16); state = await game.state(); }
+  const back = state.enemies[target];
+  expect(state.enemies, 'a raised rattler died instead of going back into the ground').toHaveLength(5);
+  expect(back.buried && !back.visible && !back.awake, 'the struck rattler never went back under').toBe(true);
+  expect(back.hp, 'it went back under wounded').toBe(opening.enemies[target].hp);
+  let home = state.enemies.find((e) => e.kind === 'bonecaller')!;
+  // Under the caller as it stood when the blow landed; it may have taken a step since, the same frame.
+  expect(Math.hypot(back.x - home.x, back.z - home.z), 'it went back under somewhere other than its caller').toBeLessThan(0.2);
+  expect(state.experience.total, 'a rattler that went back into the ground paid out').toBe(paid);
+  // And the next call raises it again: it is first in the reserve.
+  await game.configureCombat({ enemies: [{ index: 0, windup: 0, cooldown: 0 }] });
+  for (let t = 0; t < 4000 && state.enemies[target].buried; t += 50) { await game.step(50); state = await game.state(); }
+  expect(state.enemies[target].buried, 'the caller never raised the rattler that went back under').toBe(false);
+  home = state.enemies.find((e) => e.kind === 'bonecaller')!;
+
+  // Put the caller down: everything it called goes with it, the rattler still standing as well as the
+  // three under, and only the caller pays.
+  const stance = strikeStance(floor, { x: home.x, z: home.z });
   await game.teleport(stance.x, stance.z);
   await game.step(16);
   await game.configureCombat({ enemies: [{ index: 0, hp: 1, cooldown: 3 }] });
   await strike(page, stance.key);
   for (let t = 0; t < 400 && state.enemies.some((e) => e.kind === 'bonecaller'); t += 16) { await game.step(16); state = await game.state(); }
   expect(state.enemies.some((e) => e.kind === 'bonecaller'), 'the strike never killed the caller').toBe(false);
-  expect(state.enemies.filter((e) => e.buried), 'the reserve outlived its caller').toEqual([]);
-  expect(state.enemies.filter((e) => e.kind === 'rattler'), 'a raised rattler crumbled too').toHaveLength(1);
-});
-
-test('a wraith cannot be struck while under, comes up on its mark, and misses a knight who left it', async ({ game, page }) => {
-  await arena(game, page, ['wraith']);
-  const floor = await game.floor();
-  const opening = await game.state();
-  const anchor = { x: opening.enemies[0].x, z: opening.enemies[0].z };
-  const far = laneSpot(floor, anchor, 5, { clearance: 0 });
-  await game.teleport(far.x, far.z);
-  let state = await game.state();
-  for (let t = 0; t < 3000 && !state.enemies[0].mark; t += 50) { await game.step(50); state = await game.state(); }
-  const mark = state.enemies[0].mark;
-  expect(mark, 'the wraith never set a mark').not.toBeNull();
-  expect(Math.hypot(mark!.x - state.player.x, mark!.z - state.player.z), 'the mark is not beside the knight').toBeLessThan(1.6);
-
-  // Under: a strike at it passes through. Walking up to it also takes the knight off the mark.
-  const under = state.enemies[0];
-  const stance = strikeStance(floor, { x: under.x, z: under.z });
-  await game.teleport(stance.x, stance.z);
-  await game.step(16);
-  const ready = await game.state(), health = ready.health;
-  expect(ready.enemies[0].windup, 'precondition: enough of the tell is left for a strike to land in it').toBeGreaterThan(0.3);
-  await strike(page, stance.key);
-  await game.step(120);
-  state = await game.state();
-  expect(state.enemies[0].hp, 'a strike wounded a wraith under the floor').toBe(under.hp);
-  expect(state.enemies[0].windup, 'the strike knocked the wraith out of its tell').toBeGreaterThan(0);
-  for (let t = 0; t < 1500 && state.enemies[0].windup > 0; t += 16) { await game.step(16); state = await game.state(); }
-  expect([state.enemies[0].x, state.enemies[0].z], 'the wraith did not come up on its mark').toEqual([mark!.x, mark!.z]);
-  expect(Math.hypot(state.player.x - mark!.x, state.player.z - mark!.z), 'precondition: the knight left the mark').toBeGreaterThan(1.5);
-  expect(state.health, 'the blow found a knight who was no longer on the mark').toBe(health);
+  expect(state.enemies, 'something the caller raised outlived it').toEqual([]);
+  expect(state.experience.total, 'the crumbled rattlers paid out, or the caller did not').toBe(paid + state.experience.perEnemy);
 });

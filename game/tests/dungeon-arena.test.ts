@@ -60,7 +60,7 @@ test('a bonecaller arrives with its reserve buried under it, outside every count
   const standing = arena.spawns.filter(s => !s.buried), buried = arena.spawns.filter(s => s.buried);
   assert.deepEqual(standing.map(s => s.kind), ['guard', 'bonecaller'], 'the reserve displaced a standing body');
   assert.equal(arena.guardCount, 2, 'the reserve counts as standing');
-  assert.deepEqual(buried.map(s => s.kind), ['rattler', 'rattler', 'rattler']);
+  assert.deepEqual(buried.map(s => s.kind), ['rattler', 'rattler', 'rattler', 'rattler']);
   const caller = arena.spawns.indexOf(standing[1]);
   for (const s of buried) {
     assert.equal(s.summoner, caller, 'a buried body answers to the wrong caller');

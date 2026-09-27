@@ -188,5 +188,5 @@ test('a pyre leaves fire where it falls, and no other kind leaves any', () => {
   assert.ok(poolCatches(fire!, 3.5, -2) && !poolCatches(fire!, 3 + fire!.radius + 0.1, -2), 'the fire is not where the pyre fell');
   // It bites on its first frame rather than a full interval later.
   assert.equal(poolStep(fire!, 1 / 60).bites, 1);
-  for (const kind of ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'bonecaller', 'wraith', 'rattler'] as const) assert.equal(deathPool(kind, at), null, `${kind} left fire`);
+  for (const kind of ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'bonecaller', 'rattler'] as const) assert.equal(deathPool(kind, at), null, `${kind} left fire`);
 });

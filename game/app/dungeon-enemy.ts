@@ -97,8 +97,7 @@ export const enemyStats = (kind: EnemyKind, level: number): EnemyStats => {
 // `anchor` is fixed at spawn and never returned by an intent - it is the post a dozing body paces
 // around, not something a frame changes. `notice` is the one piece of memory the noticing beat needs:
 // 0 while dozing, climbing to NOTICE_TIME once something has its attention, pinned there once alert.
-// `mark` is where a `blink` tell will come up, fixed when the tell starts; absent or null otherwise.
-export type EnemyView = { kind: EnemyKind; x: number; z: number; room: number; cooldown: number; hitFlash: number; windup: number; lunge: number; tell: number; speed: number; aim: Point; anchor: Point; notice: number; mark?: Point | null };
+export type EnemyView = { kind: EnemyKind; x: number; z: number; room: number; cooldown: number; hitFlash: number; windup: number; lunge: number; tell: number; speed: number; aim: Point; anchor: Point; notice: number };
 
 export type World = {
   cells: Set<string>;
@@ -132,10 +131,9 @@ export type EnemyIntent = {
   hit: boolean;
   // A volley let go this frame, along this heading; null on every other frame and for every other attack.
   loose: Point | null;
-  // A `summon` tell ran out this frame: the caller raises one of the body's buried reserve, if any is left.
+  // A `summon` tell ran out this frame: the caller raises the next `perTell` of the body's buried reserve,
+  // as many of them as are left.
   raise: boolean;
-  // The floor point a `blink` tell will come up on, for the whole tell; the caller draws the mark there.
-  mark: Point | null;
   sound: 'warn' | 'dash' | 'slash' | null;
   // Range to the knight before this frame's movement, which is what the gait and the poses read.
   // Not computed for a dozing body, which nothing looks at again this frame.
@@ -239,30 +237,39 @@ function dozeIntent(enemy: EnemyView, world: World, dt: number, rest: Omit<Enemy
   return { ...rest, act: 'dozing', notice: 0, x: landed.x, z: landed.z, aim: { x: dirX, z: dirZ }, face: Math.atan2(-dirX, -dirZ), distance: 0 };
 }
 
-/**
- * Where a blink comes up: `beyond` past the knight on the far side from the body, so it arrives behind
- * him. Walls decide the rest - the near side if the far one is stone, and on him if both are.
- */
-export function blinkMark(cells: Set<string>, from: Point, knight: Point, beyond: number): Point {
-  const away = unit(knight.x - from.x, knight.z - from.z, Math.hypot(knight.x - from.x, knight.z - from.z));
-  for (const side of [1, -1]) {
-    const at = { x: knight.x + away.x * beyond * side, z: knight.z + away.z * beyond * side };
-    if (canStand(cells, at.x, at.z)) return at;
-  }
-  return { x: knight.x, z: knight.z };
-}
-
-/** A body sunk for its blink cannot be struck by anything until it comes up. */
-export const untouchable = (kind: EnemyKind, windup: number) => BESTIARY[kind].attack === 'blink' && windup > 0;
+/** Half the gap between two bodies raised by the same tell. */
+export const RAISE_SPREAD = 0.7;
 
 /**
  * Where a raised body stands: a pace from its caller toward the knight, so the fight grows between them
- * and not behind the caller; on the caller's own spot when that pace is stone.
+ * and not behind the caller. The bodies one tell raises stand side by side across that line, `slot` 0 on
+ * one side and 1 on the other, rather than on top of each other; a slot whose spot is stone falls back
+ * to the centre of the pace, and that to the caller's own spot.
  */
-export function raiseSpot(cells: Set<string>, caller: Point, knight: Point): Point {
+export function raiseSpot(cells: Set<string>, caller: Point, knight: Point, slot = 0): Point {
   const toward = unit(knight.x - caller.x, knight.z - caller.z, Math.hypot(knight.x - caller.x, knight.z - caller.z));
-  const at = { x: caller.x + toward.x * 1.3, z: caller.z + toward.z * 1.3 };
-  return canStand(cells, at.x, at.z) ? at : { x: caller.x, z: caller.z };
+  const side = slot % 2 ? -RAISE_SPREAD : RAISE_SPREAD;
+  for (const at of [
+    { x: caller.x + toward.x * 1.3 - toward.z * side, z: caller.z + toward.z * 1.3 + toward.x * side },
+    { x: caller.x + toward.x * 1.3, z: caller.z + toward.z * 1.3 },
+  ]) if (canStand(cells, at.x, at.z)) return at;
+  return { x: caller.x, z: caller.z };
+}
+
+/** What `fallOf` needs of each body: whose reserve it belongs to (-1 for none), and where it stands. */
+export type Bound = { summoner: number; dead: boolean; buried: boolean };
+
+/**
+ * What one body's fall does to the roster. A body a summoner raised, cut down while that summoner still
+ * stands, `reassembles`: it goes back into the reserve to be raised again, and is not a kill. Any other
+ * fall is a death, and every body the fallen one called - standing or still buried - `crumble`s with it.
+ * Indices are into `bodies`, which is the spawn order `summoner` counts in.
+ */
+export function fallOf(bodies: readonly Bound[], index: number): { reassembles: boolean; crumble: number[] } {
+  const caller = bodies[index].summoner;
+  if (caller >= 0 && bodies[caller] && !bodies[caller].dead) return { reassembles: true, crumble: [] };
+  const crumble = bodies.flatMap((body, at) => at !== index && body.summoner === index && !body.dead ? [at] : []);
+  return { reassembles: false, crumble };
 }
 
 // One enemy, one frame. Assumes the caller has already dropped the asleep and the dying — those two are
@@ -272,7 +279,7 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   // Ticked before the activation cutoff, so a body that has been standing in a far room still comes out
   // of its recovery: reaching it must not hand the player a free swing it never earned.
   const hitFlash = Math.max(0, enemy.hitFlash - dt), cooldown = enemy.cooldown - dt;
-  const rest = { x: enemy.x, z: enemy.z, cooldown, hitFlash, windup: enemy.windup, lunge: enemy.lunge, aim: { x: enemy.aim.x, z: enemy.aim.z }, notice: enemy.notice, face: null, hit: false, loose: null, raise: false, mark: enemy.mark ?? null, sound: null } satisfies Omit<EnemyIntent, 'act' | 'distance'>;
+  const rest = { x: enemy.x, z: enemy.z, cooldown, hitFlash, windup: enemy.windup, lunge: enemy.lunge, aim: { x: enemy.aim.x, z: enemy.aim.z }, notice: enemy.notice, face: null, hit: false, loose: null, raise: false, sound: null } satisfies Omit<EnemyIntent, 'act' | 'distance'>;
   const cellX = Math.round(enemy.x / TILE), cellZ = Math.round(enemy.z / TILE);
   const nearby = isActive(world.pathDistance(cellX, cellZ), enemy.room === world.activeRoom);
   // A beat already under way - its own or one caught from a neighbour - runs to completion even on a
@@ -306,13 +313,6 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
     const aim = volley && windup > AIM_LOCK ? unit(toX, toZ, distance) : rest.aim;
     if (windup > 0) return { ...rest, act: 'windup', windup, aim, distance };
     const recovered = { ...rest, act: 'windup' as const, windup: 0, aim, cooldown: RECOVERY[enemy.kind], distance };
-    // A blink comes up on its mark and strikes from there: it lands only if the knight is still within
-    // reach of the mark, whatever he did about the body he could not touch.
-    if (attack === 'blink') {
-      const at = enemy.mark ?? { x: enemy.x, z: enemy.z };
-      const hit = Math.hypot(player.x - at.x, player.z - at.z) < STRIKE_RANGE[enemy.kind] && hasClearPath(world.cells, at, player);
-      return { ...recovered, x: at.x, z: at.z, mark: null, hit, sound: 'slash' };
-    }
     if (attack === 'summon') return { ...recovered, raise: true, sound: 'warn' };
     // A sweep has no aim to step around: everything within reach, on every side, that no wall shelters.
     if (attack === 'sweep') return { ...recovered, hit: distance < STRIKE_RANGE[enemy.kind] && hasClearPath(world.cells, enemy, player), sound: 'slash' };
@@ -329,8 +329,7 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   if (hitFlash > 0) return { ...rest, act: 'ready', face, distance };
   const clearAttackLine = distance <= ATTACK_RANGE[enemy.kind] && hasClearPath(world.cells, enemy, player);
   if (clearAttackLine && cooldown <= 0) {
-    const blink = BESTIARY[enemy.kind].blink;
-    return { ...rest, act: 'ready', face, windup: enemy.tell, aim: unit(toX, toZ, distance), mark: blink ? blinkMark(world.cells, enemy, player, blink.beyond) : null, sound: 'warn', distance };
+    return { ...rest, act: 'ready', face, windup: enemy.tell, aim: unit(toX, toZ, distance), sound: 'warn', distance };
   }
   // A body that fights at range gives ground while it recovers, rather than standing to be cut down. It
   // backs straight away and lets the walls stop it: a cornered archer is the knight's reward for closing.

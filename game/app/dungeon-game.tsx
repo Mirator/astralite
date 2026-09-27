@@ -22,7 +22,7 @@ import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
 import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
 import { dashImmune, swordContacts } from './dungeon-combat';
-import { ALERT_STAGGER, BESTIARY, decideEnemy, nearbyDozers, raiseSpot, separateCrowd, untouchable, type Wakeable } from './dungeon-enemy';
+import { ALERT_STAGGER, BESTIARY, decideEnemy, fallOf, nearbyDozers, raiseSpot, separateCrowd, type Wakeable } from './dungeon-enemy';
 import { awayFrom, burn as burnBody, landBlow } from './dungeon-hits';
 import { playerAttackPose } from './dungeon-attack-pose';
 import { chainLength, STARTING_WEAPON, TIDEBLADE, weaponById, type WeaponId } from './dungeon-weapon';
@@ -334,27 +334,44 @@ export default function DungeonGame() {
       }
       if (reward.healed > 0) setHealth(run.hp);
     };
-    // A body going down, however it was brought there: its fall starts, its marks go, and the kill pays.
+    // A body going down, however it was brought there: its fall starts, its marks go, and the kill pays -
+    // unless it is one a bonecaller raised and the caller still stands, which goes back into the ground
+    // whole instead, unpaid (dungeon-enemy's `fallOf`).
     const fell = (enemy: Enemy) => {
+      const fall = fallOf(stage.enemies, stage.enemies.indexOf(enemy));
+      if (fall.reassembles) { rebury(enemy, stage.enemies[enemy.summoner]); return; }
       enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind); dropMarks(enemy);
       award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
       // A pyre leaves its fire where it fell (dungeon-projectile's `deathPool`), which bites the knight.
       const fire = deathPool(enemy.kind, enemy.group.position), ring = fire ? hostilePoolMeshes.find(mesh => !mesh.visible) : undefined;
       if (fire && ring) { ring.visible = true; ring.position.set(fire.x, .07, fire.z); ring.scale.setScalar(fire.radius); hostilePools.push({ pool: fire, mesh: ring, kind: enemy.kind }); burst(enemy.group.position, 0xff8c38, 18); }
-      // A summoner's reserve crumbles with it: never raised, never counted, never paid for.
-      const index = stage.enemies.indexOf(enemy);
-      for (const reserve of stage.enemies) if (reserve.buried && reserve.summoner === index) reserve.dead = true;
+      // Everything a summoner called crumbles with it, standing or still buried, and none of it pays.
+      for (const at of fall.crumble) {
+        const body = stage.enemies[at];
+        body.dead = true;
+        if (!body.buried) { body.death = startDeath(body.group, body.kind); dropMarks(body); burst(body.group.position, 0xd9d1bd, 10); }
+      }
+    };
+    // A raised body cut down while its caller stands: a puff of bone dust, and it is back in the reserve
+    // under the caller, whole and asleep, for a later tell to raise again.
+    const rebury = (body: Enemy, caller: Enemy) => {
+      burst(body.group.position, 0xd9d1bd, 12); dropMarks(body);
+      body.buried = true; body.awake = false; body.group.visible = false; body.hp = body.maxHp;
+      body.windup = 0; body.lunge = 0; body.hitFlash = 0; body.notice = 0; body.attackAge = Infinity;
+      body.group.position.set(caller.group.position.x, .03, caller.group.position.z);
     };
     // The heading a body looks along, off the yaw its pose last set (`face` is atan2(-x, -z) of it).
     const facingOf = (enemy: Enemy) => ({ x: -Math.sin(enemy.group.rotation.y), z: -Math.cos(enemy.group.rotation.y) });
-    // A bonecaller's tell ran out: the next of its buried reserve stands up a pace toward the knight, awake.
+    // A bonecaller's tell ran out: the next `perTell` of its buried reserve stand up side by side, a pace
+    // toward the knight, awake.
     const raise = (caller: Enemy, index: number) => {
-      const reserve = stage.enemies.find(e => e.buried && !e.dead && e.summoner === index);
-      if (!reserve) return;
-      const at = raiseSpot(floor.cells, caller.group.position, player.position);
-      reserve.buried = false; reserve.awake = true; reserve.group.visible = true; reserve.room = caller.room;
-      reserve.group.position.set(at.x, .03, at.z); reserve.anchor = { x: at.x, z: at.z }; reserve.cooldown = Math.max(reserve.cooldown, .6);
-      burst(reserve.group.position, 0xb9a4ff, 14);
+      const reserve = stage.enemies.filter(e => e.buried && !e.dead && e.summoner === index).slice(0, BESTIARY[caller.kind].summons?.perTell ?? 0);
+      reserve.forEach((body, slot) => {
+        const at = raiseSpot(floor.cells, caller.group.position, player.position, slot);
+        body.buried = false; body.awake = true; body.group.visible = true; body.room = caller.room;
+        body.group.position.set(at.x, .03, at.z); body.anchor = { x: at.x, z: at.z }; body.cooldown = Math.max(body.cooldown, .6);
+        burst(body.group.position, 0xb9a4ff, 14);
+      });
     };
     // The last body in a room has fallen, whatever brought it down: the room is cleansed or, if it is a dead
     // end, plundered - paid, counted, announced and marked on the map - and the stair opens under the last
@@ -1458,7 +1475,7 @@ export default function DungeonGame() {
             } else audio.play('warn');
           }
           if (!pc.weapon.ranged && active) stage.enemies.forEach((enemy) => {
-            if (gameStatus !== 'playing' || enemy.dead || !enemy.awake || swingHits.has(enemy) || untouchable(enemy.kind, enemy.windup)) return;
+            if (gameStatus !== 'playing' || enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
             // The same rule the node suite runs: inside the arc, and with no wall between the blade and the body.
             if (swordContacts(floor.cells, player.position, pc.attackFacing, enemy.group.position, run.reach, pc.swing)) {
               audio.play('hit');
@@ -1514,7 +1531,7 @@ export default function DungeonGame() {
           // Everything about where this body goes and whether its blow lands is decided in dungeon-enemy;
           // what is left here is the part a node test could never see — poses, sound, flashes, particles.
           const previousWindup=enemy.windup;
-          const intent = decideEnemy({ kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z, room: enemy.room, cooldown: enemy.cooldown, hitFlash: enemy.hitFlash, windup: enemy.windup, lunge: enemy.lunge, tell: enemy.tell, speed: enemy.speed, aim: enemy.aim, anchor: enemy.anchor, notice: enemy.notice, mark: enemy.mark }, player.position, enemyWorld, dt);
+          const intent = decideEnemy({ kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z, room: enemy.room, cooldown: enemy.cooldown, hitFlash: enemy.hitFlash, windup: enemy.windup, lunge: enemy.lunge, tell: enemy.tell, speed: enemy.speed, aim: enemy.aim, anchor: enemy.anchor, notice: enemy.notice }, player.position, enemyWorld, dt);
           const startedNoticing = enemy.notice <= 0 && intent.notice > 0;
           enemy.cooldown = intent.cooldown; enemy.hitFlash = intent.hitFlash; enemy.notice = intent.notice;
           if (Number.isFinite(enemy.attackAge)) enemy.attackAge+=dt;
@@ -1527,7 +1544,6 @@ export default function DungeonGame() {
               if (delay < stage.enemies[idx].alertIn) stage.enemies[idx].alertIn = delay;
             });
           }
-          enemy.mark = intent.mark;
           if (intent.raise) raise(enemy, index);
           enemy.windup = intent.windup; enemy.lunge = intent.lunge; enemy.aim.set(intent.aim.x,0,intent.aim.z);
           if(previousWindup>0&&enemy.windup===0)enemy.attackAge=0;
@@ -1576,7 +1592,7 @@ export default function DungeonGame() {
           // Burning silt is a fire on the floor and was lighting none of it.
           ember.bid(lampAt.set(live.pool.x, .6, live.pool.z), Math.hypot(player.position.x - live.pool.x, player.position.z - live.pool.z), 13 * Math.min(1, live.pool.life), 0xff6a22);
           if (burn.bites) for (const enemy of stage.enemies) {
-            if (enemy.dead || !enemy.awake || gameStatus !== 'playing' || untouchable(enemy.kind, enemy.windup)) continue;
+            if (enemy.dead || !enemy.awake || gameStatus !== 'playing') continue;
             if (!poolCatches(live.pool, enemy.group.position.x, enemy.group.position.z)) continue;
             const killed = burnBody(enemy, live.pool.damage);
             burst(enemy.group.position, 0xff8c38, 5);
@@ -1590,7 +1606,7 @@ export default function DungeonGame() {
         // Bolts fly last, against where the bodies actually ended the frame. The rule is in
         // dungeon-projectile; what belongs here is the mesh, the sparks and the damage call.
         if (shots.length) {
-          const marks: Mark[] = stage.enemies.map((e, index) => ({ x: e.group.position.x, z: e.group.position.z, index })).filter(mark => !stage.enemies[mark.index].dead && stage.enemies[mark.index].awake && !untouchable(stage.enemies[mark.index].kind, stage.enemies[mark.index].windup));
+          const marks: Mark[] = stage.enemies.map((e, index) => ({ x: e.group.position.x, z: e.group.position.z, index })).filter(mark => !stage.enemies[mark.index].dead && stage.enemies[mark.index].awake);
           for (let i = shots.length - 1; i >= 0; i--) {
             const live = shots[i], flight = flyShot(live.shot, floor.cells, marks, dt);
             live.shot.x = flight.x; live.shot.z = flight.z; live.shot.life = flight.life; live.shot.pierce = flight.pierce;
@@ -1819,7 +1835,7 @@ export default function DungeonGame() {
       floor: { level, waterfalls: stage.atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
       player: { x: player.position.x, z: player.position.z, facing: { x: pc.facing.x, z: pc.facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime: pc.attackTime, attackBuffer: pc.attackBuffer, dashBuffer: pc.dashBuffer, dashTime: pc.dashTime, dashCooldown: pc.dashCooldown, chain: { beat: pc.chainBeat, beats: chainLength(pc.weapon), idle: Number.isFinite(pc.chainIdle) ? pc.chainIdle : null, damage: pc.swing.damage + run.strike, duration: pc.swing.duration }, invulnerable: run.invuln, hurtFlash, swordAngle: player.userData.sword.rotation.y, cloak:{anchor:player.userData.cape.position.toArray(),pitch:player.userData.cape.rotation.x}, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, locomotion: {speed:gaitSpeed,phase:walkPhase,sprint:locomotion.sprint,pitch:player.userData.torso.rotation.x,height:player.position.y,arm:player.userData.arm.rotation.x,tabard:player.userData.tabard.rotation.x,knees:player.userData.legs.map((leg:THREE.Group)=>leg.userData.knee.rotation.x)}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
       corpses: stage.enemies.filter(e=>e.dead).map(e=>({kind:e.kind,x:e.group.position.x,y:e.group.position.y,z:e.group.position.z,scale:e.group.scale.toArray(),rotation:e.group.userData.rig.rotation.x,age:e.death?.age,settled:e.death?.settled,visible:e.group.visible,cue:e.cue.visible,bar:e.bar.visible,trails:e.trails.some(trail=>trail.effect.mesh.visible)})),
-      enemies: stage.enemies.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, buried: e.buried, summoner: e.summoner, mark: e.mark, blocked: e.blocked, visible: e.group.visible, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, pose: {shieldArm:e.group.userData.limbs[0].rotation.x,shieldTilt:e.group.userData.shield.rotation.x,pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x,weaponYaw:e.group.userData.weapon.rotation.y,attackAge:Number.isFinite(e.attackAge)?e.attackAge:null,trails:e.trails.filter(trail=>trail.effect.mesh.visible).length,cue:e.cue.visible} })),
+      enemies: stage.enemies.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, buried: e.buried, summoner: e.summoner, blocked: e.blocked, visible: e.group.visible, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, pose: {shieldArm:e.group.userData.limbs[0].rotation.x,shieldTilt:e.group.userData.shield.rotation.x,pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x,weaponYaw:e.group.userData.weapon.rotation.y,attackAge:Number.isFinite(e.attackAge)?e.attackAge:null,trails:e.trails.filter(trail=>trail.effect.mesh.visible).length,cue:e.cue.visible} })),
     });
     const animate = (now: number) => {
       if (stopped || faulted) return; raf = requestAnimationFrame(animate);
