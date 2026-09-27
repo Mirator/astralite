@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
-import { AIM_LOCK, ALERT_RADIUS, ALERT_STAGGER, BASE_STATS, BESTIARY, ENEMY_KINDS, HIT, HIT_COOLDOWN, hitCooldown, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, interruptsWindup, LUNGE_SPEED, LUNGE_TIME, nearbyDozers, NOTICE_TIME, PATROL_SPAN, PATROL_SPEED, pursuitStep, RECOVERY, separateCrowd, sweptContact, type CrowdBody, type EnemyView, type Wakeable, type World } from '../app/dungeon-enemy.ts';
+import { AIM_LOCK, blinkMark, raiseSpot, untouchable, ALERT_RADIUS, ALERT_STAGGER, BASE_STATS, BESTIARY, ENEMY_KINDS, HIT, HIT_COOLDOWN, hitCooldown, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, interruptsWindup, LUNGE_SPEED, LUNGE_TIME, nearbyDozers, NOTICE_TIME, PATROL_SPAN, PATROL_SPEED, pursuitStep, RECOVERY, separateCrowd, sweptContact, type CrowdBody, type EnemyView, type Wakeable, type World } from '../app/dungeon-enemy.ts';
 
 // A square of open floor wide enough that nothing in these tests walks off it.
 const openFloor = (half = 8) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
@@ -290,6 +290,12 @@ test('bodies grow with the floor: vitality by one blade a floor, damage by fifte
     stalker: { hp: 2 * HIT, damage: 8, tell: 0.58, speed: 3.2 },
     warden: { hp: 4 * HIT, damage: 20, tell: 0.72, speed: 1.65 },
     archer: { hp: 1.5 * HIT, damage: 10, tell: 0.75, speed: 2.3 },
+    shieldbearer: { hp: 3 * HIT, damage: 10, tell: 0.6, speed: 1.9 },
+    reaper: { hp: 3 * HIT, damage: 18, tell: 1.0, speed: 1.9 },
+    pyre: { hp: 1.5 * HIT, damage: 8, tell: 0.5, speed: 2.4 },
+    bonecaller: { hp: 2 * HIT, damage: 0, tell: 1.2, speed: 2.2 },
+    wraith: { hp: 2 * HIT, damage: 14, tell: 0.8, speed: 2.0 },
+    rattler: { hp: 1 * HIT, damage: 5, tell: 0.38, speed: 3.6 },
   });
   // Floor one is exactly the base table, so every browser fixture pinned to floor one still holds.
   for (const kind of ENEMY_KINDS) assert.deepEqual(enemyStats(kind, 1), BASE_STATS[kind]);
@@ -401,4 +407,64 @@ test('an archer flinches out of an early tell like a guard, and is frailer than 
   assert.equal(interruptsWindup('archer', COMMITTED_WINDUP + 0.1), true);
   assert.equal(interruptsWindup('archer', COMMITTED_WINDUP - 0.01), false);
   assert.ok(BASE_STATS.archer.hp < BASE_STATS.guard.hp, 'an archer as tough as a guard has no reason to be reached');
+});
+
+// The arena-only kinds. Numbers again come off the bestiary.
+const kind = (k: EnemyView['kind'], patch: Partial<EnemyView> = {}) => foe({ kind: k, tell: BASE_STATS[k].tell, speed: BASE_STATS[k].speed, ...patch });
+
+test('a reaper sweeps everything in reach on every side, and nothing past it or behind a wall', () => {
+  const cells = openFloor(), reach = BESTIARY.reaper.strikeRange;
+  // Aimed at +z, knight directly behind it at -z: a guard would whiff, a sweep does not.
+  assert.equal(decideEnemy(foe({ windup: 0.04, aim: { x: 0, z: 1 } }), { x: 0, z: -1.2 }, world(cells), 0.05).hit, false, 'precondition: a guard misses behind itself');
+  const behind = decideEnemy(kind('reaper', { windup: 0.04, aim: { x: 0, z: 1 } }), { x: 0, z: -(reach - 0.2) }, world(cells), 0.05);
+  assert.deepEqual([behind.act, behind.windup, behind.hit, behind.cooldown], ['windup', 0, true, RECOVERY.reaper]);
+  assert.equal(decideEnemy(kind('reaper', { windup: 0.04, aim: { x: 0, z: 1 } }), { x: reach + 0.2, z: 0 }, world(cells), 0.05).hit, false, 'a sweep reached past its reach');
+  assert.equal(decideEnemy(kind('reaper', { windup: 0.04, aim: { x: 0, z: 1 } }), { x: 0, z: 2 * TILE * 0.9 }, world(floorFrom(['.', '#', '.'])), 0.05).hit, false, 'a sweep cut through stone');
+  assert.ok(reach > BESTIARY.guard.strikeRange, 'a reaper that reaches no further than a guard is only a guard that spins');
+});
+
+test('a bonecaller raises instead of striking, keeps its distance, and a raised body stands between it and the knight', () => {
+  const cells = openFloor();
+  const called = decideEnemy(kind('bonecaller', { windup: 0.04 }), { x: 0, z: 1 }, world(cells), 0.05);
+  assert.deepEqual([called.act, called.raise, called.hit, called.cooldown], ['windup', true, false, RECOVERY.bonecaller]);
+  // Nothing else raises, and a caller mid-tell has not raised yet.
+  assert.equal(decideEnemy(foe({ windup: 0.04, aim: { x: 0, z: 1 } }), { x: 0, z: 1 }, world(cells), 0.05).raise, false);
+  assert.equal(decideEnemy(kind('bonecaller', { windup: 0.5 }), { x: 0, z: 1 }, world(cells), 0.05).raise, false);
+  // It starts a call from far off, down a clear line.
+  assert.equal(decideEnemy(kind('bonecaller'), { x: 0, z: BESTIARY.bonecaller.attackRange - 0.5 }, world(cells), 0.05).windup, BASE_STATS.bonecaller.tell);
+  // Recovering and too close, it backs off.
+  assert.ok(decideEnemy(kind('bonecaller', { cooldown: 1 }), { x: 0, z: 2 }, world(cells), 0.1).z < 0, 'a bonecaller stood its ground');
+  const spot = raiseSpot(cells, { x: 0, z: 0 }, { x: 0, z: 6 });
+  assert.ok(spot.z > 0.5 && spot.z < 2 && Math.abs(spot.x) < 1e-9, `a raised body stood at ${JSON.stringify(spot)}, not between`);
+  // Walled in toward the knight, it rises on the caller's own spot rather than in stone.
+  assert.deepEqual(raiseSpot(floorFrom(['.', '#']), { x: 0, z: 0 }, { x: 0, z: 6 }), { x: 0, z: 0 });
+});
+
+test('a wraith marks the floor behind the knight, cannot be touched while under, and strikes the mark it set', () => {
+  const cells = openFloor(), beyond = BESTIARY.wraith.blink!.beyond;
+  const start = decideEnemy(kind('wraith'), { x: 0, z: 5 }, world(cells), 0.05);
+  assert.equal(start.windup, BASE_STATS.wraith.tell, 'precondition: the wraith committed from five out');
+  assert.deepEqual(start.mark, { x: 0, z: 5 + beyond }, 'the mark is not just past the knight on the far side');
+  // Under: untouchable; up: fair game. Nothing else ever is.
+  assert.equal(untouchable('wraith', 0.3), true);
+  assert.equal(untouchable('wraith', 0), false);
+  assert.equal(untouchable('guard', 0.3), false);
+  // The tell carries the mark through unchanged, wherever the knight goes meanwhile.
+  const mark = { x: 0, z: 5 + beyond };
+  assert.deepEqual(decideEnemy(kind('wraith', { windup: 0.4, mark }), { x: 3, z: 2 }, world(cells), 0.05).mark, mark);
+  // It comes up on the mark: struck if the knight is still there, a miss if he stepped off.
+  const stayed = decideEnemy(kind('wraith', { windup: 0.04, mark }), { x: 0, z: 5 }, world(cells), 0.05);
+  assert.deepEqual([stayed.x, stayed.z, stayed.hit, stayed.mark], [mark.x, mark.z, true, null]);
+  assert.equal(decideEnemy(kind('wraith', { windup: 0.04, mark }), { x: 3, z: 5 }, world(cells), 0.05).hit, false, 'stepping off the mark did not dodge it');
+  // A wall behind the knight puts the mark on the near side instead of in stone.
+  const walled = floorFrom(['.', '.', '.', '.', '#']);
+  const near = blinkMark(walled, { x: 0, z: 0 }, { x: 0, z: 3 * TILE }, beyond);
+  assert.ok(near.z < 3 * TILE, `the mark went into the wall at ${JSON.stringify(near)}`);
+});
+
+test('the arena-only kinds are never dealt by the floor generator, on any floor', () => {
+  const arenaOnly = ['shieldbearer', 'reaper', 'pyre', 'bonecaller', 'wraith', 'rattler'] as const;
+  for (const k of arenaOnly) assert.equal(BESTIARY[k].firstFloor, Infinity, `${k} can be dealt`);
+  // A rattler dies to one blow of a starting blade, which is its whole point.
+  assert.ok(BASE_STATS.rattler.hp <= HIT, 'a rattler takes more than one blow');
 });

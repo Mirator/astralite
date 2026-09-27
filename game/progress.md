@@ -2982,3 +2982,30 @@ Checked against the real Pages output (the production build after pages-relative
 /astralite/): the link deals exactly its roster on its floor, the plain URL an ordinary floor one, and neither
 page has the arena button or the hook. Planted and caught in arena.spec.ts: the run log, the best run and the
 seed each written for an arena death, and a kicker that never names the arena.
+
+## 2026-09-26 - Six more kinds, arena only
+
+Ten kinds now, but the descent still deals four: `shieldbearer`, `reaper`, `pyre`, `bonecaller`, `wraith` and
+`rattler` have `firstFloor: Infinity` and no `PACK_MIX` share, so they are met only through `?arena=` until a
+playtest says which have earned a place. Floors, the balance sim and every seed-pinned test are unchanged.
+Each asks for a response nothing else does:
+
+- shieldbearer: turns ordinary steel aside from the front (`blocks` in dungeon-hits.ts) while its shield is up;
+  it is down while it winds up and while it recovers from its own swing, and a stagger arm breaks it.
+- reaper: a 1.0 s tell, then a sweep that hits everything within 2.3 on every side (no aim to step around).
+- pyre: weak, but leaves fire where it falls (`deathPool` in dungeon-projectile.ts) that bites the knight.
+- bonecaller: keeps away and raises one of three buried rattlers per tell; the rest crumble when it falls.
+  The reserve is part of the arena's spawn list (`buried`, `summoner`), hidden, inert and outside every count.
+- wraith: sets a mark just past the knight, sinks for the tell (untouchable), comes up on the mark and strikes.
+- rattler: one blow of a starting blade kills it; comes in numbers, and is what a bonecaller raises.
+
+Tests, each proven by a planted bug: node - sweep with an aim cone, summon that never raises, blink without a
+mark or striking from where it sank, never untouchable, no near-side mark fallback, raised behind the caller,
+shield up through its tell or its recovery, stagger not breaking it, blocking from behind, landBlow ignoring
+the shield, every kind leaving fire, no reserve buried, an arena kind dealt on floor one. Browser - a frontal
+blow not reaching the shield, a sunk wraith struck, a pyre leaving no fire or fire that never bites, a summon
+that never raises, a reserve that never crumbles, the mark never stored, walking back into the gate raising the
+buried (a real hole the first version of the test missed: the ambush spring fires on entering a room), and
+buried bodies shoved in the crowd pass. The existing per-kind loops (flash, death, pose continuity, figure
+rebuild, bench) cover all ten figures; the original three are byte-identical. `npm run figures` now opens a
+viewport tall enough for eleven rows, which the old 1200 px one cut off.

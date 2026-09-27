@@ -54,3 +54,18 @@ test('a full arena roster fits the gate without stacking, and the same seed deal
   }
   assert.deepEqual(arenaFloor(0x7, 2, []).spawns, [], 'an empty roster clears the floor');
 });
+
+test('a bonecaller arrives with its reserve buried under it, outside every count, after everything standing', () => {
+  const arena = arenaFloor(0x7, 1, ['guard', 'bonecaller']);
+  const standing = arena.spawns.filter(s => !s.buried), buried = arena.spawns.filter(s => s.buried);
+  assert.deepEqual(standing.map(s => s.kind), ['guard', 'bonecaller'], 'the reserve displaced a standing body');
+  assert.equal(arena.guardCount, 2, 'the reserve counts as standing');
+  assert.deepEqual(buried.map(s => s.kind), ['rattler', 'rattler', 'rattler']);
+  const caller = arena.spawns.indexOf(standing[1]);
+  for (const s of buried) {
+    assert.equal(s.summoner, caller, 'a buried body answers to the wrong caller');
+    assert.deepEqual([s.x, s.z], [standing[1].x, standing[1].z], 'a buried body is not under its caller');
+  }
+  assert.ok(arena.spawns.indexOf(buried[0]) > arena.spawns.indexOf(standing[1]), 'the reserve came before a standing body');
+  assert.equal(arenaFloor(0x7, 1, ['guard', 'archer']).spawns.some(s => s.buried), false, 'a roster with no caller buried something');
+});

@@ -4,7 +4,7 @@
 // each of them. Everything works over plain {x, z} points, so a whole fight can be replayed in node
 // instead of by hand-driving a browser, which is how every spatial regression here has been caught.
 import { BESTIARY, byKind, type EnemyKind, type EnemyStats } from './dungeon-bestiary.ts';
-import { TILE, cellKey, hasClearPath, moveOnFloor } from './dungeon-floor.ts';
+import { TILE, canStand, cellKey, hasClearPath, moveOnFloor } from './dungeon-floor.ts';
 
 export { ENEMY_KINDS, BESTIARY, type EnemyKind, type EnemyStats } from './dungeon-bestiary.ts';
 export type Point = { x: number; z: number };
@@ -97,7 +97,8 @@ export const enemyStats = (kind: EnemyKind, level: number): EnemyStats => {
 // `anchor` is fixed at spawn and never returned by an intent - it is the post a dozing body paces
 // around, not something a frame changes. `notice` is the one piece of memory the noticing beat needs:
 // 0 while dozing, climbing to NOTICE_TIME once something has its attention, pinned there once alert.
-export type EnemyView = { kind: EnemyKind; x: number; z: number; room: number; cooldown: number; hitFlash: number; windup: number; lunge: number; tell: number; speed: number; aim: Point; anchor: Point; notice: number };
+// `mark` is where a `blink` tell will come up, fixed when the tell starts; absent or null otherwise.
+export type EnemyView = { kind: EnemyKind; x: number; z: number; room: number; cooldown: number; hitFlash: number; windup: number; lunge: number; tell: number; speed: number; aim: Point; anchor: Point; notice: number; mark?: Point | null };
 
 export type World = {
   cells: Set<string>;
@@ -131,6 +132,10 @@ export type EnemyIntent = {
   hit: boolean;
   // A volley let go this frame, along this heading; null on every other frame and for every other attack.
   loose: Point | null;
+  // A `summon` tell ran out this frame: the caller raises one of the body's buried reserve, if any is left.
+  raise: boolean;
+  // The floor point a `blink` tell will come up on, for the whole tell; the caller draws the mark there.
+  mark: Point | null;
   sound: 'warn' | 'dash' | 'slash' | null;
   // Range to the knight before this frame's movement, which is what the gait and the poses read.
   // Not computed for a dozing body, which nothing looks at again this frame.
@@ -234,6 +239,32 @@ function dozeIntent(enemy: EnemyView, world: World, dt: number, rest: Omit<Enemy
   return { ...rest, act: 'dozing', notice: 0, x: landed.x, z: landed.z, aim: { x: dirX, z: dirZ }, face: Math.atan2(-dirX, -dirZ), distance: 0 };
 }
 
+/**
+ * Where a blink comes up: `beyond` past the knight on the far side from the body, so it arrives behind
+ * him. Walls decide the rest - the near side if the far one is stone, and on him if both are.
+ */
+export function blinkMark(cells: Set<string>, from: Point, knight: Point, beyond: number): Point {
+  const away = unit(knight.x - from.x, knight.z - from.z, Math.hypot(knight.x - from.x, knight.z - from.z));
+  for (const side of [1, -1]) {
+    const at = { x: knight.x + away.x * beyond * side, z: knight.z + away.z * beyond * side };
+    if (canStand(cells, at.x, at.z)) return at;
+  }
+  return { x: knight.x, z: knight.z };
+}
+
+/** A body sunk for its blink cannot be struck by anything until it comes up. */
+export const untouchable = (kind: EnemyKind, windup: number) => BESTIARY[kind].attack === 'blink' && windup > 0;
+
+/**
+ * Where a raised body stands: a pace from its caller toward the knight, so the fight grows between them
+ * and not behind the caller; on the caller's own spot when that pace is stone.
+ */
+export function raiseSpot(cells: Set<string>, caller: Point, knight: Point): Point {
+  const toward = unit(knight.x - caller.x, knight.z - caller.z, Math.hypot(knight.x - caller.x, knight.z - caller.z));
+  const at = { x: caller.x + toward.x * 1.3, z: caller.z + toward.z * 1.3 };
+  return canStand(cells, at.x, at.z) ? at : { x: caller.x, z: caller.z };
+}
+
 // One enemy, one frame. Assumes the caller has already dropped the asleep and the dying — those two are
 // visual states the renderer resolves, and neither ticks a cooldown.
 export function decideEnemy(enemy: EnemyView, player: Point, world: World, frameDt: number): EnemyIntent {
@@ -241,7 +272,7 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   // Ticked before the activation cutoff, so a body that has been standing in a far room still comes out
   // of its recovery: reaching it must not hand the player a free swing it never earned.
   const hitFlash = Math.max(0, enemy.hitFlash - dt), cooldown = enemy.cooldown - dt;
-  const rest = { x: enemy.x, z: enemy.z, cooldown, hitFlash, windup: enemy.windup, lunge: enemy.lunge, aim: { x: enemy.aim.x, z: enemy.aim.z }, notice: enemy.notice, face: null, hit: false, loose: null, sound: null } satisfies Omit<EnemyIntent, 'act' | 'distance'>;
+  const rest = { x: enemy.x, z: enemy.z, cooldown, hitFlash, windup: enemy.windup, lunge: enemy.lunge, aim: { x: enemy.aim.x, z: enemy.aim.z }, notice: enemy.notice, face: null, hit: false, loose: null, raise: false, mark: enemy.mark ?? null, sound: null } satisfies Omit<EnemyIntent, 'act' | 'distance'>;
   const cellX = Math.round(enemy.x / TILE), cellZ = Math.round(enemy.z / TILE);
   const nearby = isActive(world.pathDistance(cellX, cellZ), enemy.room === world.activeRoom);
   // A beat already under way - its own or one caught from a neighbour - runs to completion even on a
@@ -274,11 +305,22 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
     // A volley's lane is still following the knight until the lock; a swing's aim was fixed when it began.
     const aim = volley && windup > AIM_LOCK ? unit(toX, toZ, distance) : rest.aim;
     if (windup > 0) return { ...rest, act: 'windup', windup, aim, distance };
+    const recovered = { ...rest, act: 'windup' as const, windup: 0, aim, cooldown: RECOVERY[enemy.kind], distance };
+    // A blink comes up on its mark and strikes from there: it lands only if the knight is still within
+    // reach of the mark, whatever he did about the body he could not touch.
+    if (attack === 'blink') {
+      const at = enemy.mark ?? { x: enemy.x, z: enemy.z };
+      const hit = Math.hypot(player.x - at.x, player.z - at.z) < STRIKE_RANGE[enemy.kind] && hasClearPath(world.cells, at, player);
+      return { ...recovered, x: at.x, z: at.z, mark: null, hit, sound: 'slash' };
+    }
+    if (attack === 'summon') return { ...recovered, raise: true, sound: 'warn' };
+    // A sweep has no aim to step around: everything within reach, on every side, that no wall shelters.
+    if (attack === 'sweep') return { ...recovered, hit: distance < STRIKE_RANGE[enemy.kind] && hasClearPath(world.cells, enemy, player), sound: 'slash' };
     // The tell has run out and the swing is committed: it is tested against where the knight is *now*,
     // along the direction it aimed at when it started, which is what makes stepping around it work.
     const aimed = (toX * aim.x + toZ * aim.z) / (distance || 1);
     const hit = attack === 'swing' && distance < STRIKE_RANGE[enemy.kind] && hasClearPath(world.cells, enemy, player) && aimed > 0.45;
-    return { ...rest, act: 'windup', windup: 0, aim, cooldown: RECOVERY[enemy.kind], lunge: pounce ? LUNGE_TIME : enemy.lunge, hit, loose: volley ? aim : null, sound: pounce ? 'dash' : volley ? 'slash' : null, distance };
+    return { ...recovered, lunge: pounce ? LUNGE_TIME : enemy.lunge, hit, loose: volley ? aim : null, sound: pounce ? 'dash' : volley ? 'slash' : null };
   }
 
   // On guard. Turning is free and happens even while flinching, so a hit never leaves a body facing the
@@ -286,7 +328,10 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   const face = Math.atan2(-toX, -toZ);
   if (hitFlash > 0) return { ...rest, act: 'ready', face, distance };
   const clearAttackLine = distance <= ATTACK_RANGE[enemy.kind] && hasClearPath(world.cells, enemy, player);
-  if (clearAttackLine && cooldown <= 0) return { ...rest, act: 'ready', face, windup: enemy.tell, aim: unit(toX, toZ, distance), sound: 'warn', distance };
+  if (clearAttackLine && cooldown <= 0) {
+    const blink = BESTIARY[enemy.kind].blink;
+    return { ...rest, act: 'ready', face, windup: enemy.tell, aim: unit(toX, toZ, distance), mark: blink ? blinkMark(world.cells, enemy, player, blink.beyond) : null, sound: 'warn', distance };
+  }
   // A body that fights at range gives ground while it recovers, rather than standing to be cut down. It
   // backs straight away and lets the walls stop it: a cornered archer is the knight's reward for closing.
   const keepAway = BESTIARY[enemy.kind].keepAway;

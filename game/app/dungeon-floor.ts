@@ -4,7 +4,9 @@ import { FOUND_WEAPONS, type WeaponId } from './dungeon-weapon.ts';
 export const TILE = 1.48;
 export type Encounter = 'watch' | 'ambush' | 'gauntlet' | 'sanctuary' | 'warden';
 export type Room = { encounter: Encounter; id: number; x: number; z: number; halfX: number; halfZ: number; shape: 'hall' | 'round' | 'cross' | 'court' | 'gallery' | 'crypt'; theme: 'keep' | 'ruins' | 'flooded'; name: string; role: 'start' | 'path' | 'branch' | 'goal'; depth: number; heading: number };
-export type Spawn = { x: number; z: number; kind: EnemyKind; room: number; ambush: boolean };
+// `buried` bodies are a summoner's reserve (dungeon-arena.ts): hidden, inert and outside every count until
+// the spawn index `summoner` raises them.
+export type Spawn = { x: number; z: number; kind: EnemyKind; room: number; ambush: boolean; buried?: boolean; summoner?: number };
 
 /**
  * The share of a pack each kind takes, in the order they are drawn; whatever is left over is guards.

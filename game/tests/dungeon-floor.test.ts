@@ -306,3 +306,11 @@ test('archers are dealt from floor two on, never into an ambush, and floor one n
   assert.deepEqual([drawKind(PACK_MIX.middle, 1, roll), drawKind(PACK_MIX.middle, 2, roll)], ['guard', 'archer']);
   assert.equal(drawKind(PACK_MIX.middle, 1, PACK_MIX.middle.stalker - 1e-9), 'stalker');
 });
+
+test('the arena-only kinds never appear on a generated floor', () => {
+  const arenaOnly = new Set(['shieldbearer', 'reaper', 'pyre', 'bonecaller', 'wraith', 'rattler']);
+  for (const level of [1, 2, 3]) {
+    const dealt = floors(level).flatMap(floor => floor.spawns.filter(s => arenaOnly.has(s.kind)));
+    assert.deepEqual(dealt, [], `floor ${level} dealt an arena-only kind`);
+  }
+});

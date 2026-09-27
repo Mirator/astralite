@@ -165,6 +165,8 @@ export type Snapshot = {
   };
   /** The development arena this page is charting floors as, or null for an ordinary keep. */
   arena: { roster: EnemyKind[]; level: number } | null;
+  /** Fire a pyre left where it fell, burning the knight. */
+  hostilePools: { kind: EnemyKind; x: number; z: number; radius: number; life: number; damage: number }[];
   /** Bolts loosed at the knight, still in the air. */
   hostileBolts: { kind: EnemyKind; x: number; z: number; dx: number; dz: number; damage: number }[];
   boons: {
@@ -322,6 +324,14 @@ export type Snapshot = {
     z: number;
     hp: number;
     kind: EnemyKind;
+    /** A summoner's reserve still underground, and the spawn index that raises it (-1 for none). */
+    buried: boolean;
+    summoner: number;
+    /** Where a blink tell will come up, while one runs. */
+    mark: { x: number; z: number } | null;
+    /** Blows its shield has turned aside. */
+    blocked: number;
+    visible: boolean;
     windup: number;
     lunge: number;
     cooldown: number;
