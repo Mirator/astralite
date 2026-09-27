@@ -327,8 +327,6 @@ export type Snapshot = {
     /** A summoner's reserve still underground, and the spawn index that raises it (-1 for none). */
     buried: boolean;
     summoner: number;
-    /** Where a blink tell will come up, while one runs. */
-    mark: { x: number; z: number } | null;
     /** Blows its shield has turned aside. */
     blocked: number;
     visible: boolean;

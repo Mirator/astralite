@@ -47,7 +47,6 @@ export const CUTAWAY_ELLIPSE: Record<SlotOwner, { radii: [number, number]; yOffs
   reaper: { radii: [0.75, 1.15], yOffset: 1.1 },
   pyre: { radii: [0.65, 1.0], yOffset: 1.0 },
   bonecaller: { radii: [0.65, 1.05], yOffset: 1.05 },
-  wraith: { radii: [0.65, 1.0], yOffset: 1.0 },
   rattler: { radii: [0.5, 0.75], yOffset: 0.72 },
 };
 

@@ -167,13 +167,13 @@ The menu page's **Ordinary keep**, or `dungeonTest.reset`, leaves it. `render_ga
 A link that names an unknown kind or a bad count is ignored whole rather than half-obeyed. An arena run is never
 recorded: no run log entry, no best run, and its seed does not become LAST KEEP.
 
-Six kinds exist only here - `shieldbearer`, `reaper`, `pyre`, `bonecaller`, `wraith`, `rattler` - with
+Five kinds exist only here - `shieldbearer`, `reaper`, `pyre`, `bonecaller`, `rattler` - with
 `firstFloor: Infinity` and no share in `PACK_MIX`, so the floor generator never deals them and the descent
-plays as it did; `tests/browser/arena-kinds.spec.ts` drives them. A bonecaller arrives with its rattlers
-buried under it: `render_game_to_text().enemies` lists them with `buried: true` (and `summoner`, the spawn
-index that raises them) until raised, and they crumble when it falls. Each enemy also reports `mark` (where a
-wraith will come up, during its tell) and `blocked` (blows a shieldbearer turned aside);
-`hostilePools` lists the fire a pyre left.
+plays as it did; `tests/browser/arena-kinds.spec.ts` drives them. A bonecaller arrives with four rattlers
+buried under it and raises two per call: `render_game_to_text().enemies` lists them with `buried: true` (and
+`summoner`, the spawn index that raises them) while underground. One cut down while its caller stands goes
+back under, whole and unpaid; when the caller falls, every one it called crumbles, standing or buried. Each
+enemy also reports `blocked` (blows a shieldbearer turned aside); `hostilePools` lists the fire a pyre left.
 
 It is the quickest way to look at a new kind in the game rather than on the bench. Only the link ships:
 `npm run build:check` fails if the menu page's event name or its menu label reaches the production bundle.

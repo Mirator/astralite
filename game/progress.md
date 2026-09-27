@@ -3009,3 +3009,22 @@ buried (a real hole the first version of the test missed: the ambush spring fire
 buried bodies shoved in the crowd pass. The existing per-kind loops (flash, death, pose continuity, figure
 rebuild, bench) cover all ten figures; the original three are byte-identical. `npm run figures` now opens a
 viewport tall enough for eleven rows, which the old 1200 px one cut off.
+
+## 2026-09-27 - Wraith out, bonecaller sharpened
+
+Playtest verdict on the six arena kinds: the wraith did not work - its mark was fixed behind the knight when
+the tell began, so any step dodged it and standing still took an unreadable blow from an unseen body, again
+every recovery from seven out - and the rest were interesting but not distinct enough. The wraith is gone
+(the `blink` attack, the `sink` pose, `mark` on the view and the snapshot, `untouchable`, its figure, palette
+and cutaway); nine kinds remain. The reaper's rags, which shared a branch with it, are byte-identical.
+
+The bonecaller is now the fight's priority rather than one more body: four rattlers buried under it, two
+raised per call (`summons.perTell`, side by side across the line to the knight - `raiseSpot` slots), and a
+rattler it raised that is cut down while it stands goes back under it whole and unpaid, to be raised again.
+When it falls, everything it called crumbles, standing or buried, and only the caller pays. The decision is
+`fallOf` in dungeon-enemy.ts. Shieldbearer untouched until there is a heavy attack to answer it with.
+
+Planted and caught - node: raised bodies always dying, only the buried reserve crumbling (the old rule), a
+dead body crumbling again, the pair raised on one spot, no fallback to the middle of the pace. Browser
+(arena-kinds.spec.ts): one raised per call, no reassembly, reassembly paying, standing bodies outliving the
+caller, crumbling paying, reburied wounded, reburied still on show.

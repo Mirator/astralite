@@ -15,7 +15,7 @@
 // that the running game is wired to it; then `npm run figures` to look at it, `?arena=<kind>:3` to fight it
 // (tests/README.md, The arena), and `npm run balance:check`.
 
-export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'wraith', 'rattler'] as const;
+export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler'] as const;
 export type EnemyKind = typeof ENEMY_KINDS[number];
 
 /** Vitality, damage per blow, seconds of tell, and walking speed - the floor-one values. */
@@ -26,17 +26,15 @@ export type EnemyStats = { hp: number; damage: number; tell: number; speed: numb
  * `pounce` turns the tell into a lunge that connects on contact; `volley` looses a bolt along the aim,
  * which then has to fly to him (dungeon-projectile.ts) and can be stepped out of or dashed through;
  * `sweep` is a swing with no aim - everything inside its reach, all the way round; `summon` hurts no one
- * and raises one of its buried reserve instead; `blink` fixes a mark behind the knight when the tell
- * starts, sinks out of reach for the tell, and comes up on the mark with a blow that lands if he is
- * still standing there.
+ * and raises from its buried reserve instead.
  */
-export type Attack = 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon' | 'blink';
+export type Attack = 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon';
 
 /**
  * Which body the pose drives: a cut across the body, a hammer over the crown, a crouch and leap, a bow
- * drawn, a full turn with a long blade, both arms raised to call, or a sink into the floor and back up.
+ * drawn, a full turn with a long blade, or both arms raised to call.
  */
-export type PoseStyle = 'cut' | 'overhead' | 'pounce' | 'draw' | 'spin' | 'channel' | 'sink';
+export type PoseStyle = 'cut' | 'overhead' | 'pounce' | 'draw' | 'spin' | 'channel';
 
 export type Archetype = {
   stats: EnemyStats;
@@ -70,10 +68,12 @@ export type Archetype = {
   shield?: { arc: number };
   /** Fire it leaves where it falls, which bites the knight (dungeon-projectile.ts `deathPool`). */
   deathPool?: { radius: number; life: number; damage: number; interval: number };
-  /** Bodies it arrives with buried at its feet, raised one per `summon` tell; they crumble when it falls. */
-  summons?: { kind: EnemyKind; count: number };
-  /** How far past the knight a `blink` sets its mark, on the far side from where it stood. */
-  blink?: { beyond: number };
+  /**
+   * Bodies it arrives with buried at its feet, `perTell` of them raised by each `summon` tell. One that
+   * falls while the caller stands goes back into the reserve to be raised again; when the caller falls,
+   * the reserve crumbles with it (dungeon-enemy.ts `reassembles`).
+   */
+  summons?: { kind: EnemyKind; count: number; perTell: number };
   /** What the renderer needs to draw it - plain numbers, so this file stays free of three.js. */
   look: {
     pose: PoseStyle;
@@ -198,35 +198,23 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
       death: { duration: .7, prone: true, weaponX: .53 }, shieldArm: false,
     },
   },
-  // Hangs back and calls up the rattlers buried at its feet, one per tell. It never strikes; it is the
-  // reason a fight keeps growing. The answer is to reach it first - and when it falls, whatever it had
-  // not yet raised crumbles with it.
+  // Hangs back and calls up the rattlers buried at its feet, two per tell. It never strikes; it is the
+  // reason a fight never shrinks. A rattler cut down while it stands goes back into the ground to be called
+  // again, so cutting through them is wasted effort: the answer is to reach it, and when it falls every
+  // body it called, standing or buried, crumbles with it.
   bonecaller: {
     stats: { hp: 2 * 4, damage: 0, tell: 1.2, speed: 2.2 },
     strikeRange: 0, attackRange: 9, holdRange: 9, recovery: 2.5,
     attack: 'summon', steadfast: false, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 5,
-    summons: { kind: 'rattler', count: 3 },
+    summons: { kind: 'rattler', count: 4, perTell: 2 },
     look: {
       pose: 'channel', scale: [1, 1.05, 1], cue: { shape: 'ring', radius: 1.1 }, cueScale: 1, barLift: 2.25, alertLift: 2.75, barColor: 0xe89a79, gait: .4, blood: 1, heavy: false,
       trail: { from: 'weapon', color: 0xbfe8ff, width: .07, inner: [0, 0, 0], tip: [0, 0, -.5] },
       death: { duration: .75, prone: false, weaponX: .53 }, shieldArm: false,
     },
   },
-  // Sinks out of reach and comes up behind the knight. The mark it will rise on is on the floor for the
-  // whole tell; the answer is to be off it when it arrives. Nothing touches it while it is under.
-  wraith: {
-    stats: { hp: 2 * 4, damage: 14, tell: 0.8, speed: 2.0 },
-    strikeRange: 1.4, attackRange: 7, holdRange: 7, recovery: 1.8,
-    attack: 'blink', steadfast: false, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
-    blink: { beyond: 1.1 },
-    look: {
-      pose: 'sink', scale: [1, 1, 1], cue: { shape: 'arc' }, cueScale: 1, barLift: 2.05, alertLift: 2.55, barColor: 0xe89a79, gait: .44, blood: .8, heavy: false,
-      trail: { from: 'weapon', color: 0xc9f2ff, width: .095, inner: [0, 0, -.24], tip: [0, 0, -.86] },
-      death: { duration: .6, prone: false, weaponX: .53 }, shieldArm: false,
-    },
-  },
   // Small, quick and gone in one blow of a starting blade; dangerous only in numbers. The answer is an arm
-  // with a wide arc. Also what a bonecaller raises.
+  // with a wide arc. Also what a bonecaller raises, and then it does not stay down while its caller stands.
   rattler: {
     stats: { hp: 1 * 4, damage: 5, tell: 0.38, speed: 3.6 },
     strikeRange: 1.2, attackRange: 1.1, holdRange: .9, recovery: 1.0,
