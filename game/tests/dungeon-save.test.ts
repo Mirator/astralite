@@ -276,6 +276,16 @@ test('plan 016: a blank blob is the mouse-and-keyboard layout, buttons included'
   assert.ok(ACTIONS.every(a => DEFAULT_BINDS[a].length > 0 && DEFAULT_BINDS[a].length <= 4));
 });
 
+test('the side mouse buttons are never bind codes: Chrome goes Back and Forward on their release', () => {
+  for (const code of ['Mouse3', 'Mouse4', 'Mouse5', 'Mouse12']) {
+    assert.equal(bindKey(defaultSettings().binds, 'dash', code), null, `${code} is refused`);
+    const read = parseSettings(JSON.stringify({ binds: { dash: [code, 'Space'], map: [code] } })).binds;
+    assert.deepEqual(read.dash, ['Space'], `${code} is stripped from a stored blob`);
+    assert.deepEqual(read.map, DEFAULT_BINDS.map, 'and an action left with nothing gets its defaults');
+  }
+  assert.ok(bindKey(defaultSettings().binds, 'dash', 'Mouse1'), 'the middle button is still a code');
+});
+
 test('plan 016: mouse buttons are codes like keys, round-trip through a blob and trade like keys', () => {
   const blob = JSON.stringify({ binds: { attack: ['Mouse0', 'KeyJ'], special: ['Mouse2'], swap: ['Mouse1'] } });
   const read = parseSettings(blob).binds;

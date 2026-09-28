@@ -123,9 +123,11 @@ export const tickRun = (run: Run, dt: number) => {
 // A cooldown ticked down in frame-sized steps can land a rounding error above zero; that is ready.
 export const specialReady = (run: Run) => run.specialCooldown <= 1e-9;
 export const spendSpecial = (run: Run, cooldown: number) => { run.specialCooldown = Math.max(run.specialCooldown, amount(cooldown)); };
-// Taking up another arm clears it: a swap is never a way round a cooldown, since the new arm's special is a
-// different one, and never a punishment either.
-export const resetSpecial = (run: Run) => { run.specialCooldown = 0; };
+// Taking up another arm hands over that arm's clock: a fresh one found on a floor arrives ready, and one taken
+// back off the rack where it was set down brings back whatever it had left (`kept`, frozen while it lay
+// there). So a swap is never a way round a cooldown - swap, swap back is the same arm, still cooling - and
+// never a punishment either, since the other arm's special is its own.
+export const resetSpecial = (run: Run, kept = 0) => { run.specialCooldown = amount(kept); };
 
 // Only legal while a draft is open, which is what stops a stray `boon:<id>` event from handing out free
 // upgrades. Returns the boon so the caller can name it; null means nothing was applied.

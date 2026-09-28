@@ -42,14 +42,20 @@ export function swordContacts(
  * knight started to where he is now, and with nothing in between him and it. The segment is the whole
  * path so far rather than this frame's step, so a body he passed during a frame the caller skipped is
  * still on it; one-hit-per-swing tracking is the caller's, as it is for a swing.
+ *
+ * The line starts flat where he started: a body behind that point was never on the path. The wall check runs
+ * from `eye`, the knight himself, not from `to`: the lunge's `to` reaches `width` past him, and with his back
+ * to a body standing against a wall that point is inside the stone, which used to miss the body in front of
+ * him. `eye` defaults to `to` for a line that has no knight at its end (the balance batch's bolt line).
  */
-export function lineContacts(cells: Set<string>, from: Spot, to: Spot, target: Spot, width: number) {
+export function lineContacts(cells: Set<string>, from: Spot, to: Spot, target: Spot, width: number, eye: Spot = to) {
   const travelX = to.x - from.x, travelZ = to.z - from.z;
   const span = travelX * travelX + travelZ * travelZ;
-  const along = span > 1e-8 ? Math.min(1, Math.max(0, ((target.x - from.x) * travelX + (target.z - from.z) * travelZ) / span)) : 0;
-  const nearX = from.x + travelX * along, nearZ = from.z + travelZ * along;
+  const onto = span > 1e-8 ? ((target.x - from.x) * travelX + (target.z - from.z) * travelZ) / span : 0;
+  if (onto < 0) return false;
+  const along = Math.min(1, onto), nearX = from.x + travelX * along, nearZ = from.z + travelZ * along;
   if (!(Math.hypot(target.x - nearX, target.z - nearZ) < width)) return false;
-  return hasClearPath(cells, to, target);
+  return hasClearPath(cells, eye, target);
 }
 
 /**
@@ -137,12 +143,37 @@ export const canAbortSwing = (attackTime: number, weapon: Weapon = TIDEBLADE) =>
  * cooling down, while it is already live or being charged, while the arm is out of the hand, and for an
  * arm that has none. A detonation with no burning pool to set off is refused too: it would cost a cooldown
  * for nothing, and the Flashpoint promises to cost nothing then.
+ *
+ * A held special (the charge, the draw) waits out the whole strike instead, wind-up and recovery included.
+ * It begins as nothing more than holding the button, and let go early it costs nothing, so letting it cut a
+ * strike short would make a tap on it a free cancel of any Maul or Crossbow swing.
  */
 export const specialGate = (state: { weapon: Weapon; ready: boolean; attackTime: number; swing: Weapon; dashTime: number; specialLive: boolean; busy: boolean; pools?: number }): 'start' | 'wait' | 'refuse' => {
   if (!state.weapon.special || !state.ready || state.busy || state.specialLive) return 'refuse';
   if (state.weapon.special.kind === 'detonate' && !((state.pools ?? 0) > 0)) return 'refuse';
-  if (state.dashTime > 0 || !canAbortSwing(state.attackTime, state.swing)) return 'wait';
+  if (state.dashTime > 0 || !specialMayCut(state.weapon.special, state.attackTime, state.swing)) return 'wait';
   return 'start';
+};
+
+/** Whether a special may begin over the swing in progress now (see `specialGate`). */
+export const specialMayCut = (special: Special, attackTime: number, swing: Weapon) =>
+  special.kind === 'charge' || special.kind === 'draw' ? attackTime <= 0 : canAbortSwing(attackTime, swing);
+
+/**
+ * Whether a special that has reached contact spends anything. The Flashpoint with no fire left to set off -
+ * every pool burnt out during its wind-up - ends there at no cost. Asked on the contact frame itself, because
+ * that is when it would spend; the press was gated on a pool, but a pool can go out in between.
+ */
+export const specialSpends = (special: Special, state: { pools: number }) => special.kind !== 'detonate' || state.pools > 0;
+
+/**
+ * The blow a special's own shot lands (the Harpoon, the Heavy Bolt), from the special that loosed it rather
+ * than whatever arm is in hand when it arrives. Only the harpoon itself drags, the first body it takes that is
+ * not steadfast, and only while its drag is still unspent (`free`); a dragged body is hauled, not shoved.
+ */
+export const hurledBlow = (special: Special, shot: { harpoon: boolean; damage: number }, state: { free: boolean; steadfast: boolean }) => {
+  const drags = shot.harpoon && !!special.hurl && state.free && !state.steadfast;
+  return { drags, blow: { damage: shot.damage, stagger: !!special.swing.stagger, knockback: drags ? 0 : special.swing.knockback ?? 0, wardenKnockback: special.swing.wardenKnockback ?? 0 } };
 };
 
 /**

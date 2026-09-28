@@ -21,14 +21,14 @@ import { canStand, generateFloor, hasClearPath, moveOnFloor, cellKey, TILE } fro
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
 import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
-import { canAbortSwing, DASH_BUFFER, dashImmune, dragToward, lineContacts, specialAvailable, specialGate, swordContacts, vaultLanding, vaultTarget } from './dungeon-combat';
+import { DASH_BUFFER, dashImmune, dragToward, hurledBlow, lineContacts, specialAvailable, specialGate, specialMayCut, specialSpends, swordContacts, vaultLanding, vaultTarget } from './dungeon-combat';
 import { ALERT_STAGGER, BESTIARY, decideEnemy, fallOf, nearbyDozers, raiseSpot, separateCrowd, type Wakeable } from './dungeon-enemy';
 import { awayFrom, burn as burnBody, landBlow } from './dungeon-hits';
 import { chargePose } from './dungeon-attack-pose';
-import { chainLength, chargeLevel, chargeReleases, devStartingArm, drawDamage, drawn, lungeStep, specialSwing, STARTING_WEAPON, TIDEBLADE, vaultHeight, vaultLanded, vaultStep, weaponById, type WeaponId } from './dungeon-weapon';
+import { chainLength, chargeLevel, chargeReleases, devStartingArm, drawDamage, drawn, lungeStep, specialSwing, STARTING_WEAPON, TIDEBLADE, vaultHeight, vaultLanded, vaultStep, weaponById, type Special, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
 import { deathPool, flashpointHits, flyHostile, flyShot, homeStep, hostileBolt, laneLength, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
-import { borrowedLight, litDisc } from './dungeon-radiance';
+import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { createSparks } from './dungeon-sparks';
@@ -68,6 +68,9 @@ const changeSettings = (ref: { current: Settings }, set: (next: Settings) => voi
 };
 // Hydration never changes back, so there is nothing to subscribe to.
 const noSubscription = () => () => {};
+// What an arm set down on a rack still owes when it is taken back: its special's seconds of cooldown, and its
+// bolts in hand with the clock on the next one. Frozen while it lies there, like the arm itself.
+type Kept = { cooldown: number; quiver: number; reload: number };
 
 // three.js throws outright when the browser will not hand out a context at all — no GPU, WebGL off by
 // policy or setting, a browser too old. That is not the same as losing a context mid-run, which three.js
@@ -618,14 +621,15 @@ export default function DungeonGame() {
     let armed = player.userData.armed as ArmedWeapon;
     let bladeInner=armed.inner.clone(),bladeTip=armed.tip.clone();
     // The one arm laid out on this floor, and the ring that marks it.
-    let drop: {group:THREE.Group; ring:THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; blade:ArmedWeapon; kind:WeaponId; x:number; z:number} | null = null;
+    // `kept` is what an arm the knight set down there still owed: its special's cooldown and its quiver.
+    let drop: {group:THREE.Group; ring:THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; blade:ArmedWeapon; kind:WeaponId; x:number; z:number; kept?:Kept} | null = null;
     // Whether the knight is inside the rack's ring this frame, and what the prompt was last told. The
     // second exists only so the offer is pushed into React on the step he arrives and the step he leaves,
     // rather than sixty times a second for as long as he stands there.
     let overDrop = false, offered: WeaponId | 'stair' | null = null, ringLit = 0;
     // Put a different arm in the knight's hand. The old geometry is released; the materials are his own
     // and outlive every swap, so nothing but the meshes is rebuilt.
-    const equip = (id: WeaponId) => {
+    const equip = (id: WeaponId, kept?: Kept) => {
       const {palette, plate} = player.userData.armoury as {palette: ArmoryPalette; plate: Plate};
       disposeWeapon(armed, palette);
       const next = weaponById(id);
@@ -634,20 +638,27 @@ export default function DungeonGame() {
       player.userData.armed = armed;
       bladeInner=armed.inner.clone();bladeTip=armed.tip.clone();
       // A swap mid-swing drops the swing and its string (see `armWith`), and would otherwise leave the old
-      // blade's ribbon hanging in the air. So does a special, a charge, a thrown spear (it goes down on the
-      // rack with the arm) and the cooldown, which is the old arm's.
-      armWith(pc, next); endSpecial(); resetSpecial(run); swingHits.clear(); slash.clear(); posePlayer(0);
-      // A weapon picked up arrives loaded; bolts already in the air are the old arm's and stay in it.
-      quiver = pc.weapon.ranged ? pc.weapon.ranged.capacity : 0; reload = 0;
-      setAmmo(pc.weapon.ranged ? { held: quiver, of: pc.weapon.ranged.capacity } : null);
+      // blade's ribbon hanging in the air. So does a special, a charge, and a thrown spear (it goes down on the
+      // rack with the arm). The cooldown is the arm's own: one found on a floor arrives ready, one taken back
+      // off the rack brings back what it had left (`kept`), so swap, swap back is no way round a cooldown.
+      armWith(pc, next); endSpecial(); resetSpecial(run, kept?.cooldown); swingHits.clear(); slash.clear(); posePlayer(0);
+      // A weapon found arrives loaded, one taken back as empty as it was left; bolts already in the air stay in it.
+      fillQuiver(kept);
       setSpecialArm(pc.weapon.special ? { name: pc.weapon.special.name, detail: pc.weapon.special.detail } : null);
+    };
+    // What the arm in hand still owes, for the rack it is about to be set down on.
+    const keep = (): Kept => ({ cooldown: run.specialCooldown, quiver, reload });
+    const fillQuiver = (kept?: Kept) => {
+      quiver = pc.weapon.ranged ? kept ? Math.min(kept.quiver, pc.weapon.ranged.capacity) : pc.weapon.ranged.capacity : 0; reload = kept?.reload ?? 0;
+      setAmmo(pc.weapon.ranged ? { held: quiver, of: pc.weapon.ranged.capacity } : null);
     };
     // Bolts in hand, and the clock the next one comes back on. A ranged arm is limited by a quiver
     // rather than by a cooldown: the knight walks at 8.5 against a stalker's 3.2, so a shot that merely
     // recovered on a timer would let him back away and win the keep without ever being reachable.
     let quiver = 0, reload = 0;
     // `harpoon` marks the Salt Spear itself on its way out (plan 016): same flight rule, its own hit rule.
-    const shots: { shot: Shot; mesh: THREE.Group; harpoon?: boolean; heavy?: boolean }[] = [];
+    // `special` is the special that loosed it, so a swap while it flies cannot hand it the new arm's numbers.
+    const shots: { shot: Shot; mesh: THREE.Group; harpoon?: boolean; heavy?: boolean; special?: Special }[] = [];
     // Fired shots come out of a pool. The suite asserts a floor allocates no new GPU memory once built.
     const boltPool = Array.from({ length: 8 }, () => { const bolt = makeBolt((player.userData.armoury as {palette: ArmoryPalette}).palette); world.add(bolt); return bolt; });
     const flaskPool = Array.from({ length: 6 }, () => { const flask = makeFlask((player.userData.armoury as {palette: ArmoryPalette}).palette); world.add(flask); return flask; });
@@ -682,10 +693,20 @@ export default function DungeonGame() {
       lane.position.set(player.position.x + pc.facing.x * length / 2, .08, player.position.z + pc.facing.z * length / 2);
       lane.rotation.z = Math.atan2(-pc.facing.z, pc.facing.x) + Math.PI / 2; lane.scale.set(width / .11, Math.max(.05, length) / 1.15, 1);
     };
-    // The Flashpoint's pools going up: the pool's own ring, taken out of the fire and flared white, then gone.
-    const flares: { mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; age: number; radius: number }[] = [];
+    // The Flashpoint's pools going up: the fire goes out and in its place a bright band runs out to the pool's
+    // rim over a light wash, added onto the floor rather than laid over it, then gone. It was the pool's own
+    // ring flared opaque cream, a flat disc that hid the paving; this is the Tolling Slam charge's ring language
+    // (the same lit-disc program, so no new shader), one pooled mesh per pool as before, made once at mount.
+    const flareDisc = new THREE.RingGeometry(0, 1, 48);
+    const flarePool = Array.from({ length: 6 }, () => {
+      const mesh = new THREE.Mesh(flareDisc, new THREE.MeshBasicMaterial({ color: 0xffe6b0, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+      const glow = litDisc(mesh.material, 'slam-charge-v1', .35); glow.width.value = .06;
+      mesh.rotation.x = -Math.PI / 2; mesh.visible = false; world.add(mesh);
+      return { mesh, glow };
+    });
+    const flares: { mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; glow: Radiance; age: number; radius: number }[] = [];
     const FLARE_LIFE = .3;
-    const clearFlares = () => { for (const flare of flares) { flare.mesh.visible = false; flare.mesh.material.color.setHex(0xff5a2a); } flares.length = 0; };
+    const clearFlares = () => { for (const flare of flares) flare.mesh.visible = false; flares.length = 0; };
     const catchHarpoon = () => {
       if (!harpoon) return;
       const at = shots.findIndex(live => live.harpoon); if (at >= 0) shots.splice(at, 1);
@@ -721,13 +742,13 @@ export default function DungeonGame() {
     };
     // Lay an arm on a rack. Called once when the floor is built and again on every swap, because what
     // the knight sets down stays where he found it: a pickup he regrets is a walk back, not a dead run.
-    const placeDrop = (kind: WeaponId, x: number, z: number) => {
+    const placeDrop = (kind: WeaponId, x: number, z: number, kept?: Kept) => {
       const {palette, plate} = player.userData.armoury as {palette: ArmoryPalette; plate: Plate};
       if (drop) disposeWeaponDrop(drop, palette);
       const built = makeWeaponDrop(kind, palette, plate);
       built.group.position.set(x, 0, z);
       floorGroup.add(built.group);
-      drop = {...built, kind, x, z};
+      drop = {...built, kind, x, z, kept};
       overDrop = false; ringLit = 0; showOffer(null);
     };
     // What a floor build borrows from the world: the shared telegraph art, the scene root, the cutaway
@@ -977,7 +998,8 @@ export default function DungeonGame() {
       // is what a logged entry carries, so the log is held here rather than read off the current floor.
       if (level === 1) { firstSeed = floor.seed; runStart = elapsed; setRunSeed(floor.seed); if (!arena) writeSeed(floor.seed); }
       floorGroup = new THREE.Group(); world.add(floorGroup);
-      swingHits.clear();slash.clear();clearShots();blood.clear();posePlayer(0);
+      // endSpecial first: a spear in the air is one of the shots, and dropping it without it leaves the arm out of hand.
+      swingHits.clear();slash.clear();endSpecial();clearShots();blood.clear();posePlayer(0);
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
       reached = 0; loot = 0; activeRoom = 0; pathCell = ''; distances.clear();
       // The floor itself - paving, flood, parapets, atmosphere, the walking-surface index, hazards, shrines,
@@ -1056,7 +1078,8 @@ export default function DungeonGame() {
       setHealth(run.hp); setMaxHealth(run.maxHp); setDefeated(0); setExperience(0); setXpReward(0);
       setRank(1); setRankXp(0); setRankNeed(rankCost(1)); setTaken([]); setBoonChoice([]);
       const startArm = (process.env.NODE_ENV !== 'production' ? devStartingArm(window.location.search) : null) ?? STARTING_WEAPON;
-      if (pc.weapon.id !== startArm) equip(startArm);
+      // The same arm is not re-made, but it starts the run as a found one does: loaded (the fresh run is ready).
+      if (pc.weapon.id !== startArm) equip(startArm); else fillQuiver();
       setHeldWeapon(weaponById(startArm).name);
       setNotice(''); setFloorResult({ kills: 0, xp: 0, seconds: 0 });
       setPaused(false); setMapOpen(false); mapShown = false;
@@ -1174,9 +1197,10 @@ export default function DungeonGame() {
     const requestSwap = () => {
       if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing' || building) return;
       if (!drop || !overDrop) { if (stairOpen && onStair) descend(); return; }
-      const taken = weaponById(drop.kind), set = pc.weapon.id, at = { x: drop.x, z: drop.z };
-      equip(drop.kind);
-      placeDrop(set, at.x, at.z);
+      // Both arms keep their own clocks: read the one in hand before `equip` hands over the rack's.
+      const taken = weaponById(drop.kind), set = pc.weapon.id, at = { x: drop.x, z: drop.z }, left = keep();
+      equip(drop.kind, drop.kept);
+      placeDrop(set, at.x, at.z, left);
       // Standing still after the swap, so the prompt comes straight back naming the arm just set down.
       overDrop = true; showOffer(set);
       audio.play('clear'); burst(player.position, 0xfbc956, 14);
@@ -1185,7 +1209,8 @@ export default function DungeonGame() {
     };
     // Plan 016: the arm's own verb. An arm without one leaves the input inert (decision 3). It is a swing
     // on the strike's clock, so it waits out a live blade or a dodge the way a buffered dodge does, and
-    // cancels a strike's wind-up or recovery the way a dodge does. It never interrupts itself.
+    // cancels a strike's wind-up or recovery the way a dodge does - except a held one (the charge, the draw),
+    // which waits out the whole strike (`specialMayCut`). It never interrupts itself.
     const startSpecial = (charge: number) => {
       const special = pc.weapon.special;
       if (!special) return;
@@ -1270,6 +1295,8 @@ export default function DungeonGame() {
     // and a stick left live is a knight that walks on by itself the moment the descent resumes.
     const clearInput = () => {
       keys.clear(); stick = null; padStick = null; padLook = null; padPressed.clear();
+      // A button let go while the window was away never reports it, and a stale bit would swallow the next click.
+      mouseHeld = 0;
       dropBuffers(pc);
     };
     const enter = () => { enterWhenBuilt = false; setEntering(false); if (hasStarted) return;
@@ -1346,18 +1373,22 @@ export default function DungeonGame() {
       mouseSync(e, true);
     };
     // Plan 016: a button is a bind code, `Mouse<button>`, pressed and held through the same set a key is.
-    // `buttons` is the whole chord as a bitmask; bit i is button BUTTON_BITS[i].
-    const BUTTON_BITS = [0, 2, 1, 3, 4];
+    // `buttons` is the whole chord as a bitmask; bit i is button BUTTON_BITS[i]. The side buttons are not bind
+    // codes (`isMouseCode`), so they are not read at all.
+    const BUTTON_BITS = [0, 2, 1];
     let mouseHeld = 0;
     const mousePress = (code: string, e: PointerEvent) => {
-      if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing') return;
+      // Pause and the map answer while paused, as their keys do (`readKey`), so a button that opened one closes it.
+      const live = hasStarted && !isPaused && !run.choosing && gameStatus === 'playing';
+      if (!live && !(hasStarted && isPaused)) return;
       const binds = settingsRef.current.binds, does = (action: Action) => binds[action].includes(code);
       if (!ACTIONS.some(does)) return;
       e.preventDefault();
       if (does('pause')) { togglePause(); return; }
+      if (does('map') && (live || mapShown)) { toggleMap(); return; }
+      if (!live) return;
       if (does('mute')) { toggleMute(); return; }
       if (does('fullscreen')) { fullscreen(); return; }
-      if (does('map')) { toggleMap(); return; }
       keys.add(code);
       if (does('attack')) requestAttack();
       if (does('special')) requestSpecial();
@@ -1375,7 +1406,21 @@ export default function DungeonGame() {
     // A cursor that has left the canvas is not pointing at the floor any more, and a swing aimed at
     // where it went out is a swing aimed at nothing the player can see.
     const pointerGone = (e: PointerEvent) => { if (e.pointerType === 'mouse') { pointerNdc = null; mouseHeld = 0; BUTTON_BITS.forEach(b => keys.delete(`Mouse${b}`)); claimAim('keys'); } };
+    // Back over the canvas with a button still down is not a press: the chord it brings is taken as already
+    // held, so only a button pressed from here on (a real pointerdown, or a chord added to it) presses.
+    const pointerBack = (e: PointerEvent) => { if (e.pointerType === 'mouse') mouseHeld = e.buttons; };
     const pointerDown = (e: PointerEvent) => { if (e.pointerType === 'mouse') pointerMove(e); };
+    // While paused the canvas is under the card or the map, so a button bound to pause or the map is heard on
+    // the window instead. Never the left button (it clicks the card, whatever it is bound to), never the canvas
+    // itself (it has its own path) and never the capture strip, where a button is being bound, not used.
+    const pausedDown = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse' || !isPaused || e.button === 0 || e.button > 2 || e.target === canvas || (e.target as Element | null)?.closest?.('.mouse-capture')) return;
+      const code = `Mouse${e.button}`, binds = settingsRef.current.binds;
+      if (!binds.pause.includes(code) && !binds.map.includes(code)) return;
+      if (e.button === 2) window.addEventListener('contextmenu', (menu) => menu.preventDefault(), { capture: true, once: true });
+      // Held, as far as the canvas is concerned, so a button still down when the card goes is not pressed again.
+      mouseHeld = e.buttons; mousePress(code, e);
+    };
     // On the window, so a button let go of anywhere is let go of; releases only, never presses.
     const pointerUp = (e: PointerEvent) => { if (e.pointerType === 'mouse') mouseSync(e, false); };
     const noMenu = (e: Event) => e.preventDefault();
@@ -1383,6 +1428,8 @@ export default function DungeonGame() {
     canvas.addEventListener('pointerdown', pointerDown);
     window.addEventListener('pointerup', pointerUp);
     canvas.addEventListener('pointerleave', pointerGone);
+    canvas.addEventListener('pointerenter', pointerBack);
+    window.addEventListener('pointerdown', pausedDown);
     canvas.addEventListener('contextmenu', noMenu);
 
 
@@ -1483,7 +1530,10 @@ export default function DungeonGame() {
         // next held swing, or holding strike would swallow every dodge pressed mid-swing.
         if (bufferedDashReady(pc)) requestDash();
         // A special that waited out a blade or a dodge goes next, ahead of a held strike, for the same reason.
-        if (pc.dashTime <= 0 && specialBuffer > 0 && canAbortSwing(pc.attackTime, pc.swing)) requestSpecial();
+        // A held special waits out the whole strike, which can be longer than the buffer, so it keeps its place
+        // for as long as the button is down and begins the frame the strike ends.
+        if (specialBuffer > 0 && pc.weapon.special && (pc.weapon.special.kind === 'charge' || pc.weapon.special.kind === 'draw') && held('special')) specialBuffer = DASH_BUFFER;
+        if (pc.dashTime <= 0 && specialBuffer > 0 && pc.weapon.special && specialMayCut(pc.weapon.special, pc.attackTime, pc.swing)) requestSpecial();
         // A charge runs for as long as the special is held by any device, and is released the frame it is not.
         if (charging !== null) { if (held('special')) charging += dt; else releaseCharge(); }
         if (swingReady(pc, held('attack'))) startAttack();
@@ -1649,7 +1699,10 @@ export default function DungeonGame() {
           const pose=posePlayer(swung.age),active=pose.active;
           slash.update(dt,pose.trail,player.userData.sword,bladeInner,bladeTip);
           // Plan 016: a special's cooldown starts on its first live frame, so one dropped before it is free.
-          if (pc.swingKind === 'special' && pc.weapon.special && active && !wasLive) {
+          // A Flashpoint whose every pool went out during its wind-up ends here instead, and costs nothing.
+          const fizzled = pc.swingKind === 'special' && !!pc.weapon.special && active && !wasLive && !specialSpends(pc.weapon.special, { pools: pools.length });
+          if (fizzled) { pc.attackTime = 0; pc.swingKind = 'strike'; pc.swing = pc.weapon; slash.clear(); posePlayer(0); }
+          else if (pc.swingKind === 'special' && pc.weapon.special && active && !wasLive) {
             spendSpecial(run, pc.weapon.special.cooldown);
             if (pc.weapon.special.kind === 'charge') { impacts.slam(player.position, pc.swing.reach + run.reach, easeMotion); audio.play('toll'); shake = 0.14; burst(player.position, 0xf2c47b, 16); }
             // Stage C. The Whirl's ring goes down at the reach the ring is scored at, on the frame it is scored.
@@ -1662,7 +1715,7 @@ export default function DungeonGame() {
                 mesh.visible = true; mesh.scale.set(2, 2, 3.2);
                 mesh.position.set(player.position.x, .95, player.position.z);
                 mesh.rotation.y = Math.atan2(-pc.attackFacing.x, -pc.attackFacing.z);
-                shots.push({ mesh, heavy: true, shot: { x: player.position.x, z: player.position.z, dx: pc.attackFacing.x, dz: pc.attackFacing.z, speed: pc.swing.ranged.speed, life: pc.swing.ranged.flight, pierce: pc.swing.ranged.pierce, damage: damage + run.strike, spent: new Set<number>() } });
+                shots.push({ mesh, heavy: true, special: pc.weapon.special, shot: { x: player.position.x, z: player.position.z, dx: pc.attackFacing.x, dz: pc.attackFacing.z, speed: pc.swing.ranged.speed, life: pc.swing.ranged.flight, pierce: pc.swing.ranged.pierce, damage: damage + run.strike, spent: new Set<number>() } });
               }
               laneLife = .28; layLane(laneLength(floor.cells, player.position, pc.attackFacing.x, pc.attackFacing.z, pc.swing.ranged.speed * pc.swing.ranged.flight), .42, .9);
               audio.play('heavybolt'); shake = 0.12; burst(player.position.clone().add(new THREE.Vector3(pc.attackFacing.x * .8, 0, pc.attackFacing.z * .8)).setY(.95), 0xffd79a, 12);
@@ -1672,8 +1725,9 @@ export default function DungeonGame() {
               const marks: Mark[] = stage.enemies.map((e, index) => ({ x: e.group.position.x, z: e.group.position.z, index })).filter(mark => !stage.enemies[mark.index].dead && stage.enemies[mark.index].awake);
               const caught = flashpointHits(pools.map(live => live.pool), marks);
               for (const live of pools) {
-                live.mesh.material.color.setHex(0xffe6b0); live.mesh.material.opacity = 1;
-                flares.push({ mesh: live.mesh, age: 0, radius: live.pool.radius });
+                live.mesh.visible = false;
+                const flare = flarePool.find(disc => !disc.mesh.visible);
+                if (flare) { flare.mesh.visible = true; flare.mesh.position.set(live.pool.x, .08, live.pool.z); flare.mesh.scale.setScalar(live.pool.radius); flares.push({ ...flare, age: 0, radius: live.pool.radius }); }
                 burst(new THREE.Vector3(live.pool.x, .5, live.pool.z), 0xffd27a, 8);
               }
               pools.length = 0;
@@ -1695,14 +1749,14 @@ export default function DungeonGame() {
               mesh.visible = true; mesh.scale.set(1.7, 1.7, 2.6);
               mesh.position.set(player.position.x, .95, player.position.z);
               mesh.rotation.y = Math.atan2(-pc.attackFacing.x, -pc.attackFacing.z);
-              shots.push({ mesh, harpoon: true, shot: { x: player.position.x, z: player.position.z, dx: pc.attackFacing.x, dz: pc.attackFacing.z, speed: pc.swing.ranged.speed, life: pc.swing.ranged.flight, pierce: pc.swing.ranged.pierce, damage: pc.swing.damage + run.strike, spent: new Set<number>() } });
+              shots.push({ mesh, harpoon: true, special: pc.weapon.special, shot: { x: player.position.x, z: player.position.z, dx: pc.attackFacing.x, dz: pc.attackFacing.z, speed: pc.swing.ranged.speed, life: pc.swing.ranged.flight, pierce: pc.swing.ranged.pierce, damage: pc.swing.damage + run.strike, spent: new Set<number>() } });
               harpoon = { mesh, phase: 'out', x: player.position.x, z: player.position.z, speed: pc.swing.ranged.speed, dragged: false };
               armed.group.visible = false;
             }
           }
           // One bolt on the frame the blade would have gone live. A dry quiver still plays the motion,
           // so running out is something the knight sees rather than something that silently does nothing.
-          else if (pc.swingKind === 'strike' && pc.weapon.ranged && active && !wasLive) {
+          else if (!fizzled && pc.swingKind === 'strike' && pc.weapon.ranged && active && !wasLive) {
             if (quiver > 0) {
               quiver -= 1; setAmmo({ held: quiver, of: pc.weapon.ranged.capacity });
               const mesh = (pc.weapon.burst ? flaskPool : boltPool).find(thrown => !thrown.visible);
@@ -1731,7 +1785,7 @@ export default function DungeonGame() {
             if (gameStatus !== 'playing' || enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
             if (vaulting && enemy !== vault?.target) return;
             // The same rule the node suite runs: inside the arc, and with no wall between the blade and the body.
-            if (line && lineTo ? lineContacts(floor.cells, lungeFrom, lineTo, enemy.group.position, line.width) : swordContacts(floor.cells, player.position, pc.attackFacing, enemy.group.position, run.reach, pc.swing)) {
+            if (line && lineTo ? lineContacts(floor.cells, lungeFrom, lineTo, enemy.group.position, line.width, player.position) : swordContacts(floor.cells, player.position, pc.attackFacing, enemy.group.position, run.reach, pc.swing)) {
               audio.play('hit');
               swingHits.add(enemy);
               // What the blow does to the body is dungeon-hits'; what is left here is how it looks.
@@ -1866,9 +1920,12 @@ export default function DungeonGame() {
         for (let i = flares.length - 1; i >= 0; i--) {
           const flare = flares[i]; flare.age += dt;
           const k = Math.min(1, flare.age / FLARE_LIFE);
-          flare.mesh.scale.setScalar(flare.radius * (easeMotion ? 1 : 1 + .35 * (1 - (1 - k) ** 3))); flare.mesh.material.opacity = (1 - k) ** 1.5;
+          // The band runs from inside the fire out to its rim and a little past; reduced motion leaves it at the rim.
+          const out = easeMotion ? 1 : 1 - (1 - k) ** 3;
+          flare.mesh.scale.setScalar(flare.radius * (easeMotion ? 1 : 1 + .12 * out)); flare.mesh.material.opacity = (1 - k) ** 1.5;
+          flare.glow.edge.value = easeMotion ? .93 : .62 + .33 * out; flare.glow.pool.value = .4 * (1 - k);
           if (k < .5) ember.bid(lampAt.set(flare.mesh.position.x, .6, flare.mesh.position.z), Math.hypot(player.position.x - flare.mesh.position.x, player.position.z - flare.mesh.position.z), 30 * (1 - k * 2), 0xffc070);
-          if (k >= 1) { flare.mesh.visible = false; flare.mesh.material.color.setHex(0xff5a2a); flares.splice(i, 1); }
+          if (k >= 1) { flare.mesh.visible = false; flares.splice(i, 1); }
         }
         // Bolts fly last, against where the bodies actually ended the frame. The rule is in
         // dungeon-projectile; what belongs here is the mesh, the sparks and the damage call.
@@ -1884,9 +1941,9 @@ export default function DungeonGame() {
               audio.play('hit');
               // A special's bolt (the Harpoon, the Heavy Bolt) carries the special's numbers, a plain bolt the arm's.
               // The first body the spear takes that is not steadfast is hauled in rather than shoved; a warden only staggers.
-              const hurled = live.harpoon || live.heavy ? pc.weapon.special : undefined;
-              const drags = !!(hurled?.hurl && harpoon && !harpoon.dragged && !BESTIARY[enemy.kind].steadfast);
-              const blow = hurled ? { damage: live.shot.damage, stagger: !!hurled.swing.stagger, knockback: drags ? 0 : hurled.swing.knockback ?? 0, wardenKnockback: hurled.swing.wardenKnockback ?? 0 } : { ...pc.weapon, damage: live.shot.damage };
+              const hurled = live.special, thrown = hurled ? hurledBlow(hurled, { harpoon: !!live.harpoon, damage: live.shot.damage }, { free: !!harpoon && !harpoon.dragged, steadfast: !!BESTIARY[enemy.kind].steadfast }) : null;
+              const drags = !!thrown?.drags;
+              const blow = thrown ? thrown.blow : { ...pc.weapon, damage: live.shot.damage };
               const hit = landBlow(floor.cells, enemy, enemy.group.position, blow, { x: live.shot.dx, z: live.shot.dz }, facingOf(enemy));
               if (hit.blocked) { enemy.blocked++; audio.play('warn'); burst(enemy.group.position, 0xdfe6ea, 8); continue; }
               if (hit.broke) { enemy.attackAge = Infinity; enemy.trails.forEach(trail => trail.effect.clear()); }
@@ -2237,7 +2294,7 @@ export default function DungeonGame() {
     // a press; kept out of production the same way `configureCombatFixture` is, and passed on every
     // harness `goto` (`tests/browser/helpers.ts`). Scenarios that test the boot itself load the plain URL.
     if (process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('boot') === 'eager') scheduleBoot();
-    return () => { stopped = true; dropArenaListener?.(); cancelAnimationFrame(raf); cancelAnimationFrame(bootFrame); clearTimeout(bootTimer); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); stage.atmosphere?.dispose(); texture.dispose(); telegraphTex.dispose(); laneTex.dispose(); alertTex.dispose(); alertMaterial.dispose(); environment.dispose(); impacts.dispose(); blood.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); post.dispose(); renderer.dispose(); mount.removeChild(renderer.domElement); };
+    return () => { stopped = true; dropArenaListener?.(); cancelAnimationFrame(raf); cancelAnimationFrame(bootFrame); clearTimeout(bootTimer); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('pointerenter', pointerBack); window.removeEventListener('pointerdown', pausedDown); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); stage.atmosphere?.dispose(); texture.dispose(); telegraphTex.dispose(); laneTex.dispose(); alertTex.dispose(); alertMaterial.dispose(); environment.dispose(); impacts.dispose(); blood.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); post.dispose(); renderer.dispose(); mount.removeChild(renderer.domElement); };
   }, []);
 
   const roomCount = floorMap?.rooms.length ?? 0;
@@ -2371,7 +2428,7 @@ export default function DungeonGame() {
             <div className="key-binds">{ACTIONS.map(a => <button key={a} className={capturing === a ? 'capturing' : ''} aria-label={`${ACTION_LABELS[a]}: ${bindLabel(settings.binds[a], ' or ')}. Activate to rebind.`} onClick={() => { setBindNote(''); setCapturing(capturing === a ? null : a); }}><span>{ACTION_LABELS[a]}</span><kbd>{capturing === a ? 'press a key' : bindLabel(settings.binds[a])}</kbd></button>)}</div>
             {/* Plan 016: a mouse button binds from here, not from anywhere on the card, so the left button still
                 clicks every other control while a rebind is armed. */}
-            {capturing && <button type="button" className="mouse-capture" onPointerDown={(e) => { if (e.pointerType !== 'mouse') return; e.preventDefault(); if (e.button === 2) window.addEventListener('contextmenu', (menu) => menu.preventDefault(), { capture: true, once: true }); commitBind(capturing, `Mouse${e.button}`); }} onContextMenu={(e) => e.preventDefault()}>Or click here with the mouse button for {ACTION_LABELS[capturing]}</button>}
+            {capturing && <button type="button" className="mouse-capture" onPointerDown={(e) => { if (e.pointerType !== 'mouse' || e.button > 2) return; e.preventDefault(); if (e.button === 2) window.addEventListener('contextmenu', (menu) => menu.preventDefault(), { capture: true, once: true }); commitBind(capturing, `Mouse${e.button}`); }} onContextMenu={(e) => e.preventDefault()}>Or click here with the mouse button for {ACTION_LABELS[capturing]}</button>}
             <output className="bind-note">{bindNote || (capturing ? 'Press any key, or a mouse button on the strip above. Escape cancels.' : 'Escape always opens this menu, so it cannot be rebound.')}</output>
             <button className="reset-binds" onClick={() => { setCapturing(null); setBindNote(''); change({ binds: defaultSettings().binds }); }}>Reset keys</button>
           </details>

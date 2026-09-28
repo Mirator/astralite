@@ -88,6 +88,7 @@ test('a keydown is decoded against the bindings and whether the run is live', ()
   assert.equal(readKey('Tab', false, b, false).command, null, 'a menu card keeps Tab');
   assert.equal(readKey('Tab', false, b, false).prevent, false);
   assert.equal(readKey('Tab', false, b, false, true).command, 'map', 'the map it opened closes on it');
+  assert.equal(readKey('Tab', false, b, false, true).prevent, true, 'and the Tab that closes it does not also move focus');
   assert.equal(readKey('Tab', true, b, true).command, null, 'a held Tab does not flicker the map');
   assert.equal(readKey('KeyW', false, b, true).claimAim, false, 'walking does not claim the aim');
   assert.equal(readKey('KeyW', false, b, true).prevent, false, 'a key the browser does not act on is left alone');

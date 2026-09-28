@@ -89,7 +89,7 @@ export type Weapon = {
     window: number;
     beats: Partial<Weapon>[];
   };
-  /** The arm's own second verb (plan 016), or absent for an arm that has none yet. */
+  /** The arm's own second verb (plan 016). Every arm in `WEAPONS` has one; absent leaves the input inert. */
   special?: Special;
 };
 

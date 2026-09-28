@@ -12,7 +12,7 @@
 // other, not a claim about how well a human plays.
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
-import { canAbortSwing, DASH_TIME, dashImmune, dragToward, lineContacts, playerSpeed, specialAvailable, specialGate, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
+import { canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
 import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, nearbyDozers, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
@@ -576,7 +576,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       const wasLive = poseAt(swing.duration - attackTime).active;
       attackTime = Math.max(0, attackTime - DT);
       const pose = poseAt(swing.duration - attackTime);
-      if (isSpecial() && special && pose.active && !wasLive) {
+      // A Flashpoint whose fire all went out in its wind-up ends on its contact frame, and spends nothing.
+      if (isSpecial() && special && pose.active && !wasLive && !specialSpends(special, { pools: pools.length })) attackTime = 0;
+      else if (isSpecial() && special && pose.active && !wasLive) {
         spendSpecial(run, special.cooldown); specialCount += 1;
         // The spear leaves the hand down the same flight a bolt takes, and comes back below.
         if (special.kind === 'throw' && swing.ranged) {
@@ -623,7 +625,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (!swing.ranged && pose.active && scoring) for (const body of bodies) {
         if (body.dead || !body.awake || swingHits.has(body)) continue;
         if (vaulting && body !== leap?.target) continue;
-        if (!(line && lineTo ? lineContacts(floor.cells, lungeFrom, lineTo, body, line.width) : swordContacts(floor.cells, player, attackFacing, body, run.reach, swing))) continue;
+        if (!(line && lineTo ? lineContacts(floor.cells, lungeFrom, lineTo, body, line.width, player) : swordContacts(floor.cells, player, attackFacing, body, run.reach, swing))) continue;
         swingHits.add(body);
         // The game's own blow: damage, flash, broken tell, cooldown and shove, in dungeon-hits. A strike shoves
         // with the arm's own numbers, as it always has here; a special with its own.
@@ -701,8 +703,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           if (!hurled) landedCount += 1;
           // The Harpoon drags the first body it bites that is not steadfast, instead of shoving it; a special's
           // bolt otherwise carries the special's numbers, a plain bolt the arm's.
-          const drags = !!(hurled?.hurl && harpoon && !harpoon.dragged && !BESTIARY[body.kind].steadfast);
-          const blow = hurled ? { damage: shot.damage, stagger: !!hurled.swing.stagger, knockback: drags ? 0 : hurled.swing.knockback ?? 0, wardenKnockback: hurled.swing.wardenKnockback ?? 0 } : { ...weapon, damage: shot.damage };
+          const thrown = hurled ? hurledBlow(hurled, { harpoon: harpoon?.shot === shot, damage: shot.damage }, { free: !!harpoon && !harpoon.dragged, steadfast: BESTIARY[body.kind].steadfast }) : null;
+          const drags = !!thrown?.drags;
+          const blow = thrown ? thrown.blow : { ...weapon, damage: shot.damage };
           landBlow(floor.cells, body, body, blow, unit(body.x - player.x, body.z - player.z));
           if (drags && hurled?.hurl && harpoon) {
             harpoon.dragged = true;

@@ -175,15 +175,193 @@ test('swapping arms with the spear in flight lays the spear on the rack and leav
   expect(swapped.weapon.id).toBe(rack.kind);
   expect(swapped.drop!.kind, 'the spear is on the rack, not lost').toBe('spear');
   expect(swapped.weapon.inFlight, 'and not in the air').toBe(0);
+  // The arm found on the rack is its own, and arrives ready.
   const special = specialOf(swapped);
   if (special) expect(special).toMatchObject({ ready: true, cooldown: 0, harpoon: null, bare: false });
   await game.step(1000);
   expect((await game.state()).weapon.inFlight).toBe(0);
-  // Taking it back hands over a ready spear: a swap is neither a way round the cooldown nor a punishment.
+  // Taking it back hands over the spear in hand, but still cooling from the throw: a swap is no way round it.
   await press(page, 'swap');
   await game.step(16);
-  expect(specialOf(await game.state())).toMatchObject({ id: 'harpoon', ready: true, cooldown: 0 });
+  const back = specialOf(await game.state())!;
+  expect(back).toMatchObject({ id: 'harpoon', ready: false, harpoon: null, bare: false });
+  expect(back.cooldown, 'frozen on the rack, not reset').toBeGreaterThan(4);
   await game.equip('tideblade');
+});
+
+test('swap, swap back: the lunge is still cooling and the Heavy Bolt quiver is still spent', async ({ game, page }) => {
+  await game.enter();
+  await game.step(120);
+  const rack = (await game.state()).drop!;
+  expect(rack, 'this floor has a rack').not.toBeNull();
+  const over = async () => { await game.teleport(rack.x, rack.z); await game.step(32); expect((await game.state()).drop!.over).toBe(true); };
+  const swapBack = async (arm: string) => {
+    await over();
+    await press(page, 'swap');
+    await game.step(16);
+    await press(page, 'swap');
+    await game.step(16);
+    const back = await game.state();
+    expect(back.weapon.id, 'the same arm back in hand').toBe(arm);
+    expect(back.drop!.kind, 'and the rack holds its own again').toBe(rack.kind);
+    return back;
+  };
+
+  await over();
+  await press(page, 'special');
+  await game.step(700);
+  const lunged = specialOf(await game.state())!;
+  expect(lunged).toMatchObject({ id: 'undertow', ready: false });
+  const lunge = specialOf(await swapBack('tideblade'))!;
+  expect(lunge.ready, 'still cooling').toBe(false);
+  // Only the frames it was in hand ran its clock: 32ms walking back to the rack and 16ms after taking it.
+  expect(lunge.cooldown).toBeGreaterThan(lunged.cooldown - 0.1);
+  expect(lunge.cooldown).toBeLessThanOrEqual(lunged.cooldown);
+
+  await game.equip('crossbow');
+  await over();
+  await hold(page, 'special');
+  await game.step(800);
+  await release(page, 'special');
+  await game.step(48);
+  expect((await game.state()).weapon.quiver, 'the whole quiver went').toBe(0);
+  for (let i = 0; i < 60 && (await game.state()).weapon.inFlight > 0; i++) await game.step(16);
+  const bolted = await swapBack('crossbow');
+  expect(bolted.weapon.quiver, 'still spent: a swap does not refill it').toBe(0);
+  expect(specialOf(bolted)!.ready, 'and a dry crossbow still cannot draw').toBe(false);
+  await game.equip('tideblade');
+});
+
+test('a special tapped in a Maul strike lets the strike run its full length; held, the charge starts when it ends', async ({ game, page }) => {
+  await game.enter();
+  await game.step(120);
+  await game.equip('maul');
+  for (const phase of [{ name: 'wind-up', at: 48 }, { name: 'recovery', at: 400 }]) {
+    await press(page, 'attack');
+    await game.step(phase.at);
+    const before = await game.state();
+    expect(before.player.attackTime, `${phase.name}: a strike in progress`).toBeGreaterThan(0);
+    await press(page, 'special');
+    await game.step(16);
+    const tapped = await game.state();
+    expect(tapped.player.attackTime, `${phase.name}: the tap did not cut the strike`).toBeCloseTo(before.player.attackTime - 0.016, 3);
+    expect(specialOf(tapped), phase.name).toMatchObject({ charging: false, live: false });
+    // The strike runs out on its own clock, and the tap that waited for it is let go at no cost.
+    await game.step(Math.floor(tapped.player.attackTime * 1000) - 20);
+    expect((await game.state()).player.attackTime, `${phase.name}: still swinging`).toBeGreaterThan(0);
+    await game.step(80);
+    const done = await game.state();
+    expect(done.player.attackTime).toBe(0);
+    expect(specialOf(done), phase.name).toMatchObject({ charging: false, live: false, ready: true, cooldown: 0 });
+  }
+  // Held through the recovery, the charge begins the frame the strike ends, and let go early costs nothing.
+  await press(page, 'attack');
+  await game.step(400);
+  await hold(page, 'special');
+  await game.step(16);
+  expect(specialOf(await game.state())!.charging, 'not over the strike').toBe(false);
+  await game.step(300);
+  const wound = await game.state();
+  expect(wound.player.attackTime).toBe(0);
+  expect(specialOf(wound)!.charging, 'the charge took over when the strike ended').toBe(true);
+  await release(page, 'special');
+  await game.step(32);
+  expect(specialOf(await game.state())).toMatchObject({ charging: false, live: false, ready: true, cooldown: 0 });
+  await game.equip('tideblade');
+});
+
+test('a Flashpoint whose only pool burns out in its wind-up ends at no cost', async ({ game, page }) => {
+  await game.enter();
+  await game.step(120);
+  await game.equip('flask');
+  const { stance } = await stage(game, page, 'warden', { distance: 3 });
+  await face(game, page, OPPOSITE[stance.direction]);
+  await throwFire(game, page);
+  // A pool burns 2.5s; pressed with under the 0.12s wind-up left, it is out before contact.
+  await game.step(2400);
+  expect((await game.state()).weapon.fires, 'still burning when pressed').toBe(1);
+  await press(page, 'special');
+  await game.step(16);
+  expect(specialOf(await game.state())!.live, 'it started: there was fire').toBe(true);
+  await game.step(300);
+  const after = await game.state();
+  expect(after.weapon.fires).toBe(0);
+  expect(specialOf(after), 'nothing went up, so nothing was spent').toMatchObject({ live: false, ready: true, cooldown: 0 });
+  expect(effectsOf(after).flares).toBe(0);
+  await game.equip('tideblade');
+});
+
+test('a Heavy Bolt still in the air when the arm changes lands the Heavy Bolt, not the new arm', async ({ game, page }) => {
+  await game.enter();
+  await game.step(120);
+  await game.equip('crossbow');
+  const perBolt = weaponSpecial(await game.state())!.swing.damage!;
+  // A warden winding up a long swing: only a staggering blow breaks it, and the Whirl the knight will be holding
+  // by then does not stagger.
+  const { index, spot, stance } = await stage(game, page, 'warden', { distance: 3, hp: 16 });
+  const wind = () => game.configureCombat({ enemies: [{ index, x: spot.x, z: spot.z, cooldown: 0, windup: 0.72, hp: 16 }] });
+  // One bolt left, so the Heavy Bolt is worth one bolt's damage and the warden lives to show what it did.
+  await face(game, page, OPPOSITE[stance.direction]);
+  // Emptied, then the first bolt back: the next is 1.8s off, well past the 0.8s draw.
+  for (let i = 0; i < 12 && ((await game.state()).weapon.quiver ?? 0) > 0; i++) { await press(page, 'attack'); await game.step(900); }
+  for (let i = 0; i < 150 && ((await game.state()).weapon.quiver ?? 0) < 1; i++) await game.step(16);
+  await face(game, page, stance.direction);
+  await hold(page, 'special');
+  await game.step(800);
+  await game.teleport(stance.x, stance.z);
+  await wind();
+  const bolts = (await game.state()).weapon.quiver!;
+  expect(bolts * perBolt, 'a bolt the warden outlives').toBeLessThan(16);
+  await release(page, 'special');
+  await game.step(32);
+  expect((await game.state()).weapon.inFlight, 'the bolt is out').toBe(1);
+  await game.equip('cleaver');
+  for (let i = 0; i < 30 && (await game.state()).enemies[index].hp === 16; i++) await game.step(16);
+  const struck = (await game.state()).enemies[index];
+  expect(struck.hp, 'the bolt it was').toBe(16 - bolts * perBolt);
+  expect(struck.windup, 'and it staggered, as a Heavy Bolt does').toBe(0);
+  await game.step(600);
+  await game.equip('tideblade');
+});
+
+test('a harpoon in the air when the floor is rebuilt is back in hand, and cools as usual', async ({ game, page }) => {
+  await game.enter();
+  await game.step(120);
+  await game.equip('spear');
+  await press(page, 'special');
+  await game.step(160);
+  expect(specialOf(await game.state())!.harpoon, 'the spear is out').not.toBeNull();
+  await page.evaluate(() => (window as unknown as { dungeonTest: { descend: () => void } }).dungeonTest.descend());
+  await game.settle();
+  const after = await game.state();
+  expect(specialOf(after)).toMatchObject({ harpoon: null, bare: false, live: false });
+  expect(after.weapon.inFlight, 'nothing left flying').toBe(0);
+  await game.step(5200);
+  expect(specialOf(await game.state())!.ready, 'and it comes ready again').toBe(true);
+  await game.equip('tideblade');
+});
+
+test('a dev ?arm= restart holding that arm already starts it loaded', async ({ game, page }) => {
+  await game.enter();
+  await game.step(120);
+  await page.evaluate(() => history.replaceState(null, '', '/?boot=eager&arm=crossbow'));
+  try {
+    await game.equip('crossbow');
+    await hold(page, 'special');
+    await game.step(800);
+    await release(page, 'special');
+    await game.step(48);
+    expect((await game.state()).weapon.quiver).toBe(0);
+    await game.act('restart:4242');
+    await game.built();
+    const fresh = await game.state();
+    expect(fresh.weapon.id).toBe('crossbow');
+    expect(fresh.weapon.quiver, 'a new run, a full quiver').toBe(4);
+    expect(specialOf(fresh)).toMatchObject({ ready: true, cooldown: 0 });
+  } finally {
+    await page.evaluate(() => history.replaceState(null, '', '/?boot=eager'));
+    await game.equip('tideblade');
+  }
 });
 
 test('the Tolling Slam on pad X: held to charge, released to ring every body once; let go early it costs nothing', async ({ game, page }) => {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canAbortSwing, dragToward, lineContacts, playerSpeed, specialAvailable, specialGate, swordContacts, vaultLanding, vaultTarget } from '../app/dungeon-combat.ts';
+import { canAbortSwing, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../app/dungeon-combat.ts';
 import { chargePose, playerAttackPose, playerSpecialPose } from '../app/dungeon-attack-pose.ts';
 import { canStand, cellKey, TILE } from '../app/dungeon-floor.ts';
 import { flashpointHits, flyShot, homeStep, laneLength, type Pool, type Shot } from '../app/dungeon-projectile.ts';
@@ -60,6 +60,27 @@ test('a lunge cuts what lies on its line, once each, and never through a wall', 
   assert.equal(lineContacts(cells, from, to, { x: 0, z: 1.2 }, 0.9), false, 'behind where it started');
   const walled = new Set(cells); walled.delete(cellKey(0, -2)); walled.delete(cellKey(1, -2));
   assert.equal(lineContacts(walled, from, { x: 0, z: -1 }, { x: 0.4, z: -2.6 }, 1.8), false, 'stone stops it');
+  // Flat where it started: a body half a width behind the start was never on the path.
+  assert.equal(lineContacts(cells, from, to, { x: 0, z: 0.5 }, 0.9), false, 'behind the start, inside the width');
+  assert.equal(lineContacts(cells, from, to, { x: 0.5, z: 0.4 }, 0.9), false, 'behind the start and to one side');
+});
+
+test('a lunge at a body with its back to a wall still cuts it: the wall check is from the knight', () => {
+  // Stone from z = -2.5 tiles north; the face is at -2.5 * TILE. The line's end reaches the width past the
+  // knight, and here that point is inside the stone.
+  const walled = new Set([...cells].filter(key => Number(key.split(',')[1]) > -3)), face = -2.5 * TILE, width = undertow.lunge!.width;
+  const at = (fromWall: number, ahead: number) => {
+    const knight = { x: 0, z: face + fromWall }, body = { x: 0, z: knight.z - ahead }, to = { x: 0, z: knight.z - width }, start = { x: 0, z: knight.z + 2 };
+    assert.equal(canStand(walled, body.x, body.z), true, 'the body stands on the floor');
+    return { hit: lineContacts(walled, start, to, body, width, knight), old: lineContacts(walled, start, to, body, width), end: canStand(walled, to.x, to.z) };
+  };
+  // 1.10 from the face with the body 0.70 ahead (0.40 off the stone) is the case that used to miss.
+  assert.deepEqual(at(1.1, 0.7), { hit: true, old: false, end: false });
+  // The reviewer's 1.30 / 0.90: the line's end is 0.40 off the stone there, on the floor, so it always hit.
+  assert.deepEqual(at(1.3, 0.9), { hit: true, old: true, end: true });
+  // And a wall between the knight and the body still stops it.
+  const pillar = new Set(cells); pillar.delete(cellKey(0, -1));
+  assert.equal(lineContacts(pillar, { x: 0, z: 1 }, { x: 0, z: -0.3 }, { x: 0, z: -2.2 }, 2, { x: 0, z: 0.6 }), false);
 });
 
 test('the Harpoon: thrown 9 units at 18, pierces one, 2x the spear, drags the first body in, 5s', () => {
@@ -142,7 +163,35 @@ test('a special cannot start over a live strike, over itself, or while it cools 
   assert.equal(specialGate({ ...base, weapon: plain, swing: plain }), 'refuse', 'an arm with no special');
 });
 
-test('the cooldown starts at contact, runs on the run clock, and a swap clears it', () => {
+test('a held special waits out a whole strike: a tap on it is never a free cancel of a Maul or Crossbow swing', () => {
+  for (const weapon of [BELL_MAUL, KEEP_CROSSBOW]) {
+    const strike = beatOf(weapon, 0), base = { weapon, ready: true, attackTime: 0, swing: strike, dashTime: 0, specialLive: false, busy: false };
+    assert.equal(specialGate(base), 'start', `${weapon.id}: idle, it goes`);
+    assert.equal(specialGate({ ...base, attackTime: strike.duration - 0.01 }), 'wait', `${weapon.id}: in the wind-up it waits`);
+    assert.equal(specialGate({ ...base, attackTime: strike.duration - (strike.anticipation + strike.contactEnd) / 2 }), 'wait', `${weapon.id}: in contact it waits`);
+    assert.equal(specialGate({ ...base, attackTime: 0.02 }), 'wait', `${weapon.id}: in the recovery it waits`);
+    assert.equal(canAbortSwing(0.02, strike), true, 'where a dodge or a pressed special would cut it');
+  }
+});
+
+test('a Flashpoint whose fire went out before contact spends nothing; every other special spends', () => {
+  assert.equal(specialSpends(flashpoint, { pools: 0 }), false);
+  assert.equal(specialSpends(flashpoint, { pools: 2 }), true);
+  for (const special of [undertow, harpoon, toll, vault, whirl, heavyBolt]) assert.equal(specialSpends(special, { pools: 0 }), true, special.id);
+});
+
+test('a special shot lands the blow of the special that loosed it, and only the harpoon itself drags', () => {
+  const bolt = hurledBlow(heavyBolt, { harpoon: false, damage: 36 }, { free: true, steadfast: false });
+  assert.deepEqual(bolt, { drags: false, blow: { damage: 36, stagger: true, knockback: heavyBolt.swing.knockback, wardenKnockback: heavyBolt.swing.wardenKnockback } });
+  // A heavy bolt still in the air once the spear is thrown takes nothing of the spear's: not its drag.
+  assert.equal(hurledBlow(heavyBolt, { harpoon: false, damage: 36 }, { free: true, steadfast: false }).drags, false);
+  const spear = hurledBlow(harpoon, { harpoon: true, damage: 6 }, { free: true, steadfast: false });
+  assert.deepEqual(spear, { drags: true, blow: { damage: 6, stagger: true, knockback: 0, wardenKnockback: 0 } });
+  assert.equal(hurledBlow(harpoon, { harpoon: true, damage: 6 }, { free: false, steadfast: false }).drags, false, 'one drag a throw');
+  assert.equal(hurledBlow(harpoon, { harpoon: true, damage: 6 }, { free: true, steadfast: true }).drags, false, 'a warden only staggers');
+});
+
+test('the cooldown starts at contact, runs on the run clock, and a swap hands over the clock of the arm taken up', () => {
   const run = createRun();
   assert.equal(run.specialCooldown, 0);
   assert.equal(specialReady(run), true);
@@ -158,6 +207,11 @@ test('the cooldown starts at contact, runs on the run clock, and a swap clears i
   spendSpecial(run, harpoon.cooldown);
   resetSpecial(run);
   assert.equal(specialReady(run), true, 'a new arm arrives ready');
+  // An arm taken back off the rack brings back what it had left: swap, swap back is no way round it.
+  resetSpecial(run, 2.5);
+  assert.equal(run.specialCooldown, 2.5);
+  resetSpecial(run, Number.NaN);
+  assert.equal(run.specialCooldown, 0, 'nonsense kept is a fresh arm');
   // Nonsense time never runs it backwards.
   spendSpecial(run, toll.cooldown); tickRun(run, Number.NaN); tickRun(run, -5);
   assert.equal(run.specialCooldown, toll.cooldown);

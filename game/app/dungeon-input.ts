@@ -19,7 +19,7 @@ export const ACTION_LABELS: Record<Action, string> = { up: 'Up', down: 'Down', l
 // the AZERTY player this exists for. `key` is the legend but is unstable under modifiers, so the code is
 // shortened where its tail is already the character and left whole where it is not.
 // Mouse buttons are bind codes too (plan 016), named the way a player names them.
-const MOUSE_LABEL: Record<string, string> = { Mouse0: 'LMB', Mouse1: 'MMB', Mouse2: 'RMB', Mouse3: 'M4', Mouse4: 'M5' };
+const MOUSE_LABEL: Record<string, string> = { Mouse0: 'LMB', Mouse1: 'MMB', Mouse2: 'RMB' };
 export const keyLabel = (code: string) => MOUSE_LABEL[code] ?? (code.startsWith('Key') || code.startsWith('Digit') ? code.replace(/^(Key|Digit)/, '') : code.startsWith('Arrow') ? ({ ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' })[code] ?? code : code.replace(/^(Shift|Control|Alt|Meta)(Left|Right)$/, '$1'));
 // Deduplicated after labelling, not before: the two shift keys are distinct codes and one legend, and
 // "Shift / Shift" tells a player nothing except that the card is not thinking.
@@ -100,7 +100,8 @@ export const readKey = (code: string, repeat: boolean, binds: Binds, live: boole
   if (!repeat && (code === RESERVED || does('pause'))) { intent.command = 'pause'; return intent; }
   if (!repeat && does('mute')) { intent.command = 'mute'; return intent; }
   if (!repeat && does('fullscreen')) { intent.command = 'fullscreen'; return intent; }
-  if (!repeat && does('map') && (live || mapShown)) { intent.command = 'map'; return intent; }
+  // A map key that toggles the map is spent on it both ways: the Tab that closes it must not also move focus.
+  if (!repeat && does('map') && (live || mapShown)) { intent.command = 'map'; intent.prevent = true; return intent; }
   if (!live) return intent;
   intent.hold = true;
   if (repeat) return intent;
