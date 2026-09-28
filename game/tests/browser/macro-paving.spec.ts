@@ -1,5 +1,5 @@
 import { planPavingPatches } from '../../app/dungeon-paving-layout.ts';
-import { expect, Game, roomCentre, test, TILE, type Floor } from './helpers.ts';
+import { expect, Game, roomCentre, test, type Floor } from './helpers.ts';
 
 /**
  * Plan 006's macro paving: merged two-cell slabs and settled, staggered strips. This checks the real
@@ -14,8 +14,8 @@ import { expect, Game, roomCentre, test, TILE, type Floor } from './helpers.ts';
 /** What every scene gets before its first frame: torches lit, water moving. */
 const SETTLE = 640;
 
-/** Seed 0x5d (93 decimal), level 1: realizes a pair and a settled single in all three themes at once. */
-const FIXTURE_SEED = 0x5d;
+/** Seed 0xb, level 1: realizes a pair and a settled single in all three themes at once (re-picked for plan 016's chambers). */
+const FIXTURE_SEED = 0xb;
 
 /** Holds every live enemy off cooldown, so a capture meant to show paving does not instead catch a windup. */
 const freezeCombat = async (game: Game) => {
@@ -90,47 +90,9 @@ test.describe('a narrow hall reads the same macro paving as a wide room', { tag:
   });
 });
 
-test.describe('a junction with several branches reads the same macro paving', { tag: '@capture' }, () => {
-  test.use({ seeds: [0x2] });
-
-  test('a junction\'s merged slabs and settled strip are captured for review', async ({ game }) => {
-    await game.enter();
-    const floor = await game.floor();
-    const junction = floor.rooms.find((r) =>
-      floor.spine.includes(r.id) && floor.edges.filter(([a, b]) => a === r.id || b === r.id).length >= 3);
-    expect(junction, 'seed 0x2 no longer holds the junction this fixture was set on').toBeDefined();
-    const plan = planPavingPatches(floor);
-    expect(plan.pairs.some((p) => p.room === junction!.id), 'the junction room no longer plans a pair').toBe(true);
-    const centre = roomCentre(floor, junction!.id);
-    await game.teleport(centre.x, centre.z);
-    await game.step(SETTLE);
-    await freezeCombat(game);
-    await game.capture('paving-junction');
-  });
-});
-
-test.describe('a bridge approach beside a merged slab reads cleanly', { tag: '@capture' }, () => {
-  test.use({ seeds: [FIXTURE_SEED] });
-
-  test('the wood-to-stone transition near a pair is captured for review, with no patch on the wood itself', async ({ game }) => {
-    await game.enter();
-    const floor = await game.floor();
-    const plan = planPavingPatches(floor);
-    // A wood (bridge) tile close to one of the fixture's own pairs, so the capture shows both the
-    // merged slab and the ordinary plank transition in one frame.
-    const pair = plan.pairs.find((p) => p.room === 1)!;
-    const bridge = floor.tiles.find((t) => t.wood && Math.hypot(t.x - pair.ax, t.z - pair.az) < 8);
-    expect(bridge, 'seed fixture no longer has a bridge tile near room 1\'s pair').toBeDefined();
-    for (const cell of [...plan.pairedCells, ...plan.settledCells]) {
-      const [x, z] = cell.split(',').map(Number);
-      expect(Math.hypot(x - bridge!.x, z - bridge!.z), `patch cell ${cell} sits on or beside the bridge tile itself`).toBeGreaterThan(1.5);
-    }
-    await game.teleport(bridge!.x * TILE, bridge!.z * TILE);
-    await game.step(SETTLE);
-    await freezeCombat(game);
-    await game.capture('paving-bridge-transition');
-  });
-});
+// Plan 016 removed the two captures that stood here: a junction branching several ways and a bridge approach
+// beside a merged slab. Chambers are islands joined by doors, so a floor holds neither any more; the narrow
+// hall and the per-theme captures above still frame merged slabs in ordinary chambers.
 
 test.describe('macro paving on a phone', { tag: '@capture' }, () => {
   test.use({ seeds: [FIXTURE_SEED], viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });

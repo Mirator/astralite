@@ -82,7 +82,7 @@ import {
 // is headroom for the characters, not a target for the architecture.
 const BUDGET = {
   'flooded-hall': { calls: 439, triangles: 596_454 },
-  junction: { calls: 502, triangles: 1_031_148 },
+  'widest-chamber': { calls: 502, triangles: 1_031_148 },
   // Not one of the two heaviest frames, and here for a different reason: it is
   // the only scene that draws the blade trail, the impact accents and a hit
   // flash at once. Without it, work on how a blow lands is bounded by two
@@ -113,7 +113,7 @@ const spend = async (game: Game, scene: keyof typeof BUDGET) => {
 };
 
 test.describe('the busiest fight', () => {
-  test.use({ seeds: [0x60] });
+  test.use({ seeds: [0x3] });
   test('a flooded hall with the watch closing stays inside its budget', async ({
     game,
   }) => {
@@ -126,7 +126,7 @@ test.describe('the busiest fight', () => {
         floor.spawns.filter((s) => s.room === room.id && s.kind === 'guard')
           .length >= 3,
     );
-    expect(hall, 'seed 0x60 no longer holds the hall this budget was set on')
+    expect(hall, 'seed 0x3 no longer holds the hall this budget was set on')
       .toBeDefined();
     const pack = floor.spawns
       .filter((spawn) => spawn.room === hall!.id)
@@ -142,27 +142,22 @@ test.describe('the busiest fight', () => {
   });
 });
 
+// Plan 016: the junction this scene was, a trunk room with three corridors out of it and its neighbours'
+// walls in frame, no longer exists - chambers are islands and nothing else is ever in view. Its successor
+// is the largest footprint the generator lays, a full-size court, framed from its heart.
 test.describe('the widest room', () => {
-  test.use({ seeds: [0x150] });
-  test('a junction branching three ways stays inside its budget', async ({
+  test.use({ seeds: [0x6] });
+  test('the widest chamber, framed from its heart, stays inside its budget', async ({
     game,
   }) => {
     await game.enter();
     const floor = await game.floor();
-    const junction = floor.rooms.find(
-      (room) =>
-        floor.spine.includes(room.id) &&
-        floor.edges.filter(([a, b]) => a === room.id || b === room.id).length >=
-          4,
-    );
-    expect(
-      junction,
-      'seed 0x150 no longer holds the junction this budget was set on',
-    ).toBeDefined();
-    const centre = roomCentre(floor, junction!.id);
+    const court = floor.rooms.find((room) => room.role === 'path' && room.shape === 'court' && room.halfX >= 8 && room.halfZ >= 7);
+    expect(court, 'seed 0x6 no longer holds the full-size court this budget was set on').toBeDefined();
+    const centre = roomCentre(floor, court!.id);
     await game.teleport(centre.x, centre.z);
     await game.step(640);
-    await spend(game, 'junction');
+    await spend(game, 'widest-chamber');
   });
 });
 
