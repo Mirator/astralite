@@ -3028,3 +3028,38 @@ Planted and caught - node: raised bodies always dying, only the buried reserve c
 dead body crumbling again, the pair raised on one spot, no fallback to the middle of the pace. Browser
 (arena-kinds.spec.ts): one raised per call, no reassembly, reassembly paying, standing bodies outliving the
 caller, crumbling paying, reburied wounded, reburied still on show.
+
+## 2026-09-28 - Chambers and doors (plan 016)
+
+A floor is no longer one walkable tree of rooms, corridors and dead ends but a chain of sealed chambers in
+the style of Hades. `generateFloor` lays the gate, then layers of two or three chambers, then the stair
+hall, each chamber an island 32 tiles from the next so the camera never frames two. Every door leads one
+layer on; a chamber usually offers two, sometimes one or three, on the two walls facing away from the
+camera. Each door shows what the chamber behind it pays: an arm (the floor's rack, floor two on), a
+mending (30 vitality in place of the 12 every clear tops up), a purse (60 XP, and the dead end's packed
+roster to earn it), a quiet shrine, or the stair. Siblings in a layer offer different things where they
+can; no shrine follows a shrine or stands beside one.
+
+In the game a chamber with bodies in it seals as the knight arrives and opens when `settleRoom` clears it,
+whatever weapon did it. A door is an arch with a tinted veil, a sigil for its reward, bars while sealed and
+a ring; it is only ever offered, and taken with the swap key like the rack and the stair, behind a 0.15 s
+fade each way (a cut under reduced motion). The knight is set down a pace inside the next chamber's near
+wall, clear of every body (`ARRIVAL_CLEAR`). The pause map is the door graph. Removed, not hidden:
+corridors, bridges (the generator never lays `wood` any more; the bridge meshes in the scene and
+atmosphere passes are now dead code and are the obvious next cleanup), the `branch` role, the plunder
+count and its HUD line, `clearRoomReward` (now `chamberReward`).
+
+Boons still come from ranks. `balance:check` moved only on run length: median 268.5 s -> 141.3 s
+(default), 236 s -> 122.5 s (weak); bands.json re-measured. Frame budgets re-staged and set from
+measurement (SwiftShader): flooded hall (seed 0x3) 395 calls, two doors in frame at eleven meshes each;
+widest chamber (0x6 court, replacing the junction) 272; strike contact 271, down from 347 on the same
+staging. Each door is cut one to three tiles into its wall as an alcove, added after every placement
+draw so no seed's bodies or props moved for it.
+
+Planted and caught - node: a door facing the camera, two shrines in a layer, islands too close, the same
+reward twice in a layer, a body at the arrival, a duplicate door, an unreachable chamber, a purse paying a
+mend. Browser (`chambers.spec.ts`): a barred door letting the knight through, a door taken on overlap, a
+door leading to the wrong chamber. Fixtures re-picked where a pinned seed stopped staging its scene
+(footsteps, macro paving, frame budget); the committed-attack tests park an isolated body's pack-mates in
+the empty gate; the junction and bridge captures and the bridge footstep walk are gone with what they
+stood on.

@@ -91,6 +91,9 @@ test('doors stand on the far walls, on open floor with the wall right behind the
     assert.ok([[-1, 0], [0, -1]].some(([x, z]) => door.face.x === x && door.face.z === z), `seed ${floor.seed} door ${door.id} faces ${door.face.x},${door.face.z}`);
     assert.equal(floor.roomByCell.get(cellKey(door.x, door.z)), door.from, `seed ${floor.seed} door ${door.id} stands outside its chamber`);
     assert.ok(!floor.cells.has(cellKey(door.x + door.face.x, door.z + door.face.z)), `seed ${floor.seed} door ${door.id} is not against its wall`);
+    // It stands in an alcove cut into that wall, so the masonry frames an opening on both sides of it.
+    const across = door.face.x !== 0 ? { x: 0, z: 1 } : { x: 1, z: 0 };
+    for (const side of [-1, 1]) assert.ok(!floor.cells.has(cellKey(door.x + across.x * side, door.z + across.z * side)), `seed ${floor.seed} door ${door.id} is not set into its wall`);
     for (const other of floor.doors) if (other.from === door.from && other.id !== door.id) assert.ok(Math.hypot(other.x - door.x, other.z - door.z) >= 2, `seed ${floor.seed}: two doors of one chamber overlap`);
   }
 });

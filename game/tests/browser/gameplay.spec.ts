@@ -63,7 +63,8 @@ const alone = async (game: Game, floor: Floor, state: Snapshot, kind: Enemy['kin
   expect(gate.length, 'the gate has no room to park the rest of the pack').toBeGreaterThanOrEqual(mates.length);
   if (mates.length) await game.configureCombat({ enemies: mates.map(({ index }, i) => ({ index, x: gate[i].x, z: gate[i].z, cooldown: 60 })) });
   const after = await game.state();
-  const left = after.enemies.filter((enemy) => enemy !== found && enemy.awake && Math.hypot(enemy.x - found!.x, enemy.z - found!.z) <= 6);
+  const at = state.enemies.indexOf(found!);
+  const left = after.enemies.filter((enemy, index) => index !== at && enemy.awake && Math.hypot(enemy.x - found!.x, enemy.z - found!.z) <= 6);
   expect(left, `bodies still stand beside the ${kind}`).toEqual([]);
   return found!;
 };

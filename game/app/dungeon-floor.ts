@@ -207,7 +207,6 @@ export function generateFloor(seed: number, level = 1) {
     }
   });
   const tiles=[...cells].map(key=>{const [x,z]=key.split(',').map(Number);return {x,z,room:ownership.get(key)??-1,wood:false};});
-  const bounds={minX:Math.min(...tiles.map(t=>t.x)),maxX:Math.max(...tiles.map(t=>t.x)),minZ:Math.min(...tiles.map(t=>t.z)),maxZ:Math.max(...tiles.map(t=>t.z))};
   const goal=layers[goalLayer][0];
   const spawns:Spawn[]=[];
   const menace=(level-1)*.3;
@@ -246,6 +245,21 @@ export function generateFloor(seed: number, level = 1) {
     .filter(spot => Math.hypot(spot.x - centre.x, spot.z - centre.z) > 1.9 && spawns.every(other => other.room !== armRoom.id || Math.hypot(other.x * TILE - spot.x, other.z * TILE - spot.z) > 1.6))
     .sort((a, b) => Math.hypot(a.x - centre.x, a.z - centre.z) - Math.hypot(b.x - centre.x, b.z - centre.z))[0] ?? centre;
   const weaponDrop: WeaponDrop = {x: dropSpot.x, z: dropSpot.z, kind: dropKind, room: armRoom.id};
+  // Last of all, so no draw or placement above sees it: each door is cut one tile back into its wall, an
+  // alcove the masonry closes round on three sides. The walls then frame an opening rather than a flat
+  // face with a ring in front of it, and the knight steps into the doorway to take the door.
+  // Where the wall beside a door bulges further out than the door's own row (a rotunda's flank, a crypt's
+  // cut corner), the cut goes deeper, a tile at a time, until masonry stands on both sides of it.
+  for(const door of doors){
+    const across=door.face.x!==0?{x:0,z:1}:{x:1,z:0};
+    for(let depth=0;depth<3;depth++){
+      door.x+=door.face.x;door.z+=door.face.z;
+      const key=cellKey(door.x,door.z);
+      if(!cells.has(key)){cells.add(key);ownership.set(key,door.from);tiles.push({x:door.x,z:door.z,room:door.from,wood:false});}
+      if(!cells.has(cellKey(door.x+across.x,door.z+across.z))&&!cells.has(cellKey(door.x-across.x,door.z-across.z)))break;
+    }
+  }
+  const bounds={minX:Math.min(...tiles.map(t=>t.x)),maxX:Math.max(...tiles.map(t=>t.x)),minZ:Math.min(...tiles.map(t=>t.z)),maxZ:Math.max(...tiles.map(t=>t.z))};
   return {seed,level,rooms,edges,doors,cells,tiles,roomByCell:new Map(tiles.filter(t=>t.room>=0).map(t=>[cellKey(t.x,t.z),t.room])),bounds,props,spawns,weaponDrop,start:0,goal:goal.id,spine:rooms.map(r=>r.id),guardCount:spawns.length};
 }
 

@@ -81,14 +81,22 @@ import {
 // binding constraint on how many separate parts a figure may be drawn as. This
 // is headroom for the characters, not a target for the architecture.
 const BUDGET = {
-  'flooded-hall': { calls: 439, triangles: 596_454 },
-  'widest-chamber': { calls: 502, triangles: 1_031_148 },
+  // Plan 016, measured 2026-09-28 on SwiftShader on the re-staged scenes: flooded hall (seed 0x3) 395 /
+  // 282,841, widest chamber (seed 0x6 court) 272 / 265,703, strike contact 271 / 205,308. Strike contact is
+  // the one scene staged the same way as before, and its calls fell from 347 (2026-09-26) to 271: nothing of a
+  // neighbouring room is in frame any more. The other two are new scenes and compare with nothing; the
+  // flooded hall has two doors in frame, and a door is eleven meshes (arch, veil, five bars, sigil, ring),
+  // which is what the 375 it read before the doorway alcoves went in rose by. Each call ceiling is the figure
+  // measured, so the saving is kept rather than handed back as headroom. The triangle ceilings stay the
+  // owner's model-round headroom; the widest chamber takes the junction's.
+  'flooded-hall': { calls: 395, triangles: 596_454 },
+  'widest-chamber': { calls: 272, triangles: 1_031_148 },
   // Not one of the two heaviest frames, and here for a different reason: it is
   // the only scene that draws the blade trail, the impact accents and a hit
   // flash at once. Without it, work on how a blow lands is bounded by two
   // frames that contain no blow, and a change can spend draw calls freely in
   // the one place it actually touches.
-  'strike-contact': { calls: 447, triangles: 708_588 },
+  'strike-contact': { calls: 271, triangles: 708_588 },
 } as const;
 
 /** Draws the staged frame, then holds its counters against the ceiling. */
