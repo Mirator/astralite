@@ -19,7 +19,7 @@ import { playerAttackPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { flyHostile, flyShot, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
-import { clearRoomReward, createRun, draftBoons, heal, hurt, resolveKill, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
+import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
 export const FLOORS = 3;
@@ -42,7 +42,7 @@ export type Policy = {
    * "this is how hard the game is at skill X".
    */
   dodge: number;
-  /** Detour into branch rooms for the XP and the heal, or walk the trunk. */
+  /** Take the door that pays - a purse, else a mending - over the first one offered (plan 016). */
   explore: boolean;
   /** What the knight carries for the whole descent. */
   weapon: Weapon;
@@ -197,32 +197,6 @@ const flood = (cells: Set<string>, fromX: number, fromZ: number, radius = Infini
   return distances;
 };
 
-/**
- * Packed cell keys belonging to a dead-end branch: its room(s) (role === 'branch' - a stub can itself
- * grow a nested branch, both marked the same way) plus the corridor that reaches them, stopping the
- * instant the flood would step onto a tile owned by a room that is not part of the branch. dungeon-floor
- * builds every floor as a tree, so a branch hangs off exactly one junction and nothing else ever shares
- * its corridor - anything in this set can only be reached, and left, by that one path.
- */
-const branchFootprint = (floor: ReturnType<typeof generateFloor>) => {
-  const packed = new Set<number>();
-  const branchRooms = new Set(floor.rooms.filter(r => r.role === 'branch').map(r => r.id));
-  if (!branchRooms.size) return packed;
-  const queue: [number, number][] = [];
-  for (const t of floor.tiles) if (branchRooms.has(t.room)) { const pk = packKey(t.x, t.z); if (!packed.has(pk)) { packed.add(pk); queue.push([t.x, t.z]); } }
-  for (let i = 0; i < queue.length; i++) {
-    const [x, z] = queue[i];
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = x + dx, nz = z + dz, cell = cellKey(nx, nz), pk = packKey(nx, nz);
-      if (packed.has(pk) || !floor.cells.has(cell)) continue;
-      const owner = floor.roomByCell.get(cell);
-      if (owner !== undefined && !branchRooms.has(owner)) continue;
-      packed.add(pk); queue.push([nx, nz]);
-    }
-  }
-  return packed;
-};
-
 /** Mulberry32, the generator dungeon-floor seeds its keep with, so a batch replays exactly. */
 const rng = (seed: number) => {
   let state = seed >>> 0;
@@ -277,7 +251,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   // `encounter`, since a tiny room can drop every one of a non-empty roster's placement tries.
   const spawnedRooms = new Set(floor.spawns.map(s => s.room));
   const barrenRoomIds = new Set(floor.rooms.filter(r => !spawnedRooms.has(r.id)).map(r => r.id));
-  const branchCells = branchFootprint(floor);
+  // Plan 016: there are no dead ends to walk back out of any more - a chamber is left by a door, never
+  // by the way in - so nothing is ever a backtrack. The column stays so a batch still says so.
+  const branchCells = new Set<number>();
   // Every cell the knight has ever stood on, keyed the same way `pursuit`/`goalField` are, so a second
   // arrival on one is a single Set lookup.
   const visitedCells = new Set<number>();
@@ -323,12 +299,22 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const stair = { x: goal.x * TILE, z: goal.z * TILE };
   // One flood per destination, reused every frame: the keep does not move, only the knight does.
   const goalField = flood(floor.cells, goal.x, goal.z);
-  const branchFields = new Map<number, Map<number, number>>();
-  const fieldFor = (room: number) => {
-    let field = branchFields.get(room);
-    if (!field) { const target = floor.rooms[room]; field = flood(floor.cells, target.x, target.z); branchFields.set(room, field); }
+  // Floods toward a cell, kept until the knight changes chamber. A chamber is an island, so each one
+  // covers a few hundred cells at most.
+  const fields = new Map<number, Map<number, number>>();
+  const fieldTo = (x: number, z: number) => {
+    let field = fields.get(packKey(x, z));
+    if (!field) { field = flood(floor.cells, x, z); fields.set(packKey(x, z), field); }
     return field;
   };
+  // The door a chamber is left by, once it is clear: the policy's preference among this chamber's doors.
+  const chooseDoor = (room: number) => {
+    const ways = floor.doors.filter(d => d.from === room);
+    if (!policy.explore) return ways[0];
+    const pays = (d: typeof ways[number]) => ({ cache: 0, mend: 1, arm: 2 } as Record<string, number>)[floor.rooms[d.to].reward ?? ''] ?? 3;
+    return [...ways].sort((a, b) => pays(a) - pays(b))[0];
+  };
+  let chamber = 0;
 
   let playerCell = '';
   let pursuit = new Map<number, number>();
@@ -448,18 +434,27 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         openSwing(); attackFacing = aimed; facing.x = aimed.x; facing.z = aimed.z; swingHits.clear();
       }
     } else if (dashTime <= 0) {
-      // Nothing awake in reach: walk the flood. A branch worth plundering first, then the stair.
-      const detour = policy.explore
-        ? floor.rooms.find(room => room.role === 'branch' && !cleared.has(room.id))
-        : undefined;
-      const field = stairClear() || !detour ? goalField : fieldFor(detour.id);
-      const here = field.get(packKey(cellX, cellZ));
-      const next = ([[cellX + 1, cellZ], [cellX - 1, cellZ], [cellX, cellZ + 1], [cellX, cellZ - 1]] as [number, number][])
-        .filter(([x, z]) => floor.cells.has(cellKey(x, z)))
-        .sort((a, b) => (field.get(packKey(a[0], a[1])) ?? Infinity) - (field.get(packKey(b[0], b[1])) ?? Infinity))[0];
-      const ahead = next ? field.get(packKey(next[0], next[1])) ?? Infinity : Infinity;
-      if (next && (here === undefined || ahead < here)) move = unit(next[0] * TILE - player.x, next[1] * TILE - player.z);
-      else if (stairClear()) move = unit(stair.x - player.x, stair.z - player.z);
+      // Nothing awake in reach. A sealed chamber is fought out first: walk at whatever is left alive in it.
+      // Once it is clear the stair, in the warden hall, or else the chosen door, and through it.
+      const quarry = bodies.filter(b => !b.dead && b.room === chamber).sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z))[0];
+      const door = !quarry && chamber !== floor.goal ? chooseDoor(chamber) : undefined;
+      if (door && cleared.has(chamber) && Math.hypot(door.x * TILE - player.x, door.z * TILE - player.z) < DOOR_RADIUS) {
+        // The swap key, pressed the frame it arrives: the next chamber's near wall, and nothing carried over.
+        const next = floor.rooms[door.to];
+        chamber = next.id; player.x = next.entry.x * TILE; player.z = next.entry.z * TILE; fields.clear();
+        shots.length = 0; hostile.length = 0; pools.length = 0;
+      } else {
+        const field = quarry ? fieldTo(Math.round(quarry.x / TILE), Math.round(quarry.z / TILE)) : door ? fieldTo(door.x, door.z) : goalField;
+        const here = field.get(packKey(cellX, cellZ));
+        const next = ([[cellX + 1, cellZ], [cellX - 1, cellZ], [cellX, cellZ + 1], [cellX, cellZ - 1]] as [number, number][])
+          .filter(([x, z]) => floor.cells.has(cellKey(x, z)))
+          .sort((a, b) => (field.get(packKey(a[0], a[1])) ?? Infinity) - (field.get(packKey(b[0], b[1])) ?? Infinity))[0];
+        const ahead = next ? field.get(packKey(next[0], next[1])) ?? Infinity : Infinity;
+        if (next && (here === undefined || ahead < here)) move = unit(next[0] * TILE - player.x, next[1] * TILE - player.z);
+        else if (quarry) move = unit(quarry.x - player.x, quarry.z - player.z);
+        else if (door) move = unit(door.x * TILE - player.x, door.z * TILE - player.z);
+        else if (stairClear()) move = unit(stair.x - player.x, stair.z - player.z);
+      }
     }
 
     if (move) { facing.x = move.x; facing.z = move.z; }
@@ -495,7 +490,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           resolveKill(run);
           if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
             cleared.add(body.room);
-            clearRoomReward(run, floor.rooms[body.room].role === 'branch');
+            chamberReward(run, floor.rooms[body.room].reward);
           }
         }
       }
@@ -565,7 +560,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
             resolveKill(run);
             if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
               cleared.add(body.room);
-              clearRoomReward(run, floor.rooms[body.room].role === 'branch');
+              chamberReward(run, floor.rooms[body.room].reward);
             }
           }
         }
@@ -590,7 +585,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           resolveKill(run);
           if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
             cleared.add(body.room);
-            clearRoomReward(run, floor.rooms[body.room].role === 'branch');
+            chamberReward(run, floor.rooms[body.room].reward);
           }
         }
       }

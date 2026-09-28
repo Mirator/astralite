@@ -259,16 +259,16 @@ test('two kills in one swing pay out in full even when the first crosses a rank'
   const opening = await game.state();
   assertNothingDeadYet(opening, floor);
 
-  // A dead end: clearing it pays the branch bonus on top of the kills.
+  // A chamber behind a purse door: clearing it pays the purse on top of the kills.
   const branch = floor.rooms.find(
     (room) =>
-      room.role === 'branch' &&
+      room.reward === 'cache' &&
       opening.enemies.filter((enemy) => enemy.room === room.id).length >= 2 &&
       opening.enemies.filter((enemy) => enemy.room === room.id).length <= 4,
   );
   expect(
     branch,
-    'the pinned floor has no dead end holding two to four skeletons',
+    'the pinned floor has no purse chamber holding two to four skeletons',
   ).toBeDefined();
   const pack = opening.enemies.filter((enemy) => enemy.room === branch!.id);
   const indices = pack.map((enemy) => spawnIndex(opening, enemy));
@@ -303,7 +303,7 @@ test('two kills in one swing pay out in full even when the first crosses a rank'
   });
 
   // The rank crosses on the FIRST of the kills; every later hit in the same
-  // swing, and the dead-end bonus behind them, must still be paid out.
+  // swing, and the purse behind them, must still be paid out.
   const primed = await game.state();
   const gap = primed.experience.rankCost - primed.experience.intoRank;
   expect(gap).toBeGreaterThan(25);
@@ -325,14 +325,12 @@ test('two kills in one swing pay out in full even when the first crosses a rank'
   ).toBe(0);
   expect(cleared.rank).toBe(before.rank + 1);
   expect(cleared.boonOffer).toBe(true);
-  // 25 for each kill, then 60 for emptying the dead end.
+  // 25 for each kill, then 60 for emptying the purse chamber, and the top-up every clear pays.
   expect(cleared.experience.total - before.experience.total).toBe(
     25 * pack.length + 60,
   );
-  expect(cleared.objective.deadEndsPlundered).toBe(
-    before.objective.deadEndsPlundered + 1,
-  );
-  expect(cleared.health).toBe(Math.min(cleared.maxHealth, 40 + 30));
+  expect(cleared.chamber.sealed, 'the last kill left the chamber sealed').toBe(false);
+  expect(cleared.health).toBe(Math.min(cleared.maxHealth, 40 + 12));
 });
 
 test('Salt Ward blunts a sword but the embers of the keep burn through it', async ({

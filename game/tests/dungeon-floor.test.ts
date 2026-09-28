@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canStand, drawKind, generateFloor, cellKey, moveOnFloor, PACK_MIX, TILE } from '../app/dungeon-floor.ts';
+import { ARRIVAL_CLEAR, canStand, drawKind, generateFloor, cellKey, moveOnFloor, PACK_MIX, TILE } from '../app/dungeon-floor.ts';
 import { FOUND_WEAPONS } from '../app/dungeon-weapon.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
@@ -8,41 +8,17 @@ type Floor = ReturnType<typeof generateFloor>;
 const SEEDS = Array.from({ length: 40 }, (_, i) => (i + 1) * 7919);
 const floors = (level = 1, seeds = SEEDS) => seeds.map((seed) => generateFloor(seed, level));
 
-const neighbours = (floor: Floor) => {
+// Plan 016: doors only ever lead onward, so the graph is directed - from a chamber to the ones its doors open on.
+const onward = (floor: Floor) => {
   const map = new Map<number, number[]>(floor.rooms.map((room) => [room.id, []]));
-  for (const [a, b] of floor.edges) { map.get(a)!.push(b); map.get(b)!.push(a); }
+  for (const door of floor.doors) map.get(door.from)!.push(door.to);
   return map;
 };
 
-const reachable = (floor: Floor) => {
-  const adjacent = neighbours(floor), seen = new Set([0]), queue = [0];
-  for (let i = 0; i < queue.length; i++) for (const next of adjacent.get(queue[i])!) if (!seen.has(next)) { seen.add(next); queue.push(next); }
+const reachable = (floor: Floor, from = 0, next = onward(floor)) => {
+  const seen = new Set([from]), queue = [from];
+  for (let i = 0; i < queue.length; i++) for (const id of next.get(queue[i])!) if (!seen.has(id)) { seen.add(id); queue.push(id); }
   return seen;
-};
-
-// Rooms joined by walkable corridor cells, whether or not the room graph says so.
-const corridorLinks = (floor: Floor) => {
-  const owner = new Map<string, number>();
-  for (const tile of floor.tiles) if (tile.room >= 0) owner.set(cellKey(tile.x, tile.z), tile.room);
-  const walkable = new Set(floor.tiles.map((tile) => cellKey(tile.x, tile.z)));
-  const seen = new Set<string>(), links: number[][] = [];
-  for (const tile of floor.tiles) {
-    const key = cellKey(tile.x, tile.z);
-    if (owner.has(key) || seen.has(key)) continue;
-    const component = [[tile.x, tile.z]], touched = new Set<number>();
-    seen.add(key);
-    for (let i = 0; i < component.length; i++) {
-      const [x, z] = component[i];
-      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const next = cellKey(x + dx, z + dz);
-        if (!walkable.has(next)) continue;
-        if (owner.has(next)) { touched.add(owner.get(next)!); continue; }
-        if (!seen.has(next)) { seen.add(next); component.push([x + dx, z + dz]); }
-      }
-    }
-    links.push([...touched]);
-  }
-  return links;
 };
 
 test('the same seed always produces the same floor', () => {
@@ -52,64 +28,91 @@ test('the same seed always produces the same floor', () => {
   assert.equal(a.tiles.length, b.tiles.length);
 });
 
-test('the room graph is a tree - one trunk, no loops back', () => {
-  for (const floor of floors()) {
-    assert.equal(floor.edges.length, floor.rooms.length - 1, `seed ${floor.seed}`);
-    const pairs = new Set(floor.edges.map(([a, b]) => [a, b].sort((x, y) => x - y).join('-')));
-    assert.equal(pairs.size, floor.edges.length, `seed ${floor.seed} repeats an edge`);
+test('every door leads exactly one layer on, and no chamber has two doors into the same one', () => {
+  for (const level of [1, 3]) for (const floor of floors(level)) {
+    assert.ok(floor.doors.length > 0, `seed ${floor.seed} has no doors`);
+    for (const door of floor.doors) assert.equal(floor.rooms[door.to].layer, floor.rooms[door.from].layer + 1, `seed ${floor.seed} door ${door.id} skips a layer`);
+    for (const room of floor.rooms) {
+      const ways = floor.doors.filter((door) => door.from === room.id);
+      if (room.role === 'goal') { assert.equal(ways.length, 0, `seed ${floor.seed}: the stair hall has a door out`); continue; }
+      assert.ok(ways.length >= 1 && ways.length <= 3, `seed ${floor.seed} room ${room.id} has ${ways.length} doors`);
+      assert.equal(new Set(ways.map((door) => door.to)).size, ways.length, `seed ${floor.seed} room ${room.id} has two doors into one chamber`);
+    }
+    assert.deepEqual(floor.edges, floor.doors.map((door) => [door.from, door.to]), 'edges are the doors');
   }
 });
 
-test('every room can be walked to from the gate', () => {
-  for (const floor of floors()) assert.equal(reachable(floor).size, floor.rooms.length, `seed ${floor.seed}`);
+test('every chamber can be reached from the gate, and the stair from every chamber', () => {
+  for (const floor of floors()) {
+    assert.equal(reachable(floor).size, floor.rooms.length, `seed ${floor.seed} has a chamber no door opens on`);
+    const next = onward(floor);
+    for (const room of floor.rooms) assert.ok(reachable(floor, room.id, next).has(floor.goal), `seed ${floor.seed} room ${room.id} is a dead end`);
+  }
 });
 
-test('the stair sits at the far end of the trunk', () => {
+test('the stair sits in the last layer, alone', () => {
   for (const floor of floors()) {
-    const spine = floor.spine, goal = floor.rooms[floor.goal];
-    assert.equal(spine[spine.length - 1], floor.goal, `seed ${floor.seed}`);
+    const goal = floor.rooms[floor.goal];
     assert.equal(goal.role, 'goal');
     assert.equal(floor.rooms[0].role, 'start');
     assert.equal(floor.rooms.filter((room) => room.role === 'goal').length, 1);
-    assert.ok(goal.depth >= 6, `seed ${floor.seed} trunk is only ${goal.depth} deep`);
+    assert.equal(Math.max(...floor.rooms.map((room) => room.layer)), goal.layer);
+    assert.equal(floor.rooms.filter((room) => room.layer === goal.layer).length, 1);
+    assert.ok(goal.depth >= 7, `seed ${floor.seed} descent is only ${goal.depth} deep`);
   }
 });
 
-test('a floor always offers at least two dead ends, and they hang off the trunk', () => {
-  for (const floor of floors()) {
-    const branches = floor.rooms.filter((room) => room.role === 'branch');
-    assert.ok(branches.length >= 2, `seed ${floor.seed} has ${branches.length} dead ends`);
-    const adjacent = neighbours(floor);
-    for (const branch of branches) {
-      const leaf = adjacent.get(branch.id)!.length === 1;
-      const stub = adjacent.get(branch.id)!.every((id) => floor.rooms[id].role === 'branch' || floor.spine.includes(id));
-      assert.ok(leaf || stub, `seed ${floor.seed} branch ${branch.id} is not a stub`);
+test('most chambers offer a choice of doors', () => {
+  // Hades' rhythm: usually two ways on, now and then one or three. A floor of single doors is a corridor.
+  const counts = floors().flatMap((floor) => floor.rooms.filter((room) => room.role !== 'goal' && floor.rooms.filter((r) => r.layer === room.layer + 1).length > 1).map((room) => floor.doors.filter((door) => door.from === room.id).length));
+  assert.ok(counts.length > 100, `only ${counts.length} chambers could offer a choice`);
+  const choosing = counts.filter((n) => n >= 2).length / counts.length;
+  assert.ok(choosing > .6, `only ${(choosing * 100).toFixed(0)}% of chambers offer more than one door`);
+});
+
+test('chambers are islands: no corridor, and no chamber touches another', () => {
+  for (const floor of floors(1, SEEDS.slice(0, 20))) {
+    assert.ok(floor.tiles.every((tile) => tile.room >= 0), `seed ${floor.seed} carved a tile no chamber owns`);
+    for (const tile of floor.tiles) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const owner = floor.roomByCell.get(cellKey(tile.x + dx, tile.z + dz));
+      assert.ok(owner === undefined || owner === tile.room, `seed ${floor.seed}: chambers ${tile.room} and ${owner} share a wall`);
+    }
+    // And far enough apart that the camera never frames two: ten clear tiles at least between footprints.
+    for (const a of floor.rooms) for (const b of floor.rooms) if (a.id < b.id) {
+      const gapX = Math.abs(a.x - b.x) - a.halfX - b.halfX, gapZ = Math.abs(a.z - b.z) - a.halfZ - b.halfZ;
+      assert.ok(Math.max(gapX, gapZ) >= 10, `seed ${floor.seed}: chambers ${a.id} and ${b.id} stand ${Math.max(gapX, gapZ)} tiles apart`);
     }
   }
 });
 
-test('corridors never hand out a shortcut past the room graph', () => {
-  let merges = 0;
-  const sample = floors(1, SEEDS.slice(0, 20));
-  for (const floor of sample) {
-    const declared = new Set(floor.edges.map(([a, b]) => [a, b].sort((x, y) => x - y).join('-')));
-    const adjacent = neighbours(floor);
-    for (const touched of corridorLinks(floor)) {
-      for (let i = 0; i < touched.length; i++) for (let j = i + 1; j < touched.length; j++) {
-        const key = [touched[i], touched[j]].sort((x, y) => x - y).join('-');
-        if (declared.has(key)) continue;
-        // Two mouths of the same room merging just outside it is harmless - the player stands at that
-        // room either way. A link between rooms with nothing in common is a genuine bypass of the trunk.
-        const shares = [...adjacent.get(touched[i])!].some((id) => adjacent.get(touched[j])!.includes(id) && touched.includes(id));
-        assert.ok(shares, `seed ${floor.seed}: rooms ${key} are linked but the room graph never joined them`);
-        merges++;
-      }
+test('doors stand on the far walls, on open floor with the wall right behind them', () => {
+  // The camera sits at +x/+z, so -x and -z are the walls it looks at: a door there is never behind masonry.
+  for (const floor of floors(2)) for (const door of floor.doors) {
+    assert.ok([[-1, 0], [0, -1]].some(([x, z]) => door.face.x === x && door.face.z === z), `seed ${floor.seed} door ${door.id} faces ${door.face.x},${door.face.z}`);
+    assert.equal(floor.roomByCell.get(cellKey(door.x, door.z)), door.from, `seed ${floor.seed} door ${door.id} stands outside its chamber`);
+    assert.ok(!floor.cells.has(cellKey(door.x + door.face.x, door.z + door.face.z)), `seed ${floor.seed} door ${door.id} is not against its wall`);
+    for (const other of floor.doors) if (other.from === door.from && other.id !== door.id) assert.ok(Math.hypot(other.x - door.x, other.z - door.z) >= 2, `seed ${floor.seed}: two doors of one chamber overlap`);
+  }
+});
+
+test('the knight arrives on open floor, clear of every body and every prop', () => {
+  for (const floor of floors(3)) for (const room of floor.rooms) {
+    assert.equal(floor.roomByCell.get(cellKey(room.entry.x, room.entry.z)), room.id, `seed ${floor.seed} room ${room.id} arrival is off its floor`);
+    for (const spawn of floor.spawns.filter((s) => s.room === room.id)) assert.ok(Math.hypot(spawn.x - room.entry.x, spawn.z - room.entry.z) >= ARRIVAL_CLEAR, `seed ${floor.seed}: a body waits at room ${room.id}'s door`);
+  }
+});
+
+test('a door shows what the chamber behind it pays, and neighbours in a layer differ where they can', () => {
+  for (const level of [1, 2, 3]) for (const floor of floors(level)) {
+    for (const room of floor.rooms) {
+      if (room.role !== 'path' || room.encounter === 'sanctuary') assert.equal(room.reward, room.id === floor.weaponDrop.room && level > 1 ? 'arm' : null, `seed ${floor.seed} room ${room.id} pays without a fight`);
+      else assert.ok(room.reward !== null, `seed ${floor.seed} room ${room.id} is a fight that pays nothing`);
+    }
+    for (let layer = 1; layer < floor.rooms[floor.goal].layer; layer++) {
+      const paying = floor.rooms.filter((room) => room.layer === layer && (room.reward === 'mend' || room.reward === 'cache'));
+      if (paying.length === 2) assert.notEqual(paying[0].reward, paying[1].reward, `seed ${floor.seed} layer ${layer} offers the same twice`);
     }
   }
-  // Harmless merges are a smell rather than a fault: 0.17 per floor as tuned, 0.53 once room spacing
-  // grows and the corridor guard is off. The hard assertion above is what protects the linear run.
-  const perFloor = merges / sample.length;
-  assert.ok(perFloor < 0.45, `${perFloor.toFixed(2)} corridor merges per floor - room spacing or the corridor guard regressed`);
 });
 
 test('guards stand on walkable floor, never inside a wall or a prop', () => {
@@ -128,10 +131,13 @@ test('the gate is safe and the stair is guarded by wardens', () => {
   }
 });
 
-test('quiet halls are pacing, never two in a row', () => {
-  for (const floor of floors()) {
-    const empty = floor.spine.slice(1).map((id) => !floor.spawns.some((spawn) => spawn.room === id));
-    for (let i = 1; i < empty.length; i++) assert.ok(!(empty[i] && empty[i - 1]), `seed ${floor.seed} has two empty halls in a row`);
+test('quiet chambers are pacing: never one behind another, never two side by side', () => {
+  for (const level of [1, 3]) for (const floor of floors(level)) {
+    const empty = (id: number) => !floor.spawns.some((spawn) => spawn.room === id);
+    for (const door of floor.doors) assert.ok(!(empty(door.from) && empty(door.to)), `seed ${floor.seed}: door ${door.id} leads from a quiet chamber into another`);
+    for (let layer = 1; layer <= floor.rooms[floor.goal].layer; layer++) {
+      assert.ok(floor.rooms.filter((room) => room.layer === layer && room.encounter === 'sanctuary').length <= 1, `seed ${floor.seed} layer ${layer} holds two shrines`);
+    }
   }
 });
 
@@ -286,7 +292,7 @@ test('a pack mix deals each kind its share in draw order, and guards whatever is
   const mix = { stalker: .3, warden: .2 };
   assert.deepEqual([0, .29, .3, .49, .5, .99].map(roll => drawKind(mix, 1, roll)), ['stalker', 'stalker', 'warden', 'warden', 'guard', 'guard']);
   // The shares the generator used before the table existed: `random() < odds ? 'stalker' : 'guard'`.
-  for (const [name, odds] of [['branch', .35], ['ambush', .85], ['opening', .15], ['middle', .4], ['late', .5]] as const) {
+  for (const [name, odds] of [['hoard', .35], ['ambush', .85], ['opening', .15], ['middle', .4], ['late', .5]] as const) {
     assert.equal(drawKind(PACK_MIX[name], 1, odds - 1e-9), 'stalker', `${name} under its odds`);
     assert.equal(drawKind(PACK_MIX[name], 1, odds), 'guard', `${name} at its odds`);
   }
