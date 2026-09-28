@@ -12,6 +12,13 @@ const { d1, r2 } = hostingConfig;
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === 'seatbelt';
 
+// The browser suite's own server (playwright.config.ts sets this) serves the tree as it stood when the run
+// began. With a watcher, a file saved mid-run hot-reloaded the page under whichever scenario was running:
+// a comment edit to dungeon-bestiary.ts once re-rendered the menu out from under a11y.spec.ts and took the
+// focus it was asserting on, and every scenario after it ran against a different build than the ones
+// before. A twenty-minute run is exactly when somebody keeps editing.
+const isTestServer = process.env.GAME_TEST_SERVER === '1';
+
 const localBindingConfig = {
   main: 'vinext/server/fetch-handler',
   compatibility_flags: ['nodejs_compat'],
@@ -63,9 +70,11 @@ export default defineConfig(async () => {
 
     ...(cacheDir ? { cacheDir } : {}),
     css: { postcss: { plugins: [tailwindcss()] } },
-    server: isCodexSeatbeltSandbox
-      ? { watch: { useFsEvents: false, usePolling: true } }
-      : undefined,
+    server: isTestServer
+      ? { watch: null, hmr: false }
+      : isCodexSeatbeltSandbox
+        ? { watch: { useFsEvents: false, usePolling: true } }
+        : undefined,
     plugins: [
       vinext(),
       sites(),

@@ -1,5 +1,10 @@
 import { expect, test } from './helpers.ts';
 
+/** Every bar the HUD keeps on screen with the sword in hand, sorted: vitality, dash readiness and rank
+ * progress, the three the minimal-HUD rule in AGENTS.md allows (a ranged arm adds its quiver), plus the
+ * arm's special readiness, the third socket plan 016 decision 4 adds to the ability row. */
+const HUD_BARS = ['Dash readiness', 'Progress to the next boon', 'Undertow Lunge readiness', 'Vitality'];
+
 /**
  * Nothing flat sits over the painted scene but the HUD itself: the blurred foreground silhouettes that
  * used to frame the corners (statue, column, reeds, banner) read as a pasted-on cutout and were taken
@@ -17,10 +22,37 @@ test('no foreground silhouettes or figure outlines, the ability row stays, and t
   // Strike, the arm's special (plan 016 decision 4: a third socket in the same row; since Stage C every
   // arm fills it) and dash.
   await expect(hud.locator('kbd.keycap')).toHaveCount(3);
+  // The whole of the persistent readout, not just the parts expected: a new bar here breaks the
+  // minimal-HUD rule (AGENTS.md), which absence checks for the retired names would never notice.
+  const bars = await hud.getByRole('progressbar').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? el.getAttribute('aria-labelledby') ?? ''));
+  expect(bars.sort()).toEqual(HUD_BARS);
 
   const state = await game.state();
   expect(state.render.passes).not.toContain('OutlinePass');
   expect(state.render.passes).toContain('RenderPass');
   // 1000 px wide is the desktop breakpoint: 4.3 under Plan 014, 5.16 * 1.2 = 6.19 now.
   expect(state.aim.span).toBeCloseTo(6.19, 5);
+});
+
+/**
+ * On a software rasteriser the chrome drops the blurs that were each seconds of GPU-process time per
+ * repaint there - the end screen's full-screen backdrop blur, the card's 100px shadow, the title's text
+ * shadow - on the same switch as the plain veil and the reduced post chain, so the three never disagree
+ * about what the machine can draw. A GPU keeps all of them. The end card is read off a stand-in with the
+ * real classes rather than by finishing a floor: what is under test is which rules apply, not the floor.
+ */
+test('a software rasteriser gets the chrome without its blurs, and a GPU keeps them', async ({ game, page }) => {
+  const reduced = (await game.state()).render.quality === 'reduced';
+  await expect(page.locator('.game-shell')).toHaveClass(reduced ? /\bplain-chrome\b/ : /^(?!.*\bplain-chrome\b)/);
+  const styles = await page.evaluate(() => {
+    const backdrop = document.createElement('div'), card = document.createElement('div');
+    backdrop.className = 'end-screen success-screen'; card.className = 'end-card';
+    backdrop.appendChild(card);
+    document.querySelector('.game-shell')!.appendChild(backdrop);
+    const read = { backdrop: getComputedStyle(backdrop).backdropFilter, shadow: getComputedStyle(card).boxShadow, title: getComputedStyle(document.querySelector('.intro-card h1')!).textShadow };
+    backdrop.remove();
+    return read;
+  });
+  if (reduced) expect(styles).toEqual({ backdrop: 'none', shadow: 'none', title: 'none' });
+  else for (const [name, value] of Object.entries(styles)) expect(value, `${name} lost its blur on a GPU`).not.toBe('none');
 });

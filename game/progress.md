@@ -2669,6 +2669,366 @@ Gates: typecheck and lint are clean, and `npm test` passes 176/176. With `GAME_T
 GAME_TEST_PORT=3200`, all specs pass: loading 9/9, frame-clock 3/3, frame-budget 6/6, smoke 1/1 and
 progression 2/2. `git diff -w --stat` matches `git diff --stat` for `dungeon-game.tsx` (318/65).
 
+## 2026-09-25 - CI frame stall: the GPU queue a driver's clock leaves behind
+
+**Symptom.** On CI, Playwright clicks timed out at 25 s on "waiting for element to be visible, enabled
+and stable". This hit the Descend button on the floor-complete screen, ENTER on the menu, and in main's
+merge run a fresh page whose ENTER never enabled. The page's script answered evaluates in milliseconds
+throughout. A temporary diagnostic (`70ccd27`) saw one animation frame in 5 s on the complete screen. Its
+own 5 s wait was what let that run pass. It is removed here.
+
+**Cause.** Shader compiles were not it: `programs` held at 64 and `building` was false through the stall.
+Under SwiftShader the GPU process runs one queue for the page's WebGL work and the compositor's
+rasterising, and a driver's clock fills that queue faster than frames would. Nothing waited for it to
+drain, and no animation frame can start until it does. Every Playwright click waits for two frames. A
+1x1 `readPixels`, which cannot return until the queue ahead of it drains, measured it locally with shard
+1 at two workers:
+
+- A drawn step costs about 2.2 s.
+- A pooled reset costs 1.2-2.4 s, although it draws nothing (texture uploads).
+- The first scenario after a boot inherited 27-33 s of links and warm-up frames. One run hit 61 s.
+- Draw-heavy scenarios handed 5-22 s to the next one.
+- Opening the complete card cost 0.6-1.7 s with no WebGL call from the page at all. That is the
+  compositor rasterising its full-screen backdrop blur, 100px shadow and title shadow.
+
+CI is slower again, which pushed these waits past the 25 s action budget. The failing trace fits: the
+ENTER click waited 12.5 s for "stable" and the Descend click 25 s, and closing that browser took 30 s.
+
+**Fix.**
+1. `Game.settle()` in `tests/browser/helpers.ts` calls a new dev-only `dungeonTest.drainGpu()`, which
+   does that 1x1 `readPixels` on the default framebuffer, then waits two animation frames, bounded by
+   `WARM_UP`. It runs where the work is submitted: after the boot, at the end of `built()` (so after
+   every reset and sliced descent), after `buildFloor`, after `enter()`, and after every drawn `step`.
+   Each click's budget is now its own. The total GPU work is unchanged.
+2. On the reduced post chain (software GL), the shell carries `plain-chrome`, on the same switch as
+   `veil-plain`. It drops the end screen's backdrop blur, the card's shadow, the title's text shadow and
+   the frosted blur on the touch controls and swap prompt. The flat fills stay. Reference captures run
+   at `?quality=full`, so they are unaffected. Regression: `hud.spec.ts` holds the class and the three
+   computed styles against `render.quality`.
+
+**Follow-up in the same PR.** The first CI run went green on shards 1 and 2, progression included, with
+the diagnostic gone. Shard 3 then failed `frame-clock.spec.ts:47` at "a paused frame was redrawn" (10 ->
+11). The test settled its paused baseline with `expect.poll`, whose first check runs at once. So "two
+reads a quarter-second apart" were really two reads 15 ms apart, both taken before the pause's one allowed
+frame drew. It now counts animation frames instead: three in a row with no new draw. Locally, all 112
+scenarios in the gate set pass on SwiftShader at two workers, and frame-clock passes 9/9 with
+`--repeat-each=3`.
+
+## 2026-09-26 - Splitting the world closure out of dungeon-game.tsx
+
+**Why.** `DungeonGame`'s one effect ran about 2,300 lines: input, the knight's clocks, the floor build,
+enemy presentation, lighting, warm-up and every test hook, all sharing closure `let`s. Anything that
+lived only there - when a strike buffers, when a buffered dash cuts in, what a keydown means - could
+only be checked by booting WebGL on SwiftShader, which is most of why the browser suite costs what it
+does and why the last several rounds were spent on frame-timing flakes.
+
+**Oracle first.** Before anything moved, a golden-master browser spec recorded five scenarios on the
+unchanged code - melee strings and buffered dashes, touch/pad/action-event input, ranged arms and the
+rack, a boon/hazard/shrine/stair run, and six floor builds - with a dev-only scene digest (every mesh's
+kind, material, transform and instance matrices) so a floor built differently at the same counts would
+show. It replayed identically pooled and isolated at one and two workers, and failed on two planted
+mutations (a 10 ms buffer change at step 6; one more broken merlon in a hundred). Commits `d41061e` and
+`5657f95` hold it; see "What was removed" for why it is no longer in the tree.
+
+**The split.** Eight modules, every write kept in the order the closure made it:
+- `dungeon-player.ts`, `dungeon-input.ts`, `dungeon-fixture.ts` - pure, with node tests
+  (`tests/dungeon-player.test.ts`, `dungeon-input.test.ts`, `dungeon-fixture.test.ts`).
+- `dungeon-floor-scene.ts` (the build, into one `FloorStage`), `dungeon-enemy-view.ts` (spawn, marks,
+  pose), `dungeon-mood.ts`, `dungeon-warmup.ts`, `dungeon-test-hooks.ts`.
+`dungeon-game.tsx` is 2,801 -> ~1,960 lines. The five traces and the digest replayed unchanged, and the
+gate suite went 112/112 before and 117/117 after (the extra five being the traces).
+
+**Found on the way.** Bolt and fire kills settled a cleared room on their own path: the reward paid,
+but a dead end was never counted as plundered, never marked on the minimap, and the stair waited a
+frame. One `settleRoom` now serves all three kill paths; `ranged.spec.ts` clears a dead end with bolts
+and fails on the old path (plundered 0, want 1). `setNoticeDetail` was set in ten places and never read,
+so it is gone.
+
+**What was removed.** The golden-master spec and its digest hook. They were the oracle for this one
+refactor; kept, they would need re-recording on every intentional gameplay or art change, and a 950 KB
+fixture diff is not something a reviewer can read. `git show d41061e 5657f95` brings them back for the
+next large move. Four of the five `chain.spec.ts` scenarios are now node tests; the one left checks the
+running game is wired to the rules. `scripts/shards/durations.json` has the chain weight scaled down to
+match until the next refresh.
+
+**Not done here.** The render-pipeline costs from the same audit (a multisampled canvas the composer
+never uses, a shadow map that is probably drawn twice a frame - unverified - and a mesh per spark),
+and a guard around `update` so an exception stops the loop with a screen rather than failing silently
+every frame.
+
+## 2026-09-26 - A throw no longer freezes the keep behind a silent frame
+
+`animate` asks for its next frame before it runs this one, so a throw from `update` or a draw was
+thrown again every frame: the picture froze, the console filled, and nothing on screen said why. A
+throw out of a staged floor build left the loading veil up for good. Both now go through `fail`, which
+stops the world once, logs once, and shows a "The keep has stopped" card with a reload button
+(`fault` in `render_game_to_text`). Under the driver's clock the throw is also rethrown to the caller,
+and a stopped world refuses further steps.
+
+`tests/browser/robustness.spec.ts` (isolated pages, since each breaks its own) plants a throw in the
+real frame loop, under the driver clock and inside a floor build - all three fail on the old code - and
+covers the GPU context being lost and restored, which had no test: the descent pauses, the notice
+lifts on restore, and the restored context draws the keep rather than a black frame.
+
+## 2026-09-26 - One shadow pass a frame, and no multisampled canvas
+
+**Shadow map.** three.js redraws a shadow map inside every `renderer.render` while
+`shadowMap.autoUpdate` is on, and on the full post chain GTAO's normal/depth pre-pass is a second full
+render of the scene. So every frame drew the moon's 1536² map twice and threw the second copy away:
+92 draw calls of shadow casters, measured on floor 1 of seed 1. `createPostChain` now turns
+`autoUpdate` off and sets `needsUpdate` at the start of each frame, which the scene pass - always the
+first render of a frame - spends. `render.shadow` reports the last frame's draws and their calls;
+`frame-budget.spec.ts` loads `?quality=full` on its own page and holds the draws to one (it reads 2 with
+`autoUpdate` back on). Software GL runs the reduced chain without GTAO, so it never paid for this.
+
+**Antialiasing.** The renderer asked for a multisampled canvas, but the scene is drawn into the
+composer's own targets and the canvas only receives the last full-screen pass. `antialias: false`
+drops a multisampled drawing buffer and its resolve every frame. The frame is pixel-identical: 0 of
+700,000 pixels differ on a deterministic reduced-quality frame, repeated.
+
+**What this does and does not show.** On SwiftShader neither change moves frame time measurably (a
+drawn full-quality frame is ~3.5 s either way, reduced ~2.4 s): the software rasteriser's cost is
+elsewhere. The saving is real work removed on a GPU - one shadow pass and one MSAA resolve per frame
+- but it has not been timed on one here; `GAME_TEST_GL=d3d11` with `npm run perf:boot` is the way to.
+
+## 2026-09-26 - Sparks in one draw, and less thrown away per frame
+
+**Sparks.** Every spark was its own `THREE.Mesh`, and every burst in a non-default colour made a new
+material. A sword blow through a body threw 3 + 22 + 12 of them, and the most expensive frame in the
+game paid a draw call per spark in the scene pass and again in GTAO's pre-pass. `dungeon-sparks.ts`
+keeps one instanced batch of 512 with per-instance colour; the motion is the same arithmetic and draws
+`Math.random` in the same order, so the boon draft and everything else seeded off it is unchanged (the
+four gameplay characterization traces from `d41061e` replay identically). The landed-blow budget frame
+went from 371 to 347 scene calls; `frame-budget.spec.ts` now holds a blow's sparks to under 15 extra
+calls with more than 25 alive (`effects.sparks`).
+
+**Per frame.** Each enemy's lit materials are found once at spawn instead of walking the whole rig every
+frame to rewrite them. The four torches and four lent anchor lights nearest the knight are picked
+(`nearestFirst`, `dungeon-nearest.ts`, node-tested against a stable sort) instead of copying and sorting
+every sconce on the floor. The fill light, the camera lead, the shake and a blow's shove reuse scratch
+vectors. The canvas rect is read once per layout instead of on every pointermove. None of this is
+measurable on SwiftShader; it removes work and garbage, and has not been timed on a GPU.
+
+## 2026-09-26 - The stair waits on the swap key
+
+The open stair no longer takes the knight after a 0.4 s dwell. It behaves like a weapon rack: standing
+on it lights the ring and shows the prompt ("Press E to take the stair down", with the floor it leads
+to), and only the swap binding - E by default, the pad's swap button, or a tap on the prompt - ends the
+floor. If the knight ever stands in a rack's ring and on the stair at once the rack wins, because the
+prompt names the arm; floor generation never puts the rack in the goal room, so that is defensive.
+`STAIR_DWELL`, `stairDwellStep` and `dwellStep` are gone from `dungeon-sim.ts` with their unit test;
+the state hook reports `objective.onStair` instead of `stairDwell`, and `stair.dwell` is dropped. The
+balance sim's policy now ends a floor the frame it reaches the stair, which is what a player pressing
+E on arrival does; its batches read about 0.4 s shorter per floor than before this change.
+`progression.spec.ts` holds that standing on the stair for two seconds ends nothing and E does.
+
+## 2026-09-26 - The veil's bar and its "3 / 5" agree
+
+The loading veil's counter named the step `stagedBuild` was running (`veilStage + 1`) while the bar
+showed the steps it had finished (`veilStage / 5`), so every counter drew one fifth short of itself:
+"3 / 5" sat at 40%. Both now come from `veilProgress` (`dungeon-veil.ts`, pure, node-tested): the bar
+fills to the end of the step the counter names, so "3 / 5" is 60%. The cost of that choice is that the
+bar opens at 20% and reads full during the last step (one ordinary frame); the alternative, a counter of
+finished steps, would open on "0 / 5" beside a label for step one.
+
+## 2026-09-26 - The nightly isolated run is green again
+
+It had failed every day since 23 Sep. Its last run failed three `@nightly` scenarios, all left behind by
+plan 014, whose commit said frame-budget, pixel-diff and art-direction specs were "expected to fail
+against the new look" and were out of scope:
+
+- **The cast (`models.spec.ts`).** Plan 014 added a material to every rig (the dark `shadow` trim that
+  gives the ribs depth) and cloth and a crest to the guard, so each kind draws one more baked batch (the
+  guard two): 18/11/19 meshes became 20/12/20. The warden's crown became four tall uneven spikes and the
+  guard gained a crest, so their heights moved 2.339 -> 2.8144 and 1.6744 -> 1.7785. Re-set to those, with
+  the reason at each number.
+- **The knight from above (`models.spec.ts`).** Plan 014 round A took the lantern from 27 to 46 and hung
+  it toward the camera so the cape catches it, and doubled the ambient floor. From the three facings that
+  turn him away, his darkest quarter is lit cape now (p25 36.2 / 54.7 / 35.4 over a ~25.5 surround), and
+  the median head-over-shoulders delta fell from 17.7 to 16.5. Those three facings are held where plan 014
+  left them (+2) and the median at 15.5 (before less one, the spec's own rule); the five facings that show
+  his front keep the original property.
+- **Each family burns its own fire (`art-direction.spec.ts`).** Two findings. The measurement averaged Lab
+  a/b across everything in the top half per cent of chroma, so violet fire plus the gold ring of an arm
+  rack reported 356° - a red no pixel in the frame had. It now takes the loudest 60° hue family and
+  averages within it; the keep passes on that. The flood genuinely fails: plan 014 round B made every
+  chamber's sconces burn amber "so even a teal chamber holds a warm pool", and bright cyan cannot out-chroma
+  amber, so no teal reaches the top half per cent. Tinting the flame core toward teal was tried and moved
+  nothing (3,328 amber px against 3,331). Decided with the owner: accept plan 014's look, keep the
+  loudest-colour claim for keep and ruins, and hold the flood to a fire hue distinct from the other two.
+
+All five `@nightly` scenarios in the two specs pass under `GAME_TEST_ISOLATE=1` locally.
+
+## 2026-09-26 - Hit resolution is a pure module
+
+Steel, bolts and fire each wrote out what a landed blow does inline in `update()`, the sword and the bolt
+line for line the same. That sequence - damage, flash, whether it broke a windup, the cooldown it leaves,
+the shove, whether it killed - is `landBlow` and `burn` in `dungeon-hits.ts` now, node-tested in
+`tests/dungeon-hits.test.ts`, and each call site keeps only its sparks, sound, shake and the kill payout.
+Behaviour is unchanged: the melee and ranged characterization traces from the earlier split, recorded on
+the file before this change and replayed after it, match to 1e-6 (the traces were not re-committed).
+
+Brazier halos take the chamber's fire again. Plan 014 gave each halo its own material clone so it could
+fade beside the knight, and the recolour kept writing to the template the clones came from, so every
+halo stayed the build's orange in every chamber. `mood.halos` now reports the colours the halos burn,
+and `theme-flames.spec.ts` holds them to `mood.fire` on both sides of a threshold. (Frame state, so it sits
+beside `mood.fire` rather than in `graphics`, which a sliced and a synchronous build must agree on.)
+
+## 2026-09-26 - Tests that could not fail
+
+An audit read every browser test for whether it would fail if the behaviour it names broke. About twenty
+would not: conditional expects, a test skipped on every run since plan 007 (the enemy cutaway), counts read
+in a room that holds no enemies, build-time data compared with itself (flame redraw, macro paving),
+assertions that held before and after the action (the rack dash, the new arm, the cursor leaving, the blur,
+the chain's loop, the dodge, the cloak), `expect(true)` (zz-pixel-diff), and a stale-timestamp check that
+fired before `update` ever ran. Each is now fixed to observe the behaviour, moved to a node test that can
+(`frameDelta`, the flame billboard), or removed where another test covers it.
+
+Each fix was proven by planting the bug it should catch and watching the test fail with its own message.
+Two first attempts at that were wrong in instructive ways: the blur's own `clearInput` is redundant with
+the pause's `keys.clear()`, so deleting it alone breaks nothing (both together do, and the test catches
+it); and the telegraph's always-on-top ghost copy hid an additive mark. On today's darker stone an
+additive mark is still red (10 degrees off against 8), so the telegraph test now guards what it can -
+a mark that stops being hot and legible - with thresholds tightened to the measured margins after a
+washed-out stone-coloured mark passed the old ones.
+
+The flooded fire-hue exemption was re-tested with the halo fix in: flooded still fails without it (amber at
+68 degrees over 3,310 px against the 212-degree fire), so it is the warm sconces, not the halos, and the
+exemption stays.
+
+`npm run build:check` now runs in CI after the build and fails if a development-only hook or the
+`?boot=eager` switch reaches the production bundle; it was proven by building with each guard removed.
+
+## 2026-09-26 - The test audit, in numbers
+
+Three PRs came out of reading every browser test for whether it could fail. Part A fixed about twenty that
+could not. Part B restored the node tests 24cfebd had pruned where they were the more direct check, added
+tests for gaps nothing covered, and then removed or merged the browser tests that only duplicated them.
+Part C stopped paying for resets and boots nothing needed (a proven-fresh pooled page is no longer reset
+again, and five scenarios left their own boot for the pooled page). "Writing tests that can fail" in
+AGENTS.md is the rule set that came out of it.
+
+On CI, summed browser test time per PR run went from 2,687 s to 1,642 s. The three shards ran 9.7, 8.6 and
+10.2 minutes before the audit and 5.2, 5.9 and 8.2 on part C's run with the old split; durations.json is
+refreshed from that run and now plans 515 / 563 / 564 s. The node suite grew from 214 to 235 tests and
+still runs in about half a minute.
+
+## 2026-09-26 - A bestiary table, a weighted roster, and the archer
+
+Adding a fourth enemy kind used to mean finding every `kind === 'warden'` in a dozen files, with the kind
+union restated in six. Every per-kind value now lives in one `Record<EnemyKind, Archetype>` row in
+`app/dungeon-bestiary.ts`; the rest of the code reads properties off it (`steadfast`, `attack`, `look.*`),
+and the compiler refuses a new kind until its row, its skeleton palette and its cutaway ellipse exist. The
+header of that file lists the steps the compiler cannot see. The refactor changed no behaviour, and that
+was checked, not assumed: identical `npm run balance -- --json --runs 120`, identical spawns and weapon drops
+for 399 seeds x 3 floors, identical skeleton fingerprints. The balance sim now calls `landBlow` instead of
+restating it twice. (It still shoves with the base weapon's knockback where the game uses the chain beat's;
+that was already the case and is left alone.)
+
+Packs are dealt from `PACK_MIX`, shares per encounter in draw order with guards taking the remainder, and a
+kind whose `firstFloor` has not come yet passes its share to guards. One roll per body whatever the mix, so
+a new kind changes which bodies a seed deals and never how many numbers it draws: adding the archer turned
+1,441 guards into archers on floors 2 and 3 across those 1,197 floors and moved nothing else.
+
+The archer (floor 2 on, path rooms only, never in an ambush or a branch - a branch is always an ambush,
+which the placement test caught). It holds off at up to 7 units, looses a bolt at 13 u/s for 0.7 s, and
+gives ground inside 3.5 while it recovers. Its lane follows the knight until the last `AIM_LOCK` (0.25 s)
+of its 0.75 s tell and then holds, so the dodge is a read. A dash's i-frames let the bolt fly through him
+rather than being spent on him. 6 HP against a guard's 8. The niche is punishing a knight rooted mid-swing.
+
+Bot numbers (scripts/balance, 30 runs, same seeds): default policy unchanged at 100% escaped and full HP,
+median run 266.1 -> 268.5 s; weak policy 93.3% -> 90.0% escaped, floor 2 death rate 3.3 -> 6.7%. Over 200
+default runs archers dealt 7.9% of the damage the knight took. The default bot walks at 8.5 all the time and
+so rarely stands in a lane; this says the archer is not broken, not that it is tuned.
+
+Tests, each proven by planting the bug it names: the lane tracks before the lock and holds after it; a
+volley never lands a melee hit and looses along the locked lane; the keep-away; floor one never deals an
+archer and ambushes never do; a bolt stops on the knight, passes through him mid-dash, and stops at stone;
+the sim bills bolts to the archer. In the browser, on pinned floor 2 (seed 7, one isolated archer): a bolt
+costs a standing knight exactly its warded damage, and a dash into the next bolt is seen passing him
+unhurt. Planted there: the dash not handed to the bolt, the volley never becoming a bolt, a landed bolt
+billing nothing - each failed with its own message.
+
+PR-gate browser suite on SwiftShader, two workers: 131 of 132 passed in 20.4 minutes. The one failure,
+`a11y.spec.ts:62` (the menu's Back button never took focus within 25 s), was caused by editing
+`dungeon-bestiary.ts` while the suite ran: the server log shows `page reload app/dungeon-bestiary.ts`,
+`hmr update /app/dungeon-game.tsx` and `program reload` at the moment that scenario sat on the Settings page,
+and hot reload re-rendered the menu out from under it. The suite's own dev server now runs with no watcher
+and no hot reload (`GAME_TEST_SERVER=1`, set by playwright.config.ts, read by vite.config.ts). Proven with a
+loop editing that file every 3 s during `a11y.spec.ts --repeat-each=3`: 6/6 with the flag, 4 failures without.
+
+## 2026-09-26 - The development arena
+
+`?arena=guard:2,archer:1&level=2`, the menu's **Arena · dev** page, or `dungeonTest.buildArena(roster, level)`
+charts floors as `arenaFloor` (app/dungeon-arena.ts): the floor the seed would lay, every spawn cleared, the
+roster awake on a ring in the gate. Everything else is the generated floor, asserted in node for 5 seeds x 3
+floors, so the fight happens under the game's own lighting and rules. The stair is open (nothing bars it) and
+leads to the same roster a floor deeper. The listener, the hook and the menu entry sit behind NODE_ENV;
+`build:check` now also fails on the arena's event name or menu label, and did when the menu entry's guard was
+removed. Planted and caught: hidden bodies, spawns left elsewhere, no spacing (a full gate then packs bodies
+1.41 tiles apart against 2.0), a link that skips unknown kinds; in the browser, a reset that keeps the arena
+(the pool's snapshot check names `arena`), a chart that ignores it, a menu request that never builds. The
+clear zone round the knight's arrival is redundant at today's room sizes (the ring leaves 3.6 at the closest)
+and a planted removal survives; it is kept for a smaller gate. One manual first-visit run on a just-started dev
+server never reached the arena and did not reproduce in four more runs, cold cache included.
+
+## 2026-09-26 - The arena link ships
+
+`?arena=` now works on the published game, so a kind can be played on a phone or anywhere else the game runs;
+the menu's arena page and `dungeonTest.buildArena` stay development only and `build:check` still guards them.
+With a link the menu's kicker reads `ARENA · 3 FOES · FLOOR 2`. An arena run records nothing - no run log
+entry, no best run, no LAST KEEP seed - since a floor-three arena would otherwise stand as the deepest descent.
+Checked against the real Pages output (the production build after pages-relative-paths.mjs, served under
+/astralite/): the link deals exactly its roster on its floor, the plain URL an ordinary floor one, and neither
+page has the arena button or the hook. Planted and caught in arena.spec.ts: the run log, the best run and the
+seed each written for an arena death, and a kicker that never names the arena.
+
+## 2026-09-26 - Six more kinds, arena only
+
+Ten kinds now, but the descent still deals four: `shieldbearer`, `reaper`, `pyre`, `bonecaller`, `wraith` and
+`rattler` have `firstFloor: Infinity` and no `PACK_MIX` share, so they are met only through `?arena=` until a
+playtest says which have earned a place. Floors, the balance sim and every seed-pinned test are unchanged.
+Each asks for a response nothing else does:
+
+- shieldbearer: turns ordinary steel aside from the front (`blocks` in dungeon-hits.ts) while its shield is up;
+  it is down while it winds up and while it recovers from its own swing, and a stagger arm breaks it.
+- reaper: a 1.0 s tell, then a sweep that hits everything within 2.3 on every side (no aim to step around).
+- pyre: weak, but leaves fire where it falls (`deathPool` in dungeon-projectile.ts) that bites the knight.
+- bonecaller: keeps away and raises one of three buried rattlers per tell; the rest crumble when it falls.
+  The reserve is part of the arena's spawn list (`buried`, `summoner`), hidden, inert and outside every count.
+- wraith: sets a mark just past the knight, sinks for the tell (untouchable), comes up on the mark and strikes.
+- rattler: one blow of a starting blade kills it; comes in numbers, and is what a bonecaller raises.
+
+Tests, each proven by a planted bug: node - sweep with an aim cone, summon that never raises, blink without a
+mark or striking from where it sank, never untouchable, no near-side mark fallback, raised behind the caller,
+shield up through its tell or its recovery, stagger not breaking it, blocking from behind, landBlow ignoring
+the shield, every kind leaving fire, no reserve buried, an arena kind dealt on floor one. Browser - a frontal
+blow not reaching the shield, a sunk wraith struck, a pyre leaving no fire or fire that never bites, a summon
+that never raises, a reserve that never crumbles, the mark never stored, walking back into the gate raising the
+buried (a real hole the first version of the test missed: the ambush spring fires on entering a room), and
+buried bodies shoved in the crowd pass. The existing per-kind loops (flash, death, pose continuity, figure
+rebuild, bench) cover all ten figures; the original three are byte-identical. `npm run figures` now opens a
+viewport tall enough for eleven rows, which the old 1200 px one cut off.
+
+## 2026-09-27 - Wraith out, bonecaller sharpened
+
+Playtest verdict on the six arena kinds: the wraith did not work - its mark was fixed behind the knight when
+the tell began, so any step dodged it and standing still took an unreadable blow from an unseen body, again
+every recovery from seven out - and the rest were interesting but not distinct enough. The wraith is gone
+(the `blink` attack, the `sink` pose, `mark` on the view and the snapshot, `untouchable`, its figure, palette
+and cutaway); nine kinds remain. The reaper's rags, which shared a branch with it, are byte-identical.
+
+The bonecaller is now the fight's priority rather than one more body: four rattlers buried under it, two
+raised per call (`summons.perTell`, side by side across the line to the knight - `raiseSpot` slots), and a
+rattler it raised that is cut down while it stands goes back under it whole and unpaid, to be raised again.
+When it falls, everything it called crumbles, standing or buried, and only the caller pays. The decision is
+`fallOf` in dungeon-enemy.ts. Shieldbearer untouched until there is a heavy attack to answer it with.
+
+Planted and caught - node: raised bodies always dying, only the buried reserve crumbling (the old rule), a
+dead body crumbling again, the pair raised on one spot, no fallback to the middle of the pace. Browser
+(arena-kinds.spec.ts): one raised per call, no reassembly, reassembly paying, standing bodies outliving the
+caller, crumbling paying, reburied wounded, reburied still on show.
+
 ## 2026-09-27 - Plan 016 Stages 0, A and B: INCOMPLETE (stopped for machine shutdown)
 
 Branch `feat/weapon-specials` from `8f8dc5a`, main checkout, uncommitted. Stage C not started (sketches

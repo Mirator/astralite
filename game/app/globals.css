@@ -337,7 +337,8 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
    the bar's shimmer, the lore crossfade, and the bar's own step - moves by transform or opacity and nothing
    else, so it runs on the compositor: each build stage is still a synchronous block on the main thread, and
    anything driven from there would freeze in the same breath. The bar's length is not an animation: it is
-   the stage `stagedBuild` has actually finished, eased between steps by a transform transition. */
+   measured work (`veilProgress`: stage weights, texture bands, floor-build phases, linked shader programs),
+   eased between measurements by a transform transition. */
 .loading-veil { position: absolute; inset: 0; z-index: 14; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; padding: 24px; overflow: hidden; background: radial-gradient(ellipse 80% 70% at 50% 44%, #0e232a 0%, #081419 46%, var(--ink-deep) 100%); text-align: center; }
 /* A vignette over everything but the text, so the frame's edge falls away into black like the game's. */
 .loading-veil::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 75% 70% at 50% 46%, transparent 45%, #000000b8 100%); }
@@ -422,6 +423,16 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 .loading-veil.veil-plain .veil-ring::before, .loading-veil.veil-plain .veil-ring::after, .loading-veil.veil-plain .veil-diamond, .loading-veil.veil-plain .veil-flame::before, .loading-veil.veil-plain .veil-flame-core::before,
 .loading-veil.veil-plain .veil-bar, .loading-veil.veil-plain .veil-bar::before, .loading-veil.veil-plain .veil-bar::after, .loading-veil.veil-plain .veil-bar i { box-shadow: none; }
 .loading-veil.veil-plain b { text-shadow: none; }
+/* The rest of the chrome on the same machine (`plain-chrome` on the shell, the same switch as `veil-plain`):
+   the blurs that are rastered or composited in software whenever a card opens, closes or changes - the
+   end screen's full-screen backdrop blur, the card's 100px drop shadow, the title's 45px text shadow, and
+   the frosted touch controls and swap prompt over a live canvas. On a software rasteriser each of them
+   was seconds of GPU-process time per repaint, queued ahead of the next animation frame. The flat fills
+   under them stay, so every card and control keeps its contrast. */
+.game-shell.plain-chrome .end-screen, .game-shell.plain-chrome .swap-prompt,
+.game-shell.plain-chrome .touch-stick .stick-base, .game-shell.plain-chrome .touch-pad button, .game-shell.plain-chrome .touch-actions button { backdrop-filter: none; }
+.game-shell.plain-chrome .end-card { box-shadow: none; }
+.game-shell.plain-chrome .intro-card h1 { text-shadow: none; }
 
 /* The menu. One column of items under the title, the way the start of a game reads, with ENTER THE KEEP
    first and heaviest. Controls and Settings open as pages of the same card, each with a way back, instead of
@@ -444,3 +455,12 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 .menu-back { display: inline-flex; gap: 8px; padding: 7px 12px 7px 10px; border: 1px solid #96b1ab44; background: #0a181dcc; color: #c7d6d0; font: 600 10px/1.2 var(--font-geist-mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
 .menu-back:hover, .menu-back:focus-visible { border-color: var(--edge-warm); color: var(--goal); }
 @media (max-height: 620px) { .menu-list { margin-top: 16px; gap: 4px; }.menu-list > button:not(.primary-action) { padding: 9px 17px; } }
+
+/* The development arena page (dungeon-arena-panel.tsx). Never in a production build's markup. */
+.menu-dev { margin-top: 10px; }.menu-dev button { display: inline-flex; gap: 10px; padding: 7px 12px; border: 1px dashed #96b1ab55; background: transparent; color: #a9bfbb; font: 600 10px/1.2 var(--font-geist-mono); letter-spacing: .14em; text-transform: uppercase; cursor: pointer; }
+.arena-row label { text-transform: capitalize; }
+.arena-count { display: inline-flex; align-items: center; gap: 8px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.arena-count button { width: 28px; height: 26px; border: 1px solid #96b1ab55; background: #102329; color: #dae5df; font-size: 15px; cursor: pointer; }
+.arena-count button:disabled { opacity: .35; cursor: default; }
+.arena-count output { min-width: 18px; text-align: center; color: var(--bone); font: 600 13px/1 var(--font-geist-mono); }
+.arena-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 18px; }

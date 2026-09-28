@@ -1,10 +1,9 @@
-import { expect, test, WARM_UP } from './helpers.ts';
+import { expect, test } from './helpers.ts';
 
-// The claim is that the real page boots: a pooled page would be answering for a boot that some
-// earlier scenario paid for, which is not the same assertion. A fresh load pays the cold shader
-// warm-up (see WARM_UP in helpers.ts), so the scenario gets room for it on top of the usual ceiling.
-test.use({ isolate: true });
-test.describe.configure({ timeout: 120_000 + WARM_UP });
+// The boot itself is proven by every worker: the pool's page is opened through the same `Game.open`, which
+// fails loudly if WebGL, the pinned floor or the hooks do not come up, and the nightly GAME_TEST_ISOLATE run
+// gives this scenario a fresh page of its own. What is left here is that a ready page shows a real floor and
+// enters it, which the pooled page answers as well as a fresh one, without paying another cold boot.
 
 test('the real page boots WebGL, pins its floor, and enters the keep', async ({
   game,

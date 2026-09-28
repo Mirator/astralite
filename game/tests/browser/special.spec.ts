@@ -406,9 +406,17 @@ test('a slam that fells the last warden opens its boon, then the stair, then the
   const opened = await game.state();
   expect(opened.objective.stairOpen).toBe(true);
   expect(specialOf(opened)!.live, 'the slam finished under the draft rather than hanging').toBe(false);
+  // The stair waits on the swap binding (PR #63), and on the pad that is Y now that X is the special: the
+  // pad's own swap button takes it down, and X, pressed first on the stair, does not.
   await game.teleport(opened.stair.x, opened.stair.z);
-  await game.step(opened.stair.dwell * 1000 + 100);
-  expect((await game.state()).mode).toBe('complete');
+  await game.step(200);
+  expect((await game.state()).objective.onStair).toBe(true);
+  const pad = await fakePad(page);
+  await pad.set(2, true); await game.step(32); await pad.set(2, false); await game.step(32);
+  expect((await game.state()).mode, 'X is the special, not the stair').toBe('playing');
+  await pad.set(3, true); await game.step(32); await pad.set(3, false); await game.step(32);
+  await pad.remove(); await game.step(16);
+  expect((await game.state()).mode, 'Y took the stair').toBe('complete');
   await expect(page.locator('.success-screen')).toBeVisible();
   await page.locator('.success-screen button').click();
   await game.built();

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
+import { BESTIARY, byKind, type EnemyKind } from './dungeon-bestiary.ts';
 
-export type FallenKind = 'guard' | 'stalker' | 'warden';
-export const DEATH_DURATION = { guard: .7, stalker: .55, warden: .95 };
+export type FallenKind = EnemyKind;
+export const DEATH_DURATION = byKind(a => a.look.death.duration);
 type Joint = { node: THREE.Object3D; position: THREE.Vector3; rotation: THREE.Quaternion; endPosition: THREE.Vector3; endRotation: THREE.Quaternion };
 export type DeathAnimation = { age: number; duration: number; settled: boolean; joints: Joint[] };
 
@@ -11,14 +12,14 @@ export function startDeath(group: THREE.Group, kind: FallenKind): DeathAnimation
   const rig = group.userData.rig as THREE.Group, limbs = group.userData.limbs as THREE.Group[], weapon = group.userData.weapon as THREE.Group;
   const nodes = [group, rig, ...limbs, weapon, group.userData.shield as THREE.Mesh];
   const joints = nodes.map(node => ({ node, position: node.position.clone(), rotation: node.quaternion.clone(), endPosition: new THREE.Vector3(), endRotation: new THREE.Quaternion() }));
-  const prone = kind === 'stalker';
+  const { prone, weaponX } = BESTIARY[kind].look.death;
   // Keep the facing, falling forwards for the low stalker and backwards for armored enemies.
   rig.position.set(0, 0, 0); rig.rotation.set(prone ? -Math.PI / 2 : Math.PI / 2, 0, 0);
   limbs.forEach((limb, i) => {
     const side = i % 2 ? 1 : -1;
     limb.rotation.set(0, 0, i < 2 ? side * (prone ? .75 : .62) : side * .17);
   });
-  weapon.rotation.set(-rig.rotation.x, .65, 0); weapon.position.set(kind === 'warden' ? .72 : .53, .73, .08);
+  weapon.rotation.set(-rig.rotation.x, .65, 0); weapon.position.set(weaponX, .73, .08);
   (group.userData.shield as THREE.Mesh).rotation.set(-Math.PI / 2, 0, 0);
   group.updateWorldMatrix(true, true);
   // Ground the visible geometry (including shield and hammer), irrespective of actor scale.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canStand, generateFloor, cellKey, moveOnFloor, TILE } from '../app/dungeon-floor.ts';
+import { canStand, drawKind, generateFloor, cellKey, moveOnFloor, PACK_MIX, TILE } from '../app/dungeon-floor.ts';
 import { FOUND_WEAPONS } from '../app/dungeon-weapon.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
@@ -278,4 +278,39 @@ test('the same keep hands back the same arm', () => {
   // And different keeps do not all offer the same one.
   const kinds = new Set([0x1, 0x7, 0xc, 0x51ed, 0xbeef, 0xfeed, 0x2222].map(s => generateFloor(s, 1).weaponDrop.kind));
   assert.ok(kinds.size > 1, 'every seed offered the same weapon');
+});
+
+test('a pack mix deals each kind its share in draw order, and guards whatever is left', () => {
+  // A roll lands in the first kind whose running share it is under: stalker takes [0, .3), warden
+  // [.3, .5), and everything from .5 up is a guard.
+  const mix = { stalker: .3, warden: .2 };
+  assert.deepEqual([0, .29, .3, .49, .5, .99].map(roll => drawKind(mix, 1, roll)), ['stalker', 'stalker', 'warden', 'warden', 'guard', 'guard']);
+  // The shares the generator used before the table existed: `random() < odds ? 'stalker' : 'guard'`.
+  for (const [name, odds] of [['branch', .35], ['ambush', .85], ['opening', .15], ['middle', .4], ['late', .5]] as const) {
+    assert.equal(drawKind(PACK_MIX[name], 1, odds - 1e-9), 'stalker', `${name} under its odds`);
+    assert.equal(drawKind(PACK_MIX[name], 1, odds), 'guard', `${name} at its odds`);
+  }
+});
+
+test('archers are dealt from floor two on, never into an ambush, and floor one never draws one', () => {
+  const archers = (level: number) => floors(level).flatMap(floor => floor.spawns.filter(s => s.kind === 'archer').map(s => ({ s, floor })));
+  assert.equal(archers(1).length, 0, 'floor one dealt an archer before anything has taught the knight to read one');
+  for (const level of [2, 3]) {
+    const dealt = archers(level);
+    assert.ok(dealt.length >= SEEDS.length / 2, `floor ${level} dealt only ${dealt.length} archers across ${SEEDS.length} seeds`);
+    for (const { s, floor } of dealt) assert.notEqual(floor.rooms[s.room].encounter, 'ambush', `seed ${floor.seed} hid an archer in an ambush`);
+  }
+  // On floor one the archer's share falls through to the guard, so the stalker's odds are untouched;
+  // from floor two the same roll deals an archer.
+  const roll = PACK_MIX.middle.stalker + PACK_MIX.middle.archer / 2;
+  assert.deepEqual([drawKind(PACK_MIX.middle, 1, roll), drawKind(PACK_MIX.middle, 2, roll)], ['guard', 'archer']);
+  assert.equal(drawKind(PACK_MIX.middle, 1, PACK_MIX.middle.stalker - 1e-9), 'stalker');
+});
+
+test('the arena-only kinds never appear on a generated floor', () => {
+  const arenaOnly = new Set(['shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler']);
+  for (const level of [1, 2, 3]) {
+    const dealt = floors(level).flatMap(floor => floor.spawns.filter(s => arenaOnly.has(s.kind)));
+    assert.deepEqual(dealt, [], `floor ${level} dealt an arena-only kind`);
+  }
 });

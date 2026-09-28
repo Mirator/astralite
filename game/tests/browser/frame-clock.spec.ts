@@ -1,40 +1,13 @@
 import { expect, type GameWindow, test, WARM_UP } from './helpers.ts';
 
-// This hands the page an older first animation timestamp, which only exists once per load. A fresh load
-// pays the cold shader warm-up (see WARM_UP in helpers.ts), so the scenario gets room for it.
+// Both scenarios here watch the real frame loop, which a pooled page gives up for good on its first
+// `advanceTime`. A fresh load pays the cold shader warm-up (see WARM_UP in helpers.ts), so each gets room for it.
 test.use({ isolate: true });
 test.describe.configure({ timeout: 120_000 + WARM_UP });
 
-test('an older first animation timestamp cannot create a startup hit pause', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', error => errors.push(String(error)));
-  await page.addInitScript(() => {
-    const hooks = window as typeof window & { render_game_to_text?: () => string; staleFrameDelivered?: boolean };
-    const request = window.requestAnimationFrame.bind(window);
-    window.requestAnimationFrame = callback => request(now => {
-      if (hooks.render_game_to_text && !hooks.staleFrameDelivered) {
-        hooks.staleFrameDelivered = true;
-        callback(now - 1000);
-      } else callback(now);
-    });
-  });
-  // `boot=eager` (plan 015 Stage A, dev-only): this scenario is about the animate loop's own first-frame
-  // handling, not about the on-demand boot, so it wants a floor built and warm without spending itself on
-  // a press first - the same reason `Game.open` passes it on every `goto`.
-  await page.goto('/?boot=eager');
-  // The stale frame is delivered on the first animation frame after the hooks go up, which is after a
-  // module load and a first floor - the same wait `Game.open` gives the boot's budget.
-  await page.waitForFunction(() => (window as typeof window & { staleFrameDelivered?: boolean }).staleFrameDelivered, undefined, { timeout: WARM_UP });
-  const state = await page.evaluate(() => {
-    const hooks = window as typeof window & { advanceTime: (ms: number, draw: boolean) => void; render_game_to_text: () => string };
-    hooks.advanceTime(0, false);
-    return JSON.parse(hooks.render_game_to_text());
-  });
-  expect(state.mode).toBe('ready');
-  expect(state.settings.hitStop).toBe(0);
-  expect(state.settings.shake).toBe(0);
-  expect(errors).toEqual([]);
-});
+// The stale-first-timestamp check that used to open this file delivered its old timestamp before the game
+// was warm, so it never reached `update` and passed with the clamp deleted. The clamp is `frameDelta` in
+// dungeon-player.ts now, held by tests/dungeon-player.test.ts.
 
 /**
  * Plan 015 Stage B, in real time rather than under a driver's clock: this is the one page in the suite
@@ -60,11 +33,16 @@ test('a paused frame is not redrawn in real time, and resumes drawing once unpau
   await expect.poll(frames, { message: 'the entered keep never drew a real frame', timeout: WARM_UP }).toBeGreaterThan(start);
   await pause();
   // The pause itself may still draw one more frame (see `dirty` in dungeon-game.tsx), and on software GL
-  // that frame can land late. The baseline is taken once two reads a quarter-second apart agree.
-  let paused = await frames();
-  await expect
-    .poll(async () => { const now = await frames(); const settled = now === paused; paused = now; return settled; }, { message: 'the paused frame count never settled', intervals: [250], timeout: 20_000 })
-    .toBe(true);
+  // that frame can land late. Counted in animation frames rather than read on a timer: the game's loop
+  // runs once in every one of them, so three in a row with no new draw means that frame is behind us.
+  // (A timed poll checks once straight away, so "two reads a quarter-second apart" were in fact two reads
+  // a few milliseconds apart, both taken before the pause's own frame drew - which then failed below.)
+  const paused = await page.evaluate(() => new Promise<number>((done) => {
+    const read = () => JSON.parse((window as GameWindow).render_game_to_text!()).render.frames as number;
+    let last = read(), quiet = 0;
+    const tick = () => { const now = read(); quiet = now === last ? quiet + 1 : 0; last = now; if (quiet >= 3) done(now); else requestAnimationFrame(tick); };
+    requestAnimationFrame(tick);
+  }));
   await page.waitForTimeout(500);
   expect(await frames(), 'a paused frame was redrawn with nothing to show for it').toBe(paused);
 

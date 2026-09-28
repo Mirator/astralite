@@ -14,12 +14,13 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { makeKnight } from './dungeon-knight';
 import { makeSkeleton, type SkeletonKind } from './dungeon-skeleton';
+import { ENEMY_KINDS } from './dungeon-bestiary';
 import { CAMERA_OFFSET, SCREEN_DOWN, SCREEN_RIGHT } from './dungeon-aim';
 import { makeWeapon, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
 import { STARTING_WEAPON, WEAPONS, type WeaponId } from './dungeon-weapon';
 
 type FigureKind = 'knight' | SkeletonKind;
-const ALL_FIGURES: FigureKind[] = ['knight', 'guard', 'stalker', 'warden'];
+const ALL_FIGURES: FigureKind[] = ['knight', ...ENEMY_KINDS];
 const ALL_WEAPONS = Object.keys(WEAPONS) as WeaponId[];
 
 // The eight facings `models-knight-strip` reads (tests/browser/shots.spec.ts): 45 degrees apart, clockwise

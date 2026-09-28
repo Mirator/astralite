@@ -38,7 +38,12 @@ and the deepest descent survives a reload.
 ```
 game/                    the application
   app/
-    dungeon-game.tsx     game loop, input, combat, HUD
+    dungeon-game.tsx     the world closure (game loop, combat, HUD) and when each rule is asked
+    dungeon-player.ts    the knight's swing, chain, dash, input buffers and hit-stop
+    dungeon-input.ts     what a key, a pad, the cursor or an action event asks for
+    dungeon-floor-scene.ts  raising a generated floor into the scene
+    dungeon-enemy-view.ts  building a skeleton and drawing its marks and decisions
+    dungeon-test-hooks.ts  the dev-only diagnostics behind window.dungeonTest
     dungeon-combat.ts    pure sword-contact and damage-rounding rules
     dungeon-floor.ts     seeded procedural floor generator
     dungeon-sim.ts       vitality, XP, ranks, boons, damage rules

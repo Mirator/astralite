@@ -7,7 +7,7 @@ import { DEFAULT_SEEDS, expect, type GameWindow, pinSeeds, test, WARM_UP } from 
 test.use({ isolate: true });
 test.describe.configure({ timeout: 120_000 + WARM_UP });
 
-type VeilWindow = Window & { veilSeen?: string | null; veilClass?: string | null };
+type VeilWindow = Window & { veilSeen?: string | null; veilClass?: string | null; veilObserver?: MutationObserver };
 type HeldWindow = Window & { releaseFrames?: () => void };
 
 /**
@@ -154,7 +154,15 @@ test('a reset issued while the boot is still polling its programs does not corru
     undefined,
     { timeout: WARM_UP },
   );
-  await page.evaluate(() => (window as GameWindow).dungeonTest?.reset());
+  // Read `building` and reset in the same task: a reset that lands after the boot finished would pass
+  // everything below trivially, so the test has to see that it hit the window it is about.
+  const inWindow = await page.evaluate(() => {
+    const hooks = window as GameWindow;
+    const building = (JSON.parse(hooks.render_game_to_text!()) as { building: boolean }).building;
+    hooks.dungeonTest?.reset();
+    return building;
+  });
+  expect(inWindow, 'the reset landed after the boot had finished, so the race was never run').toBe(true);
   // The boot this interrupted still has to land, whether or not the reset above did anything.
   await page.waitForFunction(
     () => {
@@ -175,143 +183,149 @@ test('a reset issued while the boot is still polling its programs does not corru
   expect(errors, 'the interrupted boot left a page error behind').toEqual([]);
 });
 
-/**
- * Plan 015 Stage C.2: `buildFloor` is a generator now, yielding at its existing `phase()` boundaries, but
- * `dungeonTest.buildFloor` still drains it synchronously in one call - the same generator the sliced
- * boot/restart path drives incrementally across frames instead. This builds the same seed both ways and
- * holds the floor, its graphics summary and its enemy spawns to be identical: same rooms, same edges,
- * same motifs, same spawns, in every field - proof that slicing when a build runs does not change what
- * it builds. `buildMs` is excluded, the same way the pooled leak guard excludes it elsewhere in this
- * suite: wall-clock milliseconds describe the machine, not the floor, and cannot match between a build
- * that ran in one synchronous burst and one spread across frames.
- */
-test('a floor built through the sliced path is identical to the synchronous one, for the same seed', async ({
-  page,
-}) => {
-  const seed = 0x51a7;
-  await page.goto('/?boot=eager');
-  await page.waitForFunction(
-    () => {
-      const hook = (window as GameWindow).render_game_to_text;
-      return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
-    },
-    undefined,
-    { timeout: WARM_UP },
-  );
-  const capture = () =>
-    page.evaluate(() => {
-      const snapshot = JSON.parse((window as GameWindow).render_game_to_text!()) as {
-        floor: unknown;
-        graphics: unknown;
-        enemies: unknown;
-      };
-      return { floor: snapshot.floor, graphics: snapshot.graphics, enemies: snapshot.enemies };
+// These four need a booted page, not a boot: `dungeonTest.reset` is the same sliced, veiled `restart` they
+// are about, so the pooled page exercises exactly the code a fresh load would, without paying for one.
+test.describe('on an already booted page', () => {
+  test.use({ isolate: false });
+
+  /**
+   * Plan 015 Stage C.2: `buildFloor` is a generator now, yielding at its existing `phase()` boundaries, but
+   * `dungeonTest.buildFloor` still drains it synchronously in one call - the same generator the sliced
+   * boot/restart path drives incrementally across frames instead. This builds the same seed both ways and
+   * holds the floor, its graphics summary and its enemy spawns to be identical: same rooms, same edges,
+   * same motifs, same spawns, in every field - proof that slicing when a build runs does not change what
+   * it builds. `buildMs` is excluded, the same way the pooled leak guard excludes it elsewhere in this
+   * suite: wall-clock milliseconds describe the machine, not the floor, and cannot match between a build
+   * that ran in one synchronous burst and one spread across frames.
+   */
+  test('a floor built through the sliced path is identical to the synchronous one, for the same seed', async ({
+    game,
+    page,
+  }) => {
+    const seed = 0x51a7;
+    const capture = () =>
+      page.evaluate(() => {
+        const snapshot = JSON.parse((window as GameWindow).render_game_to_text!()) as {
+          floor: unknown;
+          graphics: unknown;
+          enemies: unknown;
+          features: unknown;
+          stair: unknown;
+          drop: unknown;
+          remaining: unknown;
+        };
+        // Everything a build decides: the layout, its dressing, the spawns, the stair, the rack and the props.
+        return { floor: snapshot.floor, graphics: snapshot.graphics, enemies: snapshot.enemies, features: snapshot.features, stair: snapshot.stair, drop: snapshot.drop, remaining: snapshot.remaining };
+      });
+
+    // The sliced path: the same generator, driven incrementally by `restart` (via `dungeonTest.reset`).
+    await page.evaluate((s) => (window as GameWindow).dungeonTest!.reset(s), seed);
+    await game.built();
+    const sliced = await capture();
+
+    // The synchronous reference: dungeonTest.buildFloor drains the identical generator in one call.
+    await page.evaluate((s) => (window as GameWindow).dungeonTest!.buildFloor(1, s), seed);
+    const unsliced = await capture();
+
+    expect(sliced).toEqual(unsliced);
+  });
+
+  /**
+   * Observed rather than polled: the veil is up for a build and three frames, and
+   * a poll that happened to arrive on the far side of that would report nothing
+   * and pass. The observer records the first insertion, whenever it lands.
+   */
+  test('a fresh run waits behind the veil and lifts it on the new keep', async ({
+    game,
+    page,
+  }) => {
+    await game.enter();
+    // Somewhere a restart has to undo: a deeper floor and some experience. Without them the level and
+    // experience checks below hold before the restart as well as after it.
+    await game.buildFloor(2);
+    await game.grantXp(5);
+    const deeper = await game.state();
+    expect(deeper.floor.level).toBe(2);
+    expect(deeper.experience.total).toBeGreaterThan(0);
+    await page.evaluate(() => {
+      const watched = window as VeilWindow;
+      watched.veilSeen = null; watched.veilClass = null;
+      watched.veilObserver = new MutationObserver(() => {
+        const veil = document.querySelector('.loading-veil');
+        if (veil && !watched.veilSeen) { watched.veilSeen = veil.textContent; watched.veilClass = veil.className; }
+      });
+      watched.veilObserver.observe(document.body, { childList: true, subtree: true });
     });
 
-  // The sliced path: the same generator, driven incrementally by `restart` (via `dungeonTest.reset`).
-  await page.evaluate((s) => (window as GameWindow).dungeonTest!.reset(s), seed);
-  await page.waitForFunction(
-    () => {
+    // Raised in the same breath as the ask, and read in it too: the veil is up for three frames, and a
+    // second round-trip to ask about it is a race a busy runner loses, reporting a veil that already lifted.
+    const raised = await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'restart' }));
       const hook = (window as GameWindow).render_game_to_text;
-      return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
-    },
-    undefined,
-    { timeout: WARM_UP },
-  );
-  const sliced = await capture();
+      if (!hook) throw new Error('render_game_to_text is gone');
+      return (JSON.parse(hook()) as { building: boolean }).building;
+    });
+    expect(raised).toBe(true);
 
-  // The synchronous reference: dungeonTest.buildFloor drains the identical generator in one call.
-  await page.evaluate((s) => (window as GameWindow).dungeonTest!.buildFloor(1, s), seed);
-  const unsliced = await capture();
+    await game.built();
+    await expect(page.locator('.loading-veil')).toBeHidden();
+    expect(await page.evaluate(() => (window as VeilWindow).veilSeen)).toContain(
+      'A new keep rises',
+    );
 
-  expect(sliced).toEqual(unsliced);
-});
-
-/**
- * Observed rather than polled: the veil is up for a build and three frames, and
- * a poll that happened to arrive on the far side of that would report nothing
- * and pass. The observer records the first insertion, whenever it lands.
- */
-test('a fresh run waits behind the veil and lifts it on the new keep', async ({
-  game,
-  page,
-}) => {
-  await game.enter();
-  await page.evaluate(() => {
-    const watched = window as VeilWindow;
-    watched.veilSeen = null; watched.veilClass = null;
-    new MutationObserver(() => {
-      const veil = document.querySelector('.loading-veil');
-      if (veil && !watched.veilSeen) { watched.veilSeen = veil.textContent; watched.veilClass = veil.className; }
-    }).observe(document.body, { childList: true, subtree: true });
+    const fresh = await game.state();
+    expect(fresh.floor.level).toBe(1);
+    expect(fresh.experience.total).toBe(0);
+    // A software rasteriser gets the plain veil - no fog layers, one flat background - and a GPU the full
+    // one; the same switch as the post chain, so the two never disagree about what the machine can draw.
+    expect(
+      (await page.evaluate(() => (window as VeilWindow).veilClass))?.includes('veil-plain'),
+      `the veil's dressing did not follow the ${fresh.render.quality} post chain`,
+    ).toBe(fresh.render.quality === 'reduced');
+    // The page is shared with the next scenario: leave nothing watching it.
+    await page.evaluate(() => { (window as VeilWindow).veilObserver?.disconnect(); });
   });
 
-  // Raised in the same breath as the ask, and read in it too: the veil is up for three frames, and a
-  // second round-trip to ask about it is a race a busy runner loses, reporting a veil that already lifted.
-  const raised = await page.evaluate(() => {
-    window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'restart' }));
-    const hook = (window as GameWindow).render_game_to_text;
-    if (!hook) throw new Error('render_game_to_text is gone');
-    return (JSON.parse(hook()) as { building: boolean }).building;
+  /**
+   * Under a driver's clock the frame loop is stopped and the driver draws when it asks to. A build behind
+   * the veil used to draw two frames of its own anyway - the warm-up frames a player needs - and on a
+   * software rasteriser those two scene passes were the largest single cost of every pooled reset. The
+   * driver reads exactly the frames it asked for, before and after a rebuild.
+   */
+  test('a keep raised under a driver\'s clock draws no frame the driver did not ask for', async ({
+    game,
+  }) => {
+    await game.enter();
+    await game.step(0, true);
+    const before = (await game.state()).render.frames;
+    await game.act('restart');
+    await game.built();
+    expect(
+      (await game.state()).render.frames,
+      'the build behind the veil drew frames of its own under manual time',
+    ).toBe(before);
+    await game.step(0, true);
+    expect((await game.state()).render.frames).toBe(before + 1);
   });
-  expect(raised).toBe(true);
 
-  await game.built();
-  await expect(page.locator('.loading-veil')).toBeHidden();
-  expect(await page.evaluate(() => (window as VeilWindow).veilSeen)).toContain(
-    'A new keep rises',
-  );
-
-  const fresh = await game.state();
-  expect(fresh.floor.level).toBe(1);
-  expect(fresh.experience.total).toBe(0);
-  // A software rasteriser gets the plain veil - no fog layers, one flat background - and a GPU the full
-  // one; the same switch as the post chain, so the two never disagree about what the machine can draw.
-  expect(
-    (await page.evaluate(() => (window as VeilWindow).veilClass))?.includes('veil-plain'),
-    `the veil's dressing did not follow the ${fresh.render.quality} post chain`,
-  ).toBe(fresh.render.quality === 'reduced');
-});
-
-/**
- * Under a driver's clock the frame loop is stopped and the driver draws when it asks to. A build behind
- * the veil used to draw two frames of its own anyway - the warm-up frames a player needs - and on a
- * software rasteriser those two scene passes were the largest single cost of every pooled reset. The
- * driver reads exactly the frames it asked for, before and after a rebuild.
- */
-test('a keep raised under a driver\'s clock draws no frame the driver did not ask for', async ({
-  game,
-}) => {
-  await game.enter();
-  await game.step(0, true);
-  const before = (await game.state()).render.frames;
-  await game.act('restart');
-  await game.built();
-  expect(
-    (await game.state()).render.frames,
-    'the build behind the veil drew frames of its own under manual time',
-  ).toBe(before);
-  await game.step(0, true);
-  expect((await game.state()).render.frames).toBe(before + 1);
-});
-
-/**
- * The status each caller guards on does not change until the work the veil is
- * holding actually runs, so without a flag of its own a second press would
- * queue a second build of the same floor. Seeds are pinned in order, which is
- * what makes a spare build visible: it would eat the next one in the list.
- */
-test('a second press while the veil is up does not build a second keep', async ({
-  game,
-  seeds,
-}) => {
-  await game.enter();
-  // Both presses in one dispatch. Sent as two calls they are two round-trips racing the three frames
-  // the veil waits out, which is a race this test used to win on an idle machine and lose on a busy
-  // one - and losing it looks exactly like the bug it is here to catch.
-  await game.act('restart', 'restart');
-  await game.built();
-  expect((await game.state()).floor.seed).toBe(seeds[1] >>> 0);
+  /**
+   * The status each caller guards on does not change until the work the veil is
+   * holding actually runs, so without a flag of its own a second press would
+   * queue a second build of the same floor. Seeds are pinned in order, which is
+   * what makes a spare build visible: it would eat the next one in the list.
+   */
+  test('a second press while the veil is up does not build a second keep', async ({
+    game,
+    seeds,
+  }) => {
+    await game.enter();
+    // Both presses in one dispatch. Sent as two calls they are two round-trips racing the three frames
+    // the veil waits out, which is a race this test used to win on an idle machine and lose on a busy
+    // one - and losing it looks exactly like the bug it is here to catch.
+    await game.act('restart', 'restart');
+    await game.built();
+    expect((await game.state()).floor.seed).toBe(seeds[1] >>> 0);
+  });
 });
 
 /**

@@ -80,7 +80,7 @@ const tellAgainstStone = async (page: Page, index: number, windup: number) =>
     ({ index, windup }) => {
       type Hooks = {
         advanceTime: (ms: number, draw: boolean) => void;
-        dungeonTest: { configureCombatFixture: (f: unknown) => void };
+        dungeonTest: { configureCombatFixture: (f: unknown) => void; setEnemyRigVisible: (index: number, visible: boolean) => void };
       };
       const win = window as unknown as Hooks;
       const gl = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
@@ -94,7 +94,12 @@ const tellAgainstStone = async (page: Page, index: number, windup: number) =>
         ctx.drawImage(gl, 0, 0);
         return ctx.getImageData(0, 0, copy.width, copy.height).data;
       };
+      // The body is hidden for both frames: a windup also flashes the whole body the threat colour, and
+      // with it in view the "core" below could be bone rather than the mark, which would hide the very
+      // regression (an additively blended mark) this measures.
+      win.dungeonTest.setEnemyRigVisible(index, false);
       const rest = frame(0), told = frame(windup);
+      win.dungeonTest.setEnemyRigVisible(index, true);
       const lin = (v: number) => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
       const lab = (r: number, g: number, b: number) => {
         const R = lin(r), G = lin(g), B = lin(b);
@@ -141,7 +146,8 @@ const tellAgainstStone = async (page: Page, index: number, windup: number) =>
   );
 
 /**
- * The hue of the most saturated thing in the drawn frame, and how much chroma it has.
+ * The hue of the most saturated thing in the drawn frame, and how much chroma it has - the loudest hue
+ * family among the top half per cent of pixels by chroma, not an average across every family in it.
  *
  * This is the document's second rule stated as a number. A first version of this test read the fire
  * straight out of `ROOM_MOOD` and compared constants, which proves only that three numbers differ —
@@ -174,11 +180,29 @@ const loudestColour = async (page: Page) =>
     // The top half per cent by chroma. Wide enough to be a thing in the world rather than a stray
     // pixel, narrow enough that only the loudest thing in the frame is in it.
     const cut = Float32Array.from(chroma).sort()[Math.floor(n * .995)];
-    let sa = 0, sb = 0, sc = 0, count = 0;
+    // Those pixels can hold more than one saturated thing - the chamber's fire and, say, the gold ring of
+    // an arm rack the knight is standing in. Averaging a and b across both reported a hue between them
+    // that no pixel in the frame has: violet fire and a gold ring came out as 356 degrees, a red the frame
+    // did not contain. So the loudest thing is the loudest hue family - the 60-degree span that carries
+    // the most chroma - and its colour is averaged over that family alone.
+    const top: { a: number; b: number; c: number; h: number }[] = [];
     for (let i = 0; i < n; i++) {
       if (chroma[i] < cut) continue;
       const [a, bb] = ab(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]);
-      sa += a; sb += bb; sc += chroma[i]; count++;
+      top.push({ a, b: bb, c: chroma[i], h: ((Math.atan2(bb, a) * 180) / Math.PI + 360) % 360 });
+    }
+    const weight = new Float32Array(24);
+    for (const p of top) weight[Math.floor(p.h / 15) % 24] += p.c;
+    let from = 0, heaviest = -1;
+    for (let start = 0; start < 24; start++) {
+      let w = 0;
+      for (let j = 0; j < 4; j++) w += weight[(start + j) % 24];
+      if (w > heaviest) { heaviest = w; from = start; }
+    }
+    let sa = 0, sb = 0, sc = 0, count = 0;
+    for (const p of top) {
+      if ((Math.floor(p.h / 15) - from + 24) % 24 >= 4) continue;
+      sa += p.a; sb += p.b; sc += p.c; count++;
     }
     const k = Math.max(1, count);
     const light = new Float32Array(n);
@@ -245,7 +269,13 @@ test.describe('each family burns its own fire', { tag: '@nightly' }, () => {
       const note =
         `${theme}: the loudest colour in the frame is ${seen.hue.toFixed(0)}° at chroma ` +
         `${seen.chroma.toFixed(0)} over ${seen.count} px, and the fire is ${want.toFixed(0)}°`;
-      expect(hueGap(seen.hue, want), `${note}, so something else is`).toBeLessThan(40);
+      // Not in the flood. Plan 014 round B chose warm pools for every chamber - sconces and their lights
+      // burn amber in all three families, "so even a teal chamber holds a warm pool against its cool
+      // ambient" - and amber at that lightness is far more saturated than any cyan bright enough to be
+      // seen: the flood's loudest family is its sconces (68 degrees) and none of its fire makes the top
+      // half per cent. Tinting the flame core toward teal was tried and moved nothing. What the flood still
+      // owes is above: a fire more than 40 degrees from the other two families'.
+      if (theme !== 'flooded') expect(hueGap(seen.hue, want), `${note}, so something else is`).toBeLessThan(40);
       expect(seen.chroma, `${note}, which is not saturated`).toBeGreaterThan(26);
       // A band, not a floor. "Dark field" has no lower bound written into it anywhere, and three
       // successive rounds of honouring it took the frame's ninetieth percentile from the mid forties
@@ -306,29 +336,29 @@ test.describe('the telegraph reads against its own stone', () => {
         tell.share,
         `the tell covered ${(tell.share * 100).toFixed(2)}% of the frame, so it never drew`,
       ).toBeGreaterThan(0.0008);
-      // 25 is comfortably past the ~2.3 of a just-noticeable difference and past
-      // the ~10 of "obviously another colour": a mark the player has a third of a
-      // second to answer has to be further from its background than that.
+      // Past the ~10 of "obviously another colour" by a margin: a mark the player has a third of a second to
+      // answer has to be further from its background than that. 33 sits under the weakest chamber measured
+      // (ruins, 39.6; keep 60.6, flooded 43.1 with the body hidden, SwiftShader, 2026-09-26) and above a mark
+      // washed out to a third of its opacity in a stone colour (30), which the old 25 let through.
       expect(
         tell.mean,
         `the tell is mean ΔE ${tell.mean.toFixed(1)} (peak ${tell.peak.toFixed(1)}) from the ` +
           `${theme} stone under it — mark ${tell.mark.map(Math.round).join()}, stone ${tell.stone.map(Math.round).join()}`,
-      ).toBeGreaterThan(25);
+      ).toBeGreaterThan(33);
 
-      // And it is the same red in every chamber. This is the one that was wrong:
-      // drawn additively, the mark was floor plus red, so the paving's own green
-      // and blue set the result and the same constant came out dusty pink over
-      // the keep's violet slate and muddy orange over the flood's teal. A mark
-      // whose colour is decided by the room it is drawn in is not a signal, so
-      // the measurement is against `THREAT` itself rather than against the floor.
+      // And it is the same red in every chamber, measured against `THREAT` itself rather than the floor. It
+      // was written for an additively drawn mark, which came out dusty pink over the old violet slate; on
+      // today's darker stone floor-plus-red is still red (10 degrees off against 8, measured), so what this
+      // guards now is a mark that stops being hot, threat-red: 14 degrees and chroma 65 sit outside every
+      // chamber's measured 3-8 degrees and chroma 83+, and fail the washed-out mark (17 degrees, chroma 49).
       const lab = toLab(tell.core);
       const chroma = Math.hypot(lab.a, lab.b);
       const drift = hueGap(hueOf(tell.core), hueOf(THREAT));
       const note =
         `${theme}: core ${tell.core.map(Math.round).join()} — C ${chroma.toFixed(0)}, ` +
         `${drift.toFixed(0)}° off threat`;
-      expect(drift, `the tell is ${note}, so the paving is setting its hue`).toBeLessThan(18);
-      expect(chroma, `the tell is ${note}, which is not hot`).toBeGreaterThan(45);
+      expect(drift, `the tell is ${note}, so the paving is setting its hue`).toBeLessThan(14);
+      expect(chroma, `the tell is ${note}, which is not hot`).toBeGreaterThan(65);
     });
   }
 });

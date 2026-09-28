@@ -80,7 +80,9 @@ async function main() {
   const args = process.env.GAME_TEST_GL === 'd3d11' ? ['--use-gl=angle', '--use-angle=d3d11', '--enable-gpu'] : ['--use-gl=angle', '--use-angle=swiftshader'];
   const browser = await chromium.launch({ args });
   try {
-    const page = await browser.newPage({ viewport: { width: 1920, height: 1200 } });
+    // Tall enough for every row: ten enemy kinds and the knight at 240px a row is 2640px, and a canvas that
+    // runs past the viewport screenshots black below its fold.
+    const page = await browser.newPage({ viewport: { width: 1920, height: 2800 } });
     const url = `${BASE_URL}/bench${bench.size ? `?${bench.toString()}` : ''}`;
     await page.goto(url);
     await page.waitForFunction(() => (window as unknown as { __bench?: string }).__bench === 'ready', { timeout: 20_000 });

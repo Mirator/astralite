@@ -1,9 +1,44 @@
+import { BESTIARY, type EnemyKind } from './dungeon-bestiary.ts';
 import { FOUND_WEAPONS, type WeaponId } from './dungeon-weapon.ts';
 
 export const TILE = 1.48;
 export type Encounter = 'watch' | 'ambush' | 'gauntlet' | 'sanctuary' | 'warden';
 export type Room = { encounter: Encounter; id: number; x: number; z: number; halfX: number; halfZ: number; shape: 'hall' | 'round' | 'cross' | 'court' | 'gallery' | 'crypt'; theme: 'keep' | 'ruins' | 'flooded'; name: string; role: 'start' | 'path' | 'branch' | 'goal'; depth: number; heading: number };
-export type Spawn = { x: number; z: number; kind: 'guard' | 'stalker' | 'warden'; room: number; ambush: boolean };
+// `buried` bodies are a summoner's reserve (dungeon-arena.ts): hidden, inert and outside every count until
+// the spawn index `summoner` raises them.
+export type Spawn = { x: number; z: number; kind: EnemyKind; room: number; ambush: boolean; buried?: boolean; summoner?: number };
+
+/**
+ * The share of a pack each kind takes, in the order they are drawn; whatever is left over is guards.
+ * One roll per body, whatever the mix, so adding a kind to a mix changes which bodies a seed deals but
+ * never how many numbers it draws - the rooms, the props and the weapon drop after it stay put.
+ */
+export type PackMix = Partial<Record<EnemyKind, number>>;
+export const PACK_MIX = {
+  /** Dead-end branches: packed, and the reason a detour is worth its walk. */
+  // No archers in either of these. A branch is always sprung as an ambush, and an ambush is bodies coming
+  // out of hiding at arm's length - a bow has no business in one.
+  branch: { stalker: .35 },
+  ambush: { stalker: .85 },
+  /** A path room by how far along the floor it sits: under .35 of the way, under .7, and past it. */
+  opening: { stalker: .15, archer: .1 },
+  middle: { stalker: .4, archer: .2 },
+  late: { stalker: .5, archer: .2 },
+} satisfies Record<string, PackMix>;
+
+/**
+ * Which kind one roll deals from a mix on this floor. A kind whose `firstFloor` has not come yet is
+ * skipped and its share falls through to the guard, so the kinds drawn before it keep their odds exactly.
+ */
+export const drawKind = (mix: PackMix, level: number, roll: number): EnemyKind => {
+  let edge = 0;
+  for (const [kind, share] of Object.entries(mix) as [EnemyKind, number][]) {
+    if (BESTIARY[kind].firstFloor > level) continue;
+    edge += share;
+    if (roll < edge) return kind;
+  }
+  return 'guard';
+};
 export type FloorProp = { x: number; z: number; kind: 'brazier' | 'pillar' | 'rubble' | 'barrel'; room: number };
 export type WeaponDrop = { x: number; z: number; kind: WeaponId; room: number };
 export const cellKey = (x: number, z: number) => `${x},${z}`;
@@ -157,15 +192,15 @@ export function generateFloor(seed: number, level = 1) {
   }
   const menace=(level-1)*.3;
   const roster=(room:Room):Spawn['kind'][]=>{
-    const progress=room.depth/goal.depth+menace,pick=(count:number,odds:number):Spawn['kind'][]=>Array.from({length:count},()=>random()<odds?'stalker':'guard');
+    const progress=room.depth/goal.depth+menace,pick=(count:number,mix:PackMix):Spawn['kind'][]=>Array.from({length:count},()=>drawKind(mix,level,random()));
     if(room.role==='goal')return (level>=3?['warden','warden','warden']:['warden','warden']) as Spawn['kind'][];
-    if(room.role==='branch'){const pack=pick(int(2,4+Math.min(2,level-1)),.35);if(progress>.55&&random()<.35)pack.push('warden');return pack;}
+    if(room.role==='branch'){const pack=pick(int(2,4+Math.min(2,level-1)),PACK_MIX.branch);if(progress>.55&&random()<.35)pack.push('warden');return pack;}
     if(room.encounter==='sanctuary')return [];
     if(room.encounter==='gauntlet')return ['stalker','stalker'];
-    if(room.encounter==='ambush')return pick(int(3,4),.85);
-    if(progress<.35)return pick(int(1,2),.15);
-    if(progress<.7)return pick(int(2,3),.4);
-    return [...pick(int(2,3),.5),'warden' as const];
+    if(room.encounter==='ambush')return pick(int(3,4),PACK_MIX.ambush);
+    if(progress<.35)return pick(int(1,2),PACK_MIX.opening);
+    if(progress<.7)return pick(int(2,3),PACK_MIX.middle);
+    return [...pick(int(2,3),PACK_MIX.late),'warden' as const];
   };
   const tilesByRoom=new Map<number,typeof tiles>();
   for(const t of tiles)if(t.room>=0){const list=tilesByRoom.get(t.room);if(list)list.push(t);else tilesByRoom.set(t.room,[t]);}

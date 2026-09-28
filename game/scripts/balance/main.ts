@@ -13,6 +13,7 @@
 //
 // The numbers are a yardstick for comparing one build against another, not a claim about how a human
 // plays. Compare a batch against a batch from the same policy; a single run tells you nothing.
+import { ENEMY_KINDS } from '../../app/dungeon-bestiary.ts';
 import { WEAPONS, weaponById, type WeaponId } from '../../app/dungeon-weapon.ts';
 import { DEFAULT_POLICY, simulateRun, type Cause, type FloorReport, type Policy, type RunReport } from './sim.ts';
 
@@ -67,7 +68,7 @@ if (flag('compare')) {
     const hp = all.flatMap(r => r.floors.filter(f => f.outcome === 'cleared')).map(f => f.hpAfter / f.maxHpAfter * 100);
     const dealt = all.flatMap(r => r.floors);
     const fromWarden = dealt.reduce((sum, f) => sum + f.damage.warden, 0);
-    const total = dealt.reduce((sum, f) => sum + f.damage.guard + f.damage.stalker + f.damage.warden + f.damage.hazard, 0);
+    const total = dealt.reduce((sum, f) => sum + Object.values(f.damage).reduce((a, b) => a + b, 0), 0);
     // Seconds spent where something could reach him, against the run's own length: an arm that wins by
     // walking backwards reads near zero whatever its damage column says.
     const inReach = dealt.reduce((sum, f) => sum + f.contact, 0), elapsed = all.reduce((sum, r) => sum + r.seconds, 0);
@@ -122,7 +123,7 @@ if (flag('compare')) {
   }
   console.log('');
 
-  const causes: Cause[] = ['guard', 'stalker', 'warden', 'hazard'];
+  const causes: Cause[] = [...ENEMY_KINDS, 'hazard'];
   const dealt = Object.fromEntries(causes.map(c => [c, reports.reduce((sum, r) => sum + r.floors.reduce((s, f) => s + f.damage[c], 0), 0)])) as Record<Cause, number>;
   const total = causes.reduce((sum, c) => sum + dealt[c], 0);
   console.log(`\n  damage dealt to the knight: ${causes.map(c => `${c} ${share(dealt[c], total)}`).join('   ')}`);

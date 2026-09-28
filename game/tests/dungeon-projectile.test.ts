@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey } from '../app/dungeon-floor.ts';
-import { BOLT_RADIUS, flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../app/dungeon-projectile.ts';
+import { BOLT_RADIUS, deathPool, flyHostile, flyShot, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../app/dungeon-projectile.ts';
+import { chainLength, WEAPONS } from '../app/dungeon-weapon.ts';
 
 const openFloor = (half = 10) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
 const cells = openFloor();
@@ -54,6 +55,19 @@ test('piercing spends itself on the nearest body first', () => {
   assert.deepEqual(single.hits, [4], 'without pierce only the near one');
 });
 
+test('two bodies brushed in one step: a spent bolt stops in the nearer, whatever the caller\'s order', () => {
+  // One frame at 19 u/s is a single step of about 0.32, so both bodies sit inside the same swept segment.
+  // Only the order along the path can decide between them; the caller lists the far one first.
+  const far = mark(0, -.3, 7), near = mark(.2, -.05, 4);
+  const shot = bolt();
+  const flight = flyShot(shot, cells, [far, near], 1 / 60);
+  assert.deepEqual(flight.hits, [4], 'the bolt went through the near body to bill the far one');
+  assert.ok(flight.done);
+  assert.deepEqual([...shot.spent], [4], 'the far body was marked as billed by a bolt that never reached it');
+  // With one pierce left over it takes both, still nearest first.
+  assert.deepEqual(flyShot(bolt({ pierce: 1 }), cells, [far, near], 1 / 60).hits, [4, 7]);
+});
+
 test('a body off to the side of the line is missed', () => {
   assert.deepEqual(flyShot(bolt(), cells, [mark(BOLT_RADIUS + .3, -.3)], 1 / 60).hits, []);
   assert.deepEqual(flyShot(bolt(), cells, [mark(BOLT_RADIUS - .2, -.3)], 1 / 60).hits, [0]);
@@ -81,6 +95,31 @@ test('the quiver refills on its own clock and never past full', () => {
   for (const bad of [0, -1, Number.NaN]) assert.deepEqual(reloadStep(1, 4, .5, 1.8, bad), { spare: 1, timer: .5 });
 });
 
+test('held fire outpaces the refill on every ranged arm, so the quiver drains and stays drained', () => {
+  // The relation ranged.spec.ts's "sustained fire" depends on. Held, the trigger restarts the swing the
+  // frame the last one ends and the shot leaves at its anticipation, so one leaves every `duration`
+  // seconds while one comes back every `refill`: a quiver that refilled faster than it fires would let
+  // the knight back away shooting forever.
+  const ranged = Object.values(WEAPONS).filter(weapon => weapon.ranged);
+  assert.ok(ranged.length >= 2, 'the crossbow and the flask are both ranged');
+  for (const weapon of ranged) {
+    const { capacity, refill } = weapon.ranged!;
+    assert.equal(chainLength(weapon), 1, `${weapon.id} is a string, so its cadence is not one duration`);
+    assert.ok(weapon.duration < refill, `${weapon.id} fires every ${weapon.duration}s but refills every ${refill}s`);
+    // Thirteen seconds of held fire at 60 fps, as the game's loop drives the quiver and the reload clock.
+    let spare = capacity, timer = 0, swing = 0, loosed = false;
+    const dt = 1 / 60;
+    for (let frame = 0; frame < 13 * 60; frame++) {
+      if (spare < capacity) ({ spare, timer } = reloadStep(spare, capacity, timer, refill, dt));
+      swing += dt;
+      if (!loosed && swing >= weapon.anticipation) { loosed = true; if (spare > 0) spare -= 1; }
+      if (swing >= weapon.duration) { swing -= weapon.duration; loosed = false; }
+      // After nine seconds, as the browser samples it: at the bottom, oscillating between none and one.
+      if (frame >= 9 * 60) assert.ok(spare <= 1, `${weapon.id} climbed back to ${spare} under held fire`);
+    }
+  }
+});
+
 test('fire on the ground bites on its own clock, once a frame at most', () => {
   const pool: Pool = { x: 0, z: 0, radius: 2.2, life: 2.5, damage: 8, interval: .5, timer: 0 };
   // The first frame bills, because the timer starts spent: a flask that lands on a body should bite it.
@@ -104,4 +143,50 @@ test('fire catches what stands in it and nothing outside it', () => {
   assert.equal(poolCatches(pool, 3, -2), true);
   assert.equal(poolCatches(pool, 3 + 2.1, -2), true);
   assert.equal(poolCatches(pool, 3 + 2.3, -2), false);
+});
+
+test("an archer's bolt stops on the knight it reaches, and flies on through one mid-dash", () => {
+  const loose = () => hostileBolt({ x: 0, z: 0 }, { x: 0, z: -1 }, { speed: 13, flight: .7 }, 10);
+  const knight = { x: 0, z: -2 };
+  // Walked until it either reaches him or runs out of air.
+  const fly = (immune: boolean) => {
+    const shot = loose();
+    for (let frame = 0; frame < 60; frame++) {
+      const flight = flyHostile(shot, cells, knight, immune, 1 / 60);
+      shot.x = flight.x; shot.z = flight.z; shot.life = flight.life; shot.pierce = flight.pierce;
+      if (flight.hit || flight.done) return { ...flight, frame };
+    }
+    throw new Error('the bolt neither landed nor finished in a second');
+  };
+  const landed = fly(false);
+  assert.deepEqual([landed.hit, landed.done], [true, true], 'a bolt that reached the knight did not stop on him');
+  assert.ok(landed.z > -2 && landed.z < -2 + BOLT_RADIUS + .3, `it stopped at z ${landed.z}, not at the knight`);
+  // Immune, he is not there to hit: the same bolt passes him and falls out of the air further on.
+  const through = fly(true);
+  assert.equal(through.hit, false, 'an immune knight was hit');
+  assert.ok(through.z < knight.z - 1, `the bolt was spent on an immune knight at z ${through.z}`);
+  // It carries what the archer dealt it, and passes through nobody.
+  assert.deepEqual([loose().damage, loose().pierce], [10, 0]);
+});
+
+test("stone stops an archer's bolt short of a knight behind it", () => {
+  const walled = new Set(cells); walled.delete(cellKey(0, -1));
+  const shot = hostileBolt({ x: 0, z: 0 }, { x: 0, z: -1 }, { speed: 13, flight: .7 }, 10);
+  let flight = flyHostile(shot, walled, { x: 0, z: -4 }, false, 1 / 60);
+  for (let frame = 0; frame < 60 && !flight.done; frame++) {
+    shot.x = flight.x; shot.z = flight.z; shot.life = flight.life; shot.pierce = flight.pierce;
+    flight = flyHostile(shot, walled, { x: 0, z: -4 }, false, 1 / 60);
+  }
+  assert.deepEqual([flight.struck, flight.hit], [true, false]);
+});
+
+test('a pyre leaves fire where it falls, and no other kind leaves any', () => {
+  const at = { x: 3, z: -2 };
+  const fire = deathPool('pyre', at);
+  assert.ok(fire, 'a pyre left no fire');
+  assert.deepEqual([fire!.x, fire!.z], [3, -2]);
+  assert.ok(poolCatches(fire!, 3.5, -2) && !poolCatches(fire!, 3 + fire!.radius + 0.1, -2), 'the fire is not where the pyre fell');
+  // It bites on its first frame rather than a full interval later.
+  assert.equal(poolStep(fire!, 1 / 60).bites, 1);
+  for (const kind of ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'bonecaller', 'rattler'] as const) assert.equal(deathPool(kind, at), null, `${kind} left fire`);
 });

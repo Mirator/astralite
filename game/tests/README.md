@@ -3,21 +3,24 @@
 Two layers: a node suite over the pure modules, and hooks the running game exposes so a browser
 console (or an automated driver) can steer a run without playing it by hand.
 
+Before adding or changing a test, read "Writing tests that can fail" in `AGENTS.md`: every test has to be
+shown failing on the bug it names, and the rules there are what a September 2026 audit of this suite needed.
+
 ## Node suite
 
 ```bash
 npm test
 ```
 
-Runs `tests/*.test.ts` through node's type stripping — no build step, no DOM. It covers the four
-pure modules:
+Runs `tests/*.test.ts` through node's type stripping — no build step, no DOM. It covers the pure
+modules:
 
 - **The floor generator** (`dungeon-floor.ts`): the room graph is a tree, every room is reachable, the
   stair sits at the end of the trunk, dead ends are stubs, corridors never bypass the trunk, guards
   spawn on walkable floor, the gate is safe, quiet halls never come in pairs, deeper floors are meaner,
   and generation stays fast enough to rebuild a floor mid-run.
 - **The run simulation** (`dungeon-sim.ts`): the rank ladder, every boon, the damage and
-  invulnerability rules, kill rewards, the boon draft and the stair dwell.
+  invulnerability rules, kill rewards and the boon draft.
 - **The spatial rules** (`dungeon-enemy.ts`): the activation cutoff, pursuit steps off the flood map,
   when a windup starts and whether the committed swing connects, the stalker pounce and its swept
   contact test, and the crowd-separation pass. Collision itself (`canStand`, `moveOnFloor`) is covered
@@ -27,18 +30,36 @@ pure modules:
 - **Specials** (`tests/dungeon-special.test.ts`, plan 016): each special's timing, travel, reach and damage, the
   gate that keeps one off a live strike, the cooldown that starts at contact, and the balance batch's `special`
   policy.
+- **The knight's clocks** (`dungeon-player.ts`): when a strike buffers and when it fires, how a string
+  links, stays open and closes, a dash buffered behind a live blade and what a dash cancels, which way
+  the knight turns and travels, hit-stop, and what a reset, a halt, a new arm and a dropped buffer each
+  clear.
+- **Input decoding** (`dungeon-input.ts`): key legends, which device slot holds an action, the screen
+  basis a push becomes a heading on, what a keydown asks for against the bindings, every
+  `dungeon-action` detail, the cursor's NDC and the pad's deadzone.
+- **The combat fixture** (`dungeon-fixture.ts`): what the dev-only `configureCombatFixture` accepts and
+  the message each refusal names.
+- **Landed blows** (`dungeon-hits.ts`): what steel, a bolt and fire each do to the body they land on -
+  damage, the flash, which windups a blow breaks and which it cannot, the cooldown it leaves, how far it
+  shoves a guard and a warden, and whether it killed. What a kill pays stays with the game's `fell` and
+  `settleRoom`.
 
-Anything involving three.js, the DOM or input is **not** covered here — use the browser hooks.
+Anything involving three.js, the DOM or the event listeners themselves is **not** covered here — use
+the browser hooks. The world closure in `dungeon-game.tsx` still owns the listeners and decides *when*
+each of these rules is asked; the modules above decide what the answer is.
 
 ### Where an enemy decision lives
 
-`dungeon-enemy.ts` decides *what* a body does; `dungeon-game.tsx` does it. `decideEnemy` takes a plain
+`dungeon-enemy.ts` decides *what* a body does; `dungeon-game.tsx` does it, and `dungeon-enemy-view.ts`
+draws it. `decideEnemy` takes a plain
 snapshot of one enemy (kind, position, room, cooldown, hitFlash, windup, lunge, tell, speed, aim), the
 knight's position, the floor's walkable cells plus the flood distances, and a frame delta, and returns an
 `EnemyIntent` — `act` (`inert` / `lunge` / `windup` / `ready`), the new position and timers, the yaw to
 face, whether the blow connects and which cue to sound. It mutates nothing. The renderer keeps the
 `THREE.Group`, limb and weapon poses, audio, particles, emissive flashes, health bars and telegraphs —
-all of which consume the intent rather than deciding it. `separateCrowd` is the same deal for the
+all of which consume the intent rather than deciding it. `spawnEnemy`, `markEnemy` and `poseEnemy` in
+`dungeon-enemy-view.ts` build a body and put its marks and its decision on screen; the loop in the game
+file keeps the gameplay between them (noticing, the contagion wake-up, the blow landing). `separateCrowd` is the same deal for the
 crowd pass: bodies in, fresh points out.
 
 ### Invulnerability
@@ -93,12 +114,13 @@ automated drivers; nothing in the game itself calls them.
 | `dungeonTest.teleport(x, z)` | Moves the knight in world units (`tileX * TILE`) |
 | `dungeonTest.descend()` | Takes the stair without fighting, capped at the last floor |
 | `dungeonTest.buildFloor(level)` | Rebuilds the floor at any level, including past the last one |
+| `dungeonTest.buildArena(roster, level = 1)` | Development only: rebuilds as an arena, `roster` awake in the gate (see [The arena](#the-arena)) |
 | `dungeonTest.grantXp(amount)` | Awards XP, so the boon draft can be reached in one line |
 | `dungeonTest.runLog()` | The stored history of finished runs, oldest first — re-read and re-validated on every call |
 
 `dungeonTest.runLog()` is how a balance question stops being a memory: `copy(JSON.stringify(window.dungeonTest.runLog()))`
 gives every finished run since the log was capped, each one `{ at, floor, won, cause, seconds, rank, xp, kills, boons, seed }`,
-so deaths can be counted per floor and per `cause` (`guard` / `stalker` / `warden` / `hazard`, null on a win)
+so deaths can be counted per floor and per `cause` (any enemy kind in `ENEMY_KINDS`, or `hazard`; null on a win)
 and any run worth seeing again replayed with `restart:<seed>`.
 
 `render_game_to_text().settings` reports the stored settings plus what they currently amount to:
@@ -145,6 +167,30 @@ reports the current one), which makes a deterministic run reproducible from the 
 const seed = JSON.parse(window.render_game_to_text()).floor.seed;
 window.dispatchEvent(new CustomEvent('dungeon-action', { detail: `restart:${seed}` }));
 ```
+
+### The arena
+
+`?arena=guard:2,archer:1&level=2` (counts optional, `level` 1-3, default 1) works in every build, the published
+one included, and the menu's kicker then reads `ARENA · 3 FOES · FLOOR 2`. In development the menu's
+**Arena · dev** page and `window.dungeonTest.buildArena(['warden', 'archer'], 2)` do the same. Either way it charts every floor as an
+arena: the floor that seed would have laid, with every spawn cleared and the roster awake on a ring in the
+gate, clear of where the knight arrives and of the rack (`app/dungeon-arena.ts`). The stair is open from the
+start, since no warden bars it, and taking it brings the same roster a floor deeper; a restart keeps it.
+The menu page's **Ordinary keep**, or `dungeonTest.reset`, leaves it. `render_game_to_text().arena` reports
+`{ roster, level }` or null, which is also how the pooled suite notices a scenario that forgot to leave it.
+A link that names an unknown kind or a bad count is ignored whole rather than half-obeyed. An arena run is never
+recorded: no run log entry, no best run, and its seed does not become LAST KEEP.
+
+Five kinds exist only here - `shieldbearer`, `reaper`, `pyre`, `bonecaller`, `rattler` - with
+`firstFloor: Infinity` and no share in `PACK_MIX`, so the floor generator never deals them and the descent
+plays as it did; `tests/browser/arena-kinds.spec.ts` drives them. A bonecaller arrives with four rattlers
+buried under it and raises two per call: `render_game_to_text().enemies` lists them with `buried: true` (and
+`summoner`, the spawn index that raises them) while underground. One cut down while its caller stands goes
+back under, whole and unpaid; when the caller falls, every one it called crumbles, standing or buried. Each
+enemy also reports `blocked` (blows a shieldbearer turned aside); `hostilePools` lists the fire a pyre left.
+
+It is the quickest way to look at a new kind in the game rather than on the bench. Only the link ships:
+`npm run build:check` fails if the menu page's event name or its menu label reaches the production bundle.
 
 ### Staging a fight
 
@@ -203,8 +249,8 @@ window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'start' }));
 const stair = S().floor.rooms[S().floor.goal];
 window.dungeonTest.teleport(stair.x * 1.48, stair.z * 1.48);
 window.advanceTime(200, false);
-S().objective; // { floor, halls, goalDepth, atStair, stairClear, stairOpen, stairDwell, … }
-S().stair;     // { x, z, radius, dwell } — the open stair takes the knight after `dwell` seconds standing on it
+S().objective; // { floor, halls, goalDepth, atStair, stairClear, stairOpen, onStair, … }
+S().stair;     // { x, z, radius } — the open stair takes the knight when he stands within `radius` and presses the swap key
 ```
 
 Open the boon draft (it freezes the world until a card is clicked, so yield to React first):
@@ -290,8 +336,10 @@ What to check for plan 016:
   dodge. A dodge with the cursor parked to one side keeps the next strike aimed at the cursor. `Tab`
   opens and closes the map; in the menus it still moves focus.
 - **Keyboard only:** `J` strike, `K` special, `L` dodge; aim snaps onto the body in front.
-- **Pad:** A strike, X special, B or RB dodge (hold A and tap RB), Y takes an arm, View opens the map,
-  Start pauses.
+- **Pad:** A strike, X special, B or RB dodge (hold A and tap RB), Y takes an arm or the open stair,
+  View opens the map, Start pauses.
+- **The stair:** once its wardens fall, standing on it only shows the prompt; the swap binding (`E`,
+  pad Y, or a tap on the prompt) takes it down. Standing there does nothing on its own.
 - **Each special:** it reads as a distinct move, its HUD icon sweeps back after the cooldown, and a
   dodge in its wind-up cancels it at no cost. The Slam's ring shows the reach while charging and the
   shock ring on impact. The Vault goes over the body in the aim and lands behind it inside a mint ring;
@@ -343,8 +391,8 @@ human looks at it.
 
 The output directory is under the root `outputs/` ignore rule rather than under `test-results/`, which the
 next `npm run test:browser` empties. It holds `before/` and `after/` (the PNGs, `costs.json`, `meta.json`
-and the run's `run.log`), `diff/`, `summary.json` and the sheet. The diff is `scripts/shots/diff.ts`, the
-same one `zz-pixel-diff.spec.ts` reports.
+and the run's `run.log`), `diff/`, `summary.json` and the sheet. The diff is `scripts/shots/diff.ts`. To diff
+two capture folders you already have, pass both: `npm run shots:compare -- --before <dir> --after <dir>`.
 
 What `--base HEAD` looks like on d3d11 (2026-09-22, `e2f49b5`), which is the floor under any real change:
 the flooded hall and the warden chamber are identical; the strike contact frame, the shrine and every strip

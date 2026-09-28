@@ -274,6 +274,11 @@ jobs:
       # exactly what a pull request should catch, before main is the thing broken.
       - run: npm run build
 
+      # The development-only hooks (the combat fixture, the diagnostics) and the
+      # `?boot=eager` switch are dropped only because NODE_ENV is inlined; this
+      # fails the build if any of them ever reaches the published bundle.
+      - run: npm run build:check
+
       # GitHub Pages serves from a repository sub-path; the export writes
       # root-absolute asset URLs. See scripts/pages-relative-paths.mjs.
       # Unconditional so that a regression in the rewrite surfaces on the pull

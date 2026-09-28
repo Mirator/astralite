@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
-import { ALERT_RADIUS, ALERT_STAGGER, BASE_STATS, HIT, HIT_COOLDOWN, hitCooldown, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, interruptsWindup, LUNGE_SPEED, LUNGE_TIME, nearbyDozers, NOTICE_TIME, PATROL_SPAN, PATROL_SPEED, pursuitStep, RECOVERY, separateCrowd, sweptContact, type CrowdBody, type EnemyView, type Wakeable, type World } from '../app/dungeon-enemy.ts';
+import { AIM_LOCK, fallOf, raiseSpot, RAISE_SPREAD, ALERT_RADIUS, ALERT_STAGGER, BASE_STATS, BESTIARY, ENEMY_KINDS, HIT, HIT_COOLDOWN, hitCooldown, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, interruptsWindup, LUNGE_SPEED, LUNGE_TIME, nearbyDozers, NOTICE_TIME, PATROL_SPAN, PATROL_SPEED, pursuitStep, RECOVERY, separateCrowd, sweptContact, type CrowdBody, type EnemyView, type Wakeable, type World } from '../app/dungeon-enemy.ts';
 
 // A square of open floor wide enough that nothing in these tests walks off it.
 const openFloor = (half = 8) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
@@ -289,9 +289,15 @@ test('bodies grow with the floor: vitality by one blade a floor, damage by fifte
     guard: { hp: 2 * HIT, damage: 12, tell: 0.5, speed: 2.2 },
     stalker: { hp: 2 * HIT, damage: 8, tell: 0.58, speed: 3.2 },
     warden: { hp: 4 * HIT, damage: 20, tell: 0.72, speed: 1.65 },
+    archer: { hp: 1.5 * HIT, damage: 10, tell: 0.75, speed: 2.3 },
+    shieldbearer: { hp: 3 * HIT, damage: 10, tell: 0.6, speed: 1.9 },
+    reaper: { hp: 3 * HIT, damage: 18, tell: 1.0, speed: 1.9 },
+    pyre: { hp: 1.5 * HIT, damage: 8, tell: 0.5, speed: 2.4 },
+    bonecaller: { hp: 2 * HIT, damage: 0, tell: 1.2, speed: 2.2 },
+    rattler: { hp: 1 * HIT, damage: 5, tell: 0.38, speed: 3.6 },
   });
   // Floor one is exactly the base table, so every browser fixture pinned to floor one still holds.
-  for (const kind of ['guard', 'stalker', 'warden'] as const) assert.deepEqual(enemyStats(kind, 1), BASE_STATS[kind]);
+  for (const kind of ENEMY_KINDS) assert.deepEqual(enemyStats(kind, 1), BASE_STATS[kind]);
   assert.deepEqual([enemyStats('guard', 2).hp, enemyStats('guard', 3).hp], [3 * HIT, 4 * HIT]);
   // A floor-three stair is three wardens; at eight blades each that was a slog, so a warden grows like the rest.
   assert.deepEqual([enemyStats('warden', 2).hp, enemyStats('warden', 3).hp], [5 * HIT, 6 * HIT]);
@@ -299,7 +305,7 @@ test('bodies grow with the floor: vitality by one blade a floor, damage by fifte
   assert.deepEqual([1, 2, 3].map(level => enemyStats('stalker', level).damage), [8, 9, 10]);
   assert.deepEqual([1, 2, 3].map(level => enemyStats('warden', level).damage), [20, 23, 26]);
   // Tells and speeds hold still so a read learned on floor one stays true.
-  for (const level of [2, 3]) for (const kind of ['guard', 'stalker', 'warden'] as const) {
+  for (const level of [2, 3]) for (const kind of ENEMY_KINDS) {
     assert.equal(enemyStats(kind, level).tell, BASE_STATS[kind].tell);
     assert.equal(enemyStats(kind, level).speed, BASE_STATS[kind].speed);
   }
@@ -335,4 +341,135 @@ test('a broken swing costs a recovery, an ordinary blow costs the usual cooldown
   assert.equal(hitCooldown('guard', true, false), HIT_COOLDOWN);
   assert.equal(hitCooldown('guard', false, false), HIT_COOLDOWN);
   assert.ok(RECOVERY.warden > HIT_COOLDOWN, 'a stagger has to be worth more than a plain blow');
+});
+
+// The archer. Every number is read off the bestiary rather than restated, so these hold the rule, not a tuning.
+const archer = (patch: Partial<EnemyView> = {}) => foe({ kind: 'archer', tell: BASE_STATS.archer.tell, speed: BASE_STATS.archer.speed, ...patch });
+
+test('an archer commits from range down a clear line, and not through stone', () => {
+  const cells = openFloor();
+  const reach = BESTIARY.archer.attackRange;
+  assert.ok(reach > BESTIARY.stalker.attackRange, 'an archer that commits no further out than a stalker is not ranged');
+  const start = decideEnemy(archer(), { x: 0, z: reach - 0.5 }, world(cells), 0.05);
+  assert.deepEqual([start.act, start.windup, start.sound], ['ready', BASE_STATS.archer.tell, 'warn']);
+  assert.deepEqual(start.aim, { x: 0, z: 1 });
+  assert.equal(decideEnemy(archer(), { x: 0, z: reach + 0.5 }, world(cells), 0.05).windup, 0, 'past its range it has to walk');
+  // Same distance, a pillar in the way: no line, no shot.
+  const pillar = floorFrom(['.', '.', '#', '.', '.', '.', '.']);
+  assert.equal(decideEnemy(archer(), { x: 0, z: 5 * TILE }, world(pillar), 0.05).windup, 0, 'a wall between them is not a line');
+});
+
+test("an archer's lane follows the knight until the lock, then holds where it pointed", () => {
+  const cells = openFloor(), knight = { x: 3, z: 0 };
+  // Early in the tell: the lane swings round onto where the knight has moved to.
+  const tracking = decideEnemy(archer({ windup: AIM_LOCK + 0.2, aim: { x: 0, z: 1 } }), knight, world(cells), 0.05);
+  assert.equal(tracking.act, 'windup');
+  assert.ok(near(tracking.aim.x, 1) && near(tracking.aim.z, 0), `the lane did not follow: ${JSON.stringify(tracking.aim)}`);
+  // Inside the lock: the same knight in the same place, and the lane stays on the old line.
+  const locked = decideEnemy(archer({ windup: AIM_LOCK - 0.05, aim: { x: 0, z: 1 } }), knight, world(cells), 0.05);
+  assert.equal(locked.act, 'windup');
+  assert.deepEqual(locked.aim, { x: 0, z: 1 }, 'the lane kept following after the lock');
+  // A guard's aim never tracked, lock or no lock: that is what a swing's tell is.
+  assert.deepEqual(decideEnemy(foe({ windup: AIM_LOCK + 0.2, aim: { x: 0, z: 1 } }), knight, world(cells), 0.05).aim, { x: 0, z: 1 });
+});
+
+test('an archer looses a bolt along the locked lane and never lands a blow of its own', () => {
+  const cells = openFloor();
+  // Standing right on the line and inside any melee reach: a guard here connects, which is what makes
+  // the archer's miss mean something.
+  assert.equal(decideEnemy(foe({ windup: 0.04, aim: { x: 0, z: 1 } }), { x: 0, z: 1 }, world(cells), 0.05).hit, true);
+  const done = decideEnemy(archer({ windup: 0.04, aim: { x: 0, z: 1 } }), { x: 0, z: 1 }, world(cells), 0.05);
+  assert.deepEqual([done.act, done.windup, done.hit, done.sound, done.cooldown], ['windup', 0, false, 'slash', RECOVERY.archer]);
+  assert.deepEqual(done.loose, { x: 0, z: 1 });
+  // Looses down the locked lane even when the knight has since stepped off it: the bolt is what has to find him.
+  assert.deepEqual(decideEnemy(archer({ windup: 0.04, aim: { x: 0, z: 1 } }), { x: 4, z: 0 }, world(cells), 0.05).loose, { x: 0, z: 1 });
+  // Nothing else ever looses, and an archer mid-tell has not loosed yet.
+  assert.equal(decideEnemy(foe({ windup: 0.04, aim: { x: 0, z: 1 } }), { x: 0, z: 1 }, world(cells), 0.05).loose, null);
+  assert.equal(decideEnemy(archer({ windup: 0.3, aim: { x: 0, z: 1 } }), { x: 0, z: 1 }, world(cells), 0.05).loose, null);
+});
+
+test('an archer gives ground while it recovers inside its keep-away, and closes from outside it', () => {
+  // The flood leads toward +z, where the knight stands, so walking in reads as z going up.
+  const cells = openFloor(), close = { x: 0, z: BESTIARY.archer.keepAway - 1.5 }, toward = (z: number) => world(cells, { pathDistance: (x, cz) => Math.abs(x) + Math.abs(cz - z) });
+  const backing = decideEnemy(archer({ cooldown: 1 }), close, toward(1), 0.1);
+  assert.equal(backing.act, 'ready');
+  assert.ok(near(backing.z, -BASE_STATS.archer.speed * 0.1), `it did not back straight away: z ${backing.z}`);
+  // A guard in the same spot walks in, so it is the archer's rule and not the geometry.
+  assert.ok(decideEnemy(foe({ cooldown: 1 }), close, toward(1), 0.1).z > 0, 'a guard at the same range did not walk in');
+  // Recovered and with a line, it shoots from where it stands rather than backing off further.
+  assert.equal(decideEnemy(archer(), close, toward(1), 0.1).windup, BASE_STATS.archer.tell);
+  // Out past its range it walks in like anything else.
+  assert.ok(decideEnemy(archer({ cooldown: 1 }), { x: 0, z: BESTIARY.archer.attackRange + 1 }, toward(4), 0.1).z > 0, 'an archer out of range never closed');
+});
+
+test('an archer flinches out of an early tell like a guard, and is frailer than one', () => {
+  assert.equal(interruptsWindup('archer', COMMITTED_WINDUP + 0.1), true);
+  assert.equal(interruptsWindup('archer', COMMITTED_WINDUP - 0.01), false);
+  assert.ok(BASE_STATS.archer.hp < BASE_STATS.guard.hp, 'an archer as tough as a guard has no reason to be reached');
+});
+
+// The arena-only kinds. Numbers again come off the bestiary.
+const kind = (k: EnemyView['kind'], patch: Partial<EnemyView> = {}) => foe({ kind: k, tell: BASE_STATS[k].tell, speed: BASE_STATS[k].speed, ...patch });
+
+test('a reaper sweeps everything in reach on every side, and nothing past it or behind a wall', () => {
+  const cells = openFloor(), reach = BESTIARY.reaper.strikeRange;
+  // Aimed at +z, knight directly behind it at -z: a guard would whiff, a sweep does not.
+  assert.equal(decideEnemy(foe({ windup: 0.04, aim: { x: 0, z: 1 } }), { x: 0, z: -1.2 }, world(cells), 0.05).hit, false, 'precondition: a guard misses behind itself');
+  const behind = decideEnemy(kind('reaper', { windup: 0.04, aim: { x: 0, z: 1 } }), { x: 0, z: -(reach - 0.2) }, world(cells), 0.05);
+  assert.deepEqual([behind.act, behind.windup, behind.hit, behind.cooldown], ['windup', 0, true, RECOVERY.reaper]);
+  assert.equal(decideEnemy(kind('reaper', { windup: 0.04, aim: { x: 0, z: 1 } }), { x: reach + 0.2, z: 0 }, world(cells), 0.05).hit, false, 'a sweep reached past its reach');
+  assert.equal(decideEnemy(kind('reaper', { windup: 0.04, aim: { x: 0, z: 1 } }), { x: 0, z: 2 * TILE * 0.9 }, world(floorFrom(['.', '#', '.'])), 0.05).hit, false, 'a sweep cut through stone');
+  assert.ok(reach > BESTIARY.guard.strikeRange, 'a reaper that reaches no further than a guard is only a guard that spins');
+});
+
+test('a bonecaller raises instead of striking, keeps its distance, and a raised body stands between it and the knight', () => {
+  const cells = openFloor();
+  const called = decideEnemy(kind('bonecaller', { windup: 0.04 }), { x: 0, z: 1 }, world(cells), 0.05);
+  assert.deepEqual([called.act, called.raise, called.hit, called.cooldown], ['windup', true, false, RECOVERY.bonecaller]);
+  // Nothing else raises, and a caller mid-tell has not raised yet.
+  assert.equal(decideEnemy(foe({ windup: 0.04, aim: { x: 0, z: 1 } }), { x: 0, z: 1 }, world(cells), 0.05).raise, false);
+  assert.equal(decideEnemy(kind('bonecaller', { windup: 0.5 }), { x: 0, z: 1 }, world(cells), 0.05).raise, false);
+  // It starts a call from far off, down a clear line.
+  assert.equal(decideEnemy(kind('bonecaller'), { x: 0, z: BESTIARY.bonecaller.attackRange - 0.5 }, world(cells), 0.05).windup, BASE_STATS.bonecaller.tell);
+  // Recovering and too close, it backs off.
+  assert.ok(decideEnemy(kind('bonecaller', { cooldown: 1 }), { x: 0, z: 2 }, world(cells), 0.1).z < 0, 'a bonecaller stood its ground');
+  // Where the pair stands is the next test; walled in toward the knight, it rises on the caller's own spot rather than in stone.
+  assert.deepEqual(raiseSpot(floorFrom(['.', '#']), { x: 0, z: 0 }, { x: 0, z: 6 }), { x: 0, z: 0 });
+});
+
+test('the two bodies one call raises stand side by side across the line to the knight, not on each other', () => {
+  const cells = openFloor(), caller = { x: 0, z: 0 }, knight = { x: 0, z: 6 };
+  const [left, right] = [0, 1].map(slot => raiseSpot(cells, caller, knight, slot));
+  assert.equal(BESTIARY.bonecaller.summons?.perTell, 2, 'precondition: a call raises two');
+  assert.ok(Math.abs(Math.abs(left.x - right.x) - 2 * RAISE_SPREAD) < 1e-9, `the pair stood ${JSON.stringify([left, right])}, not spread across the line`);
+  assert.equal(left.z, right.z, 'one of the pair stood nearer the knight than the other');
+  for (const at of [left, right]) assert.ok(at.z > 0.5 && at.z < 2, `a raised body stood at ${JSON.stringify(at)}, not between caller and knight`);
+  // A side that is stone gives way to the middle of the pace, and that to the caller's own spot.
+  const narrow = floorFrom(['#.#', '#.#']), centre = { x: TILE, z: 0 }, ahead = { x: TILE, z: 6 };
+  assert.deepEqual(raiseSpot(narrow, centre, ahead, 1), { x: TILE, z: 1.3 }, 'a slot in stone did not fall back to the middle of the pace');
+});
+
+test('a raised body cut down while its caller stands goes back into the ground; when the caller falls, everything it called crumbles', () => {
+  // Spawn order is what `summoner` counts in: the caller, two it called (one up, one still buried), a guard.
+  const roster = () => [
+    { summoner: -1, dead: false, buried: false },
+    { summoner: 0, dead: false, buried: false },
+    { summoner: 0, dead: false, buried: true },
+    { summoner: -1, dead: false, buried: false },
+  ];
+  assert.deepEqual(fallOf(roster(), 1), { reassembles: true, crumble: [] }, 'a raised body died with its caller still standing');
+  assert.deepEqual(fallOf(roster(), 0), { reassembles: false, crumble: [1, 2] }, 'the caller fell and left what it called, standing or buried');
+  assert.deepEqual(fallOf(roster(), 3), { reassembles: false, crumble: [] }, 'a guard took bodies down with it');
+  // With the caller already gone a raised body has nowhere to go back to, and one already down is not crumbled twice.
+  const orphaned = roster(); orphaned[0].dead = true;
+  assert.deepEqual(fallOf(orphaned, 1), { reassembles: false, crumble: [] }, 'a raised body outlived its caller and still went back into the ground');
+  const spent = roster(); spent[1].dead = true;
+  assert.deepEqual(fallOf(spent, 0).crumble, [2], 'a body already dead crumbled again');
+});
+
+test('the arena-only kinds are never dealt by the floor generator, on any floor', () => {
+  const arenaOnly = ['shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler'] as const;
+  for (const k of arenaOnly) assert.equal(BESTIARY[k].firstFloor, Infinity, `${k} can be dealt`);
+  // A rattler dies to one blow of a starting blade, which is its whole point.
+  assert.ok(BASE_STATS.rattler.hp <= HIT, 'a rattler takes more than one blow');
 });

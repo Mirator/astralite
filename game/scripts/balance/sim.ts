@@ -13,12 +13,13 @@
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
 import { canAbortSwing, DASH_TIME, dashImmune, dragToward, lineContacts, playerSpeed, specialAvailable, specialGate, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
-import { ALERT_STAGGER, decideEnemy, enemyStats, hitCooldown, interruptsWindup, nearbyDozers, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
+import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, nearbyDozers, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
+import { landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
-import { BOLT_RADIUS, flashpointHits, flyShot, homeStep, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
-import { clearRoomReward, createRun, draftBoons, heal, hurt, resolveKill, specialReady, spendSpecial, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
+import { BOLT_RADIUS, flashpointHits, flyHostile, flyShot, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
+import { clearRoomReward, createRun, draftBoons, heal, hurt, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
 export const FLOORS = 3;
@@ -27,7 +28,7 @@ const DT = 1 / 60;
 /** A floor that has not resolved in this much simulated time is reported stuck rather than scored. */
 const FLOOR_TIMEOUT = 480;
 
-export type Cause = 'guard' | 'stalker' | 'warden' | 'hazard';
+export type Cause = EnemyKind | 'hazard';
 
 /** How well the knight plays. One policy across a batch is what makes two batches comparable. */
 export type Policy = {
@@ -278,7 +279,7 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
 function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number): FloorReport {
   const floor = generateFloor(seed, level);
   const weapon = policy.weapon;
-  const damage: Record<Cause, number> = { guard: 0, stalker: 0, warden: 0, hazard: 0 };
+  const damage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
   let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0, specialCount = 0;
   let idle = 0, aloneRun = 0, aloneMax = 0, firstContactSum = 0, firstContactCount = 0;
   // Rooms already given a first-contact measurement (whether it resolved or the knight walked on), so a
@@ -322,7 +323,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const player = { x: floor.rooms[0].x * TILE, z: floor.rooms[0].z * TILE };
   const facing = { x: 0, z: 1 };
   let attackFacing = { x: 0, z: 1 };
-  let attackTime = 0, dashTime = 0, dashCooldown = 0, stairDwell = 0, t = 0;
+  let attackTime = 0, dashTime = 0, dashCooldown = 0, t = 0;
   // The attack string, exactly as dungeon-game.tsx keeps it. Without this the batch measures a
   // chainless sword against a game that chains, which is the same class of mistake as the
   // navigator aiming perfectly while the player could not.
@@ -340,6 +341,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const isSpecial = () => swingKind === 'special';
   const swingHits = new Set<Body>();
   const shots: Shot[] = [];
+  // Bolts loosed at the knight, with the kind that loosed them for the damage split.
+  const hostile: { shot: Shot; kind: EnemyKind }[] = [];
   let quiver = weapon.ranged ? weapon.ranged.capacity : 0, reload = 0;
   const pools: Pool[] = [];
   const cleared = new Set<number>([0]);
@@ -415,13 +418,20 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     const live = bodies.filter(b => !b.dead && b.awake);
 
     // --- the knight's turn ---------------------------------------------------------------------
-    // A tell it has had time to read, from something close enough to land, is worth a dodge.
-    const threat = live.find(b => b.windup > 0 && b.tell - b.windup >= policy.reaction
-      && Math.hypot(b.x - player.x, b.z - player.z) < STRIKE_RANGE[b.kind] + (b.kind === 'stalker' ? 2.6 : 0.4));
+    // A tell it has had time to read, from something close enough to land, is worth a dodge. A volley is
+    // read from its lock rather than its start - dodging a lane that is still following him only moves
+    // the lane - and the bolt's flight to him is reaction time too.
+    const readable = (b: Body) => {
+      const bolt = BESTIARY[b.kind].bolt;
+      if (!bolt) return b.tell - b.windup >= policy.reaction;
+      return b.windup <= AIM_LOCK && AIM_LOCK - b.windup + Math.hypot(b.x - player.x, b.z - player.z) / bolt.speed >= policy.reaction;
+    };
+    const threat = live.find(b => b.windup > 0 && readable(b)
+      && Math.hypot(b.x - player.x, b.z - player.z) < STRIKE_RANGE[b.kind] + (BESTIARY[b.kind].attack === 'pounce' ? 2.6 : 0.4));
     if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, swing) && nerve() < policy.dodge) {
-      // A pounce is out-run sideways; a swing is out-run backwards.
+      // A pounce or a bolt is out-run sideways; a swing is out-run backwards.
       const away = unit(player.x - threat.x, player.z - threat.z);
-      const step = threat.kind === 'stalker' ? { x: -away.z, z: away.x } : away;
+      const step = BESTIARY[threat.kind].attack !== 'swing' ? { x: -away.z, z: away.x } : away;
       facing.x = step.x; facing.z = step.z;
       dashTime = DASH_TIME; dashCooldown = run.dashSpan; attackTime = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; swingHits.clear();
       charging = null; swingKind = 'strike';
@@ -615,15 +625,10 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         if (vaulting && body !== leap?.target) continue;
         if (!(line && lineTo ? lineContacts(floor.cells, lungeFrom, lineTo, body, line.width) : swordContacts(floor.cells, player, attackFacing, body, run.reach, swing))) continue;
         swingHits.add(body);
-        body.hp -= swing.damage + run.strike;
-        body.hitFlash = 0.2;
-        const broke = interruptsWindup(body.kind, body.windup, swing.stagger);
-        if (broke) body.windup = 0;
-        body.cooldown = Math.max(body.cooldown, hitCooldown(body.kind, broke, swing.stagger));
-        // A strike shoves with the arm's own numbers, as it always has here; a special with its own.
+        // The game's own blow: damage, flash, broken tell, cooldown and shove, in dungeon-hits. A strike shoves
+        // with the arm's own numbers, as it always has here; a special with its own.
         const shover = isSpecial() ? swing : weapon;
-        const push = unit(body.x - player.x, body.z - player.z), shove = body.kind === 'warden' ? shover.wardenKnockback : shover.knockback;
-        moveOnFloor(floor.cells, body, push.x * shove, push.z * shove);
+        landBlow(floor.cells, body, body, { damage: swing.damage + run.strike, stagger: swing.stagger, knockback: shover.knockback, wardenKnockback: shover.wardenKnockback }, unit(body.x - player.x, body.z - player.z));
         if (body.hp <= 0) {
           body.dead = true;
           resolveKill(run);
@@ -664,6 +669,22 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         if (dealt && live.filter(b => Math.hypot(b.x - player.x, b.z - player.z) < 4).length >= 3) surrounded += dealt;
         if (run.hp <= 0) return endFloor('died');
       }
+      // dungeon-game.tsx looses the same bolt on the same frame.
+      const bolt = BESTIARY[body.kind].bolt;
+      if (intent.loose && bolt) hostile.push({ kind: body.kind, shot: hostileBolt(body, intent.loose, bolt, body.damage) });
+    }
+
+    // Bolts at the knight fly after the bodies have moved, as the game flies them.
+    for (let i = hostile.length - 1; i >= 0; i--) {
+      const { shot, kind } = hostile[i];
+      const flight = flyHostile(shot, floor.cells, player, dashImmune(dashTime), DT);
+      shot.x = flight.x; shot.z = flight.z; shot.life = flight.life; shot.pierce = flight.pierce;
+      if (flight.done) hostile.splice(i, 1);
+      if (!flight.hit) continue;
+      const dealt = hurt(run, shot.damage, { dashing: dashImmune(dashTime), warded: true });
+      damage[kind] += dealt;
+      if (dealt && live.filter(b => Math.hypot(b.x - player.x, b.z - player.z) < 4).length >= 3) surrounded += dealt;
+      if (run.hp <= 0) return endFloor('died');
     }
 
     // Bolts fly after the bodies have moved, against where they actually are this frame.
@@ -678,20 +699,15 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           const body = bodies[index];
           if (body.dead) continue;
           if (!hurled) landedCount += 1;
-          body.hp -= shot.damage;
-          body.hitFlash = 0.2;
-          const staggers = hurled ? !!hurled.swing.stagger : weapon.stagger;
-          const broke = interruptsWindup(body.kind, body.windup, staggers);
-          if (broke) body.windup = 0;
-          body.cooldown = Math.max(body.cooldown, hitCooldown(body.kind, broke, staggers));
-          if (hurled?.hurl && harpoon && !harpoon.dragged && body.kind !== 'warden') {
+          // The Harpoon drags the first body it bites that is not steadfast, instead of shoving it; a special's
+          // bolt otherwise carries the special's numbers, a plain bolt the arm's.
+          const drags = !!(hurled?.hurl && harpoon && !harpoon.dragged && !BESTIARY[body.kind].steadfast);
+          const blow = hurled ? { damage: shot.damage, stagger: !!hurled.swing.stagger, knockback: drags ? 0 : hurled.swing.knockback ?? 0, wardenKnockback: hurled.swing.wardenKnockback ?? 0 } : { ...weapon, damage: shot.damage };
+          landBlow(floor.cells, body, body, blow, unit(body.x - player.x, body.z - player.z));
+          if (drags && hurled?.hurl && harpoon) {
             harpoon.dragged = true;
             const pull = dragToward(body, player, hurled.hurl.drag);
             moveOnFloor(floor.cells, body, pull.x, pull.z);
-          } else {
-            const push = unit(body.x - player.x, body.z - player.z);
-            const shove = hurled ? (body.kind === 'warden' ? hurled.swing.wardenKnockback ?? 0 : hurled.swing.knockback ?? 0) : body.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
-            moveOnFloor(floor.cells, body, push.x * shove, push.z * shove);
           }
           if (body.hp <= 0) {
             body.dead = true;
@@ -785,9 +801,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     }
 
     if (stairClear()) {
-      const onStair = Math.hypot(player.x - stair.x, player.z - stair.z) < STAIR_RADIUS;
-      stairDwell = stairDwellStep(stairDwell, onStair, dashTime > 0, DT);
-      if (stairDwell >= STAIR_DWELL) return endFloor('cleared');
+      // The stair waits on the swap key, and the policy presses it the frame it arrives.
+      if (Math.hypot(player.x - stair.x, player.z - stair.z) < STAIR_RADIUS) return endFloor('cleared');
     }
   }
   return endFloor('stuck');

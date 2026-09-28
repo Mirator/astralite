@@ -39,3 +39,14 @@ test('fight duration is measured per room fought, inside the floor it was fought
     for (const seconds of floor.fights) assert.ok(seconds >= 0 && seconds <= floor.seconds, `fight of ${seconds}s on a ${floor.seconds}s floor`);
   }
 });
+
+test('the harness flies archers\' bolts and bills what lands to the archer, from floor two on', () => {
+  // A knight that never dodges, so a bolt that is loosed and flies true has nothing between it and him.
+  const runs = [1, 2, 3, 4].map(seed => simulateRun(seed * 7919, policy({ dodge: 0 })));
+  const deeper = runs.flatMap(run => run.floors.filter(floor => floor.level > 1));
+  assert.ok(deeper.length >= runs.length, `the runs barely left floor one (${deeper.length} deeper floors), so this measured nothing`);
+  const onFloorOne = runs.reduce((sum, run) => sum + run.floors[0].damage.archer, 0);
+  const deeperArcher = deeper.reduce((sum, floor) => sum + floor.damage.archer, 0);
+  assert.equal(onFloorOne, 0, 'something billed archer damage on a floor with no archers');
+  assert.ok(deeperArcher > 0, 'archers on floors two and three never landed a bolt in the harness');
+});

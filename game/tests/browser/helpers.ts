@@ -13,6 +13,7 @@ import {
   hasClearPath,
   TILE,
 } from '../../app/dungeon-floor.ts';
+import type { EnemyKind } from '../../app/dungeon-bestiary.ts';
 
 import { DEFAULT_BINDS, isMouseCode, type Action } from '../../app/dungeon-save.ts';
 
@@ -181,6 +182,8 @@ export type Snapshot = {
   mode: 'ready' | 'paused' | 'playing' | 'complete' | 'won' | 'lost';
   /** Whether a floor build is pending behind the loading veil. */
   building: boolean;
+  /** Whether the world stopped on a throw it could not answer and is showing the reload screen. */
+  fault: boolean;
   boonOffer: boolean;
   muted: boolean;
   roomName: string;
@@ -201,6 +204,12 @@ export type Snapshot = {
     inFlight: number;
     fires: number;
   };
+  /** The development arena this page is charting floors as, or null for an ordinary keep. */
+  arena: { roster: EnemyKind[]; level: number } | null;
+  /** Fire a pyre left where it fell, burning the knight. */
+  hostilePools: { kind: EnemyKind; x: number; z: number; radius: number; life: number; damage: number }[];
+  /** Bolts loosed at the knight, still in the air. */
+  hostileBolts: { kind: EnemyKind; x: number; z: number; dx: number; dz: number; damage: number }[];
   boons: {
     strike: number;
     reach: number;
@@ -227,7 +236,8 @@ export type Snapshot = {
     atStair: boolean;
     stairClear: boolean;
     stairOpen: boolean;
-    stairDwell: number;
+    /** Whether the knight stands on the open stair, where the swap key takes him down. */
+    onStair: boolean;
     deadEndsPlundered: number;
   };
   drop: {
@@ -240,7 +250,7 @@ export type Snapshot = {
     /** The arm the swap prompt is currently naming, or null when it is not on screen. */
     offered: string | null;
   } | null;
-  stair: { x: number; z: number; radius: number; dwell: number };
+  stair: { x: number; z: number; radius: number };
   experience: {
     total: number;
     perEnemy: number;
@@ -255,6 +265,8 @@ export type Snapshot = {
     triangles: number;
     /** Frames the post chain has drawn since the mount. Under manual time only `step(ms, true)` moves it. */
     frames: number;
+    /** The last frame's shadow-map draws (held to one) and the draw calls they cost. */
+    shadow: { draws: number; calls: number };
     /** The post chain's passes in order, by class name. */
     passes: string[];
     /** Point lights in the scene. Fixed by design: the count is compiled into every lit shader. */
@@ -269,6 +281,8 @@ export type Snapshot = {
     impacts: number;
     /** Plan 016: the Tolling Slam's shockwave - up or not, the radius it stops at, and where its band is now. */
     shock: { active: boolean; radius: number; edge: number };
+    /** Live sparks in the pooled batch. */
+    sparks: number;
     footsteps: {
       active: number;
       drawn: boolean;
@@ -309,6 +323,8 @@ export type Snapshot = {
     key: string;
     fog: string;
     banner: string;
+    /** Every colour a brazier halo burns this frame, distinct and sorted: one, `fire`, once a frame has run. */
+    halos: string[];
   };
   /** What the floor's own motif geometry actually attached, not a recomputation of the planner. */
   graphics: {
@@ -350,7 +366,13 @@ export type Snapshot = {
     x: number;
     z: number;
     hp: number;
-    kind: 'guard' | 'stalker' | 'warden';
+    kind: EnemyKind;
+    /** A summoner's reserve still underground, and the spawn index that raises it (-1 for none). */
+    buried: boolean;
+    summoner: number;
+    /** Blows its shield has turned aside. */
+    blocked: number;
+    visible: boolean;
     windup: number;
     lunge: number;
     cooldown: number;
@@ -378,7 +400,7 @@ export type FootstepParticle = { x: number; y: number; z: number; ox: number; oy
 
 /** Plan 007: one slot's read-only state, as `dungeonTest.cutawayDiagnostics()` reports it. */
 export type CutawaySlotDiagnostic = {
-  owner: 'player' | 'guard' | 'stalker' | 'warden' | null;
+  owner: 'player' | EnemyKind | null;
   id: number | 'player' | null;
   strength: number;
   radii: [number, number];
@@ -418,6 +440,8 @@ export type GameWindow = Window & {
     /** Plan 015 Stage C.2: a checksum of the shared stone textures' actual pixels; absent from a
      * production build. */
     textureHash?: () => { flagstone: number; masonry: number };
+    /** Blocks until the GPU process has run everything already submitted; returns the wait in ms. Dev-only. */
+    drainGpu?: () => number;
   };
 };
 
@@ -429,7 +453,7 @@ export type GameWindow = Window & {
  */
 export type ActorStats = {
   knight: { meshes: number; triangles: number; shadowless: number; height: number; disposedMaterials: number };
-  enemies: { kind: 'guard' | 'stalker' | 'warden'; meshes: number; triangles: number; shadowless: number; height: number }[];
+  enemies: { kind: EnemyKind; meshes: number; triangles: number; shadowless: number; height: number }[];
   drop: { kind: string; meshes: number; triangles: number } | null;
 };
 
@@ -620,6 +644,8 @@ export class Game {
     // Manual time before anything else: the rAF loop stops on the first call,
     // so every later assertion reads a simulation this test stepped itself.
     await game.step(0);
+    // The boot's cold links and warm-up frames are still queued on the GPU when `building` drops.
+    await game.settle();
     const first = await game.state();
     expect(
       first.floor.seed,
@@ -681,7 +707,14 @@ export class Game {
   static async adopt(page: Page, info: TestInfo, seeds: number[], pool: Pool) {
     const game = new Game(page, info, seeds);
     pool.sink = game;
-    await game.reset(seeds);
+    pool.adopted = true;
+    // The page is already exactly a fresh boot on the default seeds when the pool has just booted it, or
+    // when the last scenario's `prove` reset it to them and held the whole snapshot equal to that boot. A
+    // second reset would rebuild the same floor for nothing, so only a page not known to be fresh, or a
+    // scenario asking for other seeds, pays for one.
+    const known = pool.fresh && seeds.length === DEFAULT_SEEDS.length && seeds.every((seed, i) => seed === DEFAULT_SEEDS[i]);
+    pool.fresh = false;
+    if (!known) await game.reset(seeds);
     return game;
   }
 
@@ -709,6 +742,8 @@ export class Game {
         'matches a freshly booted one. Either reset it in `dungeonTest.reset`, or mark the spec ' +
         '`test.use({ isolate: true })` and say why.',
     ).toBe(pool.baseline);
+    // Only now, with the whole snapshot shown equal to a boot, may the next scenario skip its own reset.
+    pool.fresh = true;
   }
 
   /** The snapshot as the leak guard compares it: everything but the fields in `DRIFTS`. */
@@ -724,7 +759,11 @@ export class Game {
     });
   }
 
-  /** Steps the simulation by `ms` of game time. Drawing is opt-in: it is slow. */
+  /**
+   * Steps the simulation by `ms` of game time. Drawing is opt-in: it is slow, and a drawn step waits
+   * for its own frame to finish on the GPU (see `settle`) so the cost lands here rather than on
+   * whichever click comes next.
+   */
   async step(ms: number, draw = false) {
     await this.page.evaluate(
       (input: { ms: number; draw: boolean }) => {
@@ -734,6 +773,47 @@ export class Game {
       },
       { ms, draw },
     );
+    if (draw) await this.settle();
+  }
+
+  /**
+   * Waits until the GPU process has caught up with this page, then for two animation frames.
+   *
+   * A driver's clock submits work far faster than frames would: one drawn step is ~2 s of SwiftShader
+   * time, a rebuild's uploads another one or two, a cold boot's links tens of seconds - and none of it
+   * blocks the page, so it queues. The compositor shares that queue, so no animation frame can start
+   * until it drains, and every Playwright click waits on two of them for "stable". Undrained, the
+   * backlog was billed to the next click, often in the next scenario: on CI that was a Descend or
+   * ENTER click timing out at 25 s on a page whose script answered in milliseconds. Draining where
+   * the work is submitted keeps every action's budget its own.
+   */
+  async settle() {
+    const drained = this.page.evaluate(
+      () =>
+        new Promise<number>((done, fail) => {
+          const hook = (window as GameWindow).dungeonTest;
+          if (!hook?.drainGpu) {
+            fail(new Error('dungeonTest.drainGpu is gone'));
+            return;
+          }
+          const waited = hook.drainGpu();
+          requestAnimationFrame(() => requestAnimationFrame(() => done(waited)));
+        }),
+    );
+    // Lost the race below, it may still reject when the scenario tears the page down.
+    drained.catch(() => {});
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, fail) => {
+      timer = setTimeout(
+        () => fail(new GameError(`the GPU had not caught up with the page after ${WARM_UP / 1000}s`)),
+        WARM_UP,
+      );
+    });
+    try {
+      await Promise.race([drained, late]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -792,6 +872,7 @@ export class Game {
       if (!hook) throw new Error('dungeonTest is gone');
       hook.buildFloor(value);
     }, level);
+    await this.settle();
   }
 
   /**
@@ -922,6 +1003,9 @@ export class Game {
     await enterButton.click({ timeout: WARM_UP });
     // A page whose floor 1 is built but still warming answers the press behind the veil.
     await expect(this.page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
+    // Lifting the menu repaints most of the screen, and on a software rasteriser that repaint is
+    // the GPU process's to finish before the scenario's first click can see a frame.
+    await this.settle();
   }
 
   /**
@@ -941,6 +1025,8 @@ export class Game {
         timeout: WARM_UP,
       })
       .toBe(false);
+    // `building` drops when the page is done, not when the GPU is: the new floor's uploads are queued.
+    await this.settle();
   }
 
   /** The pure floor behind the live one, for legal fixture positions. */
@@ -1061,6 +1147,10 @@ class Pool {
   page: Page | null = null;
   /** Whole-snapshot state a boot leaves behind, which every reset is then held against. */
   baseline: string | null = null;
+  /** The page is known to be a fresh boot on DEFAULT_SEEDS: just booted, or reset and proven so. */
+  fresh = false;
+  /** Whether the scenario now holding the page drove it through a `Game`, which proves it at the end. */
+  adopted = false;
   sink: {
     pageErrors: string[];
     consoleErrors: string[];
@@ -1088,6 +1178,7 @@ class Pool {
     const game = await Game.open(page, info, DEFAULT_SEEDS, false);
     this.baseline = await game.comparable();
     this.page = page;
+    this.fresh = true;
     return page;
   }
 
@@ -1122,8 +1213,8 @@ export const test = base.extend<
 >({
   seeds: [DEFAULT_SEEDS, { option: true }],
   /**
-   * Opts a scenario out of the pool. Three specs need it and say why at their own `test.use`: they
-   * assert on what a boot does, so a page that is already booted is not the thing under test.
+   * Opts a scenario out of the pool. The few that need it say why at their own `test.use`: they assert on
+   * what a boot does, or break the page on purpose, so a page that is already booted will not do.
    */
   isolate: [false, { option: true }],
   pool: [
@@ -1145,7 +1236,12 @@ export const test = base.extend<
     if (
       !needsOwnPage({ isolate, hasTouch, isMobile, storageState, viewport })
     ) {
-      await runTest(await pool.take(info));
+      const pooled = await pool.take(info);
+      pool.adopted = false;
+      await runTest(pooled);
+      // A scenario that drove the pooled page without a `Game` never proved it clean, so the next one must
+      // not trust it to be a fresh boot.
+      if (!pool.adopted) pool.fresh = false;
       return;
     }
     const context = await browser.newContext({

@@ -6,7 +6,6 @@ import {
   TILE,
   hold,
   release,
-  type GameWindow,
   type Floor,
   type Point,
   type Snapshot,
@@ -110,7 +109,10 @@ test('killing the last warden ends a floor, freezes it, and waits for a real Con
   test.slow();
   await game.enter();
 
-  for (let level = 1; level <= 3; level++) {
+  // Floor one (a descent to two, and its top-up) and floor three (the win). Floor two is the same path as
+  // floor one, so it is built past rather than fought through.
+  for (const level of [1, 3]) {
+    if (level === 3) await game.buildFloor(3);
     expect((await game.state()).floor.level).toBe(level);
     const stair = (await game.state()).floor.rooms[
       (await game.state()).floor.goal
@@ -132,15 +134,21 @@ test('killing the last warden ends a floor, freezes it, and waits for a real Con
     expect((await game.state()).mode).toBe('playing');
     await expect(page.locator('.success-screen')).toBeHidden();
     await game.capture(`floor-${level}-stair-open`);
-    // A brief pass over the stair is not a descent; standing on it is.
-    await game.teleport(opened.stair.x, opened.stair.z);
-    await game.step(200);
-    expect((await game.state()).mode).toBe('playing');
+    // Off the stair the swap key does nothing; on it, standing is not a descent however long it lasts.
     await game.teleport(opened.stair.x + opened.stair.radius * 2, opened.stair.z);
-    await game.step(300);
-    expect((await game.state()).objective.stairDwell).toBe(0);
+    await game.step(64);
+    await page.keyboard.press('KeyE');
+    await game.step(64);
+    expect((await game.state()).mode).toBe('playing');
     await game.teleport(opened.stair.x, opened.stair.z);
-    await game.step(opened.stair.dwell * 1000 + 100);
+    await game.step(2000);
+    const standing = await game.state();
+    expect(standing.objective.onStair).toBe(true);
+    expect(standing.mode, 'standing on the stair took the knight down by itself').toBe('playing');
+    await expect(page.locator('.swap-prompt')).toContainText('take the stair down', { ignoreCase: true });
+    // Only the key takes it, the same one that answers a rack.
+    await page.keyboard.press('KeyE');
+    await game.step(32);
     const cleared = await game.state();
     expect(cleared.mode).toBe('complete');
     await expect(page.locator('.success-screen')).toBeVisible();
@@ -165,15 +173,6 @@ test('killing the last warden ends a floor, freezes it, and waits for a real Con
     expect((await game.state()).mode).toBe('complete');
     await game.capture(`floor-${level}-complete`);
 
-    // TEMPORARY CI diagnostic (plan 015): does the page still produce animation frames here?
-    const diag = await page.evaluate(() => new Promise((resolve) => {
-      const t0 = performance.now(); let n = 0;
-      const info = () => ({ visibility: document.visibilityState, focus: document.hasFocus(), render: (JSON.parse((window as GameWindow).render_game_to_text!()) as { render: unknown; building: boolean }) });
-      const tick = () => { n++; if (n === 3) resolve({ rafMs: +(performance.now() - t0).toFixed(1), ...info() }); else requestAnimationFrame(tick); };
-      requestAnimationFrame(tick);
-      setTimeout(() => resolve({ rafMs: -1, frames: n, ...info() }), 5000);
-    }));
-    console.log(`DIAG level ${level}: ${JSON.stringify(diag)}`);
     await page.locator('.success-screen button').click();
     await game.built();
     await game.step(16);
@@ -264,9 +263,11 @@ test('a rank-up on the last warden opens its boon before the floor results, and 
   expect(opened.boonOffer).toBe(false);
   expect(opened.mode).toBe('playing');
   expect(opened.objective.stairOpen).toBe(true);
-  // Only the stair itself ends the floor, once the knight has stood on it.
+  // Only the stair itself ends the floor, once the knight stands on it and answers the prompt.
   await game.teleport(opened.stair.x, opened.stair.z);
-  await game.step(opened.stair.dwell * 1000 + 100);
+  await game.step(64);
+  await page.keyboard.press('KeyE');
+  await game.step(32);
   const complete = await game.state();
   expect(complete.boonOffer).toBe(false);
   expect(complete.mode).toBe('complete');

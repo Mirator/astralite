@@ -2,11 +2,13 @@ import {
   CAPTURING,
   expect,
   type Game,
+  type GameWindow,
   openSpot,
   roomCentre,
   strikeStance,
   test,
   TILE,
+  WARM_UP,
 } from './helpers.ts';
 
 /**
@@ -104,6 +106,10 @@ const spend = async (game: Game, scene: keyof typeof BUDGET) => {
     triangles,
     `${scene} pushes more triangles than the budget allows; say what bought it and raise the number deliberately`,
   ).toBeLessThanOrEqual(BUDGET[scene].triangles);
+  // And a floor under each: a ceiling alone passes a frame that drew nothing, or a scene whose pack never
+  // came into view. Every staged scene measured at 73-84% of its call budget and 30-42% of its triangles.
+  expect(calls, `${scene} drew far fewer calls than it was measured at; the scene is not the one this budget was set on`).toBeGreaterThanOrEqual(BUDGET[scene].calls * 0.6);
+  expect(triangles, `${scene} drew far fewer triangles than it was measured at`).toBeGreaterThanOrEqual(BUDGET[scene].triangles * 0.2);
 };
 
 test.describe('the busiest fight', () => {
@@ -185,7 +191,31 @@ test.describe('the moment of contact', () => {
       state.player.attackTime,
       'the frame this budget covers is not inside a swing',
     ).toBeGreaterThan(0);
+    // A swing that missed would put a cheaper frame under this budget than the one it is named for.
+    expect(state.enemies[0].hp, 'the blow this frame is budgeted for never landed').toBeLessThan(Math.min(8, blade * 2));
     await spend(game, 'strike-contact');
+  });
+
+  test('the sparks of a blow are one draw however many of them fly', async ({ game }) => {
+    // Each spark was its own mesh, so the frame a blow landed on drew one more call per spark - the
+    // most expensive frame in the game paying for grit - and every one was drawn again by GTAO.
+    await game.enter();
+    await game.step(120);
+    const floor = await game.floor();
+    const target = { x: 0, z: 0 };
+    const stance = strikeStance(floor, target);
+    await game.teleport(stance.x, stance.z);
+    await game.page.keyboard.down(stance.key);
+    await game.step(16);
+    await game.page.keyboard.up(stance.key);
+    await game.configureCombat({ enemies: [{ index: 0, x: target.x, z: target.z, hp: 1, cooldown: 10, windup: 0 }] });
+    await game.step(0, true);
+    const before = (await game.state()).render.calls;
+    await game.act('attack');
+    await game.step(130, true);
+    const hit = await game.state();
+    expect(hit.effects.sparks, 'the blow threw its sparks, blood mist and bone dust').toBeGreaterThan(25);
+    expect(hit.render.calls - before, `${hit.effects.sparks} sparks, a trail, a bar and a splat`).toBeLessThan(15);
   });
 });
 
@@ -198,24 +228,19 @@ test.describe('the moment of contact', () => {
  */
 test.describe('the light budget', () => {
   test.use({ seeds: [0x60] });
-  test('every floor draws with the same small, fixed set of point lights', async ({ game }) => {
-    const counts: number[] = [];
-    for (const level of [1, 2, 3]) {
-      await game.buildFloor(level);
-      await game.step(16, true);
-      counts.push((await game.state()).render.pointLights);
-    }
-    expect(counts[0], 'more point lights than the torches, the fill and the anchor pool').toBeLessThanOrEqual(9);
-    expect(counts, 'a floor changed the point-light count, which recompiles every lit shader').toEqual([counts[0], counts[0], counts[0]]);
-  });
-
-  test('a rebuild reuses the shader programs the last floor compiled instead of recompiling them', async ({ game }) => {
-    const programs: number[] = [];
+  // One walk down and back for both claims: each rebuild is the expensive part, and both are read off the
+  // same drawn frame after it.
+  test('every floor draws with the same small, fixed set of point lights, and a rebuild reuses the programs the last one compiled', async ({ game }) => {
+    const lights: number[] = [], programs: number[] = [];
     for (const level of [1, 2, 3, 1]) {
       await game.buildFloor(level);
       await game.step(16, true);
-      programs.push((await game.state()).render.programs);
+      const { render } = await game.state();
+      lights.push(render.pointLights);
+      programs.push(render.programs);
     }
+    expect(lights[0], 'more point lights than the torches, the fill and the anchor pool').toBeLessThanOrEqual(9);
+    expect(lights, 'a floor changed the point-light count, which recompiles every lit shader').toEqual([lights[0], lights[0], lights[0], lights[0]]);
     // three.js destroys a program when its last material is disposed, and every rebuild disposes the old
     // floor's materials - so without pinning the count dips after each rebuild and the same programs compile
     // again, seconds of stall per floor under software GL.
@@ -227,6 +252,38 @@ test.describe('the light budget', () => {
 
   test('a software rasteriser draws the reduced post chain, a GPU the full one', async ({ game }) => {
     await game.step(16, true);
-    expect((await game.state()).render.quality).toBe(CAPTURING ? 'full' : process.env.GAME_TEST_GL ? 'full' : 'reduced');
+    // Only `d3d11` selects a GPU (playwright.config.ts); any other value, a typo included, is still SwiftShader.
+    expect((await game.state()).render.quality).toBe(CAPTURING ? 'full' : process.env.GAME_TEST_GL === 'd3d11' ? 'full' : 'reduced');
+  });
+});
+
+// The full post chain is where GTAO runs its own render of the scene, which is what used to draw the
+// moon's shadow map a second time every frame. Software GL gets the reduced chain with GTAO off, so this
+// scenario asks for full quality explicitly and needs a page of its own to do it.
+test.describe('the full post chain', () => {
+  test.use({ isolate: true });
+  test.describe.configure({ timeout: 240_000 });
+  test('draws the shadow map once a frame and never multisamples a canvas it only copies to', async ({ page }) => {
+    await page.goto('/?quality=full&boot=eager');
+    await page.waitForFunction(() => {
+      const hook = (window as GameWindow).render_game_to_text;
+      return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
+    }, undefined, { timeout: WARM_UP });
+    await page.evaluate(() => (window as GameWindow).advanceTime!(0, false));
+    await page.locator('.intro-screen .primary-action').click({ timeout: WARM_UP });
+    await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
+    const frame = await page.evaluate(() => {
+      (window as GameWindow).advanceTime!(16, true);
+      const canvas = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
+      const state = JSON.parse((window as GameWindow).render_game_to_text!()) as { render: { quality: string; passes: string[]; shadow: { draws: number; calls: number } } };
+      return { ...state.render, antialias: canvas.getContext('webgl2')!.getContextAttributes()!.antialias };
+    });
+    expect(frame.quality).toBe('full');
+    expect(frame.passes, 'GTAO is in the chain, so the scene is rendered twice a frame').toContain('GTAOPass');
+    expect(frame.shadow.draws, 'the shadow map is drawn by the scene pass and not again by GTAO').toBe(1);
+    expect(frame.shadow.calls, 'and that one draw still covers the casters').toBeGreaterThan(0);
+    // The scene is drawn into the composer's own targets, so the canvas only ever receives the last
+    // full-screen pass: a multisampled one bought a resolve per frame and not one smoothed edge.
+    expect(frame.antialias).toBe(false);
   });
 });
