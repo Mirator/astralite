@@ -142,3 +142,35 @@ export const poolStep = (pool: Pool, frameDt: number) => {
   if (timer > 0) return { life, timer, bites: 0 };
   return { life, timer: pool.interval, bites: 1 };
 };
+
+/**
+ * The Flashpoint (plan 016 Stage C): every live pool goes up at once. Returns each mark standing in any of
+ * them exactly once, however many pools overlap it, because it is one blow; the caller ends the pools.
+ */
+export const flashpointHits = (pools: readonly Pool[], marks: readonly Mark[]) =>
+  marks.filter(mark => pools.some(pool => pool.life > 0 && poolCatches(pool, mark.x, mark.z))).map(mark => mark.index);
+
+/**
+ * How far a shot fired from `from` along the normalised `dx, dz` can travel before stone stops it, up to
+ * `range`: the same `blocked` test `flyShot` stops on, walked at its own step. The Heavy Bolt draws its line
+ * on the floor this long, so the line shows where the bolt will actually go.
+ */
+export const laneLength = (cells: Set<string>, from: { x: number; z: number }, dx: number, dz: number, range: number) => {
+  const steps = Math.max(1, Math.ceil(finite(range) / MAX_STEP));
+  for (let i = 1; i <= steps; i++) {
+    const along = Math.min(range, i * MAX_STEP);
+    if (blocked(cells, from.x + dx * along, from.z + dz * along)) return (i - 1) * MAX_STEP;
+  }
+  return finite(range);
+};
+
+/**
+ * A thrown arm coming back to the hand that threw it (plan 016's Harpoon): straight at wherever the knight
+ * is now, at `speed`, and home the step it would reach or pass him. It does not hit anything on the way
+ * back - the throw was the blow.
+ */
+export const homeStep = (from: { x: number; z: number }, to: { x: number; z: number }, speed: number, frameDt: number) => {
+  const step = speed * finite(frameDt), dx = to.x - from.x, dz = to.z - from.z, distance = Math.hypot(dx, dz);
+  if (distance <= step || distance < 1e-6) return { x: to.x, z: to.z, home: true };
+  return { x: from.x + dx / distance * step, z: from.z + dz / distance * step, home: false };
+};

@@ -2668,3 +2668,165 @@ at about 90 ms, `surface` at about 54 ms) and a poll slice (85 ms cold).
 Gates: typecheck and lint are clean, and `npm test` passes 176/176. With `GAME_TEST_GL=d3d11
 GAME_TEST_PORT=3200`, all specs pass: loading 9/9, frame-clock 3/3, frame-budget 6/6, smoke 1/1 and
 progression 2/2. `git diff -w --stat` matches `git diff --stat` for `dungeon-game.tsx` (318/65).
+
+## 2026-09-27 - Plan 016 Stages 0, A and B: INCOMPLETE (stopped for machine shutdown)
+
+Branch `feat/weapon-specials` from `8f8dc5a`, main checkout, uncommitted. Stage C not started (sketches
+not approved).
+
+**Stage 0.** Balance "before", 200 runs an arm (`--compare` / `--compare --kite`), median run: Tideblade
+4.6m / 4.6m, Crossbow 6.2m / 9.3m (kite: 20.5% escaped, rest stuck), Tideflask 5.6m / 8.1m (kite 25.0%),
+Fangs 4.5m / 4.6m, Spear 4.4m / 4.4m, Cleaver 5.1m / 5.1m, Maul 4.7m / 4.7m; 100% escaped, 0% died
+otherwise. (The kite batch started after the pure modules had gained specials; default policies never
+touch them, so its numbers are HEAD's by construction, and `balance:check` below matches bands.json
+exactly.) The PR-gate baseline on HEAD did NOT run: stashing the work to run HEAD was refused by the
+permission classifier. Stage 0's Space list was 11 specs (a11y, aim, chain, character-life, combat,
+gameplay, progression, ranged, shots, slash, sprint).
+
+**Stage A (done).** Mouse buttons are bind codes (`Mouse0/1/2`, chords via `buttons`); `special` and `map`
+actions; defaults as the plan lists; Tab map (swallowed only while playing); keyboard dodge no longer
+claims aim; pad `[0 A,1 B,5 RB,2 X,3 Y,8 View,9 Start]` with per-button slots, View answers while paused;
+touch SPECIAL (held, disabled/dimmed without a special); third `ability-row` socket; keycaps follow the
+last device; mouse rebind from a capture strip; "Only the keys above" removed. A4 tests in
+`tests/dungeon-save.test.ts`: blank blob = new defaults with mouse codes; mouse codes round-trip, rebind
+and trade; old blob lacking special/map fills from unclaimed defaults and never leaves an action empty;
+old `Space`-strike assertions updated. Specs rewritten onto `press/hold/release`; new `controls.spec.ts`.
+Real mouse and real pad were NOT checked by hand (no human at the machine); pad coverage is a stubbed
+`navigator.getGamepads`.
+
+**Stage B (code and tests done; balance report and screenshots not).** Specials at the plan's starting
+values: Undertow Lunge (0.12s wind, 3.2u over 0.18s, dmg 6, stagger, 0.25s recovery, cd 4s), Harpoon
+(speed 18, flight 0.5, pierce 1, dmg 6, drag 2, bare 0.5x, cd 5s), Tolling Slam (charge 0.5-1.0s, radius
+2.4-3.2, 1.5x-2.5x = 14-23, moveScale 0.5, cd 6s). Cooldown `run.specialCooldown` in the sim, spent on the
+first live frame, reset on swap. Pure rules: `specialSwing`, `lungeStep`, `chargeLevel`, `specialGate`,
+`lineContacts`, `dragToward`, `homeStep`; node tests in `tests/dungeon-special.test.ts`. Balance: `--special`
+policy (charge released at its minimum by default; holding to full measured 7.5% floor-2 deaths for the
+Maul - a bot rooted beside two bodies, not the arm); `special` policy added to bands.json (30 runs:
+escape 100, deaths 0/0/0, HP 100/100/100, median 261.3s vs default 266.1s). 40-run tuning probe, special
+off -> on median: Tideblade 4.46 -> 4.40m (-1.4%), Spear 4.28 -> 4.31m (+0.6%), Maul (full charge) 4.63 ->
+4.93m; lunge at 2x damage only reached -4%. **The plan's 10-25% target looks unreachable**: ~40% of a
+descent is idle walking and combat is ~30%. Values left at the plan's starting numbers; no retune adopted.
+
+**Gates.** typecheck, lint clean; `npm test` 189/189; `balance:check` passes, default and weak identical
+to bands.json. PR-gate browser suite (`GAME_TEST_GL=d3d11`, run once with Stage A and B code both in the
+tree) 124 passed, 2 skipped, 228s. `--repeat-each=3` over the 11 rewritten specs + hud + controls +
+special: 201/201. frame-budget passed inside the gate (no ceiling raised).
+
+**Not run / next step.** Resume with: (1) `npm run balance -- --compare --special` (200 runs; stopped
+after Tideblade: 4.5m, 100% escaped, warden dmg 9.0%, in reach 30.9%) and record the after table;
+(2) a screenshot of each special mid-contact (a scratch spec was written and deleted unrun); (3) the
+Stage B PR-gate run; (4) operator decision on the unreachable 10-25% target; (5) a hand check on a real
+mouse and pad.
+
+## 2026-09-28 - Plan 016 Stages 0, A and B: Stage B verified (supersedes the INCOMPLETE status above)
+
+Same branch and uncommitted tree as the entry above. Stage C not started (sketches not approved).
+
+**Fight duration replaces the descent target (operator decision).** Roughly 40% of a descent is walking, so
+B4's "10-25% shorter median descent" was the wrong yardstick; plan B4 now reads fight duration. `sim.ts`
+records `FloorReport.fights`: per room, seconds from the first frame one of its woken bodies is within
+REACH_RADIUS (2.5) of the knight to the frame the room holds nothing alive. `--compare` prints `fight`
+(median over every room fought) and `fight/run` (median run's total). Pure measurement: `balance:check`
+reproduces bands.json exactly for default, weak and special; node test added in `tests/balance-sim.test.ts`.
+Ranged arms that clear a room before anything closes record no fight for it, so read the column for the
+melee arms.
+
+**Balance, 200 runs an arm, same seeds** (each batch about 29 minutes). Off = `--compare`, on =
+`--compare --special` (charge released at its minimum). Every arm without a special is identical off/on,
+and the off table's escape rates and median runs match Stage 0 exactly.
+
+| Arm | median run off / on | fight off / on | fight per run off / on | warden dmg off / on | in reach off / on |
+| --- | --- | --- | --- | --- | --- |
+| Tideblade (Lunge) | 4.6m / 4.5m | 4.0s / 3.7s (-7.5%) | 153s / 142s (-7.2%) | 8.3% / 9.0% | 31.4% / 30.9% |
+| Salt Spear (Harpoon) | 4.4m / 4.4m | 3.6s / 3.6s (0%) | 142s / 140s (-1.4%) | 4.5% / 3.3% | 28.2% / 28.0% |
+| Bell Maul (Slam) | 4.7m / 4.8m | 3.9s / 3.9s (0%) | 152s / 154s (+1.3%) | 4.3% / 3.9% | 26.8% / 27.1% |
+| Keep Crossbow | 6.2m | 5.0s | 100s | 10.5% | 5.2% |
+| Tideflask | 5.6m | 4.6s | 105s | 4.4% | 4.7% |
+| Twin Fangs | 4.5m | 3.9s | 150s | 10.4% | 33.5% |
+| Warden's Cleaver | 5.1m | 4.5s | 173s | 5.2% | 29.7% |
+
+100% escaped and 0% died for every arm except the Crossbow (99.0% / 1.0%, both off and on). Median HP at
+the stair 100% everywhere. Reading: only the Lunge shortens fights measurably; the Harpoon and the
+minimum-charge Slam are neutral in the bot's hands. No special makes its arm the obvious best (Spear still
+has the shortest fights with or without its special). Not retuned, per the operator; any retune is a
+follow-up. The `fight` column is rounded to 0.1s, so a change under ~3% on it is not visible.
+
+**Screenshots, one per special at mid-contact** (temporary spec, `GAME_TEST_GL=d3d11`, deleted after
+inspection; not SwiftShader, so not comparable with the baseline).
+- Lunge, 0.2s after K: blade thrust with a bright trail and a hit spark on the warden. Reads as an
+  attack clearly, but in a still it is hard to tell apart from an ordinary strike; the forward carry only
+  shows in motion.
+- Harpoon, in flight and on the hit: the spear is clearly visible leaving the hand and the knight is
+  bare-handed; on the hit the guard flashes and the spear carries on past it. Reads clearly. The shaft is
+  thin, and here it crossed the rack's gold pickup ring, which muddled that one frame.
+- Slam, charging at 0.8s and 0.12s after release: the charge is a flat, opaque amber disc under the
+  knight, very legible (arguably too loud against the paving). The contact frame looks almost identical
+  to the charge frame: no distinct impact flash or shock ring, so **the slam's moment of impact does
+  not read**. Presentation follow-up, not fixed here (out of scope for verification).
+- HUD: the third socket (K) sits between strike (J) and dash (SPC), and lights while charging.
+
+**Gates.** typecheck and lint clean; `npm test` 190/190; `balance:check` passes, all three policies equal
+to bands.json. Browser: the task's `--grep-invert "@capture\|@nightly"` does not filter in Git Bash
+(`\|` reaches Playwright's JS regex as a literal pipe), so the run that was meant to be the PR gate ran
+the whole suite, 167 tests, in 4m32s: 162 passed, 2 skipped, 3 failed. The PR-gate subset
+(`--grep-invert "@capture|@nightly"`, 126 tests by `--list`) was all inside it: 124 passed, 2 skipped,
+0 failed. The 3 failures are `@nightly` pixel checks on d3d11: `art-direction` "three themes... three
+different colours" (keep's loudest hue 357 degrees vs fire 311, gap 46 > 40), `models` knight eight facings
+(facing 3 p25 27.9 vs surround 25.9), and `models` enemy cast (knight-guard separation 7.68 < 10.48).
+Not established whether they also fail on HEAD under d3d11 (no HEAD run; stashing is off-limits). The
+nightly SwiftShader run is the judge.
+
+**Still open.** Hand check on a real mouse and a real pad (needs a human). Operator review of the fight
+numbers and whether the Harpoon and Slam need a retune. The slam's impact frame. Whether the three
+`@nightly` failures predate this branch. Stage C sketch approval.
+
+## 2026-09-28 - Plan 016 follow-up: the Tolling Slam's impact reads, and its charge ring is quieter
+
+Same branch and uncommitted tree. Presentation only: no damage, timing, cooldown or radius number moved.
+
+**Impact.** `impactEffects` (`dungeon-impact.ts`) gains one pooled `slam(at, radius, reduced)` shockwave, built
+at mount: a `litDisc` band (the hit shockwave's language, additive, 28-gon reused) that leaves the knight and
+stops at `swing.reach + run.reach` - the reach the slam was tested at, 2.4-3.2 from the charge - in 0.32s on a
+cubic ease-out, with a pool of light under the knight on a 0.12s clock that also bids for the borrowed lamp as a
+heavy blow. Emitted on the special's first live frame in place of the old `slamFlash`, which re-scaled the
+charge disc and so looked like the charge. Wall-clock aged like every accent, so hit-stop does not freeze it.
+Reduced motion: the band does not travel (it appears at the radius and fades); the shake was already dropped.
+Cleared by `impacts.clear()` (floor rebuild, so every reset/restart), `endSpecial` (swap, descent, restart) and
+`togglePause`. Snapshot: `effects.shock = { active, radius, edge }`; DRIFTS untouched.
+
+**Charge.** The solid flask ring is replaced by its own `litDisc`: a thin gold outline at the reach over a 0.22
+wash, opacity 0.25 before the minimum and 0.5-0.8 once primed (was a 0.2-1 annulus at 0.45-0.8).
+
+**Tests.** `tests/dungeon-impact.test.ts`: child counts updated (9, not 8) and a node test for the shockwave
+(travels to its radius, holds on a zero-dt frame, expires, reduced motion holds still, clears). `special.spec.ts`:
+new scenario - no shock while charging; on contact it is up at the charge's radius and travels outward without
+passing it; gone after its life; under emulated reduced motion it sits at the radius; a pause clears it and
+resume does not bring it back; a reset mid-shockwave restores it.
+
+**Measured** (d3d11, one maul slam at 0.8s held, radius 2.88): draw calls 300 idle, 302 charging, 318 on the
+shock frame (the shock mesh is one of those; the rest is the existing burst and trail), 309 after.
+
+**Screenshots** (temporary spec, d3d11, deleted). Charge at 0.8s: before a flat opaque amber disc hiding the
+paving; after an outline at the reach over a faint wash, paving joints visible through it - still reads as the
+reach. Contact (release + 126ms): before identical to the charge frame; after a bright band halfway out with a
+light pool under the knight, clearly a different frame; at +206ms it is at the radius and fading, gone by +356ms.
+
+**Gates.** typecheck, lint clean; `npm test` 191/191; `special.spec.ts` + `frame-budget.spec.ts` 16/16 (budget
+counters unchanged); PR-gate browser suite (`GAME_TEST_GL=d3d11`, `--grep-invert "@capture|@nightly"`) 125
+passed, 2 skipped, 3.6m.
+
+## 2026-09-28 - Plan 016: a way to play it by hand
+
+Added a dev-only `?arm=<id>` URL parameter (`devStartingArm` in `dungeon-weapon.ts`) so a hand playtest of one arm's special starts holding it. It is honoured on the first ENTER (which never passes through `restart`) and on every NEW DESCENT / SAME KEEP. It is null when the URL names no valid arm, and a page without one never has its arm changed, so the harness is unaffected. Production builds ignore it. `game/tests/README.md` gained "Playing it by hand": the dev-server command, one URL per arm, the console hooks, how to clear an old settings blob, and the plan 016 checklist (mouse, keyboard only, pad, each special, touch). `AGENTS.md` now gives the PR-gate command outside its table: the table's `\|` escape reached Playwright as a literal pipe and silently ran the `@nightly` checks too. Verification: typecheck and lint clean; `npm test` 192/192 (one new test); `?arm=maul` and `?arm=spear` checked in the dev server, no console errors; `GAME_TEST_GL=d3d11` smoke, weapon, controls, special and loading specs 29/29. No commit.
+
+## 2026-09-28 - The loading bar agrees with its label
+
+Operator report: the veil read "LIGHTING THE BRAZIERS 4 / 5" over a bar a little past half. The label names the stage in progress (`veilStage + 1`), but the bar showed only the finished ones (`veilStage / 5`), and the 4th stage (the shader precompile and first frame) is the long one, so the bar stood at 60% for seconds under "4 / 5". Now `veilFill` starts each stage's bar where the finished stages end and a compositor-only CSS animation (`veil-creep`, 4 s, steep then slow) creeps it to 90% of that stage's fifth; the fill is re-keyed per stage, so it only ever moves forward. It stays on under reduced motion, being the one sign the load has not stalled. Regression: `loading.spec.ts` samples the veil every frame and asserts the bar sits inside the fifth its label names and is creeping. Verification: typecheck and lint clean; `GAME_TEST_GL=d3d11` loading.spec 10/10; a d3d11 capture at "4 / 5" shows the bar at about three quarters. Dev server left off. No commit.
+
+## 2026-09-28 - The loading bar measures work instead of counting stages
+
+Supersedes the per-stage creep of the entry above. Five stages of very unequal length (the shader stage is ~80% of a cold load) made "N / 5" a promise the bar could not keep, so the count is gone and the stage name stays as flavour. The bar is now `dungeon-veil.ts`, a pure module with node tests: each stage has a weight from plan 015's cold-cache probe (`VEIL_WEIGHTS`, 0.02/0.05/0.08/0.82/0.03), and inside a stage the bar follows measured work - the two texture bands, the floor build's eight phases (dispose through upload), and in the shader stage the linked share of `renderer.info.programs` from `pollProgramsReady` (scene to 0.85, post chain to 0.92, then each sliced first-frame pass halves the gap). Parallel links land in batches, so while the count sits still `creep` moves the bar towards the end of the step being measured, at most 60% of the gap, never claiming the step is done. `showVeil` keeps the maximum, so the bar never runs backwards as the program list grows, and writes the fill through a ref (plus `data-progress`), not React state.
+
+Cold-cache probe (nonce-tagged shader sources, d3d11, GTX 1660 SUPER): total 3.8 s. Before the creep the bar stood 1.3 s at 41% and then jumped a third of its length; after, the only standstill left is 0.88 s, which is the synchronous `renderer.compile(scene)` (`sceneCompileMs` 849 ms): no script and no frame runs during it, so no bar can show it. Shrinking that is plan 015 Stage D ("compile less").
+
+Regression: `loading.spec.ts` samples the veil every frame and asserts no count in the stage line, the bar inside the current stage's share, never backwards, and at least the last stage's start when the veil lifts. Verification: typecheck and lint clean; `npm test` 198/198; `GAME_TEST_GL=d3d11` PR-gate suite 126 passed, 2 skipped, 0 failed (3.9 min). No commit.

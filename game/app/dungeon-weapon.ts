@@ -89,6 +89,57 @@ export type Weapon = {
     window: number;
     beats: Partial<Weapon>[];
   };
+  /** The arm's own second verb (plan 016), or absent for an arm that has none yet. */
+  special?: Special;
+};
+
+export type SpecialId = 'undertow' | 'harpoon' | 'toll' | 'vault' | 'whirl' | 'heavybolt' | 'flashpoint';
+
+/**
+ * A special is a swing, on the same clock a strike runs on: `swing` overlays the arm the way a chain beat
+ * does, so `canAbortSwing`, `swordContacts` and `playerSpeed` take it unchanged. What it adds is a cooldown,
+ * which starts at contact rather than on the press, and one of seven shapes.
+ */
+export type Special = {
+  id: SpecialId;
+  name: string;
+  /** One line, in the game's voice, for the controls card. */
+  detail: string;
+  kind: 'lunge' | 'throw' | 'charge' | 'vault' | 'whirl' | 'draw' | 'detonate';
+  /** Seconds from contact until it can be used again. Zero for the draw, which the quiver gates instead. */
+  cooldown: number;
+  /** The swing it runs as. Everything left out is the arm's own. */
+  swing: Partial<Weapon>;
+  /** A lunge carries the knight `distance` units along the aim over `time` seconds from the end of anticipation. */
+  lunge?: { distance: number; time: number; width: number };
+  /**
+   * A throw sends the arm itself along `swing.ranged`. The first guard or stalker it hits is dragged `drag`
+   * units towards the knight, and until it is back in hand his strike is worth `bare` of its damage.
+   */
+  hurl?: { drag: number; bare: number };
+  /**
+   * A charge is held, not pressed. Released before `chargeMin` seconds it cancels at no cost; from there to
+   * `chargeMax` the ring grows from `radius[0]` to `radius[1]` and the blow from `scale[0]` to `scale[1]` of
+   * the arm's damage. The knight walks at `moveScale` of the arm's swing speed while he holds it.
+   */
+  chargeMin?: number;
+  chargeMax?: number;
+  radius?: [number, number];
+  scale?: [number, number];
+  moveScale?: number;
+  /**
+   * A vault hops over the nearest body within `range` of the knight and inside the `cone` (a cosine) round
+   * his aim, landing `over` units past it, or `hop` units along the aim when nothing is there. The hop
+   * takes `time` seconds from the end of anticipation; the backstab is scored on landing, on that body
+   * alone. The path stops short at the first stone or prop, so it never ends inside either.
+   */
+  vault?: { range: number; cone: number; over: number; hop: number; time: number };
+  /**
+   * A draw is a charge that fires rather than slams: held `chargeMax` seconds it is drawn, and letting go
+   * then looses one bolt down `swing.ranged` that passes through everything on its line. It spends the
+   * whole quiver and is worth `swing.damage` for every bolt it spent; let go early, nothing is spent.
+   */
+  draw?: boolean;
 };
 
 /**
@@ -104,6 +155,13 @@ export const beatOf = (weapon: Weapon, beat: number): Weapon => {
 
 /** How many beats the string has, counting the arm's own swing as the first. */
 export const chainLength = (weapon: Weapon) => 1 + (weapon.chain?.beats.length ?? 0);
+
+/**
+ * A ring rather than an arc: any cosine beats this, so every direction round the knight is inside it,
+ * including a body standing exactly on him. Up here rather than with the special rules below, because the
+ * Whirl's own numbers read it while the arms are being defined.
+ */
+export const RING_ARC = -1.01;
 
 /**
  * The knight's own sword, and the shape every other arm is measured against. These are the values the
@@ -143,6 +201,18 @@ export const TIDEBLADE: Weapon = {
       },
     ],
   },
+  /**
+   * Plan 016: a thrust that carries the knight 3.2 units along the aim and cuts everything on the line
+   * once. It is an attack, not a second dash: no immunity at any point, and the 0.25s recovery at the far
+   * end is spent standing in whatever he just ran through.
+   */
+  special: {
+    id: 'undertow', name: 'Undertow Lunge', kind: 'lunge', cooldown: 4,
+    detail: 'The Tideblade lunges along your aim and cuts everything on the line.',
+    // 0.12s anticipation + 0.18s of travel + 0.25s recovery. The travel is the live window.
+    swing: { duration: 0.55, anticipation: 0.12, contactEnd: 0.3, damage: 6, moveSpeed: 1.6, knockback: 0.5, wardenKnockback: 0.15, stagger: true },
+    lunge: { distance: 3.2, time: 0.18, width: 0.9 },
+  },
 };
 
 /**
@@ -179,6 +249,18 @@ export const TWIN_FANGS: Weapon = {
       },
     ],
   },
+  /**
+   * Plan 016 Stage C: over the nearest body in the aim and a cut in its back on landing, twice the knives.
+   * Takeoff is the commitment - the hop is inside the live window, so a dodge only cancels the crouch - and
+   * like the lunge it buys no immunity: it is a way round a guard, not through its blow.
+   */
+  special: {
+    id: 'vault', name: 'Vault', kind: 'vault', cooldown: 3,
+    detail: 'The Twin Fangs vault over the nearest body in your aim and stab it in the back.',
+    // 0.08s crouch, 0.18s in the air, 0.1s of backstab on landing, 0.14s recovery.
+    swing: { duration: 0.5, anticipation: 0.08, contactEnd: 0.36, damage: 6, moveSpeed: 1.2, knockback: 0.3, wardenKnockback: 0.08, stagger: false },
+    vault: { range: 3.2, cone: 0.5, over: 0.8, hop: 2.4, time: 0.18 },
+  },
 };
 
 /**
@@ -200,6 +282,19 @@ export const SALT_SPEAR: Weapon = {
   knockback: 0.15,
   wardenKnockback: 0.05,
   stagger: false,
+  /**
+   * Plan 016: the spear leaves the hand. It flies the aim, drags the first guard or stalker it takes two
+   * units in, and staggers a warden it cannot move; until it is back the knight fights bare-handed.
+   */
+  special: {
+    id: 'harpoon', name: 'Harpoon', kind: 'throw', cooldown: 5,
+    detail: 'The Salt Spear is thrown and drags the first body it takes back to you.',
+    swing: {
+      duration: 0.5, anticipation: 0.12, contactEnd: 0.22, damage: 6, moveSpeed: 2.4, knockback: 0.15, wardenKnockback: 0, stagger: true,
+      ranged: { speed: 18, flight: 0.5, pierce: 1, capacity: 1, refill: 0 },
+    },
+    hurl: { drag: 2, bare: 0.5 },
+  },
 };
 
 /**
@@ -223,6 +318,16 @@ export const WARDENS_CLEAVER: Weapon = {
   knockback: 0.9,
   wardenKnockback: 0.15,
   stagger: false,
+  /**
+   * Plan 016 Stage C: the cleaver taken all the way round, once. Half again as long as a strike and wound
+   * for longer, so it is a thing to start before the ring closes rather than after; it shoves everything it
+   * takes, a warden included, and still staggers nothing, for the reason above.
+   */
+  special: {
+    id: 'whirl', name: 'Whirl', kind: 'whirl', cooldown: 5,
+    detail: "The Warden's Cleaver is swung all the way round and shoves off everything it takes.",
+    swing: { duration: 0.9, anticipation: 0.22, contactEnd: 0.5, damage: 7, arc: RING_ARC, moveSpeed: 1, knockback: 1.2, wardenKnockback: 0.45, stagger: false },
+  },
 };
 
 /**
@@ -247,6 +352,18 @@ export const BELL_MAUL: Weapon = {
   knockback: 0.7,
   wardenKnockback: 0.35,
   stagger: true,
+  /**
+   * Plan 016: held to charge and released to slam, a ring of force round the knight. Let go before half a
+   * second and nothing is spent; a full second is the widest, heaviest ring. While he holds it he walks at
+   * half the maul's swing speed, which is nearly standing still.
+   */
+  special: {
+    id: 'toll', name: 'Tolling Slam', kind: 'charge', cooldown: 6,
+    detail: 'Hold to wind the Bell Maul and release to slam a ring of force around you.',
+    // The slam after the release. Its reach and damage come off the charge (see specialSwing).
+    swing: { duration: 0.42, anticipation: 0.08, contactEnd: 0.18, moveSpeed: 0.6, knockback: 0.9, wardenKnockback: 0.35, stagger: true },
+    chargeMin: 0.5, chargeMax: 1, radius: [2.4, 3.2], scale: [1.5, 2.5], moveScale: 0.5,
+  },
 };
 
 /**
@@ -272,6 +389,21 @@ export const KEEP_CROSSBOW: Weapon = {
   wardenKnockback: 0.1,
   stagger: false,
   ranged: { speed: 19, flight: 0.62, pierce: 1, capacity: 4, refill: 1.8 },
+  /**
+   * Plan 016 Stage C: the whole quiver in one bolt. Held 0.7s it is drawn and stays drawn; let go then and
+   * it goes through everything on its line to the first stone, worth a bolt for every bolt it spent. It has
+   * no cooldown because the quiver is the cooldown: a dry crossbow cannot draw, and after it is dry.
+   */
+  special: {
+    id: 'heavybolt', name: 'Heavy Bolt', kind: 'draw', cooldown: 0, draw: true,
+    detail: 'Hold to draw the Keep Crossbow; release a full draw to spend the quiver on one bolt that pierces everything.',
+    // After the release: the bolt leaves almost at once, and the kick is most of it.
+    swing: {
+      duration: 0.55, anticipation: 0.03, contactEnd: 0.14, damage: 9, moveSpeed: 1, knockback: 0.5, wardenKnockback: 0.2, stagger: true,
+      ranged: { speed: 26, flight: 0.6, pierce: 64, capacity: 4, refill: 1.8 },
+    },
+    chargeMin: 0.7, chargeMax: 0.7, moveScale: 0.6,
+  },
 };
 
 /**
@@ -300,6 +432,16 @@ export const TIDEFLASK: Weapon = {
   stagger: false,
   ranged: { speed: 11, flight: 0.55, pierce: 0, capacity: 3, refill: 3 },
   burst: { radius: 2.2, life: 2.5, damage: 8, interval: 0.5 },
+  /**
+   * Plan 016 Stage C: every burning pool the knight has thrown goes up at once, a bite and a half to all
+   * that stands in any of them, and the fire is spent. Nothing to detonate, nothing happens and nothing is
+   * spent. The flask throws nothing while it does it (`ranged` is lifted off the swing).
+   */
+  special: {
+    id: 'flashpoint', name: 'Flashpoint', kind: 'detonate', cooldown: 4,
+    detail: 'Every burning pool of the Tideflask goes up at once and is spent.',
+    swing: { duration: 0.45, anticipation: 0.12, contactEnd: 0.2, damage: 12, moveSpeed: 1.8, knockback: 0, wardenKnockback: 0, stagger: false, ranged: undefined },
+  },
 };
 
 export const WEAPONS: Record<WeaponId, Weapon> = {
@@ -320,3 +462,84 @@ export const STARTING_WEAPON: WeaponId = 'tideblade';
 
 /** Falls back to the Tideblade, so a stale saved id or a bad test fixture cannot leave the knight unarmed. */
 export const weaponById = (id: string): Weapon => WEAPONS[id as WeaponId] ?? TIDEBLADE;
+
+/**
+ * `?arm=maul` on a dev build starts every descent holding that arm, so a playtest of one arm's special
+ * does not begin with a hunt for its rack. Own keys only: `?arm=toString` is not an arm. Null when the URL
+ * names no arm, so a page without one never has its arm changed under it.
+ */
+export const devStartingArm = (search: string): WeaponId | null => {
+  const id = new URLSearchParams(search).get('arm');
+  return id && Object.hasOwn(WEAPONS, id) ? id as WeaponId : null;
+};
+
+// --- Specials (plan 016) -----------------------------------------------------------------------------
+
+/** How far into its charge a held special is, 0 at `chargeMin` and 1 at `chargeMax`. Below the minimum is 0. */
+export const chargeLevel = (special: Special, held: number) => {
+  const min = special.chargeMin ?? 0, max = special.chargeMax ?? min;
+  if (!(held > min) || max <= min) return held >= max ? 1 : 0;
+  return Math.min(1, (held - min) / (max - min));
+};
+
+/** Whether letting go after `held` seconds slams, or cancels at no cost. */
+export const chargeReleases = (special: Special, held: number) => held >= (special.chargeMin ?? 0);
+
+/**
+ * The swing a special runs as, the way `beatOf` is the swing a chain beat runs as: the arm, overlaid with
+ * the special's own numbers. A charge takes its reach and damage from how long it was held. The chain is
+ * dropped, because a special is never a beat of a string and must not open one.
+ */
+export const specialSwing = (weapon: Weapon, charge = 1): Weapon => {
+  const special = weapon.special;
+  if (!special) return weapon;
+  const swing: Weapon = { ...weapon, ...special.swing, chain: undefined };
+  if (special.kind === 'charge' && special.radius && special.scale) {
+    const t = Math.min(1, Math.max(0, charge));
+    swing.reach = special.radius[0] + (special.radius[1] - special.radius[0]) * t;
+    swing.damage = Math.round(weapon.damage * (special.scale[0] + (special.scale[1] - special.scale[0]) * t));
+    swing.arc = RING_ARC;
+  }
+  return swing;
+};
+
+/**
+ * How far a lunge carries the knight this frame: the part of the frame (`age - dt` to `age`, seconds into
+ * the special) that overlaps its travel window, at the lunge's own speed. Zero outside the window, so the
+ * sum over any sequence of frames that spans it is exactly the lunge's distance.
+ */
+export const lungeStep = (special: Special, anticipation: number, age: number, dt: number) =>
+  special.lunge ? travelStep(anticipation, special.lunge.time, special.lunge.distance, age, dt) : 0;
+
+/** The share of `distance`, covered evenly over `time` seconds from `start`, that falls inside this frame. */
+const travelStep = (start: number, time: number, distance: number, age: number, dt: number) => {
+  if (!(dt > 0) || !(time > 0) || !(distance > 0)) return 0;
+  const overlap = Math.max(0, Math.min(age, start + time) - Math.max(age - dt, start));
+  return overlap * distance / time;
+};
+
+/**
+ * How far a vault carries the knight this frame: its path is `distance` long (the caller measured it off
+ * the floor when the hop started, see `vaultLanding`), covered over the hop's own time from the end of
+ * anticipation. Like `lungeStep`, summed over any frames that span the hop it is exactly `distance`.
+ */
+export const vaultStep = (special: Special, anticipation: number, distance: number, age: number, dt: number) =>
+  special.vault ? travelStep(anticipation, special.vault.time, distance, age, dt) : 0;
+
+/** Whether a vault has come down: the backstab is scored from here on, never in the air. */
+export const vaultLanded = (special: Special, anticipation: number, age: number) =>
+  !!special.vault && age >= anticipation + special.vault.time - 1e-9;
+
+/** How high the knight is off the floor `age` seconds into a vault: an arc peaking at `peak` mid-hop. */
+export const vaultHeight = (special: Special, anticipation: number, age: number, peak = 0.9) => {
+  if (!special.vault || !(age > anticipation)) return 0;
+  const t = (age - anticipation) / special.vault.time;
+  return t >= 1 ? 0 : Math.sin(Math.PI * t) * peak;
+};
+
+/** Whether a held draw is full, which is the only point at which letting go fires. */
+export const drawn = (special: Special, held: number) => !!special.draw && held >= (special.chargeMax ?? 0);
+
+/** What the Heavy Bolt is worth: a bolt's worth for every bolt in the quiver it spends. Nothing, dry. */
+export const drawDamage = (weapon: Weapon, quiver: number) =>
+  weapon.special?.draw ? specialSwing(weapon).damage * Math.max(0, Math.floor(Number.isFinite(quiver) ? quiver : 0)) : 0;

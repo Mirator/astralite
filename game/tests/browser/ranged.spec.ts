@@ -1,4 +1,4 @@
-import { expect, test } from './helpers.ts';
+import { expect, test, hold, press, release } from './helpers.ts';
 
 // The crossbow is the only arm that can be left useless, and the only one whose damage happens some
 // frames after the button. Both of those are what these cover.
@@ -10,7 +10,7 @@ test('firing spends a bolt, puts it in the air, and the quiver comes back on its
   expect(loaded.weapon.ranged).toBe(true);
   expect(loaded.weapon.quiver).toBe(loaded.weapon.capacity);
 
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(400);
   const fired = await game.state();
   expect(fired.weapon.quiver).toBe(loaded.weapon.capacity! - 1);
@@ -32,9 +32,9 @@ test('sustained fire keeps the quiver at the bottom rather than topped up', asyn
   const capacity = (await game.state()).weapon.capacity!;
   expect(capacity).toBeGreaterThan(0);
 
-  await page.keyboard.down('Space');
+  await hold(page, 'attack');
   await game.step(9000);
-  await page.keyboard.up('Space');
+  await release(page, 'attack');
   // At the bottom of the quiver rather than exactly empty: under continuous fire the count oscillates
   // between none and one, because a bolt that comes back is spent by the next pull almost at once.
   // Pinning it to exactly 0 is pinning the sampling moment, not the drain.
@@ -43,9 +43,9 @@ test('sustained fire keeps the quiver at the bottom rather than topped up', asyn
   expect(dry.weapon.quiver).toBeLessThan(capacity);
 
   // Holding longer neither digs a hole nor recovers: the drain is the steady state, not a dip.
-  await page.keyboard.down('Space');
+  await hold(page, 'attack');
   await game.step(4000);
-  await page.keyboard.up('Space');
+  await release(page, 'attack');
   const held = await game.state();
   expect(held.weapon.quiver).toBeGreaterThanOrEqual(0);
   expect(held.weapon.quiver).toBeLessThanOrEqual(1);
@@ -59,7 +59,7 @@ test('sustained fire keeps the quiver at the bottom rather than topped up', asyn
 test('the quiver is refilled by picking an arm up and emptied by putting one down', async ({ game, page }) => {
   await game.enter();
   await game.equip('crossbow');
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(400);
   expect((await game.state()).weapon.quiver).toBeLessThan((await game.state()).weapon.capacity!);
 
@@ -84,7 +84,7 @@ test('a thrown flask leaves fire on the ground, and the fire goes out', async ({
   expect(loaded.weapon.ranged).toBe(true);
   expect(loaded.weapon.fires).toBe(0);
 
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(1400);
   const burning = await game.state();
   expect(burning.weapon.fires).toBeGreaterThan(0);
@@ -102,7 +102,7 @@ test('fire already on the floor outlives the arm that threw it', async ({ game, 
   // his hand. What a swap does change is the quiver, which goes with the arm.
   await game.enter();
   await game.equip('flask');
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(1400);
   expect((await game.state()).weapon.fires).toBeGreaterThan(0);
 
@@ -119,7 +119,7 @@ test('fire already on the floor outlives the arm that threw it', async ({ game, 
 test('a new floor starts with nothing of the last one still burning', async ({ game, page }) => {
   await game.enter();
   await game.equip('flask');
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(1400);
   expect((await game.state()).weapon.fires).toBeGreaterThan(0);
 

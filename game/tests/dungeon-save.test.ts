@@ -162,7 +162,7 @@ test('nothing remembered is the game exactly as it shipped', () => {
   assert.equal(defaultSettings().volume, 1);
   assert.equal(defaultSettings().reducedMotion, null);
   assert.deepEqual(defaultSettings().binds.up, ['KeyW', 'ArrowUp']);
-  assert.deepEqual(defaultSettings().binds.dash, ['ShiftLeft', 'ShiftRight']);
+  assert.deepEqual(defaultSettings().binds.dash, ['Space', 'ShiftLeft', 'ShiftRight', 'KeyL']);
   // Fresh arrays every call: a rebind edits what parse handed back, and one aliased list would rewrite the
   // defaults that every later "reset keys" falls back to.
   const first = defaultSettings();
@@ -196,9 +196,9 @@ test('a partial or hostile settings blob costs that field and nothing else', () 
 
 test('a stored key set is honoured only while it leaves every action reachable', () => {
   // What a rebind actually writes: one action moved, the rest as they were.
-  assert.deepEqual(parseSettings('{"binds":{"attack":["KeyJ"]}}').binds.attack, ['KeyJ']);
+  assert.deepEqual(parseSettings('{"binds":{"attack":["KeyX"]}}').binds.attack, ['KeyX']);
   // An action the blob says nothing about keeps its defaults rather than becoming unusable.
-  assert.deepEqual(parseSettings('{"binds":{"attack":["KeyJ"]}}').binds.dash, ['ShiftLeft', 'ShiftRight']);
+  assert.deepEqual(parseSettings('{"binds":{"attack":["KeyX"]}}').binds.dash, ['Space', 'ShiftLeft', 'ShiftRight', 'KeyL']);
   // Non-strings, impossible codes and duplicates within one action are dropped, and the list is capped.
   assert.deepEqual(parseSettings('{"binds":{"attack":["KeyJ",7,null,"Key J","KeyJ","KeyK"]}}').binds.attack, ['KeyJ', 'KeyK']);
   assert.deepEqual(parseSettings(`{"binds":{"up":${JSON.stringify(['KeyA', 'KeyB', 'KeyC', 'KeyD', 'KeyE', 'KeyF'])}}}`).binds.up.length, 4);
@@ -206,40 +206,47 @@ test('a stored key set is honoured only while it leaves every action reachable',
   // through a hand-written cell either: the first action listed keeps it, the second loses it.
   const shared = parseSettings('{"binds":{"up":["KeyJ"],"attack":["KeyJ"]}}');
   assert.deepEqual(shared.binds.up, ['KeyJ']);
-  assert.deepEqual(shared.binds.attack, ['Space']);
+  // Attack falls back to its defaults minus the J the earlier action kept, which still leaves the button.
+  assert.deepEqual(shared.binds.attack, ['Mouse0']);
   // Escape smuggled onto another action is stripped wherever it appears, whatever the blob claims.
   assert.deepEqual(parseSettings('{"binds":{"attack":["Escape","KeyJ"]}}').binds.attack, ['KeyJ']);
-  assert.deepEqual(parseSettings('{"binds":{"attack":["Escape"]}}').binds.attack, ['Space']);
+  assert.deepEqual(parseSettings('{"binds":{"attack":["Escape"]}}').binds.attack, ['Mouse0', 'KeyJ']);
   assert.deepEqual(parseSettings('{"binds":{"pause":["Escape","KeyP"]}}').binds.pause, ['Escape', 'KeyP']);
   // An action emptied by the blob falls back to its defaults rather than silently disappearing.
-  assert.deepEqual(parseSettings('{"binds":{"dash":[]}}').binds.dash, ['ShiftLeft', 'ShiftRight']);
-  assert.deepEqual(parseSettings('{"binds":{"dash":["nope!"]}}').binds.dash, ['ShiftLeft', 'ShiftRight']);
+  assert.deepEqual(parseSettings('{"binds":{"dash":[]}}').binds.dash, ['Space', 'ShiftLeft', 'ShiftRight', 'KeyL']);
+  assert.deepEqual(parseSettings('{"binds":{"dash":["nope!"]}}').binds.dash, ['Space', 'ShiftLeft', 'ShiftRight', 'KeyL']);
+  // A fallback that is only partly claimed keeps what is left of it.
+  assert.deepEqual(parseSettings('{"binds":{"up":["Space"],"left":["ShiftLeft"],"right":["ShiftRight"]}}').binds.dash, ['KeyL']);
   // And when the fallback itself has been claimed, the whole set goes back to defaults: an action nobody
   // can perform, on a card that shows no sign of it, is worse than a lost customisation.
-  const stolen = parseSettings('{"binds":{"up":["Space"],"left":["ShiftLeft"],"right":["ShiftRight"]}}');
+  const stolen = parseSettings('{"binds":{"up":["Space","KeyL"],"left":["ShiftLeft"],"right":["ShiftRight"]}}');
   assert.deepEqual(stolen.binds, DEFAULT_BINDS);
 });
 
 test('binding a key takes it from whatever held it, and trades rather than disabling it', () => {
   const binds = defaultSettings().binds;
-  // The plain case: an action drops its old keys entirely and answers to the new one alone.
-  const rebound = bindKey(binds, 'attack', 'KeyJ');
-  assert.deepEqual(rebound?.attack, ['KeyJ']);
+  // The plain case: an action drops its old keys entirely and answers to the new one alone - on the
+  // keyboard. The button it also answers to is another device and stays where it was.
+  const rebound = bindKey(binds, 'attack', 'KeyX');
+  assert.deepEqual(rebound?.attack, ['Mouse0', 'KeyX']);
   assert.deepEqual(rebound?.up, ['KeyW', 'ArrowUp']);
   // Taking a key from an action that has another one left simply costs that action the key.
   const stolen = bindKey(binds, 'attack', 'ArrowUp');
-  assert.deepEqual(stolen?.attack, ['ArrowUp']);
+  assert.deepEqual(stolen?.attack, ['Mouse0', 'ArrowUp']);
   assert.deepEqual(stolen?.up, ['KeyW']);
-  // Taking an action's last key would leave it unusable and invisible, so the two trade instead: dash had
-  // only the shifts, so it inherits the key attack just stopped using.
-  const traded = bindKey(binds, 'attack', 'ShiftLeft');
-  assert.deepEqual(traded?.attack, ['ShiftLeft']);
-  assert.deepEqual(traded?.dash, ['ShiftRight']);
+  const shift = bindKey(binds, 'attack', 'ShiftLeft');
+  assert.deepEqual(shift?.attack, ['Mouse0', 'ShiftLeft']);
+  assert.deepEqual(shift?.dash, ['Space', 'ShiftRight', 'KeyL']);
+  // Taking an action's last key would leave it unusable and invisible, so the two trade instead: swap had
+  // only E, so it inherits the key attack just stopped using.
+  const traded = bindKey(binds, 'attack', 'KeyE');
+  assert.deepEqual(traded?.attack, ['Mouse0', 'KeyE']);
+  assert.deepEqual(traded?.swap, ['KeyJ']);
   const swapped = bindKey({ ...binds, dash: ['ShiftLeft'] }, 'attack', 'ShiftLeft');
-  assert.deepEqual(swapped?.attack, ['ShiftLeft']);
-  assert.deepEqual(swapped?.dash, ['Space']);
+  assert.deepEqual(swapped?.attack, ['Mouse0', 'ShiftLeft']);
+  assert.deepEqual(swapped?.dash, ['KeyJ']);
   // Whatever the trade, no key ends up answering for two actions and no action ends up with none.
-  for (const [action, code] of [['attack', 'ShiftLeft'], ['up', 'KeyS'], ['mute', 'KeyF'], ['dash', 'KeyW']] as [Action, string][]) {
+  for (const [action, code] of [['attack', 'ShiftLeft'], ['up', 'KeyS'], ['mute', 'KeyF'], ['dash', 'KeyW'], ['swap', 'Mouse0'], ['map', 'Mouse2'], ['special', 'Mouse0'], ['attack', 'KeyK'], ['dash', 'Mouse1']] as [Action, string][]) {
     const next = bindKey(binds, action, code);
     assert.ok(next, `${action}/${code} was refused`);
     const all = ACTIONS.flatMap(a => next[a]);
@@ -250,6 +257,78 @@ test('binding a key takes it from whatever held it, and trades rather than disab
   assert.deepEqual(bindKey(binds, 'up', 'KeyW')?.up, ['KeyW']);
   // The set handed in is never mutated, so a refused or abandoned rebind cannot half-apply.
   assert.deepEqual(binds, DEFAULT_BINDS);
+});
+
+test('plan 016: a blank blob is the mouse-and-keyboard layout, buttons included', () => {
+  const binds = parseSettings(null).binds;
+  assert.deepEqual(binds.attack, ['Mouse0', 'KeyJ']);
+  assert.deepEqual(binds.special, ['Mouse2', 'KeyK']);
+  assert.deepEqual(binds.dash, ['Space', 'ShiftLeft', 'ShiftRight', 'KeyL']);
+  assert.deepEqual(binds.swap, ['KeyE']);
+  assert.deepEqual(binds.map, ['Tab']);
+  assert.deepEqual(binds, DEFAULT_BINDS);
+  // Strike, special and dodge sit together ahead of everything a stray code could take them from.
+  assert.deepEqual(ACTIONS.slice(ACTIONS.indexOf('attack'), ACTIONS.indexOf('attack') + 3), ['attack', 'special', 'dash']);
+  assert.ok(ACTIONS.indexOf('dash') < ACTIONS.indexOf('swap'));
+  // Every default is a legal code, and none of them answers for two actions.
+  const all = ACTIONS.flatMap(a => DEFAULT_BINDS[a]);
+  assert.equal(new Set(all).size, all.length);
+  assert.ok(ACTIONS.every(a => DEFAULT_BINDS[a].length > 0 && DEFAULT_BINDS[a].length <= 4));
+});
+
+test('plan 016: mouse buttons are codes like keys, round-trip through a blob and trade like keys', () => {
+  const blob = JSON.stringify({ binds: { attack: ['Mouse0', 'KeyJ'], special: ['Mouse2'], swap: ['Mouse1'] } });
+  const read = parseSettings(blob).binds;
+  assert.deepEqual(read.attack, ['Mouse0', 'KeyJ']);
+  assert.deepEqual(read.special, ['Mouse2']);
+  assert.deepEqual(read.swap, ['Mouse1']);
+  assert.deepEqual(parseSettings(JSON.stringify({ binds: read })).binds, read);
+  const binds = defaultSettings().binds;
+  // A button replaces the action's buttons and leaves its keys alone, and costs the action it came from.
+  const moved = bindKey(binds, 'special', 'Mouse0');
+  assert.deepEqual(moved?.special, ['Mouse0', 'KeyK']);
+  assert.deepEqual(moved?.attack, ['KeyJ']);
+  // The dodge has a full list, so a button pushes out its last key rather than growing past the cap.
+  const dodge = bindKey(binds, 'dash', 'Mouse1');
+  assert.deepEqual(dodge?.dash, ['Mouse1', 'Space', 'ShiftLeft', 'ShiftRight']);
+  // Taking a button from an action that has nothing else trades: it inherits the button this one gave up.
+  const lone = { ...binds, attack: ['Mouse0'] };
+  const traded = bindKey(lone, 'special', 'Mouse0');
+  assert.deepEqual(traded?.special, ['Mouse0', 'KeyK']);
+  assert.deepEqual(traded?.attack, ['Mouse2']);
+  // And when this action has no button to give up, the trade is its whole list.
+  const whole = bindKey(lone, 'swap', 'Mouse0');
+  assert.deepEqual(whole?.swap, ['Mouse0']);
+  assert.deepEqual(whole?.attack, ['KeyE']);
+  for (const next of [moved, dodge, traded, whole]) {
+    assert.ok(next);
+    const all = ACTIONS.flatMap(a => next[a]);
+    assert.equal(new Set(all).size, all.length);
+    assert.ok(ACTIONS.every(a => next[a].length > 0));
+  }
+});
+
+test('plan 016: a blob from before special and map fills them from the defaults it has not claimed', () => {
+  // The whole of what the previous build wrote for an untouched card. No migration (decision 5): the
+  // strike stays on Space because the blob says so, and the two new actions come from the defaults.
+  const old = JSON.stringify({ binds: { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], attack: ['Space'], dash: ['ShiftLeft', 'ShiftRight'], swap: ['KeyE'], pause: ['Escape'], mute: ['KeyM'], fullscreen: ['KeyF'] } });
+  const binds = parseSettings(old).binds;
+  assert.deepEqual(binds.attack, ['Space']);
+  assert.deepEqual(binds.special, ['Mouse2', 'KeyK']);
+  assert.deepEqual(binds.dash, ['ShiftLeft', 'ShiftRight']);
+  assert.deepEqual(binds.map, ['Tab']);
+  // An earlier action that took one of a new action's defaults keeps it, and the new action keeps the rest.
+  assert.deepEqual(parseSettings('{"binds":{"attack":["KeyK"]}}').binds.special, ['Mouse2']);
+  assert.deepEqual(parseSettings('{"binds":{"up":["Mouse2"]}}').binds.special, ['KeyK']);
+  // One that took all of them would leave the new action empty, so the set goes back to defaults entire.
+  assert.deepEqual(parseSettings('{"binds":{"up":["Tab"]}}').binds, DEFAULT_BINDS);
+  assert.deepEqual(parseSettings('{"binds":{"up":["Mouse2"],"attack":["KeyK"]}}').binds, DEFAULT_BINDS);
+  for (const raw of [old, '{"binds":{"attack":["KeyK"]}}', '{"binds":{"up":["Tab"]}}']) {
+    const parsed = parseSettings(raw).binds;
+    const all = ACTIONS.flatMap(a => parsed[a]);
+    assert.equal(new Set(all).size, all.length, raw);
+    assert.ok(ACTIONS.every(a => parsed[a].length > 0), raw);
+  }
 });
 
 test('nothing can bind away the one key that opens the menu', () => {

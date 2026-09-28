@@ -1,4 +1,4 @@
-import { canStand, expect, hasClearPath, strikeStance, test, trackEnemy, type Snapshot } from './helpers.ts';
+import { canStand, expect, hasClearPath, strikeStance, test, trackEnemy, hold, press, release, type Snapshot } from './helpers.ts';
 import { generateFloor } from '../../app/dungeon-floor.ts';
 
 type PlayerPose = { bodyYaw:number; trail:boolean; trailTriangles:number };
@@ -8,7 +8,7 @@ const enemyPose=(enemy:Snapshot['enemies'][number])=>(enemy as typeof enemy&{pos
 
 test('impact accents come from real hits, freeze with pause, and expire without changing damage',async({game,page})=>{
   const active=async()=>((await game.state()) as Snapshot&{effects:{impacts:number}}).effects.impacts;
-  await game.enter();await page.keyboard.press('Space');await game.step(450);
+  await game.enter();await press(page, 'attack');await game.step(450);
   expect(await active()).toBe(0);
   const floor=await game.floor(),spot={x:0,z:0},stance=strikeStance(floor,spot);
   await game.teleport(stance.x,stance.z);
@@ -17,7 +17,7 @@ test('impact accents come from real hits, freeze with pause, and expire without 
   // quarter-hits, and a fixture pinned to a literal 2 would simply die and take the accent with it.
   const blade=(await game.state()).weapon.strikeDamage;
   await game.configureCombat({enemies:[{index:0,x:spot.x,z:spot.z,hp:blade*2,cooldown:10,windup:0}]});
-  await page.keyboard.press('Space');await game.step(100);
+  await press(page, 'attack');await game.step(100);
   expect((await game.state()).enemies[0].hp).toBe(blade);expect(await active()).toBe(1);
   await game.capture('knight-impact');
   await page.keyboard.press('Escape');await game.step(500);expect(await active()).toBe(1);
@@ -29,7 +29,7 @@ for(const key of ['ArrowRight','ArrowLeft','ArrowUp','ArrowDown']){
   test(`player blade trail follows the ${key} cut and expires after a miss`,async({game,page})=>{
     await game.enter();await game.step(120);
     await page.keyboard.down(key);await game.step(16);await page.keyboard.up(key);
-    await page.keyboard.press('Space');await game.step(40);
+    await press(page, 'attack');await game.step(40);
     const anticipation=await game.state();
     expect(anticipation.player.swordAngle).toBeLessThan(0);
     expect(playerPose(anticipation).trail).toBe(false);
@@ -46,7 +46,7 @@ for(const key of ['ArrowRight','ArrowLeft','ArrowUp','ArrowDown']){
 }
 
 test('pause freezes a slash, dodge clears it, and held strikes settle on release',async({game,page})=>{
-  await game.enter();await game.step(120);await page.keyboard.press('Space');await game.step(130);
+  await game.enter();await game.step(120);await press(page, 'attack');await game.step(130);
   const swinging=await game.state();expect(playerPose(swinging).trail).toBe(true);
   await page.keyboard.press('Escape');await game.step(500);
   expect(playerPose(await game.state())).toEqual(playerPose(swinging));
@@ -57,9 +57,9 @@ test('pause freezes a slash, dodge clears it, and held strikes settle on release
   const waiting=await game.state();expect(waiting.player.dashTime).toBe(0);expect(waiting.player.attackTime).toBeGreaterThan(0);expect(waiting.player.dashBuffer).toBeGreaterThan(0);
   await game.step(64);const dashed=await game.state();expect(dashed.player.dashTime).toBeGreaterThan(0);expect(dashed.player.attackTime).toBe(0);expect(dashed.player.dashBuffer).toBe(0);
   expect(playerPose(dashed).trail).toBe(false);expect(dashed.player.swordAngle).toBe(0);
-  await game.step(250);await page.keyboard.down('Space');await game.step(900);
+  await game.step(250);await hold(page, 'attack');await game.step(900);
   expect((await game.state()).player.attackTime).toBeGreaterThan(0);
-  await page.keyboard.up('Space');await game.step(500);
+  await release(page, 'attack');await game.step(500);
   expect(playerPose(await game.state()).trail).toBe(false);
   expect((await game.state()).player.attackTime).toBe(0);
 });

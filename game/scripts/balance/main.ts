@@ -8,6 +8,7 @@
 //   npm run balance -- --compare          every arm, side by side
 //   npm run balance -- --compare --kite   the same, with the knight backing away as he fights
 //   npm run balance -- --compare --quantise  the same, aiming with eight keys instead of a pointer
+//   npm run balance -- --compare --special   the same, firing each arm's special whenever it is worth it
 //   npm run balance -- --json             machine-readable, for diffing two branches
 //
 // The numbers are a yardstick for comparing one build against another, not a claim about how a human
@@ -32,6 +33,7 @@ const policy: Policy = {
   explore: !flag('no-explore'),
   kite: flag('kite'),
   quantise: flag('quantise'),
+  special: flag('special'),
   weapon: args.includes('--weapon') ? weaponById(args[args.indexOf('--weapon') + 1]) : DEFAULT_POLICY.weapon,
 };
 
@@ -56,7 +58,9 @@ if (flag('compare')) {
   console.log(`
   ${runs} runs an arm · reaction ${policy.reaction}s · dodge ${policy.dodge} · ${policy.explore ? 'exploring' : 'trunk only'}
 `);
-  console.log('  weapon             escaped   died   median run   median HP at stair   warden dmg   in reach   hit rate');
+  // Fight is plan 016's yardstick for a special: seconds from a room's first contact to its last body
+  // falling, median over every room fought; fight/run is the median run's total of them.
+  console.log('  weapon             escaped   died   median run   median HP at stair   warden dmg   in reach   hit rate   fight   fight/run');
   for (const id of Object.keys(WEAPONS) as WeaponId[]) {
     const all = batch(WEAPONS[id]);
     const out = all.filter(r => r.outcome === 'escaped'), lost = all.filter(r => r.outcome === 'died');
@@ -68,7 +72,7 @@ if (flag('compare')) {
     // walking backwards reads near zero whatever its damage column says.
     const inReach = dealt.reduce((sum, f) => sum + f.contact, 0), elapsed = all.reduce((sum, r) => sum + r.seconds, 0);
     const fired = dealt.reduce((sum, f) => sum + f.shots, 0), stuckIn = dealt.reduce((sum, f) => sum + f.landed, 0);
-    console.log(`  ${WEAPONS[id].name.padEnd(17)}  ${share(out.length, runs).padStart(7)}   ${share(lost.length, runs).padStart(4)}   ${`${(median(all.map(r => r.seconds)) / 60).toFixed(1)}m`.padStart(10)}   ${`${median(hp).toFixed(0)}%`.padStart(18)}   ${share(fromWarden, total).padStart(10)}   ${share(inReach, elapsed).padStart(8)}   ${(fired ? share(stuckIn, fired) : '—').padStart(8)}`);
+    console.log(`  ${WEAPONS[id].name.padEnd(17)}  ${share(out.length, runs).padStart(7)}   ${share(lost.length, runs).padStart(4)}   ${`${(median(all.map(r => r.seconds)) / 60).toFixed(1)}m`.padStart(10)}   ${`${median(hp).toFixed(0)}%`.padStart(18)}   ${share(fromWarden, total).padStart(10)}   ${share(inReach, elapsed).padStart(8)}   ${(fired ? share(stuckIn, fired) : '—').padStart(8)}   ${`${median(dealt.flatMap(f => f.fights)).toFixed(1)}s`.padStart(5)}   ${`${median(all.map(r => r.floors.reduce((sum, f) => sum + f.fights.reduce((s, x) => s + x, 0), 0))).toFixed(0)}s`.padStart(9)}`);
   }
   console.log('');
 } else if (flag('json')) {

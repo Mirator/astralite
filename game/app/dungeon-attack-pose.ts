@@ -8,7 +8,7 @@
 // that throws something is not swinging at all. The exported constants stay, as
 // the Tideblade's values, so a caller with no weapon in hand still reads the
 // sword it used to.
-import { TIDEBLADE, type Weapon } from './dungeon-weapon.ts';
+import { TIDEBLADE, type Special, type Weapon } from './dungeon-weapon.ts';
 
 export const PLAYER_ATTACK_DURATION = TIDEBLADE.duration;
 export const PLAYER_ATTACK_ANTICIPATION = TIDEBLADE.anticipation;
@@ -292,3 +292,109 @@ function swingPose(ageSeconds: number, weapon: Weapon): PlayerAttackPose {
     active: false,
   };
 }
+
+// --- Specials (plan 016) -----------------------------------------------------------------------------
+// Each special gets three short tracks - the wind, the live window and the recovery - on the same clock and
+// the same six channels as a swing, so the rig and the trail need nothing new. Positive pitch lifts the tip.
+
+type Tracks = { wind: readonly Key[]; live: readonly Key[]; recover: readonly Key[] };
+/** The same pose, moved to another point in its phase: where one phase ends is where the next begins. */
+const at = (t: number, key: Key): Key => [t, key[1], key[2], key[3], key[4], key[5], key[6]];
+
+/** Drawn back to the hip, then driven straight down the aim with the whole arm behind it. */
+const THRUST_BACK: Key = [1, 0.35, -0.04, 0.05, -0.34, 0.06, -0.3];
+const THRUST_OUT: Key = [1, 0.02, 0.04, 0, 0.12, -0.04, 0.58];
+const LUNGE: Tracks = {
+  wind: [[0, 0, 0, 0, 0, 0, 0], THRUST_BACK],
+  live: [at(0, THRUST_BACK), [0.3, 0.06, 0.05, 0.01, 0.1, -0.03, 0.52], THRUST_OUT],
+  recover: [at(0, THRUST_OUT), [0.5, 0.1, 0.2, 0.05, 0.06, -0.02, 0.3], [1, 0, 0, 0, 0, 0, 0]],
+};
+
+/** Raised over the shoulder, then the arm snaps forward and is left empty on the line. */
+const HURL_BACK: Key = [1, -0.4, 0.9, 0.2, -0.3, 0.08, -0.3];
+const HURL_OUT: Key = [1, 0.15, -0.2, -0.1, 0.25, -0.05, 0.38];
+const THROW: Tracks = {
+  wind: [[0, 0, 0, 0, 0, 0, 0], HURL_BACK],
+  live: [at(0, HURL_BACK), [0.35, 0.1, -0.25, -0.1, 0.26, -0.06, 0.46], HURL_OUT],
+  recover: [at(0, HURL_OUT), [1, 0, 0, 0, 0, 0, 0]],
+};
+
+/** The maul held high, and brought straight down into the floor. */
+const RAISED: Key = [1, -0.2, 1.3, 0.1, -0.15, 0.04, -0.1];
+const DOWN: Key = [1, 0, -0.62, 0, 0.08, -0.04, 0.28];
+const SLAM: Tracks = {
+  wind: [at(0, RAISED), [1, -0.2, 1.38, 0.1, -0.16, 0.04, -0.12]],
+  live: [[0, -0.2, 1.38, 0.1, -0.16, 0.04, -0.12], [0.45, 0, -0.66, 0, 0.1, -0.05, 0.3], DOWN],
+  recover: [at(0, DOWN), [0.55, 0, -0.3, 0, 0.04, -0.02, 0.14], [1, 0, 0, 0, 0, 0, 0]],
+};
+
+// Stage C. The Vault: a crouch, the blades tucked through the hop, and a reverse stab once he is down. The
+// landing is at LANDING of the live window for the Fangs' numbers (0.18s of hop in 0.28s live); the ribbon
+// only opens from there, since a trail drawn through the air would read as a cut that never happened.
+const CROUCH: Key = [1, -0.5, -0.3, 0.1, -0.15, 0.1, -0.2];
+const STABBED: Key = [1, 1.3, 0, -0.2, -0.35, -0.05, 0.42];
+const LANDING = 0.64;
+const VAULT: Tracks = {
+  wind: [[0, 0, 0, 0, 0, 0, 0], CROUCH],
+  live: [at(0, CROUCH), [0.3, -0.9, 0.5, 0.2, 0.3, 0.1, -0.1], [LANDING, -1, 0.3, 0.1, 0.5, 0.05, -0.05], [0.8, 1.2, -0.1, -0.2, -0.3, -0.05, 0.4], STABBED],
+  recover: [at(0, STABBED), [1, 0, 0, 0, 0, 0, 0]],
+};
+
+// The Whirl: coiled with the blade behind him, and the spin already under way when the edge goes live, so
+// the frame the ring lands on shows a blade crossing the body rather than one parked at the shoulder. The
+// torso turns a whole revolution and a little over; the recovery unwinds that little to a full turn, which
+// is the rest pose again, so nothing snaps back the long way round.
+const COILED: Key = [1, -1.4, -0.12, 0.1, -0.7, 0.06, -0.08];
+const SPUN = Math.PI * 2;
+const WHIRL: Tracks = {
+  wind: [[0, 0, 0, 0, 0, 0, 0], at(0.7, COILED), [1, 0.4, -0.04, -0.05, 0.3, 0, 0.18]],
+  live: [[0, 0.4, -0.04, -0.05, 0.3, 0, 0.18], [0.5, 1, 0.02, -0.15, SPUN * 0.55, -0.06, 0.3], [1, 1.1, 0.05, -0.2, SPUN - 0.35, -0.08, 0.32]],
+  recover: [[0, 1.1, 0.05, -0.2, SPUN - 0.35, -0.08, 0.32], [0.5, 0.5, 0.4, 0.2, SPUN - 0.08, 0, 0.15], [1, 0, 0, 0, SPUN, 0, 0]],
+};
+
+// The Heavy Bolt after the release: held drawn for the instant it takes, then a kick far harder than a bolt's.
+const DRAWN: Key = [1, -0.04, 0.06, -0.03, -0.1, 0.01, -0.12];
+const KICKED: Key = [1, -0.1, 0.38, -0.12, 0.18, -0.05, -0.2];
+const LOOSE: Tracks = {
+  wind: [at(0, DRAWN), DRAWN],
+  live: [at(0, DRAWN), [0.22, -0.02, 0.5, -0.06, 0.18, -0.1, -0.3], KICKED],
+  recover: [at(0, KICKED), ...RANGED_RECOVERY.slice(1)],
+};
+
+// The Flashpoint: the flask hand thrown up and open, the gesture that sets the fire off.
+const LIFTED: Key = [1, -0.3, 1, 0.2, -0.2, 0.05, -0.15];
+const FLUNG: Key = [1, 0.1, 1.1, 0.1, 0.1, -0.04, 0.28];
+const DETONATE: Tracks = {
+  wind: [[0, 0, 0, 0, 0, 0, 0], LIFTED],
+  live: [at(0, LIFTED), [0.3, 0.1, 1.2, 0.1, 0.1, -0.05, 0.3], FLUNG],
+  recover: [at(0, FLUNG), [1, 0, 0, 0, 0, 0, 0]],
+};
+
+const TRACKS: Record<Special['kind'], Tracks> = { lunge: LUNGE, throw: THROW, charge: SLAM, vault: VAULT, whirl: WHIRL, draw: LOOSE, detonate: DETONATE };
+
+/** Whether the ribbon runs `t` into a special's live window: never for a thrown arm or an opened hand. */
+const ribbon = (kind: Special['kind'], t: number) => kind === 'vault' ? t >= LANDING : kind !== 'throw' && kind !== 'detonate';
+
+/**
+ * The rig pose for a special, `ageSeconds` into it. `swing` is what `specialSwing` returned, so the three
+ * phase boundaries are the ones combat scores against; `active` is the same live window. The thrown arm
+ * draws no ribbon - it is not being swung - and the other two draw one only while they are live.
+ */
+export function playerSpecialPose(ageSeconds: number, swing: Weapon, kind: Special['kind']): PlayerAttackPose {
+  const age = finiteAge(ageSeconds);
+  if (age <= 0 || age >= swing.duration) return { ...REST };
+  const tracks = TRACKS[kind];
+  if (age < swing.anticipation) return { ...sample(tracks.wind, age / swing.anticipation), trail: false, active: false };
+  if (age <= swing.contactEnd) {
+    const t = (age - swing.anticipation) / Math.max(1e-6, swing.contactEnd - swing.anticipation);
+    return { ...sample(tracks.live, t), trail: ribbon(kind, t), active: true };
+  }
+  return { ...sample(tracks.recover, (age - swing.contactEnd) / Math.max(1e-6, swing.duration - swing.contactEnd)), trail: false, active: false };
+}
+
+/** Winding a charge: `level` 0 is the arm at rest and 1 is the maul all the way up, where the slam starts. */
+const WINDING: readonly Key[] = [[0, 0, 0, 0, 0, 0, 0], [0.6, -0.16, 1.1, 0.08, -0.12, 0.03, -0.06], RAISED];
+/** Drawing the Heavy Bolt: the stock up onto the line, then the string hauled back into the shoulder. */
+const DRAWING: readonly Key[] = [[0, 0, 0, 0, 0, 0, 0], [0.5, -0.16, 0.2, -0.1, -0.14, 0.03, 0.1], DRAWN];
+export const chargePose = (level: number, kind: Special['kind'] = 'charge'): PlayerAttackPose =>
+  ({ ...sample(kind === 'draw' ? DRAWING : WINDING, Math.min(1, Math.max(0, Number.isFinite(level) ? level : 0))), trail: false, active: false });

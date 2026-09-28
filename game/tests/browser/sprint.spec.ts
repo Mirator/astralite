@@ -1,4 +1,4 @@
-import { expect, test } from './helpers.ts';
+import { expect, test, press } from './helpers.ts';
 
 test('travel uses a running rig, freezes on pause, settles on release and yields to attacks and dodge',async({game,page})=>{
   await game.enter();await game.step(120);
@@ -19,7 +19,7 @@ test('travel uses a running rig, freezes on pause, settles on release and yields
   expect(Math.abs(idle.player.locomotion.tabard)).toBeLessThan(.01);
   expect(Math.abs(idle.player.locomotion.pitch)).toBeLessThan(.01);
   await page.keyboard.down('ArrowLeft');await game.step(240);
-  await page.keyboard.press('Space');await game.step(100);
+  await press(page, 'attack');await game.step(100);
   const attack=await game.state();expect(attack.player.attackTime).toBeGreaterThan(0);
   expect(attack.player.locomotion.pitch).toBe(0);
   await page.keyboard.up('ArrowLeft');await game.step(400);

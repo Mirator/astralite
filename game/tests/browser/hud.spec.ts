@@ -14,7 +14,9 @@ test('no foreground silhouettes or figure outlines, the ability row stays, and t
   const hud = page.getByRole('region', { name: 'Player status' });
   await expect(hud.getByRole('progressbar', { name: 'Vitality' })).toBeVisible();
   await expect(hud.getByRole('progressbar', { name: 'Dash readiness' })).toBeVisible();
-  await expect(hud.locator('kbd.keycap')).toHaveCount(2);
+  // Strike, the arm's special (plan 016 decision 4: a third socket in the same row; since Stage C every
+  // arm fills it) and dash.
+  await expect(hud.locator('kbd.keycap')).toHaveCount(3);
 
   const state = await game.state();
   expect(state.render.passes).not.toContain('OutlinePass');

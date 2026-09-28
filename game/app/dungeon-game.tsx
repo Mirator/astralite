@@ -23,19 +23,21 @@ import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidat
 import { animateCloth, stoneMood, tideMood, tidalMaterial, weatherStone } from './dungeon-motion';
 import { canStand, generateFloor, hasClearPath, moveOnFloor, cellKey, TILE } from './dungeon-floor';
 import { CAMERA_OFFSET, groundAim, SCREEN_DOWN, SCREEN_RIGHT, SNAP_REACH, snapAim } from './dungeon-aim';
-import { canAbortSwing, DASH_BUFFER, DASH_TIME, dashImmune, playerSpeed, swordContacts } from './dungeon-combat';
-import { beatOf, chainLength } from './dungeon-weapon';
+import { canAbortSwing, DASH_BUFFER, DASH_TIME, dashImmune, dragToward, lineContacts, playerSpeed, specialAvailable, specialGate, swordContacts, vaultLanding, vaultTarget } from './dungeon-combat';
+import { beatOf, chainLength, chargeLevel, chargeReleases, drawDamage, drawn, lungeStep, specialSwing, vaultHeight, vaultLanded, vaultStep } from './dungeon-weapon';
 import { ALERT_STAGGER, decideEnemy, enemyStats, hitCooldown, interruptsWindup, nearbyDozers, NOTICE_TIME, separateCrowd, type Wakeable } from './dungeon-enemy';
 import { enemyPose } from './dungeon-enemy-pose';
-import { playerAttackPose } from './dungeon-attack-pose';
-import { STARTING_WEAPON, TIDEBLADE, weaponById, type Weapon, type WeaponId } from './dungeon-weapon';
+import { chargePose, playerAttackPose, playerSpecialPose } from './dungeon-attack-pose';
+import { devStartingArm, STARTING_WEAPON, TIDEBLADE, weaponById, type Weapon, type WeaponId } from './dungeon-weapon';
+// What the veil says is happening, one label per stage of `stagedBuild`, and how far its bar has run.
+import { creep, programsShare, SHADER_POST, SHADER_SCENE, VEIL_STAGES, veilProgress } from './dungeon-veil';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
-import { flyShot, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
+import { flashpointHits, flyShot, homeStep, laneLength, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
 import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
-import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
-import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resolveKill, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, isMouseCode, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
+import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, STAIR_DWELL, STAIR_RADIUS, stairDwellStep, takeBoon, tickRun, XP_DEAD_END, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 
 type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; death: DeathAnimation | null; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: 'guard' | 'stalker' | 'warden'; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; alert: THREE.Sprite; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[];
   // Where it spawned, for a dozing body's pace; how far into noticing it is; a countdown to a contagion
@@ -59,9 +61,6 @@ type GameToolContext = {
   }, options: { signal: AbortSignal }) => void | Promise<void>;
 };
 const FLOORS = 3;
-/** Plan 014 round C: what the veil says is happening, one label per stage of `stagedBuild`. The label
- *  shown is the stage now running, so index 0 names the first one before it has finished. */
-const VEIL_STAGES = ['Charting the halls', 'Cutting the stone', 'Raising the walls', 'Lighting the braziers', 'Flooding the halls'] as const;
 /** Short in-world lines, crossfaded one at a time under the bar (CSS only). */
 const VEIL_LORE = [
   'Braziers mark the rooms the warden still watches.',
@@ -77,8 +76,10 @@ const VEIL_LORE = [
 // of them is actually bound to something, so the list follows a rebind instead of being frozen at the
 // defaults: an arrow freed by a rebind goes back to scrolling the page, and a newly bound PageDown stops.
 // Tab is deliberately absent. Trapping it would cost a keyboard-only player the way out of the canvas.
-const SCROLL_KEYS = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', 'Backspace', 'Slash', 'Quote']);
-const ACTION_LABELS: Record<Action, string> = { up: 'Up', down: 'Down', left: 'Left', right: 'Right', attack: 'Strike', dash: 'Dodge', swap: 'Take arm', pause: 'Pause', mute: 'Sound', fullscreen: 'Fullscreen' };
+// Tab is here for the floor map (plan 016): swallowed only while it is bound and the fight is live, so focus
+// navigation through every menu and card keeps working.
+const SCROLL_KEYS = new Set(['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', 'Backspace', 'Slash', 'Quote']);
+const ACTION_LABELS: Record<Action, string> = { up: 'Up', down: 'Down', left: 'Left', right: 'Right', attack: 'Strike', special: 'Special', dash: 'Dodge', swap: 'Take arm', map: 'Floor map', pause: 'Pause', mute: 'Sound', fullscreen: 'Fullscreen' };
 // One funnel for every settings change: React state for the card, storage for the next visit, and the ref
 // the render loop reads, all in the same breath, so a second change in the same tick builds on the first
 // rather than on a render that has not happened yet. Built from a ref and a setState — both stable for the
@@ -90,7 +91,9 @@ const changeSettings = (ref: { current: Settings }, set: (next: Settings) => voi
 // A KeyboardEvent.code is a hardware position, not a legend, and 'KeyW' on the card would be nonsense to
 // the AZERTY player this exists for. `key` is the legend but is unstable under modifiers, so the code is
 // shortened where its tail is already the character and left whole where it is not.
-const keyLabel = (code: string) => code.startsWith('Key') || code.startsWith('Digit') ? code.replace(/^(Key|Digit)/, '') : code.startsWith('Arrow') ? ({ ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' })[code] ?? code : code.replace(/^(Shift|Control|Alt|Meta)(Left|Right)$/, '$1');
+// Mouse buttons are bind codes too (plan 016), named the way a player names them.
+const MOUSE_LABEL: Record<string, string> = { Mouse0: 'LMB', Mouse1: 'MMB', Mouse2: 'RMB', Mouse3: 'M4', Mouse4: 'M5' };
+const keyLabel = (code: string) => MOUSE_LABEL[code] ?? (code.startsWith('Key') || code.startsWith('Digit') ? code.replace(/^(Key|Digit)/, '') : code.startsWith('Arrow') ? ({ ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' })[code] ?? code : code.replace(/^(Shift|Control|Alt|Meta)(Left|Right)$/, '$1'));
 // Deduplicated after labelling, not before: the two shift keys are distinct codes and one legend, and
 // "Shift / Shift" tells a player nothing except that the card is not thinking.
 const bindLabel = (codes: string[], join = ' / ') => [...new Set(codes.map(keyLabel))].join(join);
@@ -100,6 +103,9 @@ const bindLabel = (codes: string[], join = ' / ') => [...new Set(codes.map(keyLa
 // already produces rather than replacing it - settings and the controls legend keep the full word.
 const KEYCAP_GLYPH: Record<string, string> = { Space: 'SPC', Shift: '⇧', Control: '⌃', Alt: '⌥', Enter: '⏎', Escape: 'ESC', Tab: '⇥' };
 const keycapLabel = (codes: string[]) => [...new Set(codes.map(keyLabel))].map((l) => KEYCAP_GLYPH[l] ?? (l.length > 4 ? l.slice(0, 3).toUpperCase() : l.toUpperCase())).join('/');
+// Plan 016: one code on the keycap, for the device the player used last - the button when the cursor owns
+// the aim, the first key otherwise. Showing the first bind would label a keyboard player's strike "LMB".
+const keycapFor = (codes: string[], pointer: boolean) => keycapLabel([(pointer && codes.find(isMouseCode)) || codes.find(c => !isMouseCode(c)) || codes[0] || '']);
 // Hydration never changes back, so there is nothing to subscribe to.
 const noSubscription = () => () => {};
 
@@ -152,6 +158,9 @@ export default function DungeonGame() {
   const [rank, setRank] = useState(1), [rankXp, setRankXp] = useState(0), [rankNeed, setRankNeed] = useState(rankCost(1));
   const [boonChoice, setBoonChoice] = useState<Boon[]>([]), [taken, setTaken] = useState<string[]>([]);
   const [heldWeapon, setHeldWeapon] = useState(TIDEBLADE.name);
+  // Plan 016: the held arm's special, or null for an arm that has none (its HUD slot and touch button sit
+  // empty), and whether the cursor owns the aim, which is what decides the keycaps' device.
+  const [specialArm, setSpecialArm] = useState<{ name: string; detail: string } | null>(TIDEBLADE.special ? { name: TIDEBLADE.special.name, detail: TIDEBLADE.special.detail } : null), [pointerAim, setPointerAim] = useState(false);
   // The arm the knight is standing over, or null when he is standing over nothing. It is the whole of the
   // swap prompt's state: the key it names is read off the bindings at render, so a rebind is live at once.
   const [swapOffer, setSwapOffer] = useState<{ name: string; detail: string } | null>(null);
@@ -203,6 +212,11 @@ export default function DungeonGame() {
   // old `<progress>` was - one DOM write a frame from the render loop, no React state and no re-render
   // for something that changes sixty times a second.
   const dashSweep = useRef<HTMLDivElement>(null);
+  // The veil's bar fill, written the same way: `showVeil` moves it as texture bands finish and shader
+  // programs link, which during a cold load is every frame for seconds.
+  const veilFill = useRef<HTMLElement>(null);
+  // Plan 016 decision 4: the special's own sweep, the dash icon's language in the same row.
+  const specialSweep = useRef<HTMLDivElement>(null);
   const [displayLost, setDisplayLost] = useState(false), [floorBuild, setFloorBuild] = useState(0);
   // Deliberately not the same flag as displayLost: that is a context taken away mid-descent and handed
   // back, this is one never granted, so there is no run to pause and nothing that could restore it.
@@ -242,6 +256,19 @@ export default function DungeonGame() {
   // Capture phase, stopped dead: the game's own keydown sits on window too, so without this a player
   // rebinding Sound would mute the game on the way past. Escape cancels rather than binds — it is reserved,
   // so it could never be the answer, and cancelling is what a player pressing it expects anyway.
+  // One way a captured code becomes a binding, whether it came from a key or (plan 016) a mouse button on the
+  // capture surface below the list.
+  const commitBind = useCallback((action: Action, code: string) => {
+    setCapturing(null);
+    if (code === RESERVED) { setBindNote('Escape always opens this menu, so it stays on Pause.'); return; }
+    const held = ACTIONS.find(a => a !== action && settingsRef.current.binds[a].includes(code));
+    const binds = bindKey(settingsRef.current.binds, action, code);
+    if (!binds) { setBindNote(keyLabel(code) ? `${keyLabel(code)} cannot be bound.` : 'That key cannot be bound.'); return; }
+    change({ binds });
+    // Say what the key cost, because the action it was taken from is somewhere else on the card and the
+    // player would otherwise find out mid-fight.
+    setBindNote(held ? `${keyLabel(code)} taken from ${ACTION_LABELS[held]} — now ${bindLabel(binds[held])}.` : '');
+  }, [change]);
   useEffect(() => {
     if (!capturing) return;
     const onKey = (e: KeyboardEvent) => {
@@ -249,19 +276,11 @@ export default function DungeonGame() {
       // A focused button activates on the key's *release*, which would drop straight back into capture; the
       // matching keyup is swallowed once so binding Space or Enter behaves like binding anything else.
       window.addEventListener('keyup', (up: KeyboardEvent) => { up.preventDefault(); up.stopImmediatePropagation(); }, { capture: true, once: true });
-      setCapturing(null);
-      if (e.code === RESERVED) { setBindNote('Escape always opens this menu, so it stays on Pause.'); return; }
-      const held = ACTIONS.find(a => a !== capturing && settingsRef.current.binds[a].includes(e.code));
-      const binds = bindKey(settingsRef.current.binds, capturing, e.code);
-      if (!binds) { setBindNote(keyLabel(e.code) ? `${keyLabel(e.code)} cannot be bound.` : 'That key cannot be bound.'); return; }
-      change({ binds });
-      // Say what the key cost, because the action it was taken from is somewhere else on the card and the
-      // player would otherwise find out mid-fight.
-      setBindNote(held ? `${keyLabel(e.code)} taken from ${ACTION_LABELS[held]} — now ${bindLabel(binds[held])}.` : '');
+      commitBind(capturing, e.code);
     };
     window.addEventListener('keydown', onKey, { capture: true });
     return () => window.removeEventListener('keydown', onKey, { capture: true });
-  }, [capturing, change]);
+  }, [capturing, commitBind]);
 
   // Persisting a finished run is a write to an external system, so it belongs in an effect. Both endings
   // settle every HUD value before `status` flips, which makes this the one honest place to read the run.
@@ -324,6 +343,12 @@ export default function DungeonGame() {
     // than `weapon`, or a heavy finish would be scored with the opening cut's numbers.
     let chainBeat = 0, chainIdle = Infinity, swing: Weapon = TIDEBLADE;
     let attackBuffer = 0, dashBuffer = 0, walkPhase = 0, gaitSpeed = 0, elapsed = 0, manualTime = false, hitStop = 0;
+    // Plan 016: which verb the live swing is. A special runs on the strike's own clock - `attackTime` and
+    // `swing` - so everything that already gates on a live swing (the dash's commitment, the move speed,
+    // one hit per body) gates on it too. `charging` is seconds a charged special has been held, null when
+    // none is; `specialBuffer` is a press that waits out a live blade the way a buffered dodge does.
+    let swingKind: 'strike' | 'special' = 'strike', specialBuffer = 0, charging: number | null = null, specialWasReady = true, glintTime = 0;
+    const lungeFrom = new THREE.Vector3(), glintAt = new THREE.Vector3();
     let locomotion=playerRunPose(0,0);
     let rewardTime = 0, noticeTime = 0;
     let hasStarted = false, isPaused = false, isMuted = false, activeRoom = 0;
@@ -388,7 +413,8 @@ export default function DungeonGame() {
       setNotice('The stair opens'); setNoticeDetail('step onto it to descend'); noticeTime = 4;
     };
     const offerBoon = () => {
-      run.choosing = true; keys.clear();
+      // A charge the draft interrupts is let go at no cost, never slammed on the frame the card closes.
+      run.choosing = true; keys.clear(); cancelCharge(); specialBuffer = 0;
       setBoonChoice(draftBoons(run));
       audio.play('clear');
     };
@@ -686,25 +712,67 @@ export default function DungeonGame() {
       // A swap mid-swing would otherwise leave the old blade's ribbon hanging in the air.
       attackTime = 0; swingHits.clear(); slash.clear();
       // A string belongs to the arm that swings it: carrying a half-finished one across a swap
-      // would open the new weapon on its heavy beat.
+      // would open the new weapon on its heavy beat. So does a special, a charge, a thrown spear (it goes
+      // down on the rack with the arm) and the cooldown, which is the old arm's.
+      endSpecial(); resetSpecial(run);
       chainBeat = 0; chainIdle = Infinity; swing = weapon; posePlayer(0);
       // A weapon picked up arrives loaded; bolts already in the air are the old arm's and stay in it.
       quiver = weapon.ranged ? weapon.ranged.capacity : 0; reload = 0;
       setAmmo(weapon.ranged ? { held: quiver, of: weapon.ranged.capacity } : null);
+      setSpecialArm(weapon.special ? { name: weapon.special.name, detail: weapon.special.detail } : null);
     };
     // Bolts in hand, and the clock the next one comes back on. A ranged arm is limited by a quiver
     // rather than by a cooldown: the knight walks at 8.5 against a stalker's 3.2, so a shot that merely
     // recovered on a timer would let him back away and win the keep without ever being reachable.
     let quiver = 0, reload = 0;
-    const shots: { shot: Shot; mesh: THREE.Group }[] = [];
+    // `harpoon` marks the Salt Spear itself on its way out (plan 016): same flight rule, its own hit rule.
+    const shots: { shot: Shot; mesh: THREE.Group; harpoon?: boolean; heavy?: boolean }[] = [];
     // Fired shots come out of a pool. The suite asserts a floor allocates no new GPU memory once built.
     const boltPool = Array.from({ length: 8 }, () => { const bolt = makeBolt((player.userData.armoury as {palette: ArmoryPalette}).palette); world.add(bolt); return bolt; });
     const flaskPool = Array.from({ length: 6 }, () => { const flask = makeFlask((player.userData.armoury as {palette: ArmoryPalette}).palette); world.add(flask); return flask; });
     // Burning silt the knight left behind, and the rings that show it. Pooled like everything else.
     const pools: { pool: Pool; mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> }[] = [];
     const poolMeshes = Array.from({ length: 6 }, () => { const mesh = makePoolMesh(); world.add(mesh); return mesh; });
+    // Plan 016: the Tolling Slam's ring on the floor while the maul is wound; the slam itself is impacts.slam.
+    // An outline at the reach over a faint wash rather than the flask's solid ring: it has to say "this far"
+    // under the knight for a second at a time without the paving disappearing under it. Made once at mount.
+    const chargeRing = new THREE.Mesh(new THREE.RingGeometry(0, 1, 48), new THREE.MeshBasicMaterial({ color: 0xf2c47b, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
+    const chargeGlow = litDisc(chargeRing.material, 'slam-charge-v1', .35); chargeGlow.edge.value = .95; chargeGlow.width.value = .05; chargeGlow.pool.value = .22;
+    chargeRing.rotation.x = -Math.PI / 2; chargeRing.visible = false; world.add(chargeRing);
+    // The Salt Spear while it is out of the hand: flying out (a live entry in `shots`) or coming back.
+    let harpoon: { mesh: THREE.Group; phase: 'out' | 'back'; x: number; z: number; speed: number; dragged: boolean } | null = null;
+    // Stage C. The Vault in progress: the body it goes over (or none), how long its path is and which way it
+    // runs (measured off the floor at takeoff), and whether the backstab has been scored.
+    let vault: { target: Enemy | null; distance: number; dir: THREE.Vector3; landed: boolean } | null = null;
+    // The Heavy Bolt's line on the floor: faint while it is drawn, bright on the frame it goes. One mesh on the
+    // dash streak's own geometry, made once at mount; `laneLife` is the bright line's wall-clock fade.
+    const lane = new THREE.Mesh(new THREE.PlaneGeometry(.11, 1.15), new THREE.MeshBasicMaterial({ color: 0xffd79a, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+    lane.rotation.x = -Math.PI / 2; lane.visible = false; world.add(lane);
+    let laneLife = 0;
+    const layLane = (length: number, width: number, opacity: number) => {
+      lane.visible = true; lane.material.opacity = opacity;
+      lane.position.set(player.position.x + facing.x * length / 2, .08, player.position.z + facing.z * length / 2);
+      lane.rotation.z = Math.atan2(-facing.z, facing.x) + Math.PI / 2; lane.scale.set(width / .11, Math.max(.05, length) / 1.15, 1);
+    };
+    // The Flashpoint's pools going up: the pool's own ring, taken out of the fire and flared white, then gone.
+    const flares: { mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; age: number; radius: number }[] = [];
+    const FLARE_LIFE = .3;
+    const clearFlares = () => { for (const flare of flares) { flare.mesh.visible = false; flare.mesh.material.color.setHex(0xff5a2a); } flares.length = 0; };
+    const catchHarpoon = () => {
+      if (!harpoon) return;
+      const at = shots.findIndex(live => live.harpoon); if (at >= 0) shots.splice(at, 1);
+      harpoon.mesh.visible = false; harpoon.mesh.scale.set(1, 1, 1); harpoon = null; armed.group.visible = true;
+    };
+    const cancelCharge = () => { charging = null; chargeRing.visible = false; if (laneLife <= 0) lane.visible = false; };
+    // Everything a special can leave running, put away: a swap, a restart, a descent, a reset.
+    const endSpecial = () => {
+      cancelCharge(); specialBuffer = 0; impacts.clearShock(); glintTime = 0; catchHarpoon();
+      vault = null; laneLife = 0; lane.visible = false; clearFlares();
+      if (swingKind === 'special') { attackTime = 0; swing = weapon; }
+      swingKind = 'strike';
+    };
     const clearShots = () => {
-      for (const live of shots) live.mesh.visible = false;
+      for (const live of shots) { live.mesh.visible = false; if (live.heavy) live.mesh.scale.set(1, 1, 1); }
       shots.length = 0;
       for (const live of pools) live.mesh.visible = false;
       pools.length = 0;
@@ -729,13 +797,15 @@ export default function DungeonGame() {
       drop = {...built, kind, x, z};
       overDrop = false; ringLit = 0; showOffer(null);
     };
+    // The pose the live swing is in: a strike's curve, a special's own tracks, or the maul being wound.
+    const poseAt=(age:number)=>swingKind==='special'&&weapon.special?playerSpecialPose(age,swing,weapon.special.kind):charging!==null&&age===0&&weapon.special?chargePose(charging/(weapon.special.chargeMin??1),weapon.special.kind):playerAttackPose(age,swing,chainBeat);
     const posePlayer=(age:number)=>{
-      const pose=playerAttackPose(age,swing,chainBeat),sword=player.userData.sword as THREE.Group;
+      const pose=poseAt(age),sword=player.userData.sword as THREE.Group;
       sword.rotation.set(pose.swordPitch,pose.swordYaw,pose.swordRoll);
       sword.position.set(.44,.3,-.02-pose.armReach);
       sword.scale.z=1+run.reach*.5;
       player.userData.torso.rotation.set(0,pose.bodyYaw,pose.bodyRoll);
-      if(age===0){player.userData.torso.rotation.x=locomotion.pitch;player.userData.torso.rotation.y+=locomotion.twist;sword.rotation.x+=locomotion.swordPitch;}
+      if(age===0&&charging===null){player.userData.torso.rotation.x=locomotion.pitch;player.userData.torso.rotation.y+=locomotion.twist;sword.rotation.x+=locomotion.swordPitch;}
       return pose;
     };
     const trailGeo=new THREE.PlaneGeometry(.11,1.15);
@@ -851,19 +921,33 @@ export default function DungeonGame() {
      * programs a frame instead of all of them at once, and the worst single frame is bounded by the
      * slowest one.
      */
-    const pollProgramsReady = async (token: number) => {
+    // The bar only ever moves forward: a stage's measured share can fall (the program list grows as the post
+    // chain and the first frame add to it), and a bar that ran backwards would be worse than one that paused.
+    let veilShown = 0;
+    const showVeil = (stage: number, fraction = 0) => {
+      veilShown = Math.max(veilShown, veilProgress(stage, fraction));
+      const fill = veilFill.current;
+      if (fill) { fill.style.transform = `scaleX(${Math.max(.04, veilShown)})`; fill.dataset.progress = veilShown.toFixed(3); }
+    };
+    const pollProgramsReady = async (token: number, share?: (ready: number, total: number, stalledMs: number) => void) => {
       const budgetMs = 12;
+      let lastReady = -1, changedAt = performance.now();
       while (true) {
         const programs = (renderer.info as unknown as {
           programs?: { isReady: () => boolean; getUniforms: () => unknown; getAttributes: () => unknown }[];
         }).programs ?? [];
         const frameStart = performance.now();
-        let allReady = true;
+        let allReady = true, ready = 0;
         for (const program of programs) {
           if (!program.isReady()) { allReady = false; continue; }
+          ready++;
           program.getUniforms(); program.getAttributes();
           if (performance.now() - frameStart > budgetMs) { allReady = false; break; }
         }
+        // A budget break leaves the rest of the list uncounted, so `ready` is a lower bound - never ahead.
+        const counted = allReady ? programs.length : ready, now = performance.now();
+        if (counted !== lastReady) { lastReady = counted; changedAt = now; }
+        share?.(counted, programs.length, now - changedAt);
         warmUp.pollSliceMs = Math.max(warmUp.pollSliceMs, +(performance.now() - frameStart).toFixed(1));
         if (allReady || stopped || buildToken !== token) return;
         await yielded();
@@ -891,21 +975,22 @@ export default function DungeonGame() {
     const stagedBuild = async (nextLevel: number, seed: number | undefined, work: (token: number) => void | Promise<void>, afterWork?: () => void) => {
       const myToken = ++buildToken;
       warmUp = { precompiled: 0, firstFrame: 0, firstFrameSliceMs: 0, secondFrame: 0, sceneCompileMs: 0, postCompileMs: 0, pollSliceMs: 0, buildSliceMs: 0 };
-      setVeilFloor(nextLevel); setVeilPlace(null); setVeilStage(0);
+      setVeilFloor(nextLevel); setVeilPlace(null); setVeilStage(0); veilShown = 0; showVeil(0);
       await painted(); if (stopped) return false;
       const charted = generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
       pendingFloor = { level: nextLevel, floor: charted };
-      setVeilPlace(charted.rooms[charted.goal]?.name ?? null); setVeilStage(1);
+      setVeilPlace(charted.rooms[charted.goal]?.name ?? null); setVeilStage(1); showVeil(1);
       await painted(); if (stopped) return false;
       await driveSliced(getFlagstoneTexturesSteps(), myToken);
       if (stopped || buildToken !== myToken) return false;
+      showVeil(1, .5);
       await driveSliced(getMasonryTexturesSteps(), myToken);
       if (stopped || buildToken !== myToken) return false;
-      setVeilStage(2);
+      setVeilStage(2); showVeil(2);
       await painted(); if (stopped) return false;
       await work(myToken); pendingFloor = null; afterWork?.();
       if (stopped || buildToken !== myToken) return false;
-      setVeilStage(3);
+      setVeilStage(3); showVeil(3);
       await painted(); if (stopped) return false;
       // Compiled against the composer's own offscreen target, not the canvas: a material's program
       // differs by render target (tone mapping and output encoding are only baked in when drawing
@@ -919,7 +1004,7 @@ export default function DungeonGame() {
       const compileStart = performance.now();
       flameKeeper.visible = true; renderer.compile(scene, camera); warmUp.sceneCompileMs = +(performance.now() - compileStart).toFixed(1); flameKeeper.visible = false; renderer.setRenderTarget(drawingTo); post.pinPrograms();
       if (stopped) return false;
-      await pollProgramsReady(myToken);
+      await pollProgramsReady(myToken, (ready, total, stalled) => showVeil(3, creep(programsShare(ready, total, 0, SHADER_SCENE), SHADER_SCENE, stalled)));
       if (stopped || buildToken !== myToken) return false;
       // Plan 015 Stage C fix round: the first bullet-5 attempt precompiled the post chain's own
       // full-screen materials against a plain quad with no targetScene and got programs the real render
@@ -985,8 +1070,9 @@ export default function DungeonGame() {
         warmUp.postCompileMs = +(performance.now() - postStart).toFixed(1);
       }
       if (stopped) return false;
-      await pollProgramsReady(myToken);
+      await pollProgramsReady(myToken, (ready, total, stalled) => showVeil(3, creep(programsShare(ready, total, SHADER_SCENE, SHADER_POST), SHADER_POST, stalled)));
       if (stopped || buildToken !== myToken) return false;
+      showVeil(3, SHADER_POST);
       // The two frames below are for the player: the first takes whatever the precompile above still
       // left for first use - draws the composer's own passes one at a time, each its own task, rather
       // than the one synchronous `post.render` that used to be the whole point of this bug; nothing from
@@ -1002,19 +1088,22 @@ export default function DungeonGame() {
       if (!manualTime) {
         const from = linked();
         const steps = post.renderSteps(elapsed);
+        // The pass count is not known up front, so each pass closes half the gap left in the stage.
+        let pass = 0;
         while (true) {
           const sliceStart = performance.now();
           if (steps.next().done) break;
+          showVeil(3, 1 - (1 - SHADER_POST) / 2 ** ++pass);
           warmUp.firstFrameSliceMs = Math.max(warmUp.firstFrameSliceMs, +(performance.now() - sliceStart).toFixed(1));
           if (stopped || buildToken !== myToken) return false;
           await yielded();
         }
         warmUp.firstFrame = linked() - from;
       }
-      setVeilStage(4);
+      setVeilStage(4); showVeil(4);
       await painted(); if (stopped) return false;
       if (!manualTime) { const from = linked(); post.render(elapsed); warmUp.secondFrame = linked() - from; }
-      setVeilStage(5);
+      setVeilStage(5); showVeil(5);
       await painted();
       return !stopped;
     };
@@ -1032,8 +1121,9 @@ export default function DungeonGame() {
     // just past the closing brace runs it to completion synchronously, so `dungeonTest.buildFloor`, `reset`
     // and `buildMs` see no change at all - same phases, same order, same numbers, same PRNG draws.
     function* buildFloorSteps(nextLevel: number, seed?: number): Generator<void> {
-      const clock = performance.now(); let mark = clock;
-      const phase = (name: string) => { const now = performance.now(); buildMs[name] = +(now - mark).toFixed(1); mark = now; };
+      const clock = performance.now(); let mark = clock, phases = 0;
+      // Eight phases, dispose through upload, each ending in a yield; behind the veil each one moves its bar.
+      const phase = (name: string) => { const now = performance.now(); buildMs[name] = +(now - mark).toFixed(1); mark = now; if (building) showVeil(2, ++phases / 8); };
       buildMs = {};
       if (atmosphere) clearFloor();
       phase('dispose'); yield;
@@ -1452,7 +1542,7 @@ export default function DungeonGame() {
       veiled(`Descending to floor ${level + 1}`, { level: level + 1 }, async (token) => {
         await driveSliced(buildFloorSteps(level + 1), token);
         heal(run, Math.round(run.maxHp * .25)); setHealth(run.hp);
-        keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; dashBuffer = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; audio.pause(false);
+        endSpecial(); keys.clear(); attackTime = 0; dashTime = 0; attackBuffer = 0; dashBuffer = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; audio.pause(false);
         burst(player.position, 0x71f4c4, 22);
       });
     };
@@ -1463,6 +1553,7 @@ export default function DungeonGame() {
     // new `run` is the point of createRun(): a field added to the sim can never be forgotten here.
     const restart = (seed?: number, then?: () => void) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', { level: 1, seed }, async (token) => {
       run = createRun(); boonsTaken = [];
+      endSpecial(); specialWasReady = true;
       attackTime = 0; dashTime = 0; dashCooldown = 0; attackBuffer = 0; dashBuffer = 0; hitStop = 0; hurtFlash = 0; shake = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; clearShots();
       walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
       footsteps.reset(); stepLog = { contacts: 0, skipped: 0, kinds: { keep: 0, ruins: 0, flooded: 0 }, last: null };
@@ -1470,10 +1561,11 @@ export default function DungeonGame() {
       facing.set(1, 0, -0.6).normalize(); attackFacing.copy(facing); dashFacing.copy(facing);
       setHealth(run.hp); setMaxHealth(run.maxHp); setDefeated(0); setExperience(0); setXpReward(0);
       setRank(1); setRankXp(0); setRankNeed(rankCost(1)); setTaken([]); setBoonChoice([]);
-      if (weapon.id !== STARTING_WEAPON) equip(STARTING_WEAPON);
-      setHeldWeapon(TIDEBLADE.name);
+      const startArm = (process.env.NODE_ENV !== 'production' ? devStartingArm(window.location.search) : null) ?? STARTING_WEAPON;
+      if (weapon.id !== startArm) equip(startArm);
+      setHeldWeapon(weaponById(startArm).name);
       setNotice(''); setNoticeDetail(''); setFloorResult({ kills: 0, xp: 0, seconds: 0 });
-      setPaused(false); setMapOpen(false);
+      setPaused(false); setMapOpen(false); mapShown = false;
       await driveSliced(buildFloorSteps(1, seed), token);
       player.rotation.set(0, Math.atan2(-facing.x, -facing.z), 0); player.userData.sword.rotation.y = 0;
       audio.pause(false);
@@ -1500,16 +1592,23 @@ export default function DungeonGame() {
     // keys still arguing about where the knight is pointing. The NDC is stored rather than the
     // direction it implies, because the knight walks out from under a cursor that never moved.
     let pointerNdc: { x: number; y: number } | null = null, aimDevice: 'keys' | 'pointer' = 'keys';
+    // The keycaps name the device that last spoke, so the HUD hears about a change - and only about a change.
+    const claimAim = (device: 'keys' | 'pointer') => { if (aimDevice === device) return; aimDevice = device; setPointerAim(device === 'pointer'); };
+    // Whether the floor map is what the pause is showing, so the key that opened it can close it again.
+    let mapShown = false;
     // The frustum, as the resize handler last set it. `groundAim` needs both to invert the projection.
     let viewSpan = 7.2, viewAspect = 1;
     // Bindings are read at the moment they are asked for, never snapshotted: the card can rebind a key while
     // the run is paused behind it. `Touch<action>` is the touch d-pad's own slot and belongs to no binding,
     // so the discrete move:/stop: protocol steers identically whatever the keyboard has been set to.
-    // `Touch<action>`, `Mouse<action>` and `Pad<action>` are each a device's own slot, belonging to no
-    // binding: a held STRIKE must keep swinging whatever the keyboard was rebound to, and must not be
-    // released by letting go of a key on a different device.
+    // `Touch<action>` and `Pad<index>` are each a device's own slot, belonging to no binding: a held STRIKE
+    // must keep swinging whatever the keyboard was rebound to, and must not be released by letting go of a
+    // key on a different device. Mouse buttons are ordinary bind codes (plan 016), so `Mouse0` held in the
+    // set is a held strike for exactly as long as the strike is bound to it. A pad slot is per button, not
+    // per action: B and RB both dodge, and letting go of one must not drop the other.
+    const PAD_BUTTONS: [number, Action][] = [[0, 'attack'], [1, 'dash'], [5, 'dash'], [2, 'special'], [3, 'swap'], [8, 'map'], [9, 'pause']];
     const held = (action: Action) => settingsRef.current.binds[action].some(c => keys.has(c))
-      || keys.has(`Touch${action}`) || keys.has(`Mouse${action}`) || keys.has(`Pad${action}`);
+      || keys.has(`Touch${action}`) || PAD_BUTTONS.some(([index, a]) => a === action && keys.has(`Pad${index}`));
     const moveInput = () => {
       const x = +held('right') - +held('left'), z = +held('down') - +held('up');
       // A planted thumb outranks the keys for exactly as long as it is down, and lifting it hands steering
@@ -1552,14 +1651,16 @@ export default function DungeonGame() {
       return snapAim(look, aimTargets(reach), player.position, reach);
     };
     const startAttack = () => {
-      if (!hasStarted || isPaused || gameStatus !== 'playing' || dashTime > 0) return;
+      if (!hasStarted || isPaused || gameStatus !== 'playing' || dashTime > 0 || charging !== null) return;
       audio.play('slash');
       // Continue the string if the last swing ended recently enough, else open a new one. The window
       // is the arm's own, and an arm with no chain has one beat, so this is inert for five of seven.
       const linking = chainIdle <= (weapon.chain?.window ?? 0) && chainBeat + 1 < chainLength(weapon);
       chainBeat = linking ? chainBeat + 1 : 0;
       chainIdle = 0;
-      swing = beatOf(weapon, chainBeat);
+      swing = beatOf(weapon, chainBeat); swingKind = 'strike';
+      // With the spear out on its line, the knight fights with what he has left: his fists.
+      if (harpoon && weapon.special?.hurl) swing = { ...swing, damage: swing.damage * weapon.special.hurl.bare };
       attackTime = swing.duration; attackBuffer = 0; swingHits.clear();slash.clear();
       const aim = aimNow();
       if (aim) facing.set(aim.x, 0, aim.z);
@@ -1574,7 +1675,7 @@ export default function DungeonGame() {
       // and a restart's own work resets these buffers before the sliced build even starts, so a press
       // made during the veil would otherwise sit buffered and fire on the very first frame after it.
       if (!hasStarted || isPaused || gameStatus !== 'playing' || building) return;
-      if (attackTime <= 0 && dashTime <= 0) startAttack();
+      if (attackTime <= 0 && dashTime <= 0 && charging === null) startAttack();
       else { attackBuffer = 0.18; const aim = aimNow(); bufferedFacing = aim ? new THREE.Vector3(aim.x, 0, aim.z) : facing.clone(); }
     };
     const requestDash = () => {
@@ -1583,6 +1684,8 @@ export default function DungeonGame() {
       // cutting it short, which is what makes swinging into a tell a mistake rather than a free action.
       if (!canAbortSwing(attackTime, swing)) { dashBuffer = DASH_BUFFER; return; }
       dashBuffer = 0;
+      // A charge is let go and a special still winding up is dropped, both before contact and so at no cost.
+      cancelCharge(); swingKind = 'strike'; vault = null;
       const input = moveInput(); dashFacing.copy(input.lengthSq() ? input : facing);
       audio.play('dash');
       facing.copy(dashFacing); dashTime = DASH_TIME; dashCooldown = run.dashSpan;
@@ -1606,17 +1709,62 @@ export default function DungeonGame() {
       setNotice(`${taken.name} in hand`); setNoticeDetail(taken.detail); noticeTime = 3.5;
       setHeldWeapon(taken.name);
     };
+    // Plan 016: the arm's own verb. An arm without one leaves the input inert (decision 3). It is a swing
+    // on the strike's clock, so it waits out a live blade or a dodge the way a buffered dodge does, and
+    // cancels a strike's wind-up or recovery the way a dodge does. It never interrupts itself.
+    const startSpecial = (charge: number) => {
+      const special = weapon.special;
+      if (!special) return;
+      swing = specialSwing(weapon, charge); swingKind = 'special';
+      attackTime = swing.duration; attackBuffer = 0; specialBuffer = 0; swingHits.clear(); slash.clear();
+      chainBeat = 0; chainIdle = Infinity;
+      const aim = aimNow();
+      if (aim) facing.set(aim.x, 0, aim.z);
+      attackFacing.copy(facing); player.rotation.y = Math.atan2(-facing.x, -facing.z);
+      lungeFrom.copy(player.position);
+      // The Vault picks its body and measures its path now, off the floor as it is: the hop never changes its
+      // mind in the air, and never ends inside stone or a prop.
+      vault = null;
+      if (special.vault) {
+        const bodies = enemyData.filter(enemy => !enemy.dead && enemy.awake);
+        const at = vaultTarget(floor.cells, player.position, facing, bodies.map(enemy => enemy.group.position), special.vault.range, special.vault.cone);
+        const target = at >= 0 ? bodies[at] : null;
+        const path = vaultLanding(floor.cells, player.position, facing, target ? target.group.position : null, special.vault.over, special.vault.hop);
+        vault = { target, distance: path.distance, dir: new THREE.Vector3(path.dir.x, 0, path.dir.z), landed: false };
+      }
+      audio.play(special.kind === 'lunge' ? 'lunge' : special.kind === 'throw' ? 'harpoon' : special.kind === 'whirl' ? 'whirl' : special.kind === 'draw' || special.kind === 'detonate' ? 'warn' : special.kind === 'vault' ? 'vault' : 'slash');
+    };
+    const requestSpecial = () => {
+      if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing' || building || !weapon.special) return;
+      const gate = specialGate({ weapon, ready: specialAvailable(weapon.special, { cooled: specialReady(run), quiver, out: !!harpoon }), attackTime, swing, dashTime, specialLive: swingKind === 'special' && attackTime > 0, busy: !!harpoon || charging !== null, pools: pools.length });
+      if (gate === 'refuse') return;
+      if (gate === 'wait') { specialBuffer = DASH_BUFFER; return; }
+      specialBuffer = 0; attackTime = 0; swing = weapon; slash.clear();
+      if (weapon.special.kind === 'charge' || weapon.special.kind === 'draw') { charging = 0; attackBuffer = 0; audio.play(weapon.special.kind === 'draw' ? 'draw' : 'charge'); return; }
+      startSpecial(1);
+    };
+    // Let go of a charge: past the minimum it slams at whatever it reached, short of it nothing is spent.
+    const releaseCharge = () => {
+      const heldFor = charging ?? 0, special = weapon.special;
+      cancelCharge();
+      // A draw only fires full, and a quiver emptied some other way meanwhile has nothing left to spend.
+      if (special?.draw) { if (drawn(special, heldFor) && quiver > 0) startSpecial(1); return; }
+      if (special && chargeReleases(special, heldFor)) startSpecial(chargeLevel(special, heldFor));
+    };
     const togglePause = () => {
       // Pausing on top of an open boon draft would stack two overlays; the draft already holds the world still.
       if (!hasStarted || gameStatus !== 'playing' || run.choosing) return;
       // An armed rebind goes with the card. Left live, the first key pressed back in the fight would be
       // bound instead of swung, which is the worst possible moment to find out the capture was still open.
-      isPaused = !isPaused; setMapOpen(false); setCapturing(null); keys.clear(); attackBuffer = 0; dashBuffer = 0; bufferedFacing = null; setPaused(isPaused); audio.pause(isPaused);
+      isPaused = !isPaused; setMapOpen(false); mapShown = false; setCapturing(null); keys.clear(); attackBuffer = 0; dashBuffer = 0; specialBuffer = 0; cancelCharge(); impacts.clearShock(); laneLife = 0; lane.visible = false; clearFlares(); bufferedFacing = null; setPaused(isPaused); audio.pause(isPaused);
       dirty = true;
     };
     // Mute is a setting like any other now, so it goes out through the same funnel and comes back through
     // applyRef — one path, whether it was the M key, the menu button or a `mute` event that asked.
     const toggleMute = () => updateSettings({ muted: !settingsRef.current.muted });
+    // The map is a pause with the floor on it, so it opens through the pause and closes the same way.
+    const openMap = () => { if (!hasStarted || run.choosing || gameStatus !== 'playing') return; if (!isPaused) togglePause(); setMapOpen(true); mapShown = true; };
+    const toggleMap = () => { if (mapShown) togglePause(); else openMap(); };
     const fullscreen = () => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); else void mount.parentElement?.requestFullscreen?.().catch(() => undefined); };
     const keyDown = (e: KeyboardEvent) => {
       const binds = settingsRef.current.binds, does = (action: Action) => binds[action].includes(e.code);
@@ -1628,15 +1776,21 @@ export default function DungeonGame() {
       if (!e.repeat && (e.code === RESERVED || does('pause'))) { togglePause(); return; }
       if (!e.repeat && does('mute')) { toggleMute(); return; }
       if (!e.repeat && does('fullscreen')) { fullscreen(); return; }
+      // Only while the fight is live or the map is already up, so a map key pressed on a menu card is left
+      // to do whatever it does there - Tab keeps moving focus.
+      if (!e.repeat && does('map') && (mapShown || (hasStarted && !isPaused && !run.choosing && gameStatus === 'playing'))) { toggleMap(); return; }
       if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing') return;
       keys.add(e.code); if (e.repeat) return;
-      // Striking or dodging *from the keyboard* is a claim on where the knight points; walking is not.
-      // That distinction is the whole reason a pointer is worth having: holding D while the cursor sits
-      // to the left is a knight retreating and cutting behind him, and a movement key that stole the
-      // aim back would make it impossible to express. Space still claims it, so someone playing on the
-      // keyboard with a cursor parked wherever the intro card left it is never aimed at that corner.
-      if (does('attack') || does('dash')) aimDevice = 'keys';
+      // Striking *from the keyboard* is a claim on where the knight points; walking is not. That
+      // distinction is the whole reason a pointer is worth having: holding D while the cursor sits to the
+      // left is a knight retreating and cutting behind him, and a movement key that stole the aim back
+      // would make it impossible to express. J still claims it, so someone playing on the keyboard with a
+      // cursor parked wherever the intro card left it is never aimed at that corner. The dodge does not
+      // (plan 016): it is on Space now, under a mouse player's thumb, and a dodge that handed the aim to
+      // the keys would leave every swing after it pointed away from the cursor until the mouse moved.
+      if (does('attack') || does('special')) claimAim('keys');
       if (does('attack')) requestAttack();
+      if (does('special')) requestSpecial();
       if (does('dash')) requestDash();
       if (does('swap')) requestSwap();
     };
@@ -1647,7 +1801,10 @@ export default function DungeonGame() {
       keys.clear(); stick = null; padStick = null; padLook = null; padPressed.clear();
       attackBuffer = 0; dashBuffer = 0; bufferedFacing = null;
     };
-    const enter = () => { enterWhenBuilt = false; setEntering(false); if (hasStarted) return; floorStart = elapsed; runStart = elapsed; hasStarted = true; setStarted(true); setCapturing(null); };
+    const enter = () => { enterWhenBuilt = false; setEntering(false); if (hasStarted) return;
+      // The first descent never passes through `restart`, so a dev `?arm=` has to be honoured here as well.
+      if (process.env.NODE_ENV !== 'production') { const arm = devStartingArm(window.location.search); if (arm && weapon.id !== arm) { equip(arm); setHeldWeapon(weaponById(arm).name); } }
+      floorStart = elapsed; runStart = elapsed; hasStarted = true; setStarted(true); setCapturing(null); };
     const trigger = (e: Event) => {
       const detail = (e as CustomEvent<string>).detail;
       if (detail === 'continue') { continueDescent(); return; }
@@ -1669,7 +1826,7 @@ export default function DungeonGame() {
         if (pinned === undefined) enter(); else restart(pinned, enter);
         return;
       }
-      if (detail === 'map') { if (!hasStarted || run.choosing || gameStatus !== 'playing') return; if (!isPaused) togglePause(); setMapOpen(true); return; }
+      if (detail === 'map') { openMap(); return; }
       if (detail === 'pause') { togglePause(); return; }
       if (detail === 'mute') { toggleMute(); return; }
       if (detail === 'fullscreen') { fullscreen(); return; }
@@ -1685,6 +1842,11 @@ export default function DungeonGame() {
       if (detail === 'hold-attack') { keys.add('Touchattack'); requestAttack(); }
       if (detail === 'release-attack') keys.delete('Touchattack');
       if (detail === 'dash') requestDash();
+      // The touch SPECIAL button holds like STRIKE, in its own slot, because a charged special is released
+      // rather than pressed; `special` alone is a tap.
+      if (detail === 'special') requestSpecial();
+      if (detail === 'hold-special') { keys.add('Touchspecial'); requestSpecial(); }
+      if (detail === 'release-special') keys.delete('Touchspecial');
       // The prompt at the foot of the screen sends this too, so a tap answers the rack on a phone, where
       // there is no key to press and the prompt is the only thing naming the arm.
       if (detail === 'swap') requestSwap();
@@ -1702,21 +1864,44 @@ export default function DungeonGame() {
         x: ((e.clientX - rect.left) / rect.width) * 2 - 1,
         y: 1 - ((e.clientY - rect.top) / rect.height) * 2,
       };
-      aimDevice = 'pointer';
+      claimAim('pointer');
+      // A second button pressed while one is already down arrives as a move, not a down: that is how
+      // pointer events report a chord, and it is how a held strike and a special meet.
+      mouseSync(e, true);
+    };
+    // Plan 016: a button is a bind code, `Mouse<button>`, pressed and held through the same set a key is.
+    // `buttons` is the whole chord as a bitmask; bit i is button BUTTON_BITS[i].
+    const BUTTON_BITS = [0, 2, 1, 3, 4];
+    let mouseHeld = 0;
+    const mousePress = (code: string, e: PointerEvent) => {
+      if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing') return;
+      const binds = settingsRef.current.binds, does = (action: Action) => binds[action].includes(code);
+      if (!ACTIONS.some(does)) return;
+      e.preventDefault();
+      if (does('pause')) { togglePause(); return; }
+      if (does('mute')) { toggleMute(); return; }
+      if (does('fullscreen')) { fullscreen(); return; }
+      if (does('map')) { toggleMap(); return; }
+      keys.add(code);
+      if (does('attack')) requestAttack();
+      if (does('special')) requestSpecial();
+      if (does('dash')) requestDash();
+      if (does('swap')) requestSwap();
+    };
+    const mouseSync = (e: PointerEvent, presses: boolean) => {
+      const now = e.buttons, was = mouseHeld; mouseHeld = now;
+      for (let bit = 0; bit < BUTTON_BITS.length; bit++) {
+        const mask = 1 << bit, code = `Mouse${BUTTON_BITS[bit]}`;
+        if (was & mask && !(now & mask)) keys.delete(code);
+        else if (presses && !(was & mask) && now & mask) mousePress(code, e);
+      }
     };
     // A cursor that has left the canvas is not pointing at the floor any more, and a swing aimed at
     // where it went out is a swing aimed at nothing the player can see.
-    const pointerGone = (e: PointerEvent) => { if (e.pointerType === 'mouse') { pointerNdc = null; keys.delete('Mouseattack'); aimDevice = 'keys'; } };
-    const pointerDown = (e: PointerEvent) => {
-      if (e.pointerType !== 'mouse' || !hasStarted || isPaused || run.choosing || gameStatus !== 'playing') return;
-      if (e.button !== 0 && e.button !== 2) return;
-      e.preventDefault();
-      pointerMove(e);
-      // Its own slot, like the touch STRIKE button's: holding the left button must keep the swing
-      // going, and must not be released by letting go of a key.
-      if (e.button === 0) { keys.add('Mouseattack'); requestAttack(); } else requestDash();
-    };
-    const pointerUp = (e: PointerEvent) => { if (e.pointerType === 'mouse' && e.button === 0) keys.delete('Mouseattack'); };
+    const pointerGone = (e: PointerEvent) => { if (e.pointerType === 'mouse') { pointerNdc = null; mouseHeld = 0; BUTTON_BITS.forEach(b => keys.delete(`Mouse${b}`)); claimAim('keys'); } };
+    const pointerDown = (e: PointerEvent) => { if (e.pointerType === 'mouse') pointerMove(e); };
+    // On the window, so a button let go of anywhere is let go of; releases only, never presses.
+    const pointerUp = (e: PointerEvent) => { if (e.pointerType === 'mouse') mouseSync(e, false); };
     const noMenu = (e: Event) => e.preventDefault();
     canvas.addEventListener('pointermove', pointerMove);
     canvas.addEventListener('pointerdown', pointerDown);
@@ -1725,8 +1910,7 @@ export default function DungeonGame() {
     canvas.addEventListener('contextmenu', noMenu);
 
     // Standard mapping only. A pad the browser cannot name is a pad whose buttons we would be
-    // guessing at, and guessing wrong means the dodge button swings.
-    const PAD_BUTTONS: [number, Action][] = [[0, 'attack'], [1, 'dash'], [2, 'swap'], [9, 'pause']];
+    // guessing at, and guessing wrong means the dodge button swings. PAD_BUTTONS is up beside `held`.
     const PAD_DEADZONE = 0.25;
     const padAxis = (pad: Gamepad, ax: number, az: number): { x: number; z: number } | null => {
       const x = pad.axes[ax] ?? 0, z = pad.axes[az] ?? 0, span = Math.hypot(x, z);
@@ -1738,18 +1922,20 @@ export default function DungeonGame() {
     };
     const dropPad = () => {
       padStick = null; padLook = null; padPressed.clear();
-      for (const [, action] of PAD_BUTTONS) keys.delete(`Pad${action}`);
+      for (const [index] of PAD_BUTTONS) keys.delete(`Pad${index}`);
     };
     const pollPad = () => {
       const pads = typeof navigator.getGamepads === 'function' ? navigator.getGamepads() : [];
       const pad = Array.from(pads).find((p): p is Gamepad => !!p && p.connected && p.mapping === 'standard');
       if (!pad) { if (padStick || padLook || padPressed.size) dropPad(); return; }
       if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing') {
-        // Buttons still read while the world is held, or START could never unpause it.
+        // Buttons still read while the world is held, or START could never unpause it - and VIEW could
+        // never close the map it opened.
         padStick = null; padLook = null;
-        const start = pad.buttons[9]?.pressed ?? false;
+        const start = pad.buttons[9]?.pressed ?? false, view = pad.buttons[8]?.pressed ?? false;
         if (start && !padPressed.has(9)) togglePause();
-        padPressed = new Set(start ? [9] : []);
+        else if (view && !padPressed.has(8)) toggleMap();
+        padPressed = new Set([...(start ? [9] : []), ...(view ? [8] : [])]);
         return;
       }
       padStick = padAxis(pad, 0, 1);
@@ -1762,13 +1948,15 @@ export default function DungeonGame() {
       }
       const now = new Set<number>();
       for (const [index, action] of PAD_BUTTONS) {
-        if (!(pad.buttons[index]?.pressed ?? false)) { keys.delete(`Pad${action}`); continue; }
+        if (!(pad.buttons[index]?.pressed ?? false)) { keys.delete(`Pad${index}`); continue; }
         now.add(index);
-        keys.add(`Pad${action}`);
+        keys.add(`Pad${index}`);
         if (padPressed.has(index)) continue;
         if (action === 'attack') requestAttack();
+        if (action === 'special') requestSpecial();
         if (action === 'dash') requestDash();
         if (action === 'swap') requestSwap();
+        if (action === 'map') toggleMap();
         if (action === 'pause') togglePause();
       }
       padPressed = now;
@@ -1809,27 +1997,42 @@ export default function DungeonGame() {
       if (tide) tide.time.value=t;
       animateCloth(player.userData.cape,t,dashTime>0?.32:velocity.lengthSq()>0?.16:.045);
       trailClock-=dt;
-      if(dashTime>0 && trailClock<=0){
-        const trail=dashTrails[trailCursor++%dashTrails.length];trail.visible=true;trail.position.copy(player.position);trail.position.y=.09;
-        trail.rotation.z=Math.atan2(-dashFacing.z,dashFacing.x)+Math.PI/2;trail.userData.life=.26;trailClock=.025;
+      // The Vault leaves the dash's streaks along its hop, so the frame it lands on still shows the way it came.
+      const hopping=swingKind==='special'&&attackTime>0&&!!vault&&!vault.landed&&vault.distance>0&&swing.duration-attackTime>swing.anticipation;
+      if((dashTime>0||hopping) && trailClock<=0){
+        const trail=dashTrails[trailCursor++%dashTrails.length],way=hopping&&vault?vault.dir:dashFacing;trail.visible=true;trail.position.copy(player.position);trail.position.y=.09;
+        trail.rotation.z=Math.atan2(-way.z,way.x)+Math.PI/2;trail.userData.life=.26;trailClock=.025;
       }
       dashTrails.forEach(m=>{m.userData.life=Math.max(0,m.userData.life-dt);m.visible=m.userData.life>0;if(!m.visible)return;(m.material as THREE.MeshBasicMaterial).opacity=m.userData.life*1.8;m.scale.x=.6+m.userData.life*2;});
       if (hasStarted && gameStatus === 'playing') {
-        attackBuffer = Math.max(0, attackBuffer - dt); dashBuffer = Math.max(0, dashBuffer - dt);
+        attackBuffer = Math.max(0, attackBuffer - dt); dashBuffer = Math.max(0, dashBuffer - dt); specialBuffer = Math.max(0, specialBuffer - dt);
         if (attackBuffer === 0) bufferedFacing = null;
         dashCooldown = Math.max(0, dashCooldown - dt);
         // A dash that waited out the live blade goes first, the moment the recovery begins and ahead of the
         // next held swing, or holding strike would swallow every dodge pressed mid-swing.
         if (dashTime <= 0 && dashBuffer > 0 && canAbortSwing(attackTime, swing)) requestDash();
+        // A special that waited out a blade or a dodge goes next, ahead of a held strike, for the same reason.
+        if (dashTime <= 0 && specialBuffer > 0 && canAbortSwing(attackTime, swing)) requestSpecial();
+        // A charge runs for as long as the special is held by any device, and is released the frame it is not.
+        if (charging !== null) { if (held('special')) charging += dt; else releaseCharge(); }
         if (attackTime <= 0 && dashTime <= 0 && (attackBuffer > 0 || held('attack'))) startAttack();
         const input = moveInput(), moving = input.lengthSq() > 0;
         if (moving && attackTime <= 0 && dashTime <= 0) facing.copy(input);
+        // A drawn crossbow follows the aim, so the line can be laid across a rank before it is let go.
+        if (charging !== null && weapon.special?.draw && dashTime <= 0) { const aim = aimNow(); if (aim) facing.set(aim.x, 0, aim.z); }
         const direction = dashTime > 0 ? dashFacing : facing;
         const targetAngle = Math.atan2(-direction.x, -direction.z);
         const angleDelta = Math.atan2(Math.sin(targetAngle - player.rotation.y), Math.cos(targetAngle - player.rotation.y));
         player.rotation.y += angleDelta * (1 - Math.exp(-28 * dt));
-        const speed = playerSpeed({ dashing: dashTime > 0, attacking: attackTime > 0, weapon: swing });
+        const speed = charging !== null && dashTime <= 0 ? weapon.moveSpeed * (weapon.special?.moveScale ?? 1) : playerSpeed({ dashing: dashTime > 0, attacking: attackTime > 0, weapon: swing });
         velocity.copy(dashTime > 0 ? dashFacing : input).multiplyScalar(speed);
+        // A lunge carries the knight down its line for its travel window, whatever the keys say: this frame
+        // covers the special from `age` to `age + dt`, before the swing's own clock is stepped below.
+        const lunge = swingKind === 'special' && attackTime > 0 && weapon.special?.lunge ? lungeStep(weapon.special, swing.anticipation, swing.duration - attackTime + dt, dt) : 0;
+        if (lunge > 0 && dt > 0) velocity.copy(attackFacing).multiplyScalar(lunge / dt);
+        // The Vault's hop runs the path it measured at takeoff, over whatever is standing on it.
+        const hop = swingKind === 'special' && attackTime > 0 && vault && weapon.special?.vault ? vaultStep(weapon.special, swing.anticipation, vault.distance, swing.duration - attackTime + dt, dt) : 0;
+        if (hop > 0 && dt > 0 && vault) velocity.copy(vault.dir).multiplyScalar(hop / dt);
         const oldX=player.position.x,oldZ=player.position.z;
         moveOnFloor(floor.cells, player.position, velocity.x * dt, velocity.z * dt);
         const travelled=Math.hypot(player.position.x-oldX,player.position.z-oldZ);
@@ -1940,7 +2143,7 @@ export default function DungeonGame() {
         player.userData.arm.rotation.x=THREE.MathUtils.damp(player.userData.arm.rotation.x,attackTime>0?-.35:locomotion.arm,20,dt);
         // Plan 013: the tabard is rigid plate, so it swings out ahead of whichever thigh leads rather than let it through.
         player.userData.tabard.rotation.x=Math.max(0,...player.userData.legs.map((leg:THREE.Group)=>leg.rotation.x))*.85;
-        player.position.y = 0.03 + locomotion.height + Math.sin(t*2.4)*.012*Math.max(0,1-gaitSpeed);
+        player.position.y = 0.03 + locomotion.height + Math.sin(t*2.4)*.012*Math.max(0,1-gaitSpeed) + (swingKind === 'special' && attackTime > 0 && vault && weapon.special ? vaultHeight(weapon.special, swing.anticipation, swing.duration - attackTime) : 0);
         player.rotation.x = THREE.MathUtils.damp(player.rotation.x, dashTime > 0 ? -0.3 : 0, 24, dt);
         player.userData.cape.rotation.x = THREE.MathUtils.damp(player.userData.cape.rotation.x, dashTime > 0 ? -.8 : -locomotion.cape, 16, dt);
         // Plan 008: the SAME crossing the step sound plays on, resolved only now that the legs and the
@@ -1967,15 +2170,78 @@ export default function DungeonGame() {
           if (back.spare !== quiver) { quiver = back.spare; setAmmo({ held: quiver, of: weapon.ranged.capacity }); }
           reload = back.timer;
         }
-        chainIdle = attackTime > 0 ? 0 : chainIdle + dt;
+        // A special is not a beat of the string: the strike after one opens a new string.
+        chainIdle = attackTime > 0 && swingKind === 'strike' ? 0 : chainIdle + dt;
         if (attackTime > 0) {
-          const wasLive = playerAttackPose(swing.duration - attackTime, swing, chainBeat).active;
+          const wasLive = poseAt(swing.duration - attackTime).active;
           attackTime = Math.max(0, attackTime - dt);
           const pose=posePlayer(swing.duration-attackTime),active=pose.active;
           slash.update(dt,pose.trail,player.userData.sword,bladeInner,bladeTip);
+          // Plan 016: a special's cooldown starts on its first live frame, so one dropped before it is free.
+          if (swingKind === 'special' && weapon.special && active && !wasLive) {
+            spendSpecial(run, weapon.special.cooldown);
+            if (weapon.special.kind === 'charge') { impacts.slam(player.position, swing.reach + run.reach, easeMotion); audio.play('toll'); shake = 0.14; burst(player.position, 0xf2c47b, 16); }
+            // Stage C. The Whirl's ring goes down at the reach the ring is scored at, on the frame it is scored.
+            if (weapon.special.kind === 'whirl') { impacts.whirl(player.position, swing.reach + run.reach, easeMotion); shake = 0.1; }
+            // The Heavy Bolt: the whole quiver leaves as one bolt, down the line the draw showed.
+            if (weapon.special.kind === 'draw' && swing.ranged && quiver > 0) {
+              const mesh = boltPool.find(thrown => !thrown.visible), damage = drawDamage(weapon, quiver);
+              quiver = 0; reload = 0; setAmmo({ held: 0, of: weapon.ranged?.capacity ?? 0 });
+              if (mesh) {
+                mesh.visible = true; mesh.scale.set(2, 2, 3.2);
+                mesh.position.set(player.position.x, .95, player.position.z);
+                mesh.rotation.y = Math.atan2(-attackFacing.x, -attackFacing.z);
+                shots.push({ mesh, heavy: true, shot: { x: player.position.x, z: player.position.z, dx: attackFacing.x, dz: attackFacing.z, speed: swing.ranged.speed, life: swing.ranged.flight, pierce: swing.ranged.pierce, damage: damage + run.strike, spent: new Set<number>() } });
+              }
+              laneLife = .28; layLane(laneLength(floor.cells, player.position, attackFacing.x, attackFacing.z, swing.ranged.speed * swing.ranged.flight), .42, .9);
+              audio.play('heavybolt'); shake = 0.12; burst(player.position.clone().addScaledVector(attackFacing, .8).setY(.95), 0xffd79a, 12);
+            }
+            // The Flashpoint: every pool goes up at once. Each body standing in any of them is caught once.
+            if (weapon.special.kind === 'detonate' && pools.length) {
+              const marks: Mark[] = enemyData.map((e, index) => ({ x: e.group.position.x, z: e.group.position.z, index })).filter(mark => !enemyData[mark.index].dead && enemyData[mark.index].awake);
+              const caught = flashpointHits(pools.map(live => live.pool), marks);
+              for (const live of pools) {
+                live.mesh.material.color.setHex(0xffe6b0); live.mesh.material.opacity = 1;
+                flares.push({ mesh: live.mesh, age: 0, radius: live.pool.radius });
+                burst(new THREE.Vector3(live.pool.x, .5, live.pool.z), 0xffd27a, 8);
+              }
+              pools.length = 0;
+              for (const index of caught) {
+                const enemy = enemyData[index];
+                if (enemy.dead || gameStatus !== 'playing') continue;
+                enemy.hp -= swing.damage + run.strike; enemy.hitFlash = 0.2;
+                burst(enemy.group.position, 0xe0202c, 10); blood.spawn(enemy.group.position, enemy.kind === 'warden' ? 1.4 : 1); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffd27a, true);
+                if (enemy.hp <= 0) {
+                  enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind);
+                  enemy.cue.visible = enemy.bar.visible = enemy.alert.visible = false; enemy.trails.forEach(trail => trail.effect.clear());
+                  award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
+                  if (!cleared.has(enemy.room) && enemyData.every(other => other.room !== enemy.room || other.dead)) {
+                    cleared.add(enemy.room);
+                    const room = floor.rooms[enemy.room];
+                    award(clearRoomReward(run, room.role === 'branch'));
+                    setNotice(`${room.name} · cleansed`); setNoticeDetail(room.role === 'branch' ? 'The detour pays' : ''); noticeTime = 2.5; audio.play('clear');
+                  }
+                  if (enemy.room === floor.goal && stairClear()) openStair();
+                }
+              }
+              audio.play('flashpoint'); shake = 0.16; hitStop = caught.length ? 0.06 : 0;
+            }
+          }
+          // The Harpoon: the spear itself leaves on the frame it goes live, down the same flight a bolt takes.
+          if (swingKind === 'special' && weapon.special?.kind === 'throw' && swing.ranged && active && !wasLive) {
+            const mesh = boltPool.find(thrown => !thrown.visible);
+            if (mesh) {
+              mesh.visible = true; mesh.scale.set(1.7, 1.7, 2.6);
+              mesh.position.set(player.position.x, .95, player.position.z);
+              mesh.rotation.y = Math.atan2(-attackFacing.x, -attackFacing.z);
+              shots.push({ mesh, harpoon: true, shot: { x: player.position.x, z: player.position.z, dx: attackFacing.x, dz: attackFacing.z, speed: swing.ranged.speed, life: swing.ranged.flight, pierce: swing.ranged.pierce, damage: swing.damage + run.strike, spent: new Set<number>() } });
+              harpoon = { mesh, phase: 'out', x: player.position.x, z: player.position.z, speed: swing.ranged.speed, dragged: false };
+              armed.group.visible = false;
+            }
+          }
           // One bolt on the frame the blade would have gone live. A dry quiver still plays the motion,
           // so running out is something the knight sees rather than something that silently does nothing.
-          if (weapon.ranged && active && !wasLive) {
+          else if (swingKind === 'strike' && weapon.ranged && active && !wasLive) {
             if (quiver > 0) {
               quiver -= 1; setAmmo({ held: quiver, of: weapon.ranged.capacity });
               const mesh = (weapon.burst ? flaskPool : boltPool).find(thrown => !thrown.visible);
@@ -1988,11 +2254,24 @@ export default function DungeonGame() {
               }
             } else audio.play('warn');
           }
-          if (!weapon.ranged && active) enemyData.forEach((enemy) => {
+          // The lunge cuts what lies on the line it ran, from where it started to just ahead of the knight.
+          const line = swingKind === 'special' ? weapon.special?.lunge : undefined;
+          const lineTo = line ? { x: player.position.x + attackFacing.x * line.width, z: player.position.z + attackFacing.z * line.width } : null;
+          // The Vault: nothing is cut in the air. On the frame he comes down he turns on the body he went over,
+          // and that body alone is what the backstab is scored against.
+          const vaulting = swingKind === 'special' && weapon.special?.kind === 'vault' ? weapon.special : undefined;
+          if (vaulting && vault && active && !vault.landed && vaultLanded(vaulting, swing.anticipation, swing.duration - attackTime)) {
+            vault.landed = true;
+            if (vault.target && !vault.target.dead) { attackFacing.set(vault.target.group.position.x - player.position.x, 0, vault.target.group.position.z - player.position.z); if (attackFacing.lengthSq() > 1e-8) { attackFacing.normalize(); facing.copy(attackFacing); player.rotation.y = Math.atan2(-facing.x, -facing.z); } }
+            audio.play('backstab'); impacts.land(player.position, swing.reach + run.reach, easeMotion);
+          }
+          const scoring = swingKind !== 'special' || (weapon.special?.kind !== 'detonate' && weapon.special?.kind !== 'draw' && (!vaulting || !!vault?.landed));
+          if (!swing.ranged && active && scoring) enemyData.forEach((enemy) => {
             if (gameStatus !== 'playing' || enemy.dead || !enemy.awake || swingHits.has(enemy)) return;
+            if (vaulting && enemy !== vault?.target) return;
             const delta = enemy.group.position.clone().sub(player.position); delta.y = 0;
             // The same rule the node suite runs: inside the arc, and with no wall between the blade and the body.
-            if (swordContacts(floor.cells, player.position, attackFacing, enemy.group.position, run.reach, swing)) {
+            if (line && lineTo ? lineContacts(floor.cells, lungeFrom, lineTo, enemy.group.position, line.width) : swordContacts(floor.cells, player.position, attackFacing, enemy.group.position, run.reach, swing)) {
               delta.normalize();
               audio.play('hit');
               swingHits.add(enemy); enemy.hp -= swing.damage + run.strike; enemy.hitFlash = 0.2;
@@ -2006,14 +2285,18 @@ export default function DungeonGame() {
               // Plan 014 round 8 (lever 3): 6 read as a puff, not a burst - the reference throws a real
               // spray of droplets off a struck body. 14 is inside the "10-20" the plan asked for and
               // still cheap: each is a pooled mesh already paid for by the spark burst beside it.
-              burst(enemy.group.position, 0xe0202c, 22);
+              // Stage C: a Whirl bleeds every body round it on one frame; eight droplets each keeps that frame
+              // no dearer than a plain cleaver strike on the same bodies (frame-budget's strike-contact ceiling).
+              burst(enemy.group.position, 0xe0202c, swingKind === 'special' && weapon.special?.kind === 'whirl' ? 8 : 22);
               blood.spawn(enemy.group.position, enemy.kind === 'warden' ? 1.4 : 1);
               impacts.emit(enemy.group.position,enemy.hp<=0?0xddebd3:0xffedbb,enemy.kind==='warden');
               // Three sparks rather than seven. Each one is its own mesh and so its own draw call, and
               // next to a crescent, a bloom and a shockwave they were paying four calls at the most
               // expensive frame in the game for grit nobody could pick out.
               // One crescent for the cut, on the first body it finds: a swing that takes three is still one swing.
-              if (swingHits.size === 1) impacts.arc(player.position, Math.atan2(-attackFacing.x, -attackFacing.z), swing.reach + run.reach);
+              if (swingHits.size === 1 && swing.arc > -1) impacts.arc(player.position, Math.atan2(-attackFacing.x, -attackFacing.z), swing.reach + run.reach);
+              // Stage C: the backstab throws a heavy bloom of its own colour, on top of the crescent.
+              if (vaulting) { impacts.emit(enemy.group.position, 0xbff7e6, true); burst(enemy.group.position, 0xbff7e6, 10); }
               // 70ms rather than 35. The freeze rounds up to whole frames, so this is five of them after
               // the blow and a held image six frames long at 60Hz, against three and four before: at this
               // character size two frames of stillness were not enough to find, because the eye reads the
@@ -2191,6 +2474,15 @@ export default function DungeonGame() {
           }
           if (live.pool.life <= 0) { live.mesh.visible = false; pools.splice(i, 1); }
         }
+        // A detonated pool flares out a little past its fire and is gone in a third of a second; reduced motion
+        // lets it fade where it burned.
+        for (let i = flares.length - 1; i >= 0; i--) {
+          const flare = flares[i]; flare.age += dt;
+          const k = Math.min(1, flare.age / FLARE_LIFE);
+          flare.mesh.scale.setScalar(flare.radius * (easeMotion ? 1 : 1 + .35 * (1 - (1 - k) ** 3))); flare.mesh.material.opacity = (1 - k) ** 1.5;
+          if (k < .5) ember.bid(lampAt.set(flare.mesh.position.x, .6, flare.mesh.position.z), Math.hypot(player.position.x - flare.mesh.position.x, player.position.z - flare.mesh.position.z), 30 * (1 - k * 2), 0xffc070);
+          if (k >= 1) { flare.mesh.visible = false; flare.mesh.material.color.setHex(0xff5a2a); flares.splice(i, 1); }
+        }
         // Bolts fly last, against where the bodies actually ended the frame. The rule is in
         // dungeon-projectile; what belongs here is the mesh, the sparks and the damage call.
         if (shots.length) {
@@ -2204,13 +2496,21 @@ export default function DungeonGame() {
               if (enemy.dead || gameStatus !== 'playing') continue;
               audio.play('hit');
               enemy.hp -= live.shot.damage; enemy.hitFlash = 0.2;
-              const broke = interruptsWindup(enemy.kind, enemy.windup, weapon.stagger);
+              const hurled = live.harpoon || live.heavy ? weapon.special : undefined, staggers = hurled ? !!hurled.swing.stagger : weapon.stagger;
+              const broke = interruptsWindup(enemy.kind, enemy.windup, staggers);
               if (broke) { enemy.windup = 0; enemy.attackAge = Infinity; enemy.trails.forEach(trail => trail.effect.clear()); }
-              enemy.cooldown = Math.max(enemy.cooldown, hitCooldown(enemy.kind, broke, weapon.stagger));
-              const shove = enemy.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
-              moveOnFloor(floor.cells, enemy.group.position, live.shot.dx * shove, live.shot.dz * shove);
-              burst(enemy.group.position, 0xffb24a, 7); burst(enemy.group.position, 0xe0202c, 22); blood.spawn(enemy.group.position, enemy.kind === 'warden' ? 1.4 : 1); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffedbb, enemy.kind === 'warden');
-              shake = 0.05; hitStop = 0.025;
+              enemy.cooldown = Math.max(enemy.cooldown, hitCooldown(enemy.kind, broke, staggers));
+              // The first guard or stalker the spear takes is hauled in; a warden only staggers.
+              if (hurled?.hurl && harpoon && !harpoon.dragged && enemy.kind !== 'warden') {
+                harpoon.dragged = true;
+                const pull = dragToward(enemy.group.position, player.position, hurled.hurl.drag);
+                moveOnFloor(floor.cells, enemy.group.position, pull.x, pull.z);
+              } else {
+                const shove = hurled ? (enemy.kind === 'warden' ? hurled.swing.wardenKnockback ?? 0 : hurled.swing.knockback ?? 0) : enemy.kind === 'warden' ? weapon.wardenKnockback : weapon.knockback;
+                moveOnFloor(floor.cells, enemy.group.position, live.shot.dx * shove, live.shot.dz * shove);
+              }
+              burst(enemy.group.position, 0xffb24a, 7); burst(enemy.group.position, 0xe0202c, 22); blood.spawn(enemy.group.position, enemy.kind === 'warden' ? 1.4 : 1); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffedbb, enemy.kind === 'warden' || !!live.heavy);
+              shake = live.heavy ? 0.09 : 0.05; hitStop = 0.025;
               if (enemy.hp <= 0) {
                 enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind);
                 enemy.cue.visible = enemy.bar.visible = enemy.alert.visible = false; enemy.trails.forEach(trail => trail.effect.clear());
@@ -2225,8 +2525,12 @@ export default function DungeonGame() {
             }
             // Stone stops a bolt as surely as it stops steel, and says so.
             if (flight.struck) burst(new THREE.Vector3(flight.x, .95, flight.z), 0xbfa781, 5);
-            if (flight.done) {
+            if (live.harpoon && harpoon) { harpoon.x = flight.x; harpoon.z = flight.z; }
+            // The spear does not fall where it stops: it turns and comes home, below.
+            if (flight.done && live.harpoon) { shots.splice(i, 1); if (harpoon) harpoon.phase = 'back'; }
+            else if (flight.done) {
               live.mesh.visible = false; shots.splice(i, 1);
+              if (live.heavy) { live.mesh.scale.set(1, 1, 1); continue; }
               if (weapon.burst) {
                 const mesh = poolMeshes.find(ring => !ring.visible);
                 if (mesh) {
@@ -2239,6 +2543,37 @@ export default function DungeonGame() {
             }
           }
         }
+      }
+      if (hasStarted && gameStatus === 'playing') {
+        // Plan 016. The spear on its way home: straight at the knight, caught the step it reaches him.
+        if (harpoon && harpoon.phase === 'back') {
+          const home = homeStep(harpoon, player.position, harpoon.speed, dt);
+          harpoon.x = home.x; harpoon.z = home.z;
+          harpoon.mesh.position.set(home.x, .95, home.z);
+          harpoon.mesh.rotation.y = Math.atan2(player.position.x - home.x, player.position.z - home.z);
+          if (home.home) catchHarpoon();
+        }
+        // The maul's ring on the floor while it is wound: it grows to the slam's own radius as the charge
+        // passes its minimum, and brightens the moment letting go would slam rather than cancel.
+        const special = weapon.special;
+        if (charging !== null && special?.radius) {
+          const level = chargeLevel(special, charging), primed = chargeReleases(special, charging);
+          const radius = primed ? special.radius[0] + (special.radius[1] - special.radius[0]) * level : special.radius[0] * Math.min(1, charging / (special.chargeMin ?? 1));
+          chargeRing.visible = true; chargeRing.position.set(player.position.x, .07, player.position.z);
+          chargeRing.scale.setScalar(Math.max(.05, radius + run.reach) / .95); chargeRing.material.opacity = primed ? .5 + level * .3 : .25;
+        } else chargeRing.visible = false;
+        // The Heavy Bolt's line: faint and thin while drawing, fuller once drawn; after the release, the bright
+        // line the bolt was fired down fades on its own clock.
+        if (laneLife > 0) { laneLife = Math.max(0, laneLife - frameDt); lane.material.opacity = .9 * (laneLife / .28) ** 1.4; if (laneLife === 0) lane.visible = false; }
+        else if (charging !== null && special?.draw && special.swing.ranged) { const full = drawn(special, charging); layLane(laneLength(floor.cells, player.position, facing.x, facing.z, special.swing.ranged.speed * special.swing.ranged.flight), full ? .2 : .1, full ? .38 : .16 * Math.min(1, charging / (special.chargeMax ?? 1))); }
+        else lane.visible = false;
+        // Decision 4: the moment it comes back is heard and seen on the blade, not only in the HUD sweep.
+        const ready = specialAvailable(special, { cooled: specialReady(run), quiver, out: !!harpoon });
+        if (special && ready && !specialWasReady) {
+          audio.play('ready'); glintTime = .6;
+          player.updateWorldMatrix(true, true); (player.userData.sword as THREE.Group).localToWorld(glintAt.copy(bladeTip)); burst(glintAt, 0xffb24a, 6);
+        }
+        specialWasReady = ready; glintTime = Math.max(0, glintTime - dt);
       }
       if (noticeTime > 0) { noticeTime = Math.max(0,noticeTime-frameDt); if (noticeTime === 0) setNotice(''); }
       if (rewardTime > 0) { rewardTime = Math.max(0, rewardTime - frameDt); if (rewardTime === 0) setXpReward(0); }
@@ -2266,6 +2601,7 @@ export default function DungeonGame() {
       mapPlayer.current?.setAttribute('cx', String(player.position.x / TILE)); mapPlayer.current?.setAttribute('cy', String(player.position.z / TILE));
       if (dashMeter.current) dashMeter.current.value = Math.max(0,1-dashCooldown/run.dashSpan);
       if (dashSweep.current) dashSweep.current.style.setProperty('--ready', String(Math.max(0,Math.min(1,1-dashCooldown/run.dashSpan))));
+      if (specialSweep.current) { specialSweep.current.style.setProperty('--ready', String(weapon.special ? harpoon ? 0 : weapon.special.draw ? quiver > 0 ? 1 : Math.min(1, reload / (weapon.ranged?.refill ?? 1)) : Math.max(0, Math.min(1, 1 - run.specialCooldown / weapon.special.cooldown)) : 1)); specialSweep.current.parentElement?.classList.toggle('special-ready', glintTime > 0); }
       const target = player.position.clone().addScaledVector(velocity,0.12); cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
       camera.position.set(cameraFocus.x + 9.2,12.5,cameraFocus.z + 11.5);
       // Reduced motion drops the shake outright: it is ~90 Hz camera translation that carries nothing the
@@ -2341,7 +2677,7 @@ export default function DungeonGame() {
         elapsed = 0; runStart = 0; floorStart = 0; activeRoom = 0;
         // A fresh page has never seen the cursor. The veil used to clear this by covering the canvas for a few
         // frames (Chrome then sends it a pointerleave), but a reset under the driver's clock draws none.
-        pointerNdc = null; aimDevice = 'keys';
+        pointerNdc = null; mouseHeld = 0; claimAim('keys');
         // Before restart, which places the knight on the new floor's start tile: this puts the rig
         // back, not the body.
         restPose.forEach((rest, o) => { o.position.copy(rest.p); o.rotation.copy(rest.r); });
@@ -2493,13 +2829,13 @@ export default function DungeonGame() {
     };
     const renderText = () => JSON.stringify({
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
-      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: weapon.id, name: weapon.name, damage: weapon.damage, reach: weapon.reach, duration: weapon.duration, strikeDamage: weapon.damage + run.strike, ranged: !!weapon.ranged, quiver: weapon.ranged ? quiver : null, capacity: weapon.ranged ? weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
+      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: weapon.id, name: weapon.name, damage: weapon.damage, reach: weapon.reach, duration: weapon.duration, strikeDamage: weapon.damage + run.strike, ranged: !!weapon.ranged, quiver: weapon.ranged ? quiver : null, capacity: weapon.ranged ? weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: weapon.special ?? null }, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: floor.guardCount - enemyData.filter(e => e.dead).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, stairDwell, deadEndsPlundered: loot },
       stair: { x: stairSpot.x, z: stairSpot.z, radius: STAIR_RADIUS, dwell: STAIR_DWELL },
       drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: (() => { let n = 0; scene.traverse((o) => { if ((o as THREE.PointLight).isPointLight) n++; }); return n; })(), programs: (renderer.info as unknown as { programs?: unknown[] }).programs?.length ?? 0, warmUp, quality: post.quality },
-      effects: { impacts: impacts.active, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
+      effects: { impacts: impacts.active, shock: impacts.shock, flares: flares.length, lane: lane.visible ? { length: lane.scale.y * 1.15, opacity: lane.material.opacity } : null, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.
       aim: { device: aimDevice, ndc: pointerNdc, span: viewSpan, aspect: viewAspect, pad: padLook },
@@ -2518,7 +2854,7 @@ export default function DungeonGame() {
       // planner's own descriptors - a driver checking the real scene reads this, not `floor.rooms`.
       graphics: { motifs: atmosphere?.motifs ?? [], flames: atmosphere?.flames ?? [], paving: pavingSummary },
       floor: { level, waterfalls: atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
-      player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashBuffer, dashTime, dashCooldown, chain: { beat: chainBeat, beats: chainLength(weapon), idle: Number.isFinite(chainIdle) ? chainIdle : null, damage: swing.damage + run.strike, duration: swing.duration }, invulnerable: run.invuln, hurtFlash, swordAngle: player.userData.sword.rotation.y, cloak:{anchor:player.userData.cape.position.toArray(),pitch:player.userData.cape.rotation.x}, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, locomotion: {speed:gaitSpeed,phase:walkPhase,sprint:locomotion.sprint,pitch:player.userData.torso.rotation.x,height:player.position.y,arm:player.userData.arm.rotation.x,tabard:player.userData.tabard.rotation.x,knees:player.userData.legs.map((leg:THREE.Group)=>leg.userData.knee.rotation.x)}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
+      player: { x: player.position.x, z: player.position.z, facing: { x: facing.x, z: facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime, attackBuffer, dashBuffer, dashTime, dashCooldown, chain: { beat: chainBeat, beats: chainLength(weapon), idle: Number.isFinite(chainIdle) ? chainIdle : null, damage: swing.damage + run.strike, duration: swing.duration }, invulnerable: run.invuln, hurtFlash, special: weapon.special ? { id: weapon.special.id, ready: specialAvailable(weapon.special, { cooled: specialReady(run), quiver, out: !!harpoon }), cooldown: run.specialCooldown, charging: charging !== null, charge: charging !== null ? chargeLevel(weapon.special, charging) : 0, held: charging ?? 0, live: swingKind === 'special' && attackTime > 0, buffered: specialBuffer, harpoon: harpoon ? { phase: harpoon.phase, x: harpoon.x, z: harpoon.z } : null, bare: !!harpoon, vault: vault ? { target: vault.target ? enemyData.filter(e => !e.dead).indexOf(vault.target) : null, distance: vault.distance, landed: vault.landed } : null } : null, swordAngle: player.userData.sword.rotation.y, cloak:{anchor:player.userData.cape.position.toArray(),pitch:player.userData.cape.rotation.x}, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, locomotion: {speed:gaitSpeed,phase:walkPhase,sprint:locomotion.sprint,pitch:player.userData.torso.rotation.x,height:player.position.y,arm:player.userData.arm.rotation.x,tabard:player.userData.tabard.rotation.x,knees:player.userData.legs.map((leg:THREE.Group)=>leg.userData.knee.rotation.x)}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
       corpses: enemyData.filter(e=>e.dead).map(e=>({kind:e.kind,x:e.group.position.x,y:e.group.position.y,z:e.group.position.z,scale:e.group.scale.toArray(),rotation:e.group.userData.rig.rotation.x,age:e.death?.age,settled:e.death?.settled,visible:e.group.visible,cue:e.cue.visible,bar:e.bar.visible,trails:e.trails.some(trail=>trail.effect.mesh.visible)})),
       enemies: enemyData.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, pose: {shieldArm:e.group.userData.limbs[0].rotation.x,shieldTilt:e.group.userData.shield.rotation.x,pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x,weaponYaw:e.group.userData.weapon.rotation.y,attackAge:Number.isFinite(e.attackAge)?e.attackAge:null,trails:e.trails.filter(trail=>trail.effect.mesh.visible).length,cue:e.cue.visible} })),
     });
@@ -2624,7 +2960,7 @@ export default function DungeonGame() {
   // Whenever a full-screen card sits over the world (intro, pause, a boon choice, or a run's end), the
   // corner chrome behind it — the floor label and the minimap — has nothing to add and only collides with
   // the card's own kicker, so it hides rather than moves.
-  // Focus lands on the card itself, not its first button: the strike key is Space, and a focused button
+  // Focus lands on the card itself, not its first button: the dodge key is Space, and a focused button
   // would activate on the very key a player is most likely still holding when a card opens. A dialog with
   // a name announces itself; Tab then reaches the card's own controls first.
   const focusCard = useCallback((card: HTMLElement | null) => { card?.focus({ preventScroll: true }); }, []);
@@ -2666,13 +3002,22 @@ export default function DungeonGame() {
             plain `<progress>` bar; `dashMeter` stays too, off-screen, so nothing that reads the
             accessible value tree loses the plain 0-1 progressbar semantics a sweep can't carry alone. */}
         <div className="ability-row">
-          <div className="ability"><div className="ability-icon strike-icon" aria-hidden="true"><span className="ability-glyph">⚔</span></div><kbd className="keycap"><span className="visually-hidden">{bindLabel(settings.binds.attack)}</span><span aria-hidden="true">{keycapLabel(settings.binds.attack)}</span></kbd></div>
+          <div className="ability"><div className="ability-icon strike-icon" aria-hidden="true"><span className="ability-glyph">⚔</span></div><kbd className="keycap"><span className="visually-hidden">{bindLabel(settings.binds.attack)}</span><span aria-hidden="true">{keycapFor(settings.binds.attack, pointerAim)}</span></kbd></div>
+          {/* Plan 016 decision 4: the arm's special, in the row that already exists rather than as an overlay of
+              its own. The sweep is the dash icon's; an arm with no special leaves the socket empty. */}
+          <div className={`ability${specialArm ? '' : ' ability-empty'}`}>
+            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+            <div className="ability-icon special-icon" role="progressbar" aria-label={specialArm ? `${specialArm.name} readiness` : 'No special for this arm'} aria-valuemin={0} aria-valuemax={1}>
+              <div className="special-sweep" ref={specialSweep} /><span className="ability-glyph">{specialArm ? '✦' : ''}</span>
+            </div>
+            <kbd className="keycap"><span className="visually-hidden">{bindLabel(settings.binds.special)}</span><span aria-hidden="true">{keycapFor(settings.binds.special, pointerAim)}</span></kbd>
+          </div>
           <div className="ability">
             {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
             <div className="ability-icon dash-icon" role="progressbar" aria-label="Dash readiness" aria-valuemin={0} aria-valuemax={1}>
               <div className="dash-sweep" ref={dashSweep} /><span className="ability-glyph">»</span>
             </div>
-            <kbd className="keycap"><span className="visually-hidden">{bindLabel(settings.binds.dash)}</span><span aria-hidden="true">{keycapLabel(settings.binds.dash)}</span></kbd>
+            <kbd className="keycap"><span className="visually-hidden">{bindLabel(settings.binds.dash)}</span><span aria-hidden="true">{keycapFor(settings.binds.dash, pointerAim)}</span></kbd>
           </div>
           <progress ref={dashMeter} max="1" value="1" className="visually-hidden" aria-hidden="true" tabIndex={-1} />
         </div>
@@ -2717,7 +3062,7 @@ export default function DungeonGame() {
         <h2>{menuView === 'controls' ? 'Controls & journey' : 'Settings'}</h2>
         {/* Read off the bindings rather than written out, or this page would go on promising WASD to a player
             who rebound it ten seconds ago — which is the exact moment they would come here to check. */}
-        {menuView === 'controls' ? <div className="menu-details"><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.swap)}</kbd> Take the arm you stand over</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><div className="intro-controls"><span><kbd>Mouse</kbd> Point where to cut</span><span><kbd>Left</kbd> Strike, held to keep striking</span><span><kbd>Right</kbd> Dodge</span><span><kbd>Gamepad</kbd> Left stick moves, right stick aims, A strikes, B dodges</span></div><p className="control-note">A cursor over the keep aims every swing, so the knight can retreat and cut behind him. Striking from the keyboard or the pad hands the aim back, and those are helped onto whatever body is nearly in front of him. Only the keys above can be rebound.</p><p>Reach {goalName}. Defeat the stair wardens, then step onto the stair they guarded to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality. An arm laid out on the floor is offered, never taken: stand in its ring and answer the prompt to trade for it.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</div> : <div className="menu-details settings-panel">
+        {menuView === 'controls' ? <div className="menu-details"><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.special)}</kbd> {specialArm ? `${specialArm.name}, the arm's special` : 'Special · this arm has none'}</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.swap)}</kbd> Take the arm you stand over</span><span><kbd>{bindLabel(settings.binds.map)}</kbd> Floor map</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><div className="intro-controls"><span><kbd>Mouse</kbd> Point where to cut</span><span><kbd>Gamepad</kbd> Left stick moves, right stick aims, A strikes, B or RB dodges, X special, Y takes the arm, View opens the map</span></div><p className="control-note">A cursor over the keep aims every swing, so the knight can retreat and cut behind him. Striking from the keyboard or the pad hands the aim back, and those are helped onto whatever body is nearly in front of him; dodging does not. Every arm has a special of its own, and taking up another arm hands you a ready one.{specialArm ? ` ${specialArm.detail}` : ''}</p><p>Reach {goalName}. Defeat the stair wardens, then step onto the stair they guarded to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality. An arm laid out on the floor is offered, never taken: stand in its ring and answer the prompt to trade for it.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</div> : <div className="menu-details settings-panel">
           {/* Everything here persists, and everything here has a default that is the game exactly as it
               shipped, so a player who never opens this changes nothing by not opening it. */}
           <div className="setting-row"><label htmlFor="set-volume">Volume</label><input id="set-volume" type="range" min="0" max="100" step="5" value={Math.round(settings.volume * 100)} onChange={(e) => change({ volume: Number(e.target.value) / 100 })} /><small>{settings.muted ? 'muted' : `${Math.round(settings.volume * 100)}%`}</small></div>
@@ -2728,7 +3073,10 @@ export default function DungeonGame() {
               a scroll past it. */}
           <details className="menu-details"><summary>Key bindings</summary>
             <div className="key-binds">{ACTIONS.map(a => <button key={a} className={capturing === a ? 'capturing' : ''} aria-label={`${ACTION_LABELS[a]}: ${bindLabel(settings.binds[a], ' or ')}. Activate to rebind.`} onClick={() => { setBindNote(''); setCapturing(capturing === a ? null : a); }}><span>{ACTION_LABELS[a]}</span><kbd>{capturing === a ? 'press a key' : bindLabel(settings.binds[a])}</kbd></button>)}</div>
-            <output className="bind-note">{bindNote || (capturing ? 'Press any key. Escape cancels.' : 'Escape always opens this menu, so it cannot be rebound.')}</output>
+            {/* Plan 016: a mouse button binds from here, not from anywhere on the card, so the left button still
+                clicks every other control while a rebind is armed. */}
+            {capturing && <button type="button" className="mouse-capture" onPointerDown={(e) => { if (e.pointerType !== 'mouse') return; e.preventDefault(); if (e.button === 2) window.addEventListener('contextmenu', (menu) => menu.preventDefault(), { capture: true, once: true }); commitBind(capturing, `Mouse${e.button}`); }} onContextMenu={(e) => e.preventDefault()}>Or click here with the mouse button for {ACTION_LABELS[capturing]}</button>}
+            <output className="bind-note">{bindNote || (capturing ? 'Press any key, or a mouse button on the strip above. Escape cancels.' : 'Escape always opens this menu, so it cannot be rebound.')}</output>
             <button className="reset-binds" onClick={() => { setCapturing(null); setBindNote(''); change({ binds: defaultSettings().binds }); }}>Reset keys</button>
           </details>
         </div>}
@@ -2762,8 +3110,9 @@ export default function DungeonGame() {
         <span className="veil-emblem" aria-hidden="true"><i className="veil-ring" /><i className="veil-diamond" /><i className="veil-glow" /><i className="veil-flame" /><i className="veil-flame veil-flame-core" /></span>
         <b>{veil}</b>
         <em className="veil-sub">Floor {veilFloor} of {FLOORS}{veilPlace ? ` · toward ${veilPlace}` : ''}</em>
-        <span className="veil-bar" aria-hidden="true"><i style={{ transform: `scaleX(${Math.max(.04, veilStage / VEIL_STAGES.length)})` }} /></span>
-        <span className="veil-stage">{VEIL_STAGES[Math.min(veilStage, VEIL_STAGES.length - 1)]}<small>{Math.min(veilStage + 1, VEIL_STAGES.length)} / {VEIL_STAGES.length}</small></span>
+        {/* The fill's width is `showVeil`'s: React sets only where it starts, and never touches it again. */}
+        <span className="veil-bar" aria-hidden="true"><i ref={veilFill} style={{ transform: 'scaleX(.04)' }} /></span>
+        <span className="veil-stage">{VEIL_STAGES[Math.min(veilStage, VEIL_STAGES.length - 1)]}</span>
         <span className="veil-lore" aria-hidden="true">{VEIL_LORE.map((line) => <i key={line}>{line}</i>)}</span>
       </output>}
       {/* The alternative layout, not a fallback bolted onto the stick: four buttons a screen reader can name
@@ -2783,7 +3132,7 @@ export default function DungeonGame() {
         onPointerMove={(e) => { const z = e.currentTarget; if (z.dataset.pointer !== `${e.pointerId}`) return; const dx = e.clientX - Number(z.dataset.ox), dy = e.clientY - Number(z.dataset.oy), span = Math.hypot(dx, dy), live = span > 8; z.style.setProperty('--kx', `${live ? dx * Math.min(span, 44) / span : 0}px`); z.style.setProperty('--ky', `${live ? dy * Math.min(span, 44) / span : 0}px`); const detail = live ? `stick:${(dx / span).toFixed(3)},${(dy / span).toFixed(3)}` : 'stick:0,0'; if (detail !== z.dataset.sent) { z.dataset.sent = detail; action(detail); } }}
         onLostPointerCapture={(e) => { const z = e.currentTarget; if (!z.dataset.pointer) return; delete z.dataset.pointer; z.removeAttribute('style'); action('stick:off'); }}>
         <i className="stick-base" /><i className="stick-knob" /></div>}
-      <div className="touch-actions" inert={cardOpen || mapOpen}><button onPointerDown={() => action('dash')}>DASH</button><button className="strike" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action('hold-attack'); }} onPointerUp={() => action('release-attack')} onPointerCancel={() => action('release-attack')} onLostPointerCapture={() => action('release-attack')}>STRIKE</button></div><div className="vignette" />
+      <div className="touch-actions" inert={cardOpen || mapOpen}><button onPointerDown={() => action('dash')}>DASH</button><button className="special" disabled={!specialArm} aria-label={specialArm ? specialArm.name : 'No special for this arm'} onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action('hold-special'); }} onPointerUp={() => action('release-special')} onPointerCancel={() => action('release-special')} onLostPointerCapture={() => action('release-special')}>SPECIAL</button><button className="strike" onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); action('hold-attack'); }} onPointerUp={() => action('release-attack')} onPointerCancel={() => action('release-attack')} onLostPointerCapture={() => action('release-attack')}>STRIKE</button></div><div className="vignette" />
     </main>
   );
 }

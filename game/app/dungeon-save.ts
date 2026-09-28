@@ -15,20 +15,29 @@ export type RunEnd = { at: number; floor: number; won: boolean; cause: RunCause 
 // reproduces the game exactly as it shipped, so a blank, blocked or corrupt cell is not a different game:
 // `volume: 1` is the 0.45 master gain the audio module always used, `reducedMotion: null` means "whatever
 // the OS asks for and nothing of our own", and the thumbstick is the touch layout that already exists.
-export type Action = 'up' | 'down' | 'left' | 'right' | 'attack' | 'dash' | 'swap' | 'pause' | 'mute' | 'fullscreen';
+export type Action = 'up' | 'down' | 'left' | 'right' | 'attack' | 'special' | 'dash' | 'swap' | 'map' | 'pause' | 'mute' | 'fullscreen';
 export type Binds = Record<Action, string[]>;
 export type Settings = { volume: number; muted: boolean; reducedMotion: boolean | null; touchLayout: 'stick' | 'pad'; binds: Binds };
 
-export const ACTIONS: Action[] = ['up', 'down', 'left', 'right', 'attack', 'dash', 'swap', 'pause', 'mute', 'fullscreen'];
-export const DEFAULT_BINDS: Binds = { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], attack: ['Space'], dash: ['ShiftLeft', 'ShiftRight'], swap: ['KeyE'], pause: ['Escape'], mute: ['KeyM'], fullscreen: ['KeyF'] };
+// Order matters: `parseSettings` lets the first action listed keep a code two actions claim, so the three
+// combat verbs sit together ahead of everything a stray code could otherwise take them from.
+export const ACTIONS: Action[] = ['up', 'down', 'left', 'right', 'attack', 'special', 'dash', 'swap', 'map', 'pause', 'mute', 'fullscreen'];
+// Plan 016: the mouse is the primary scheme (LMB strikes, RMB is the arm's special, Space dodges), and the
+// keyboard-only cluster is J/K/L beside it. Mouse buttons are codes in the same table as keys - `Mouse0` is
+// the left button, `Mouse1` the middle, `Mouse2` the right - so one binding rule covers both devices.
+export const DEFAULT_BINDS: Binds = { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], attack: ['Mouse0', 'KeyJ'], special: ['Mouse2', 'KeyK'], dash: ['Space', 'ShiftLeft', 'ShiftRight', 'KeyL'], swap: ['KeyE'], map: ['Tab'], pause: ['Escape'], mute: ['KeyM'], fullscreen: ['KeyF'] };
+/** A mouse button's code, as opposed to a key's. */
+export const isMouseCode = (code: string) => /^Mouse[0-4]$/.test(code);
 // Escape belongs to pause and to nothing else, ever. It is the one key guaranteed to open the menu, and a
 // player who can hand it to `attack` can bind themselves out of the very screen that would undo it — the ☰
 // button is the other way back in, but a keyboard-only player may have no way to reach it.
 export const RESERVED = 'Escape';
-// Two bindings per action is what the defaults use (WASD beside the arrows); four is room to spare, and a
-// bound so a hand-written cell cannot grow a list long enough to cost a keystroke anything measurable.
+// Two bindings per action is what most defaults use (WASD beside the arrows); four is the dodge's own list
+// (Space, both shifts, L), and a bound so a hand-written cell cannot grow a list long enough to cost a
+// keystroke anything measurable.
 const BIND_CAP = 4;
-// Every KeyboardEvent.code in the standard set is ASCII alphanumeric — 'KeyW', 'Digit1', 'IntlBackslash'.
+// Every KeyboardEvent.code in the standard set is ASCII alphanumeric — 'KeyW', 'Digit1', 'IntlBackslash' —
+// and so are the mouse codes this file names (`Mouse0`..`Mouse4`).
 const CODE = /^[A-Za-z0-9]{1,24}$/;
 
 // Fresh arrays every time: a parsed set is handed straight to React state and edited from there, and one
@@ -40,13 +49,25 @@ export const defaultSettings = (): Settings => ({ volume: 1, muted: false, reduc
 // nothing happened. Whatever held the code loses it; if that would leave it with no key at all — an action
 // the player can no longer perform, and cannot see is gone — the two trade instead, and the displaced
 // action inherits the key this one just stopped using.
+//
+// A new code replaces the action's codes on the same device and leaves the other device's alone: moving
+// Strike from J to X must not also take it off the left button, or a keyboard rebind would quietly break
+// the mouse scheme. Mouse codes are listed first, which is the order the defaults use.
 export const bindKey = (binds: Binds, action: Action, code: string): Binds | null => {
   if (!CODE.test(code) || (code === RESERVED && action !== 'pause')) return null;
   const held = ACTIONS.find(a => a !== action && binds[a].includes(code));
-  const next: Binds = { ...binds, [action]: [code] };
-  // `binds[action]` cannot be empty and cannot contain `code` when some other action holds it, so the
-  // trade always hands over at least one key that nothing else is using.
-  if (held) { const kept = binds[held].filter(c => c !== code); next[held] = kept.length ? kept : binds[action]; }
+  const same = (c: string) => isMouseCode(c) === isMouseCode(code);
+  const displaced = binds[action].filter(same), others = binds[action].filter(c => !same(c));
+  const next: Binds = { ...binds, [action]: [...others.slice(0, BIND_CAP - 1), code].sort((a, b) => +isMouseCode(b) - +isMouseCode(a)) };
+  // `binds[action]` cannot contain `code` when some other action holds it, so whatever it hands over is a
+  // code nothing else is using. It can lack a code on this device at all (an action with only keys, asked
+  // for a button), and then the trade is the whole list: the action gives up its keys for the button.
+  if (held) {
+    const kept = binds[held].filter(c => c !== code);
+    if (kept.length) next[held] = kept;
+    else if (displaced.length) next[held] = displaced;
+    else { next[action] = [code]; next[held] = binds[action]; }
+  }
   return next;
 };
 

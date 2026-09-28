@@ -48,6 +48,121 @@
         "floor3.medianHpLeft": { "min": 55, "max": 92 },
         "medianRunSeconds": { "min": 170, "max": 340 }
       }
+    },
+    "special": {
+      "policy": { "special": true },
+      "measured": {
+        "escapeRate": 100,
+        "floor1.deathRate": 0,
+        "floor2.deathRate": 0,
+        "floor3.deathRate": 0,
+        "floor1.medianHpLeft": 100,
+        "floor2.medianHpLeft": 100,
+        "floor3.medianHpLeft": 100,
+        "medianRunSeconds": 261.3
+      },
+      "bands": {
+        "escapeRate": { "min": 85, "max": 100 },
+        "floor1.deathRate": { "min": 0, "max": 10 },
+        "floor2.deathRate": { "min": 0, "max": 10 },
+        "floor3.deathRate": { "min": 0, "max": 10 },
+        "floor1.medianHpLeft": { "min": 80, "max": 100 },
+        "floor2.medianHpLeft": { "min": 80, "max": 100 },
+        "floor3.medianHpLeft": { "min": 80, "max": 100 },
+        "medianRunSeconds": { "min": 170, "max": 370 }
+      }
+    },
+    "special-fangs": {
+      "policy": { "special": true, "weapon": "fangs" },
+      "measured": {
+        "escapeRate": 100,
+        "floor1.deathRate": 0,
+        "floor2.deathRate": 0,
+        "floor3.deathRate": 0,
+        "floor1.medianHpLeft": 100,
+        "floor2.medianHpLeft": 100,
+        "floor3.medianHpLeft": 100,
+        "medianRunSeconds": 258.0
+      },
+      "bands": {
+        "escapeRate": { "min": 85, "max": 100 },
+        "floor1.deathRate": { "min": 0, "max": 10 },
+        "floor2.deathRate": { "min": 0, "max": 10 },
+        "floor3.deathRate": { "min": 0, "max": 10 },
+        "floor1.medianHpLeft": { "min": 80, "max": 100 },
+        "floor2.medianHpLeft": { "min": 80, "max": 100 },
+        "floor3.medianHpLeft": { "min": 80, "max": 100 },
+        "medianRunSeconds": { "min": 170, "max": 370 }
+      }
+    },
+    "special-cleaver": {
+      "policy": { "special": true, "weapon": "cleaver" },
+      "measured": {
+        "escapeRate": 100,
+        "floor1.deathRate": 0,
+        "floor2.deathRate": 0,
+        "floor3.deathRate": 0,
+        "floor1.medianHpLeft": 100,
+        "floor2.medianHpLeft": 100,
+        "floor3.medianHpLeft": 100,
+        "medianRunSeconds": 298.9
+      },
+      "bands": {
+        "escapeRate": { "min": 85, "max": 100 },
+        "floor1.deathRate": { "min": 0, "max": 10 },
+        "floor2.deathRate": { "min": 0, "max": 10 },
+        "floor3.deathRate": { "min": 0, "max": 10 },
+        "floor1.medianHpLeft": { "min": 80, "max": 100 },
+        "floor2.medianHpLeft": { "min": 80, "max": 100 },
+        "floor3.medianHpLeft": { "min": 80, "max": 100 },
+        "medianRunSeconds": { "min": 200, "max": 420 }
+      }
+    },
+    "special-crossbow": {
+      "policy": { "special": true, "weapon": "crossbow" },
+      "measured": {
+        "escapeRate": 100,
+        "floor1.deathRate": 0,
+        "floor2.deathRate": 0,
+        "floor3.deathRate": 0,
+        "floor1.medianHpLeft": 100,
+        "floor2.medianHpLeft": 100,
+        "floor3.medianHpLeft": 100,
+        "medianRunSeconds": 372.6
+      },
+      "bands": {
+        "escapeRate": { "min": 85, "max": 100 },
+        "floor1.deathRate": { "min": 0, "max": 10 },
+        "floor2.deathRate": { "min": 0, "max": 10 },
+        "floor3.deathRate": { "min": 0, "max": 10 },
+        "floor1.medianHpLeft": { "min": 80, "max": 100 },
+        "floor2.medianHpLeft": { "min": 80, "max": 100 },
+        "floor3.medianHpLeft": { "min": 80, "max": 100 },
+        "medianRunSeconds": { "min": 260, "max": 520 }
+      }
+    },
+    "special-flask": {
+      "policy": { "special": true, "weapon": "flask" },
+      "measured": {
+        "escapeRate": 100,
+        "floor1.deathRate": 0,
+        "floor2.deathRate": 0,
+        "floor3.deathRate": 0,
+        "floor1.medianHpLeft": 100,
+        "floor2.medianHpLeft": 100,
+        "floor3.medianHpLeft": 100,
+        "medianRunSeconds": 337.3
+      },
+      "bands": {
+        "escapeRate": { "min": 85, "max": 100 },
+        "floor1.deathRate": { "min": 0, "max": 10 },
+        "floor2.deathRate": { "min": 0, "max": 10 },
+        "floor3.deathRate": { "min": 0, "max": 10 },
+        "floor1.medianHpLeft": { "min": 80, "max": 100 },
+        "floor2.medianHpLeft": { "min": 80, "max": 100 },
+        "floor3.medianHpLeft": { "min": 80, "max": 100 },
+        "medianRunSeconds": { "min": 230, "max": 470 }
+      }
     }
   }
 }

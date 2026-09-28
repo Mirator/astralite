@@ -43,13 +43,16 @@ export type Run = {
   // Seconds of gameplay immunity left. Purely a gate on damage; the hurt filter and the shake are the
   // renderer's business and run on their own timers.
   invuln: number;
+  // Plan 016: seconds until the held arm's special can be used again. The sim owns it rather than the game
+  // loop so the node suite and the balance batch read the same clock the keep does.
+  specialCooldown: number;
 };
 
 export const createRun = (): Run => ({
   hp: 100, maxHp: 100, kills: 0, totalXp: 0,
   rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
   strike: 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
-  invuln: 0, taken: [],
+  invuln: 0, taken: [], specialCooldown: 0,
 });
 
 // Fisher-Yates over a copy. The draft used to be `sort(() => Math.random() - 0.5)`, which is not a shuffle:
@@ -110,7 +113,19 @@ export const hurt = (run: Run, value: number, options: { dashing?: boolean; ward
   return dealt;
 };
 
-export const tickRun = (run: Run, dt: number) => { run.invuln = Math.max(0, run.invuln - amount(dt)); };
+export const tickRun = (run: Run, dt: number) => {
+  run.invuln = Math.max(0, run.invuln - amount(dt));
+  run.specialCooldown = Math.max(0, run.specialCooldown - amount(dt));
+};
+
+// A special's cooldown starts at contact, not on the press, so one cancelled in its anticipation - by a
+// dodge, or a charge let go too early - costs nothing. The caller says when contact came.
+// A cooldown ticked down in frame-sized steps can land a rounding error above zero; that is ready.
+export const specialReady = (run: Run) => run.specialCooldown <= 1e-9;
+export const spendSpecial = (run: Run, cooldown: number) => { run.specialCooldown = Math.max(run.specialCooldown, amount(cooldown)); };
+// Taking up another arm clears it: a swap is never a way round a cooldown, since the new arm's special is a
+// different one, and never a punishment either.
+export const resetSpecial = (run: Run) => { run.specialCooldown = 0; };
 
 // Only legal while a draft is open, which is what stops a stray `boon:<id>` event from handing out free
 // upgrades. Returns the boon so the caller can name it; null means nothing was applied.
