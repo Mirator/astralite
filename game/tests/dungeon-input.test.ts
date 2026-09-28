@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { SCREEN_DOWN, SCREEN_RIGHT } from '../app/dungeon-aim.ts';
 import {
-  bindLabel, isHeld, keycapLabel, keyLabel, moveHeading, PAD_DEADZONE, padAxis, padLook, parseCommand,
+  bindLabel, isHeld, keycapFor, keycapLabel, keyLabel, moveHeading, PAD_BUTTONS, PAD_DEADZONE, padAxis, padLook, parseCommand,
   pointerNdc, readKey, screenHeading,
 } from '../app/dungeon-input.ts';
 import { DEFAULT_BINDS, type Action } from '../app/dungeon-save.ts';
@@ -19,17 +19,42 @@ test('key legends shorten a code only where its tail is already the character', 
   assert.equal(keycapLabel(['Space']), 'SPC');
   assert.equal(keycapLabel(['KeyE']), 'E');
   assert.equal(keycapLabel(['Backspace']), 'BAC');
+  // Plan 016: mouse buttons are bind codes, named the way a player names them.
+  assert.equal(keyLabel('Mouse0'), 'LMB');
+  assert.equal(keyLabel('Mouse2'), 'RMB');
+  assert.equal(bindLabel(['Mouse0', 'KeyJ']), 'LMB / J');
+});
+
+test('the ability keycap names the device the player used last (plan 016)', () => {
+  assert.equal(keycapFor(['Mouse0', 'KeyJ'], true), 'LMB', 'the cursor owns the aim: the button');
+  assert.equal(keycapFor(['Mouse0', 'KeyJ'], false), 'J', 'the keys own it: the first key, not "LMB"');
+  assert.equal(keycapFor(['Space', 'ShiftLeft'], true), 'SPC', 'no button bound: the key either way');
+  assert.equal(keycapFor(['Mouse2'], false), 'RMB', 'only a button bound: the button either way');
 });
 
 test('an action is held by its bound keys or by any device slot of its own', () => {
   const b = binds();
-  assert.equal(isHeld(new Set(['Space']), b, 'attack'), true);
+  assert.equal(isHeld(new Set(['KeyJ']), b, 'attack'), true);
+  assert.equal(isHeld(new Set(['Mouse0']), b, 'attack'), true, 'a mouse button is a bind code (plan 016)');
   assert.equal(isHeld(new Set(['Touchattack']), b, 'attack'), true);
-  assert.equal(isHeld(new Set(['Mouseattack']), b, 'attack'), true);
-  assert.equal(isHeld(new Set(['Padattack']), b, 'attack'), true);
+  assert.equal(isHeld(new Set(['Pad0']), b, 'attack'), true, 'the pad slot is per button');
   assert.equal(isHeld(new Set(['KeyE']), b, 'attack'), false);
-  b.attack = ['KeyJ'];
-  assert.equal(isHeld(new Set(['Space']), b, 'attack'), false, 'a rebind is read live');
+  b.attack = ['KeyU'];
+  assert.equal(isHeld(new Set(['KeyJ']), b, 'attack'), false, 'a rebind is read live');
+  assert.equal(isHeld(new Set(['Mouse0']), b, 'attack'), false, 'and a button is released by it like a key');
+});
+
+test('two pad buttons that share an action are held apart (plan 016)', () => {
+  const b = binds();
+  // B and RB both dodge: letting go of B while RB is down must not drop the held dodge.
+  const dodges = PAD_BUTTONS.filter(([, action]) => action === 'dash').map(([index]) => index);
+  assert.deepEqual(dodges, [1, 5]);
+  assert.equal(isHeld(new Set(['Pad5']), b, 'dash'), true);
+  assert.equal(isHeld(new Set(['Pad1']), b, 'dash'), true);
+  // X is the special now and Y takes the arm (and the stair); View opens the map.
+  assert.deepEqual(PAD_BUTTONS.find(([index]) => index === 2)?.[1], 'special');
+  assert.deepEqual(PAD_BUTTONS.find(([index]) => index === 3)?.[1], 'swap');
+  assert.deepEqual(PAD_BUTTONS.find(([index]) => index === 8)?.[1], 'map');
 });
 
 test('a screen push becomes a unit floor heading on the camera basis, exactly', () => {
@@ -52,9 +77,19 @@ test('a planted stick outranks the keys, and lifting it hands them back', () => 
 
 test('a keydown is decoded against the bindings and whether the run is live', () => {
   const b = binds();
-  assert.deepEqual(readKey('Space', false, b, true), { prevent: true, command: null, hold: true, claimAim: true, press: ['attack'] });
+  assert.deepEqual(readKey('KeyJ', false, b, true), { prevent: false, command: null, hold: true, claimAim: true, press: ['attack'] });
+  assert.deepEqual(readKey('KeyK', false, b, true), { prevent: false, command: null, hold: true, claimAim: true, press: ['special'] });
+  // Plan 016 A3: the dodge is on Space, under a mouse player's thumb, and does not take the aim.
+  assert.deepEqual(readKey('Space', false, b, true), { prevent: true, command: null, hold: true, claimAim: false, press: ['dash'] });
   assert.deepEqual(readKey('Space', true, b, true), { prevent: true, command: null, hold: true, claimAim: false, press: [] }, 'a repeat only holds');
   assert.deepEqual(readKey('Space', false, b, false), { prevent: false, command: null, hold: false, claimAim: false, press: [] }, 'a held world ignores play keys');
+  // Tab opens the map only in a live fight or to close the map it opened; on a menu card it moves focus.
+  assert.deepEqual(readKey('Tab', false, b, true), { prevent: true, command: 'map', hold: false, claimAim: false, press: [] });
+  assert.equal(readKey('Tab', false, b, false).command, null, 'a menu card keeps Tab');
+  assert.equal(readKey('Tab', false, b, false).prevent, false);
+  assert.equal(readKey('Tab', false, b, false, true).command, 'map', 'the map it opened closes on it');
+  assert.equal(readKey('Tab', false, b, false, true).prevent, true, 'and the Tab that closes it does not also move focus');
+  assert.equal(readKey('Tab', true, b, true).command, null, 'a held Tab does not flicker the map');
   assert.equal(readKey('KeyW', false, b, true).claimAim, false, 'walking does not claim the aim');
   assert.equal(readKey('KeyW', false, b, true).prevent, false, 'a key the browser does not act on is left alone');
   assert.equal(readKey('Escape', false, b, false).command, 'pause');
@@ -79,7 +114,7 @@ test('every dungeon-action detail parses to the command the game answers', () =>
   assert.deepEqual(parseCommand('stick:junk'), { kind: 'stick', stick: null }, 'junk is a release');
   assert.deepEqual(parseCommand('move:up'), { kind: 'move', action: 'up' });
   assert.deepEqual(parseCommand('stop:up'), { kind: 'stop', action: 'up' });
-  for (const kind of ['map', 'pause', 'mute', 'fullscreen', 'attack', 'hold-attack', 'release-attack', 'dash', 'swap'] as const) {
+  for (const kind of ['map', 'pause', 'mute', 'fullscreen', 'attack', 'hold-attack', 'release-attack', 'dash', 'swap', 'special', 'hold-special', 'release-special'] as const) {
     assert.deepEqual(parseCommand(kind), { kind });
   }
   assert.equal(parseCommand('restarting'), null);

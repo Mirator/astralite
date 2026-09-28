@@ -31,16 +31,23 @@ export const linkedPrograms = (renderer: THREE.WebGLRenderer) => programsOf(rend
  * leaves; it never looks at a material, so a restart disposing one mid-poll cannot wedge it. `current`
  * says whether the build that asked is still the one running; `slice` is told each slice's cost.
  */
-export const pollProgramsReady = async (renderer: THREE.WebGLRenderer, current: () => boolean, yielded: () => Promise<void>, slice: (ms: number) => void) => {
+export const pollProgramsReady = async (renderer: THREE.WebGLRenderer, current: () => boolean, yielded: () => Promise<void>, slice: (ms: number) => void, share?: (ready: number, total: number, stalledMs: number) => void) => {
+  let lastReady = -1, changedAt = performance.now();
   while (true) {
     const programs = programsOf(renderer);
     const frameStart = performance.now();
-    let allReady = true;
+    let allReady = true, ready = 0;
     for (const program of programs) {
       if (!program.isReady()) { allReady = false; continue; }
+      ready++;
       program.getUniforms(); program.getAttributes();
       if (performance.now() - frameStart > SLICE_BUDGET_MS) { allReady = false; break; }
     }
+    // The loading veil's measure (plan 016's bar): linked programs so far, and how long that count has sat
+    // still. A budget break leaves the rest of the list uncounted, so `ready` is a lower bound - never ahead.
+    const counted = allReady ? programs.length : ready, now = performance.now();
+    if (counted !== lastReady) { lastReady = counted; changedAt = now; }
+    share?.(counted, programs.length, now - changedAt);
     slice(+(performance.now() - frameStart).toFixed(1));
     if (allReady || !current()) return;
     await yielded();

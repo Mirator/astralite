@@ -9,6 +9,8 @@ import {
   test,
   TILE,
   trackEnemy,
+  hold,
+  release,
   type Point,
   type Snapshot,
 } from './helpers.ts';
@@ -115,7 +117,7 @@ test('keyboard movement is screen-relative, release stops it, and a stationary d
   ).toBeGreaterThan(1.2);
 });
 
-test('held Space repeats strikes and every swing takes real health off a warden', async ({
+test('a held strike key repeats strikes and every swing takes real health off a warden', async ({
   game,
   page,
 }) => {
@@ -135,10 +137,10 @@ test('held Space repeats strikes and every swing takes real health off a warden'
   const blade = armed.weapon.strikeDamage;
   expect(track(armed, 'warden', anchor).hp).toBe(4 * blade);
 
-  // Latch the facing with a real arrow key, then hold only Space so the knight
+  // Latch the facing with a real arrow key, then hold only the strike key so the knight
   // stays put and the repeat comes from the held strike, not from walking in.
   await page.keyboard.down(stance.key);
-  await page.keyboard.down('Space');
+  await hold(page, 'attack');
   await page.keyboard.up(stance.key);
 
   await game.step(120);
@@ -146,13 +148,13 @@ test('held Space repeats strikes and every swing takes real health off a warden'
   await game.step(120);
   expect(track(await game.state(), 'warden', anchor).hp).toBe(3 * blade);
 
-  // A swing lasts 0.38s; crossing that boundary with Space held starts another.
+  // A swing lasts 0.38s; crossing that boundary with the strike key held starts another.
   await game.step(400);
   const second = await game.state();
   expect(track(second, 'warden', anchor).hp).toBe(2 * blade);
   expect(second.player.attackTime).toBeGreaterThan(0);
 
-  await page.keyboard.up('Space');
+  await release(page, 'attack');
   await game.step(600);
   const stopped = await game.state();
   expect(stopped.player.attackTime).toBe(0);

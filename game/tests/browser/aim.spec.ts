@@ -1,4 +1,4 @@
-import { expect, SCREEN_DIRECTIONS, test } from './helpers.ts';
+import { expect, SCREEN_DIRECTIONS, test, press } from './helpers.ts';
 
 // Aim used to be movement: the swing took its direction from whatever the keys said on the frame it
 // started, so the knight could only ever strike in the eight directions he could walk in, and could
@@ -59,11 +59,11 @@ test('striking from the keyboard takes the aim back from the cursor', async ({ g
   await page.mouse.up({ button: 'left' });
   await game.step(600);
 
-  // The cursor has not moved. Someone who reaches for Space is playing on the keyboard, and must not
+  // The cursor has not moved. Someone who reaches for the strike key is playing on the keyboard, and must not
   // find every swing aimed at whatever corner the intro card left the pointer in.
   await page.keyboard.down('ArrowRight');
   await game.step(120);
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(16);
   const swung = await game.state();
   expect(along(swung.player.facing, SCREEN_DIRECTIONS.right),
@@ -85,19 +85,20 @@ test('a cursor that leaves the canvas stops aiming', async ({ game, page }) => {
   // wherever the pointer was when it went out.
   await page.mouse.move(box.x + box.width * 0.5, box.y - 40);
   await game.step(32);
-  // Before any key: Space claims the aim for the keys on its own, so a facing read after it passes with
-  // the pointerleave handler deleted. The release itself is what has to be seen.
+  // Before any key: the cursor going out hands the aim to the keys on its own, so a facing read after a
+  // keyboard strike (which claims the aim too) passes with the pointerleave handler deleted. The release
+  // itself is what has to be seen.
   const left = await game.state();
   expect(left.aim.ndc, 'the cursor left the canvas but is still aiming').toBeNull();
   expect(left.aim.device).toBe('keys');
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(16);
   const swung = await game.state();
   expect(along(swung.player.facing, SCREEN_DIRECTIONS.down)).toBeGreaterThan(0.9);
   await page.keyboard.up('ArrowDown');
 });
 
-test('the left mouse button strikes and holds a strike going, and the right one dodges', async ({ game, page }) => {
+test('the left mouse button strikes and holds a strike going', async ({ game, page }) => {
   await game.enter();
   await game.step(120);
 
@@ -108,7 +109,7 @@ test('the left mouse button strikes and holds a strike going, and the right one 
   await game.step(16);
   expect((await game.state()).player.attackTime, 'the button swung').toBeGreaterThan(0);
 
-  // Held, the swing restarts on its own exactly as a held Space does. Sampling across more than one
+  // Held, the swing restarts on its own exactly as a held strike key does. Sampling across more than one
   // full swing is what tells a repeat from a single long animation.
   let swings = 0;
   for (let i = 0; i < 60; i++) {
@@ -120,13 +121,39 @@ test('the left mouse button strikes and holds a strike going, and the right one 
   await page.mouse.up({ button: 'left' });
   await game.step(700);
   expect((await game.state()).player.attackTime, 'releasing the button stops it').toBe(0);
+});
 
-  // And the right button dodges.
-  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
-  await page.mouse.down({ button: 'right' });
-  await page.mouse.up({ button: 'right' });
+// Plan 016 A3: the dodge moved to Space, under a mouse player's thumb, so it must not hand the aim to the
+// keyboard the way a keyboard strike does. Before, a dodge from the keys claimed the aim, and every swing
+// after it went out along the keys until the cursor happened to move again.
+test('a dodge on Space keeps the cursor aiming', async ({ game, page }) => {
+  await game.enter();
+  await game.step(120);
+  const box = await canvasBox(page);
+  await page.mouse.move(box.x + box.width * 0.12, box.y + box.height * 0.5);
+  await game.step(32);
+  // One cut at the cursor, so the knight faces left with no movement key held.
+  await page.mouse.down({ button: 'left' });
   await game.step(16);
-  expect((await game.state()).player.dashTime).toBeGreaterThan(0);
+  await page.mouse.up({ button: 'left' });
+  await game.step(600);
+  expect(along((await game.state()).player.facing, SCREEN_DIRECTIONS.right)).toBeLessThan(-0.5);
+
+  await press(page, 'dash');
+  await game.step(16);
+  const dashed = await game.state();
+  expect(dashed.player.dashTime, 'Space dodged').toBeGreaterThan(0);
+  expect(along(dashed.player.velocity, SCREEN_DIRECTIONS.right), 'along the facing, to the left').toBeLessThan(0);
+  expect(dashed.aim.device, 'and the cursor still owns the aim').toBe('pointer');
+  await game.step(600);
+
+  await page.mouse.down({ button: 'left' });
+  await game.step(16);
+  const swung = await game.state();
+  await page.mouse.up({ button: 'left' });
+  expect(swung.player.attackTime).toBeGreaterThan(0);
+  expect(along(swung.player.facing, SCREEN_DIRECTIONS.right), 'the next cut still goes to the cursor').toBeLessThan(-0.5);
+  await game.step(600);
 });
 
 test('the aim follows the cursor as it moves, with or without a click, not just where it first was', async ({ game, page }) => {

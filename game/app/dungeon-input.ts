@@ -4,20 +4,23 @@
 // owns the listeners, the held-key set and every consequence, and asks this file what each one said.
 
 import { SCREEN_DOWN, SCREEN_RIGHT } from './dungeon-aim.ts';
-import { ACTIONS, RESERVED, type Action, type Binds } from './dungeon-save.ts';
+import { ACTIONS, isMouseCode, RESERVED, type Action, type Binds } from './dungeon-save.ts';
 
 export type Stick = { x: number; z: number };
 
 // Keys the browser acts on itself — scrolling, quick-find, back-navigation. Only ever swallowed while one
 // of them is actually bound to something, so the list follows a rebind instead of being frozen at the
 // defaults: an arrow freed by a rebind goes back to scrolling the page, and a newly bound PageDown stops.
-// Tab is deliberately absent. Trapping it would cost a keyboard-only player the way out of the canvas.
-export const SCROLL_KEYS = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', 'Backspace', 'Slash', 'Quote']);
-export const ACTION_LABELS: Record<Action, string> = { up: 'Up', down: 'Down', left: 'Left', right: 'Right', attack: 'Strike', dash: 'Dodge', swap: 'Take arm', pause: 'Pause', mute: 'Sound', fullscreen: 'Fullscreen' };
+// Tab is here for the floor map (plan 016): swallowed only while it is bound and the fight is live, so focus
+// navigation through every menu and card keeps working.
+export const SCROLL_KEYS = new Set(['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'PageUp', 'PageDown', 'Home', 'End', 'Backspace', 'Slash', 'Quote']);
+export const ACTION_LABELS: Record<Action, string> = { up: 'Up', down: 'Down', left: 'Left', right: 'Right', attack: 'Strike', special: 'Special', dash: 'Dodge', swap: 'Take arm', map: 'Floor map', pause: 'Pause', mute: 'Sound', fullscreen: 'Fullscreen' };
 // A KeyboardEvent.code is a hardware position, not a legend, and 'KeyW' on the card would be nonsense to
 // the AZERTY player this exists for. `key` is the legend but is unstable under modifiers, so the code is
 // shortened where its tail is already the character and left whole where it is not.
-export const keyLabel = (code: string) => code.startsWith('Key') || code.startsWith('Digit') ? code.replace(/^(Key|Digit)/, '') : code.startsWith('Arrow') ? ({ ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' })[code] ?? code : code.replace(/^(Shift|Control|Alt|Meta)(Left|Right)$/, '$1');
+// Mouse buttons are bind codes too (plan 016), named the way a player names them.
+const MOUSE_LABEL: Record<string, string> = { Mouse0: 'LMB', Mouse1: 'MMB', Mouse2: 'RMB' };
+export const keyLabel = (code: string) => MOUSE_LABEL[code] ?? (code.startsWith('Key') || code.startsWith('Digit') ? code.replace(/^(Key|Digit)/, '') : code.startsWith('Arrow') ? ({ ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' })[code] ?? code : code.replace(/^(Shift|Control|Alt|Meta)(Left|Right)$/, '$1'));
 // Deduplicated after labelling, not before: the two shift keys are distinct codes and one legend, and
 // "Shift / Shift" tells a player nothing except that the card is not thinking.
 export const bindLabel = (codes: string[], join = ' / ') => [...new Set(codes.map(keyLabel))].join(join);
@@ -27,13 +30,26 @@ export const bindLabel = (codes: string[], join = ' / ') => [...new Set(codes.ma
 // already produces rather than replacing it - settings and the controls legend keep the full word.
 const KEYCAP_GLYPH: Record<string, string> = { Space: 'SPC', Shift: '⇧', Control: '⌃', Alt: '⌥', Enter: '⏎', Escape: 'ESC', Tab: '⇥' };
 export const keycapLabel = (codes: string[]) => [...new Set(codes.map(keyLabel))].map((l) => KEYCAP_GLYPH[l] ?? (l.length > 4 ? l.slice(0, 3).toUpperCase() : l.toUpperCase())).join('/');
+// Plan 016: one code on the keycap, for the device the player used last - the button when the cursor owns
+// the aim, the first key otherwise. Showing the first bind would label a keyboard player's strike "LMB".
+export const keycapFor = (codes: string[], pointer: boolean) => keycapLabel([(pointer && codes.find(isMouseCode)) || codes.find(c => !isMouseCode(c)) || codes[0] || '']);
+
+// Standard mapping only. A pad the browser cannot name is a pad whose buttons we would be guessing at,
+// and guessing wrong means the dodge button swings. Plan 016: X is the special and Y takes the arm (or
+// the open stair), RB is a second dodge so the thumb can hold A, and View opens the map.
+export const PAD_BUTTONS: [number, Action][] = [[0, 'attack'], [1, 'dash'], [5, 'dash'], [2, 'special'], [3, 'swap'], [8, 'map'], [9, 'pause']];
+export const PAD_START = 9;
+/** The View/Back button: it answers while the world is held, like Start, so the map it opened can close. */
+export const PAD_VIEW = 8;
 
 // Bindings are read at the moment they are asked for, never snapshotted: the card can rebind a key while
-// the run is paused behind it. `Touch<action>`, `Mouse<action>` and `Pad<action>` are each a device's own
-// slot, belonging to no binding: a held STRIKE must keep swinging whatever the keyboard was rebound to,
-// and must not be released by letting go of a key on a different device.
+// the run is paused behind it. `Touch<action>` and `Pad<index>` are each a device's own slot, belonging to
+// no binding: a held STRIKE must keep swinging whatever the keyboard was rebound to, and must not be
+// released by letting go of a key on a different device. Mouse buttons are ordinary bind codes (plan
+// 016), so `Mouse0` held in the set is a held strike for exactly as long as the strike is bound to it. A
+// pad slot is per button, not per action: B and RB both dodge, and letting go of one must not drop the other.
 export const isHeld = (keys: ReadonlySet<string>, binds: Binds, action: Action) => binds[action].some(c => keys.has(c))
-  || keys.has(`Touch${action}`) || keys.has(`Mouse${action}`) || keys.has(`Pad${action}`);
+  || keys.has(`Touch${action}`) || PAD_BUTTONS.some(([index, a]) => a === action && keys.has(`Pad${index}`));
 
 /**
  * A screen-space push (right, down) turned into a unit heading on the floor, on the camera's own basis.
@@ -62,31 +78,38 @@ export type KeyIntent = {
   /** Swallow the browser's own use of the key. */
   prevent: boolean;
   /** A menu-level command that answers whatever state the run is in. */
-  command: 'pause' | 'mute' | 'fullscreen' | null;
+  command: 'pause' | 'mute' | 'fullscreen' | 'map' | null;
   /** Record the key as held. */
   hold: boolean;
-  /** Striking or dodging from the keyboard is a claim on where the knight points; walking is not. */
+  /** Striking from the keyboard is a claim on where the knight points; walking and dodging are not. */
   claimAim: boolean;
   /** Gameplay presses, in the order they are answered. */
-  press: ('attack' | 'dash' | 'swap')[];
+  press: ('attack' | 'special' | 'dash' | 'swap')[];
 };
 
 /**
  * Decodes a keydown. Escape answers whatever else it is set to: it is the one key no rebind can take
  * away, so a player cannot shut themselves out of the menu that would let them undo the rebind. A key
- * the browser acts on is swallowed only while it is bound to something and the run is live.
+ * the browser acts on is swallowed only while it is bound to something and the run is live. The map key
+ * answers only while the run is live or the map is already up (`mapShown`), so a map key pressed on a menu
+ * card is left to do whatever it does there - Tab keeps moving focus.
  */
-export const readKey = (code: string, repeat: boolean, binds: Binds, live: boolean): KeyIntent => {
+export const readKey = (code: string, repeat: boolean, binds: Binds, live: boolean, mapShown = false): KeyIntent => {
   const does = (action: Action) => binds[action].includes(code);
   const intent: KeyIntent = { prevent: live && SCROLL_KEYS.has(code) && ACTIONS.some(does), command: null, hold: false, claimAim: false, press: [] };
   if (!repeat && (code === RESERVED || does('pause'))) { intent.command = 'pause'; return intent; }
   if (!repeat && does('mute')) { intent.command = 'mute'; return intent; }
   if (!repeat && does('fullscreen')) { intent.command = 'fullscreen'; return intent; }
+  // A map key that toggles the map is spent on it both ways: the Tab that closes it must not also move focus.
+  if (!repeat && does('map') && (live || mapShown)) { intent.command = 'map'; intent.prevent = true; return intent; }
   if (!live) return intent;
   intent.hold = true;
   if (repeat) return intent;
-  intent.claimAim = does('attack') || does('dash');
+  // The dodge does not claim the aim (plan 016): it is on Space, under a mouse player's thumb, and a dodge
+  // that handed the aim to the keys would point every swing after it away from the cursor.
+  intent.claimAim = does('attack') || does('special');
   if (does('attack')) intent.press.push('attack');
+  if (does('special')) intent.press.push('special');
   if (does('dash')) intent.press.push('dash');
   if (does('swap')) intent.press.push('swap');
   return intent;
@@ -98,6 +121,7 @@ export type Command =
   | { kind: 'map' } | { kind: 'pause' } | { kind: 'mute' } | { kind: 'fullscreen' }
   | { kind: 'boon'; id: string } | { kind: 'stick'; stick: Stick | null }
   | { kind: 'attack' } | { kind: 'hold-attack' } | { kind: 'release-attack' } | { kind: 'dash' } | { kind: 'swap' }
+  | { kind: 'special' } | { kind: 'hold-special' } | { kind: 'release-special' }
   | { kind: 'move'; action: string } | { kind: 'stop'; action: string };
 
 /** A seed after a `name:` prefix; junk, or nothing at all, means no seed. */
@@ -116,6 +140,7 @@ export const parseCommand = (detail: string): Command | null => {
   if (detail.startsWith('boon:')) return { kind: 'boon', id: detail.slice(5) };
   if (detail.startsWith('stick:')) { const [x, z] = detail.slice(6).split(',').map(Number); return { kind: 'stick', stick: Number.isFinite(x) && Number.isFinite(z) ? { x, z } : null }; }
   if (detail === 'attack' || detail === 'hold-attack' || detail === 'release-attack' || detail === 'dash' || detail === 'swap') return { kind: detail };
+  if (detail === 'special' || detail === 'hold-special' || detail === 'release-special') return { kind: detail };
   if (detail.startsWith('move:')) return { kind: 'move', action: detail.slice(5) };
   if (detail.startsWith('stop:')) return { kind: 'stop', action: detail.slice(5) };
   return null;
@@ -127,10 +152,6 @@ export const pointerNdc = (clientX: number, clientY: number, rect: { left: numbe
   return { x: ((clientX - rect.left) / rect.width) * 2 - 1, y: 1 - ((clientY - rect.top) / rect.height) * 2 };
 };
 
-// Standard mapping only. A pad the browser cannot name is a pad whose buttons we would be guessing at,
-// and guessing wrong means the dodge button swings.
-export const PAD_BUTTONS: [number, Action][] = [[0, 'attack'], [1, 'dash'], [2, 'swap'], [9, 'pause']];
-export const PAD_START = 9;
 export const PAD_DEADZONE = 0.25;
 
 /**

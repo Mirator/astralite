@@ -3,10 +3,11 @@ import test from 'node:test';
 import { DASH_BUFFER, DASH_SPEED, DASH_TIME, WALK_SPEED } from '../app/dungeon-combat.ts';
 import {
   armWith, ATTACK_BUFFER, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers,
-  frameDelta, frameStep, haltControl, MAX_FRAME_STEP, normalise, resetControl, startDash, startSwing, steer, swingReady, swingStep,
+  frameDelta, frameStep, haltControl, MAX_FRAME_STEP, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep,
   tickBuffers, travelHeading, travelSpeed, type PlayerControl,
 } from '../app/dungeon-player.ts';
-import { chainLength, TIDEBLADE, weaponById } from '../app/dungeon-weapon.ts';
+import { playerSpecialPose } from '../app/dungeon-attack-pose.ts';
+import { chainLength, specialSwing, TIDEBLADE, weaponById } from '../app/dungeon-weapon.ts';
 
 // The knight's clocks, driven the way the frame loop drives them: buffers first, a buffered dash ahead
 // of a held swing, the dash clock after the frame has read it, the swing clock last.
@@ -154,6 +155,28 @@ test('the swing step reports its age and whether the blade was live before it', 
   for (let i = 0; i < 60 && p.attackTime > 0; i++) if (swingStep(p, 1 / 60)!.wasLive) live = true;
   assert.equal(live, true);
   assert.equal(p.attackTime, 0);
+});
+
+test('a special runs on the swing clock with its own pose, and is no beat of the string (plan 016)', () => {
+  const p = createPlayerControl();
+  // A strike opens a string; the special after it neither continues nor keeps it warm.
+  startSwing(p, null);
+  while (p.attackTime > 0) swingStep(p, 1 / 60);
+  p.swing = specialSwing(p.weapon, 1); p.swingKind = 'special'; p.attackTime = p.swing.duration;
+  const special = p.weapon.special!;
+  for (let age = 0; age < p.swing.duration; age += 0.02) {
+    assert.equal(swingPose(p, age).active, playerSpecialPose(age, p.swing, special.kind).active, `the special's own contact window at ${age.toFixed(2)}s`);
+  }
+  let live = false, idle = 0;
+  for (let i = 0; i < 120 && p.attackTime > 0; i++) { if (swingStep(p, 1 / 60)!.wasLive) live = true; idle = p.chainIdle; }
+  assert.equal(live, true, 'the special went live on its own window');
+  assert.ok(idle > 0, 'the string kept going cold through the special');
+  // Anything that stops the swing makes it a strike again, so the next strike reads its own pose.
+  p.swingKind = 'special'; p.attackTime = 0.1;
+  assert.equal(startDash(p, { x: 1, z: 0 }, 0.9), true);
+  assert.equal(p.swingKind, 'strike');
+  p.swingKind = 'special'; haltControl(p); assert.equal(p.swingKind, 'strike');
+  p.swingKind = 'special'; armWith(p, weaponById('maul')); assert.equal(p.swingKind, 'strike');
 });
 
 test('reset, halt, a new arm and a dropped buffer each clear exactly their own clocks', () => {

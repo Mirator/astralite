@@ -3,7 +3,7 @@ import test from 'node:test';
 import { canAbortSwing, swordContacts, WALK_SPEED } from '../app/dungeon-combat.ts';
 import { playerAttackPose } from '../app/dungeon-attack-pose.ts';
 import { cellKey } from '../app/dungeon-floor.ts';
-import { beatOf, chainLength, FOUND_WEAPONS, STARTING_WEAPON, TIDEBLADE, WEAPONS, type Weapon, type WeaponId } from '../app/dungeon-weapon.ts';
+import { beatOf, chainLength, devStartingArm, FOUND_WEAPONS, STARTING_WEAPON, TIDEBLADE, WEAPONS, type Weapon, type WeaponId } from '../app/dungeon-weapon.ts';
 
 const openFloor = (half = 8) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
 const cells = openFloor();
@@ -102,4 +102,10 @@ test('a chain overlays the arm rather than replacing it', () => {
       `${id}'s finish is committed for longer, which is what a dash cannot cut`);
     assert.ok(last.moveSpeed <= first.moveSpeed, `${id} is rooted harder on its finish`);
   }
+});
+
+test('a dev `?arm=` names the arm a descent starts with, and anything else names none', () => {
+  assert.equal(devStartingArm('?arm=maul'), 'maul');
+  assert.equal(devStartingArm('?boot=eager&arm=spear'), 'spear');
+  for (const search of ['', '?arm=', '?arm=Maul', '?arm=toString', '?arm=__proto__', '?other=maul']) assert.equal(devStartingArm(search), null, search);
 });

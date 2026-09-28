@@ -151,6 +151,26 @@ const ARC_SPAN = 3.05;
  * and it belongs beside the arc that reads it rather than in the frame loop.
  */
 const CAMERA_AWAY = Math.atan2(-9.2, 11.5);
+/**
+ * Plan 016: the Tolling Slam's shockwave. One band on the floor that leaves the
+ * knight and stops at the slam's own radius, so the ring says what was hit; a
+ * pool of light under him on the bloom's short clock is the flash. It lives about
+ * as long as a blow's shockwave, a little longer because it travels four times as
+ * far, and eases out so most of the distance is covered in the first few frames.
+ * The band peaks at SHOCK_EDGE of the disc and its feather stays inside the 28-gon's
+ * inscribed circle, so the geometry's corners never show.
+ */
+const SHOCK_LIFE = .32, SHOCK_FLASH = .12, SHOCK_EDGE = .92, SHOCK_PEAK = .7;
+/**
+ * Plan 016 Stage C: the Whirl's cut line uses the same band on the same mesh (a
+ * cleaver and a maul are never held at once), but says something else: a thin
+ * pale ring that is already at the reach on the contact frame and closes the last
+ * few hundredths onto it, with no pool of light under the knight. The slam is a
+ * wave leaving him; this is the edge of what the blade went round.
+ */
+const SLAM_COLOUR = 0xffe2a4, WHIRL_COLOUR = 0xd6ecff, WHIRL_FROM = .965, WHIRL_WIDTH = .03;
+/** The Vault's landing mark: the same cut line, in the backstab's mint, at the knives' reach round where he came down. */
+const LANDING_COLOUR = 0xbff7e6;
 
 export function impactEffects(capacity = 12) {
   const group = new THREE.Group();
@@ -179,14 +199,22 @@ export function impactEffects(capacity = 12) {
     mesh.rotation.x = -Math.PI / 2; mesh.visible = false; mesh.renderOrder = 3; group.add(mesh);
     return { mesh, sweep, away, age: 1, span: 1 };
   });
+  // One, not a pool: a slam is on a six-second cooldown, so a second never overlaps the first.
+  const shockMaterial = new THREE.MeshBasicMaterial({ color: 0xffe2a4, transparent: true, opacity: 1, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  const shock = { mesh: new THREE.Mesh(ringGeometry, shockMaterial), glow: litDisc(shockMaterial, 'slam-shock-v1', 1.4), age: SHOCK_LIFE, radius: 0, reduced: false, from: .12, width: [.16, .05], pool: .32 };
+  shock.mesh.rotation.x = -Math.PI / 2; shock.mesh.visible = false; shock.mesh.renderOrder = 2; group.add(shock.mesh);
+  const clearShock = () => { shock.age = SHOCK_LIFE; shock.radius = 0; shock.reduced = false; shock.mesh.visible = false; };
   let cursor = 0, arcCursor = 0;
   const clear = () => {
     slots.forEach(slot => { slot.age = 1; slot.flash.visible = slot.ring.visible = false; });
     arcs.forEach(arc => { arc.age = 1; arc.mesh.visible = false; });
+    clearShock();
   };
   return {
-    group, clear,
+    group, clear, clearShock,
     get active() { return slots.filter(slot => slot.age < HIT_LIFE).length; },
+    /** The slam's shockwave, for the snapshot: whether it is up, how far it will reach, and how far it has. */
+    get shock() { const on = shock.age < SHOCK_LIFE; return { active: on, radius: on ? shock.radius : 0, edge: on ? shock.glow.edge.value * shock.mesh.scale.x : 0 }; },
     /**
      * The brightest accent alive this frame, for whatever light the scene is
      * willing to lend the blow. Null when nothing is lit: the caller must not
@@ -200,6 +228,9 @@ export function impactEffects(capacity = 12) {
         if (glow <= bright) continue;
         bright = glow; best = slot;
       }
+      // The slam bids on the same terms as a heavy blow, on its own short flash clock.
+      const slam = shock.age < SHOCK_FLASH ? 1 - shock.age / SHOCK_FLASH : 0;
+      if (slam > bright) return { at: shock.mesh.position, glow: slam, heavy: true, colour: shock.mesh.material.color.getHex() };
       return best ? { at: best.ring.position, glow: bright, heavy: best.heavy, colour: best.flash.material.color.getHex() } : null;
     },
     /**
@@ -223,6 +254,34 @@ export function impactEffects(capacity = 12) {
       slot.sweep.value = 0;
       slot.mesh.material.opacity = ARC_PEAK; slot.mesh.visible = true;
     },
+    /**
+     * The slam: a band from the knight's feet out to `radius`, the reach the blow
+     * was actually tested at. Under reduced motion the band does not travel: it
+     * appears at the radius and fades where it is, the way the hurt tint holds
+     * still rather than pulsing.
+     */
+    slam(at: { x: number; z: number }, radius: number, reduced = false) {
+      shock.age = 0; shock.radius = radius; shock.reduced = reduced;
+      shock.from = .12; shock.width = [.16, .05]; shock.pool = reduced ? .18 : .32; shockMaterial.color.setHex(SLAM_COLOUR);
+      shock.mesh.position.set(at.x, .05, at.z); shock.mesh.scale.setScalar(radius / SHOCK_EDGE);
+      shock.glow.edge.value = reduced ? SHOCK_EDGE : .12; shock.glow.width.value = reduced ? .05 : .16;
+      shock.glow.band.value = SHOCK_PEAK; shock.glow.pool.value = reduced ? .18 : .32;
+      shock.mesh.visible = true;
+    },
+    /** The Whirl's ring at `radius`, the reach it was tested at. Reduced motion holds it still at the radius. */
+    whirl(at: { x: number; z: number }, radius: number, reduced = false, colour = WHIRL_COLOUR) {
+      shock.age = 0; shock.radius = radius; shock.reduced = reduced;
+      shock.from = WHIRL_FROM; shock.width = [WHIRL_WIDTH, WHIRL_WIDTH]; shock.pool = 0; shockMaterial.color.setHex(colour);
+      shock.mesh.position.set(at.x, .05, at.z); shock.mesh.scale.setScalar(radius / SHOCK_EDGE);
+      shock.glow.edge.value = reduced ? SHOCK_EDGE : WHIRL_FROM; shock.glow.width.value = WHIRL_WIDTH;
+      shock.glow.band.value = SHOCK_PEAK; shock.glow.pool.value = 0;
+      shock.mesh.visible = true;
+    },
+    /**
+     * The Vault coming down: the Whirl's cut line in mint, round the landing, at the reach the backstab was
+     * scored at. The Fangs never share a hand with the cleaver or the maul, so the one mesh is free.
+     */
+    land(at: { x: number; z: number }, radius: number, reduced = false) { this.whirl(at, radius, reduced, LANDING_COLOUR); },
     emit(at: { x: number; y: number; z: number }, color = 0xffedbb, heavy = false) {
       const slot = slots[cursor++ % slots.length]; slot.age = 0; slot.heavy = heavy;
       // .55 rather than .85: the blade lands on the chest, and a bloom centred a
@@ -286,11 +345,21 @@ export function impactEffects(capacity = 12) {
         slot.sweep.value = t;
         slot.mesh.material.opacity = ARC_PEAK * (1 - t) ** 2.2;
       }
+      if (shock.age < SHOCK_LIFE) {
+        shock.age += step;
+        const t = Math.min(1, shock.age / SHOCK_LIFE), flash = Math.max(0, 1 - shock.age / SHOCK_FLASH);
+        shock.mesh.visible = t < 1;
+        // Out fast, then slowing: a cubic ease puts four fifths of the distance in the first third.
+        if (!shock.reduced) { shock.glow.edge.value = shock.from + (SHOCK_EDGE - shock.from) * (1 - (1 - t) ** 3); shock.glow.width.value = shock.width[0] + (shock.width[1] - shock.width[0]) * t; }
+        shock.glow.band.value = SHOCK_PEAK * (1 - t) ** 1.6;
+        shock.glow.pool.value = shock.pool * flash ** 1.7;
+        if (t >= 1) clearShock();
+      }
     },
     dispose() {
       flashGeometry.dispose(); ringGeometry.dispose(); arcGeometry.dispose();
       slots.forEach(slot => { slot.flash.material.dispose(); slot.ring.material.dispose(); });
-      arcs.forEach(arc => arc.mesh.material.dispose());
+      arcs.forEach(arc => arc.mesh.material.dispose()); shockMaterial.dispose();
     },
   };
 }

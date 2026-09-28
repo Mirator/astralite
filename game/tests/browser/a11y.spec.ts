@@ -1,9 +1,9 @@
-import { expect, test } from './helpers.ts';
+import { expect, press, test } from './helpers.ts';
 
 /**
  * Every full-screen card is a dialog: it names itself, takes focus the moment it opens, and keeps the
  * controls behind it out of reach. Focus lands on the card rather than a button so the strike key,
- * Space, cannot press RESUME or DESCEND by accident.
+ * Space (the dodge since plan 016), cannot press RESUME or DESCEND by accident.
  */
 test('cards are dialogs that take focus, and the background stays out of reach while one is open', async ({
   game,
@@ -25,8 +25,9 @@ test('cards are dialogs that take focus, and the background stays out of reach w
   await expect(pause).toBeFocused();
   await expect(page.getByRole('button', { name: 'Pause game' })).toBeDisabled();
 
-  // Space on the focused card is not a click: the strike key cannot resume the game by accident.
-  await page.keyboard.press('Space');
+  // The dash key on the focused card is not a click: Space, the dodge a player is most likely to be
+  // mashing when a card opens, cannot resume the game by accident.
+  await press(page, 'dash');
   await game.step(16);
   expect((await game.state()).mode).toBe('paused');
 

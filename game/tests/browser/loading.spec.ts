@@ -1,3 +1,4 @@
+import { VEIL_STAGES, veilProgress } from '../../app/dungeon-veil.ts';
 import { DEFAULT_SEEDS, expect, type GameWindow, pinSeeds, test, WARM_UP } from './helpers.ts';
 
 // A boot is the thing under test here, so a page that is already booted has nothing to show. Every
@@ -371,4 +372,43 @@ test.describe('with a keep remembered from a previous visit', () => {
     );
     expect(index, 'a build drew from the pinned seed queue before LAST KEEP\'s own').toBe(0);
   });
+});
+
+/**
+ * The veil's bar is measured work, not a stage count: texture bands finished and shader programs linked,
+ * weighted by how long each stage takes (`dungeon-veil.ts`). While a stage's name is up the bar is inside
+ * that stage's share, it never runs backwards though the program list grows under it, and it is all but
+ * full by the time the veil lifts. There is no "N / 5" any more: five stages of very unequal length made
+ * a count that read 4 / 5 over a bar a little past half.
+ */
+test('the loading bar follows measured work, never runs backwards and ends full', async ({ page }) => {
+  await page.goto('/');
+  const enter = page.locator('.intro-screen .primary-action');
+  await expect(enter).toBeEnabled();
+  await enter.click();
+  await expect(page.locator('.loading-veil')).toBeVisible();
+  const samples = await page.evaluate(() => new Promise<{ stage: string; progress: number }[]>((done) => {
+    const out: { stage: string; progress: number }[] = [];
+    const sample = () => {
+      const fill = document.querySelector<HTMLElement>('.loading-veil .veil-bar i');
+      if (!fill) { done(out); return; }
+      out.push({ stage: document.querySelector('.loading-veil .veil-stage')?.textContent ?? '', progress: Number(fill.dataset.progress ?? 0) });
+      requestAnimationFrame(sample);
+    };
+    sample();
+  }), undefined);
+  expect(samples.length, 'the veil was sampled while it was up').toBeGreaterThan(0);
+  let last = 0;
+  for (const { stage, progress } of samples) {
+    expect(stage, 'the stage line carries no count').not.toMatch(/\d\s*\/\s*\d/);
+    const index = VEIL_STAGES.indexOf(stage as (typeof VEIL_STAGES)[number]);
+    expect(index, `"${stage}" is a stage`).toBeGreaterThanOrEqual(0);
+    // The last stage's name stays up once the build is done, so its ceiling is the full bar.
+    const ceiling = index === VEIL_STAGES.length - 1 ? 1 : veilProgress(index + 1);
+    expect(progress, `bar during "${stage}"`).toBeGreaterThanOrEqual(veilProgress(index) - 1e-3);
+    expect(progress, `bar during "${stage}"`).toBeLessThanOrEqual(ceiling + 1e-3);
+    expect(progress, 'the bar never runs backwards').toBeGreaterThanOrEqual(last);
+    last = progress;
+  }
+  expect(last, 'the bar is all but full when the veil lifts').toBeGreaterThanOrEqual(veilProgress(4));
 });

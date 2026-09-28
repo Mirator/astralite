@@ -4,6 +4,8 @@ import {
   strikeStance,
   test,
   TILE,
+  hold,
+  release,
   type Floor,
   type Point,
   type Snapshot,
@@ -16,7 +18,7 @@ const rankCost = (rank: number) => 200 + (rank - 1) * 150;
 const stairEnemies = (state: Snapshot) =>
   state.enemies.filter((enemy) => enemy.room === state.floor.goal);
 
-/** One real swing: arrow key to aim, Space to strike, then let it resolve. */
+/** One real swing: arrow key to aim, the strike key to strike, then let it resolve. */
 const strikeOnce = async (
   game: Game,
   page: Page,
@@ -40,9 +42,9 @@ const strikeOnce = async (
   await game.teleport(stance.x, stance.z);
   await game.step(16);
   await page.keyboard.down(stance.key);
-  await page.keyboard.down('Space');
+  await hold(page, 'attack');
   await page.keyboard.up(stance.key);
-  await page.keyboard.up('Space');
+  await release(page, 'attack');
   await game.step(240);
 };
 
@@ -164,9 +166,9 @@ test('killing the last warden ends a floor, freezes it, and waits for a real Con
 
     // Frozen: input and time both do nothing until the button is pressed.
     const frozen = world(cleared);
-    await page.keyboard.down('Space');
+    await hold(page, 'attack');
     await game.step(5000);
-    await page.keyboard.up('Space');
+    await release(page, 'attack');
     expect(world(await game.state())).toBe(frozen);
     expect((await game.state()).mode).toBe('complete');
     await game.capture(`floor-${level}-complete`);

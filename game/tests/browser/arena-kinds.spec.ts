@@ -1,4 +1,4 @@
-import { expect, laneSpot, strikeStance, test, TILE, type Game } from './helpers.ts';
+import { expect, laneSpot, press, strikeStance, test, TILE, type Game } from './helpers.ts';
 import type { Page } from '@playwright/test';
 
 // The arena-only kinds (app/dungeon-bestiary.ts). Each rule is held in node - the shield in
@@ -15,7 +15,7 @@ const arena = async (game: Game, page: Page, roster: string[]) => {
 /** One tap of the strike key, facing along `key` first so the swing goes where the body is. */
 const strike = async (page: Page, key: string) => {
   await page.keyboard.down(key);
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await page.keyboard.up(key);
 };
 
