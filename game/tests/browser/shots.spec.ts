@@ -6,13 +6,14 @@ import {
   expect,
   Game,
   openSpot,
-  type Point,
   roomCentre,
   SCREEN_DIRECTIONS,
   speedOf,
   strikeStance,
   test,
   TILE,
+  press,
+  type Point,
 } from './helpers.ts';
 import { type WeaponId } from '../../app/dungeon-weapon.ts';
 
@@ -245,7 +246,7 @@ test.describe('strike', { tag: '@capture' }, () => {
         },
       ],
     });
-    await page.keyboard.press('Space');
+    await press(page, 'attack');
     // 65ms of anticipation, then the blade is live until 175ms into a 380ms
     // swing — plus the 35ms of hit-stop the landed blow buys, which the wall
     // clock pays for and the swing does not.
@@ -416,7 +417,7 @@ test.describe('strike sequence', { tag: '@capture' }, () => {
   // them. Thirty frames no longer reached the knight's guard, which is a strip
   // that ends mid-swing rather than a swing that failed. Frames 00-29 are at the
   // same clock they always were. The swing is triggered through the action event
-  // rather than the Space key: a real keypress races the stepped clock and lands
+  // rather than the strike key: a real keypress races the stepped clock and lands
   // a frame either side of it, which shifts the whole strip. The keyboard path
   // has its own coverage.
   test('every frame of one full strike', async ({ game, page }) => {

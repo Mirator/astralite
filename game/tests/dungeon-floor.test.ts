@@ -8,7 +8,7 @@ type Floor = ReturnType<typeof generateFloor>;
 const SEEDS = Array.from({ length: 40 }, (_, i) => (i + 1) * 7919);
 const floors = (level = 1, seeds = SEEDS) => seeds.map((seed) => generateFloor(seed, level));
 
-// Plan 016: doors only ever lead onward, so the graph is directed - from a chamber to the ones its doors open on.
+// Plan 017: doors only ever lead onward, so the graph is directed - from a chamber to the ones its doors open on.
 const onward = (floor: Floor) => {
   const map = new Map<number, number[]>(floor.rooms.map((room) => [room.id, []]));
   for (const door of floor.doors) map.get(door.from)!.push(door.to);

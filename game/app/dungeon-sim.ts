@@ -21,7 +21,7 @@ export const BOONS: Boon[] = [
 // One more starting-blade's worth of damage, in the quarter-hit grain dungeon-enemy quotes vitality in.
 export const STRIKE_BONUS = 4;
 export const XP_PER_ENEMY = 25;
-// What a cleared chamber pays (plan 016). Every clear tops the knight up; the door he chose decides the
+// What a cleared chamber pays (plan 017). Every clear tops the knight up; the door he chose decides the
 // rest: a purse of experience, or a real heal in place of the top-up. These are the dead end's old 60 XP
 // and 30 vitality, split so each door offers one of them rather than both.
 export const XP_CACHE = 60;
@@ -49,13 +49,16 @@ export type Run = {
   // Seconds of gameplay immunity left. Purely a gate on damage; the hurt filter and the shake are the
   // renderer's business and run on their own timers.
   invuln: number;
+  // Plan 016: seconds until the held arm's special can be used again. The sim owns it rather than the game
+  // loop so the node suite and the balance batch read the same clock the keep does.
+  specialCooldown: number;
 };
 
 export const createRun = (): Run => ({
   hp: 100, maxHp: 100, kills: 0, totalXp: 0,
   rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
   strike: 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
-  invuln: 0, taken: [],
+  invuln: 0, taken: [], specialCooldown: 0,
 });
 
 // Fisher-Yates over a copy. The draft used to be `sort(() => Math.random() - 0.5)`, which is not a shuffle:
@@ -116,7 +119,21 @@ export const hurt = (run: Run, value: number, options: { dashing?: boolean; ward
   return dealt;
 };
 
-export const tickRun = (run: Run, dt: number) => { run.invuln = Math.max(0, run.invuln - amount(dt)); };
+export const tickRun = (run: Run, dt: number) => {
+  run.invuln = Math.max(0, run.invuln - amount(dt));
+  run.specialCooldown = Math.max(0, run.specialCooldown - amount(dt));
+};
+
+// A special's cooldown starts at contact, not on the press, so one cancelled in its anticipation - by a
+// dodge, or a charge let go too early - costs nothing. The caller says when contact came.
+// A cooldown ticked down in frame-sized steps can land a rounding error above zero; that is ready.
+export const specialReady = (run: Run) => run.specialCooldown <= 1e-9;
+export const spendSpecial = (run: Run, cooldown: number) => { run.specialCooldown = Math.max(run.specialCooldown, amount(cooldown)); };
+// Taking up another arm hands over that arm's clock: a fresh one found on a floor arrives ready, and one taken
+// back off the rack where it was set down brings back whatever it had left (`kept`, frozen while it lay
+// there). So a swap is never a way round a cooldown - swap, swap back is the same arm, still cooling - and
+// never a punishment either, since the other arm's special is its own.
+export const resetSpecial = (run: Run, kept = 0) => { run.specialCooldown = amount(kept); };
 
 // Only legal while a draft is open, which is what stops a stray `boon:<id>` event from handing out free
 // upgrades. Returns the boon so the caller can name it; null means nothing was applied.
@@ -158,6 +175,6 @@ export const STAIR_RADIUS = 1.25;
 // decision rather than a place the knight stood too long.
 export const PICKUP_RADIUS = 1.4;
 
-// How close the knight stands to a door's ring to be offered it (plan 016): the stair's own reach, since
+// How close the knight stands to a door's ring to be offered it (plan 017): the stair's own reach, since
 // a door is taken the same way, with the swap key, once the chamber behind him is clear.
 export const DOOR_RADIUS = STAIR_RADIUS;

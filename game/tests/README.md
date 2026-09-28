@@ -27,6 +27,9 @@ modules:
   alongside the generator in `dungeon-floor.test.ts`: sliding, diagonal gaps, tunnelling and body
   radius.
 - **Persistence** (`dungeon-save.ts`), described under Persistence below.
+- **Specials** (`tests/dungeon-special.test.ts`, plan 016): each special's timing, travel, reach and damage, the
+  gate that keeps one off a live strike, the cooldown that starts at contact, and the balance batch's `special`
+  policy.
 - **The knight's clocks** (`dungeon-player.ts`): when a strike buffers and when it fires, how a string
   links, stays open and closes, a dash buffered behind a live blade and what a dash cancels, which way
   the knight turns and travels, hit-stop, and what a reset, a halt, a new arm and a dropped buffer each
@@ -131,8 +134,19 @@ frame), `shake`, `hitStop` and `sound` (`volume`, `muted`, the mixer `target` an
 burned the knight during its current flare.
 
 Start a run from the console with `window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'start' }))`.
-Other useful details: `attack`, `dash`, `pause`, `move:up|down|left|right`, `stop:…`, `stick:<x>,<y>`,
+Other useful details: `attack`, `dash`, `special` (a tap), `hold-special`/`release-special` (the touch button's
+hold, which a charged special needs), `map`, `pause`, `move:up|down|left|right`, `stop:…`, `stick:<x>,<y>`,
 `stick:off`, `boon:<id>`, `restart`, `restart:<seed>`.
+
+`render_game_to_text().player.special` is the held arm's special (plan 016), or null for an arm without one:
+`{ id, ready, cooldown, charging, charge, held, live, buffered, harpoon, bare, vault }` - `cooldown` is the sim's own
+`run.specialCooldown`, `charge` is 0..1 past the charge minimum, `harpoon` is the thrown spear (`out` or `back`)
+and `bare` says the strike is bare-handed meanwhile. `vault` is the Vault in progress (`target` as an index into
+`enemies`, or null for a plain hop; its path `distance`; `landed`). `ready` for the Heavy Bolt is the quiver,
+not a cooldown; for the Flashpoint it is the cooldown alone, and a press with `weapon.fires` at 0 is refused.
+`weapon.special` carries the arm's numbers and `weapon.pools` where the fires are. `effects.shock` is the Slam's
+shockwave, the Whirl's ring or the Vault's landing mark; `effects.lane` the Heavy Bolt's line on the floor
+(`{ length, opacity }` or null) and `effects.flares` the detonated pools still flaring.
 
 `stick:<x>,<y>` is the touch thumbstick's analog path: a screen-space direction (`x` right, `y` down) on the
 same basis the four `move:` directions build, so `stick:0.707,-0.707` is up-and-right and `stick:0,0` is a
@@ -212,15 +226,18 @@ Reduced means **no camera shake at all** and a **still** hurt tint (`sepia(.3) s
 same duration, with the brightness ramp dropped); hit-stop is deliberately untouched, because 35ms of
 stillness is not motion and shortening it would hand every landed blow back to the enemies sooner.
 
-Bindings map nine actions (`up`/`down`/`left`/`right`/`attack`/`dash`/`pause`/`mute`/`fullscreen`) to
-`KeyboardEvent.code` lists. Binding a code takes it from whatever held it; if that would leave the other
+Bindings map twelve actions (`up`/`down`/`left`/`right`/`attack`/`special`/`dash`/`swap`/`map`/`pause`/`mute`/
+`fullscreen`) to lists of `KeyboardEvent.code`s and mouse codes (`Mouse0` left, `Mouse1` middle, `Mouse2` right;
+plan 016). A new code replaces the action's codes on the same device only, so moving Strike from J to X leaves it on
+the left button. Binding a code takes it from whatever held it; if that would leave the other
 action with no key at all the two trade instead. `Escape` belongs to pause and can never be bound to
 anything else, and the game answers `Escape` with a pause whether or not it is bound — so no rebind can
 shut a player out of the menu that would undo it. The `preventDefault` list follows the bindings: a
 browser key (space, arrows, page keys) is swallowed only while something is bound to it.
 
 `Touch<action>` slots in the held-key set belong to the touch controls alone and are never part of a
-binding, so `move:`/`stop:`/`hold-attack` steer identically whatever the keyboard has been set to.
+binding, so `move:`/`stop:`/`hold-attack`/`hold-special` steer identically whatever the keyboard has been set to.
+A pad holds one `Pad<button index>` slot per button, so B and RB (both dodge) never release each other.
 
 ### Recipes
 
@@ -284,6 +301,52 @@ await new Promise(done => {
 });
 d.sort((a, b) => a - b); d[Math.floor(d.length / 2)]; // median, capped by the display refresh
 ```
+
+## Playing it by hand
+
+Nothing automated can say whether a control feels right on a real mouse or pad. From `game/`, start
+the dev server (stop any browser run first, it wants the same port):
+
+```bash
+npm run dev -- --hostname 127.0.0.1 --port 3000
+```
+
+Then open one of these in Chrome and press ENTER. `?arm=` is dev-only and ignored by a production
+build; every descent, including NEW DESCENT and SAME KEEP, starts holding that arm. A missing or unknown
+id means the Tideblade.
+
+| Arm | Special | URL |
+| --- | --- | --- |
+| Tideblade | Undertow Lunge | <http://127.0.0.1:3000/?arm=tideblade> |
+| Salt Spear | Harpoon | <http://127.0.0.1:3000/?arm=spear> |
+| Bell Maul | Tolling Slam (hold, release) | <http://127.0.0.1:3000/?arm=maul> |
+| Twin Fangs | Vault | <http://127.0.0.1:3000/?arm=fangs> |
+| Warden's Cleaver | Whirl | <http://127.0.0.1:3000/?arm=cleaver> |
+| Keep Crossbow | Heavy Bolt (hold to draw, release) | <http://127.0.0.1:3000/?arm=crossbow> |
+| Tideflask | Flashpoint (needs a pool burning) | <http://127.0.0.1:3000/?arm=flask> |
+
+The console hooks cover the rest: `dungeonTest.equip('maul')` swaps mid-run, `dungeonTest.descend()`
+skips a floor, `dungeonTest.grantXp(500)` opens a boon draft. A settings blob from before plan 016
+keeps Space on strike; reset the binds on the settings card, or run
+`localStorage.removeItem('drowned-keep:settings')` and reload.
+
+What to check for plan 016:
+
+- **Mouse and keyboard:** LMB strikes (held keeps striking), RMB is the special, Space and Shift
+  dodge. A dodge with the cursor parked to one side keeps the next strike aimed at the cursor. `Tab`
+  opens and closes the map; in the menus it still moves focus.
+- **Keyboard only:** `J` strike, `K` special, `L` dodge; aim snaps onto the body in front.
+- **Pad:** A strike, X special, B or RB dodge (hold A and tap RB), Y takes an arm or the open stair,
+  View opens the map, Start pauses.
+- **The stair:** once its wardens fall, standing on it only shows the prompt; the swap binding (`E`,
+  pad Y, or a tap on the prompt) takes it down. Standing there does nothing on its own.
+- **Each special:** it reads as a distinct move, its HUD icon sweeps back after the cooldown, and a
+  dodge in its wind-up cancels it at no cost. The Slam's ring shows the reach while charging and the
+  shock ring on impact. The Vault goes over the body in the aim and lands behind it inside a mint ring;
+  the Whirl leaves a pale ring at its reach; the Heavy Bolt draws a faint line along the aim, fires only
+  at a full draw, empties the quiver and cannot draw dry; the Flashpoint does nothing until a pool is
+  burning, then turns every pool white and ends it.
+- **Touch (optional):** the phone viewport in Chrome's device toolbar shows STRIKE, DASH and SPECIAL.
 
 ## Before and after, on one sheet
 

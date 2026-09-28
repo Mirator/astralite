@@ -1,4 +1,4 @@
-import { expect, test } from './helpers.ts';
+import { expect, press, test } from './helpers.ts';
 
 // The pickup is the only way an arm other than the Tideblade ever reaches the knight's hand, so what this
 // covers is the swap itself: that the rack only ever offers, that the swap key is what takes it, that what
@@ -45,7 +45,7 @@ test('standing on a rack offers the arm and takes nothing; the swap key is what 
 
   // The swing runs on the new arm, read off a real swing rather than the weapon table.
   expect(armed.weapon.duration, 'the fixture needs an arm that swings at a different speed').not.toBe(opening.weapon.duration);
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(16);
   const swinging = await game.state();
   expect(swinging.player.chain.duration, 'the swing ran on the old arm').toBe(armed.weapon.duration);

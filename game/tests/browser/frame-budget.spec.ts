@@ -81,7 +81,7 @@ import {
 // binding constraint on how many separate parts a figure may be drawn as. This
 // is headroom for the characters, not a target for the architecture.
 const BUDGET = {
-  // Plan 016, measured 2026-09-28 on SwiftShader on the re-staged scenes: flooded hall (seed 0x3) 395 /
+  // Plan 017, measured 2026-09-28 on SwiftShader on the re-staged scenes: flooded hall (seed 0x3) 395 /
   // 282,841, widest chamber (seed 0x6 court) 272 / 265,703, strike contact 271 / 205,308. Strike contact is
   // the one scene staged the same way as before, and its calls fell from 347 (2026-09-26) to 271: nothing of a
   // neighbouring room is in frame any more. The other two are new scenes and compare with nothing; the
@@ -150,7 +150,7 @@ test.describe('the busiest fight', () => {
   });
 });
 
-// Plan 016: the junction this scene was, a trunk room with three corridors out of it and its neighbours'
+// Plan 017: the junction this scene was, a trunk room with three corridors out of it and its neighbours'
 // walls in frame, no longer exists - chambers are islands and nothing else is ever in view. Its successor
 // is the largest footprint the generator lays, a full-size court, framed from its heart.
 test.describe('the widest room', () => {

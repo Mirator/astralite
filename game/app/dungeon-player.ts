@@ -9,7 +9,7 @@
 // order the closure had.
 
 import { canAbortSwing, DASH_BUFFER, DASH_TIME, playerSpeed } from './dungeon-combat.ts';
-import { playerAttackPose } from './dungeon-attack-pose.ts';
+import { playerAttackPose, playerSpecialPose } from './dungeon-attack-pose.ts';
 import { beatOf, chainLength, TIDEBLADE, type Weapon } from './dungeon-weapon.ts';
 
 /**
@@ -23,6 +23,12 @@ export type PlayerControl = {
   weapon: Weapon;
   /** What the live swing is resolved against: the arm itself on beat 0, an overlay on it after that. */
   swing: Weapon;
+  /**
+   * Plan 016: which verb the live swing is. A special runs on the strike's own clock - `attackTime` and
+   * `swing` - so everything that already gates on a live swing (the dash's commitment, the move speed,
+   * one hit per body) gates on it too. Anything that stops the swing makes it a strike again.
+   */
+  swingKind: 'strike' | 'special';
   attackTime: number;
   dashTime: number;
   dashCooldown: number;
@@ -65,7 +71,7 @@ export const normalise = (v: Heading) => {
 
 export const createPlayerControl = (headings?: { facing: Heading; attackFacing: Heading; dashFacing: Heading }): PlayerControl => {
   const p: PlayerControl = {
-    weapon: TIDEBLADE, swing: TIDEBLADE,
+    weapon: TIDEBLADE, swing: TIDEBLADE, swingKind: 'strike',
     attackTime: 0, dashTime: 0, dashCooldown: 0, attackBuffer: 0, dashBuffer: 0, hitStop: 0,
     chainBeat: 0, chainIdle: Infinity,
     facing: headings?.facing ?? { x: 0, z: 0 },
@@ -85,14 +91,14 @@ export const faceStart = (p: PlayerControl) => {
 
 /** A new run: every clock stopped, nothing buffered, and the string closed on the arm in hand. */
 export const resetControl = (p: PlayerControl) => {
-  p.attackTime = 0; p.dashTime = 0; p.dashCooldown = 0; p.attackBuffer = 0; p.dashBuffer = 0; p.hitStop = 0;
+  p.attackTime = 0; p.swingKind = 'strike'; p.dashTime = 0; p.dashCooldown = 0; p.attackBuffer = 0; p.dashBuffer = 0; p.hitStop = 0;
   closeChain(p);
   p.bufferedFacing = null;
 };
 
 /** The knight on his mark on a new floor: swing and dash stopped, buffers dropped, cooldown kept. */
 export const haltControl = (p: PlayerControl) => {
-  p.attackTime = 0; p.dashTime = 0; p.attackBuffer = 0; p.dashBuffer = 0;
+  p.attackTime = 0; p.swingKind = 'strike'; p.dashTime = 0; p.attackBuffer = 0; p.dashBuffer = 0;
   closeChain(p);
 };
 
@@ -112,7 +118,7 @@ export const closeChain = (p: PlayerControl) => {
  */
 export const armWith = (p: PlayerControl, weapon: Weapon) => {
   p.weapon = weapon;
-  p.attackTime = 0;
+  p.attackTime = 0; p.swingKind = 'strike';
   closeChain(p);
 };
 
@@ -153,7 +159,7 @@ export const startSwing = (p: PlayerControl, aim: Heading | null) => {
   const linking = p.chainIdle <= (p.weapon.chain?.window ?? 0) && p.chainBeat + 1 < chainLength(p.weapon);
   p.chainBeat = linking ? p.chainBeat + 1 : 0;
   p.chainIdle = 0;
-  p.swing = beatOf(p.weapon, p.chainBeat);
+  p.swing = beatOf(p.weapon, p.chainBeat); p.swingKind = 'strike';
   p.attackTime = p.swing.duration; p.attackBuffer = 0;
   if (aim) { p.facing.x = aim.x; p.facing.z = aim.z; }
   else if (p.bufferedFacing) copy(p.facing, p.bufferedFacing);
@@ -178,7 +184,7 @@ export const startDash = (p: PlayerControl, input: Heading, dashSpan: number) =>
   copy(p.dashFacing, lengthSq(input) ? input : p.facing);
   copy(p.facing, p.dashFacing); p.dashTime = DASH_TIME; p.dashCooldown = dashSpan;
   closeChain(p);
-  p.attackTime = 0; p.attackBuffer = 0; p.dashBuffer = 0; p.bufferedFacing = null; p.hitStop = 0;
+  p.attackTime = 0; p.swingKind = 'strike'; p.attackBuffer = 0; p.dashBuffer = 0; p.bufferedFacing = null; p.hitStop = 0;
   return true;
 };
 
@@ -216,15 +222,20 @@ export const travelHeading = (p: PlayerControl, input: Heading) => p.dashTime > 
 /** The dash's own clock, run down after the frame has read whether it is still going. */
 export const dashStep = (p: PlayerControl, dt: number) => { p.dashTime = Math.max(0, p.dashTime - dt); };
 
+/** The pose the live swing is in at `age`: a strike's curve on its beat, or (plan 016) a special's own tracks. */
+export const swingPose = (p: PlayerControl, age: number) => p.swingKind === 'special' && p.weapon.special
+  ? playerSpecialPose(age, p.swing, p.weapon.special.kind) : playerAttackPose(age, p.swing, p.chainBeat);
+
 /**
  * The swing's clock. Returns null between swings; during one, how far into the swing it now is and
  * whether the blade was already live before this step - the frame a ranged arm looses on is the one
- * where it goes live.
+ * where it goes live. A special is not a beat of the string (plan 016): the strike after one opens a new
+ * string, so only a strike keeps the string warm.
  */
 export const swingStep = (p: PlayerControl, dt: number): { age: number; wasLive: boolean } | null => {
-  p.chainIdle = p.attackTime > 0 ? 0 : p.chainIdle + dt;
+  p.chainIdle = p.attackTime > 0 && p.swingKind === 'strike' ? 0 : p.chainIdle + dt;
   if (p.attackTime <= 0) return null;
-  const wasLive = playerAttackPose(p.swing.duration - p.attackTime, p.swing, p.chainBeat).active;
+  const wasLive = swingPose(p, p.swing.duration - p.attackTime).active;
   p.attackTime = Math.max(0, p.attackTime - dt);
   return { age: p.swing.duration - p.attackTime, wasLive };
 };

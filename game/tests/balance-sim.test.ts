@@ -30,6 +30,16 @@ test('the boon draft is independent of how often the knight dodges', () => {
   assert.deepEqual(bold.boons, timid.boons);
 });
 
+test('fight duration is measured per room fought, inside the floor it was fought on', () => {
+  // Plan 016's yardstick for a special. Every cleared floor with kills fought at least one room, and no
+  // fight can outlast its floor or number more than the rooms the floor holds.
+  const run = simulateRun(0x1, policy());
+  for (const floor of run.floors) {
+    if (floor.kills) assert.ok(floor.fights.length > 0, `floor ${floor.level} killed ${floor.kills} and recorded no fight`);
+    for (const seconds of floor.fights) assert.ok(seconds >= 0 && seconds <= floor.seconds, `fight of ${seconds}s on a ${floor.seconds}s floor`);
+  }
+});
+
 test('the harness flies archers\' bolts and bills what lands to the archer, from floor two on', () => {
   // A knight that never dodges, so a bolt that is loosed and flies true has nothing between it and him.
   const runs = [1, 2, 3, 4].map(seed => simulateRun(seed * 7919, policy({ dodge: 0 })));

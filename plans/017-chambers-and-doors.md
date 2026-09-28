@@ -1,4 +1,4 @@
-# Plan 016: Chambers and doors — a floor as a chain of sealed rooms
+# Plan 017: Chambers and doors — a floor as a chain of sealed rooms
 
 > Executor: read this entire file before editing. It is self-contained and does
 > not need the conversation that produced it. Implement only this plan.

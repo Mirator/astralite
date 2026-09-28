@@ -1,5 +1,5 @@
 import { chainLength, TIDEBLADE } from '../../app/dungeon-weapon.ts';
-import { expect, test } from './helpers.ts';
+import { expect, test, hold, release } from './helpers.ts';
 
 // Holding the strike key used to restart an identical swing forever, which made holding it strictly
 // optimal and left the input with no rhythm at all. The two light melee arms now swing a string: two
@@ -13,7 +13,7 @@ test('a held strike walks the string and loops it', async ({ game, page }) => {
   await game.step(120);
   expect((await game.state()).player.chain.beats, 'the sword swings three').toBe(chainLength(TIDEBLADE));
 
-  await page.keyboard.down('Space');
+  await hold(page, 'attack');
   // The order beats came up in, not just which: beat 0 is where a string opens anyway, so only a return
   // to it after the finish shows the string looping rather than stalling on its last beat.
   const order: number[] = [];
@@ -22,6 +22,6 @@ test('a held strike walks the string and loops it', async ({ game, page }) => {
     const state = await game.state();
     if (state.player.attackTime > 0 && order[order.length - 1] !== state.player.chain.beat) order.push(state.player.chain.beat);
   }
-  await page.keyboard.up('Space');
+  await release(page, 'attack');
   expect(order, 'a held key walks every beat of the string and opens it again').toEqual([0, 1, 2, 0]);
 });

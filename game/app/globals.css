@@ -24,7 +24,7 @@ button, kbd { font: inherit; }
 .world-ready .game-canvas { opacity: 1; }
 :root[data-motion="reduce"] .game-canvas { transition: none; }
 .game-canvas canvas { display: block; width: 100%; height: 100%; }
-/* Plan 016: the fade a door is taken behind, over the world and under every piece of chrome. */
+/* Plan 017: the fade a door is taken behind, over the world and under every piece of chrome. */
 .chamber-fade { position: absolute; inset: 0; background: #04070a; opacity: 0; pointer-events: none; }
 /* Plan 015 Stage A.3: stands in for the live keep on the pre-start menu, between the canvas (which has
    nothing to show yet) and `.intro-screen`'s own translucent gradient (z-index 8), which is drawn on
@@ -91,6 +91,12 @@ button, kbd { font: inherit; }
 .ability-glyph { transform: rotate(-45deg); color: var(--goal); font-size: 14px; line-height: 1; }
 .dash-icon .ability-glyph { color: var(--restore); }
 .dash-sweep { position: absolute; inset: 0; background: conic-gradient(var(--restore) calc(var(--ready, 1) * 360deg), transparent 0); opacity: .38; }
+/* Plan 016: the special sits between strike and dash with the dash's sweep. An arm with none leaves an empty,
+   dimmed socket rather than a gap, so the row does not jump when arms are swapped. */
+.special-icon .ability-glyph { color: #f2d59a; }
+.special-sweep { position: absolute; inset: 0; background: conic-gradient(#f2c47b calc(var(--ready, 1) * 360deg), transparent 0); opacity: .38; }
+.special-icon.special-ready { box-shadow: 0 0 0 1px #04090d, inset 1px 1px 0 #cf9c5b66, inset -1px -1px 0 #00000080, inset 0 0 6px #00000090, 0 0 8px #f2c47b88; }
+.ability-empty { opacity: .42; }.ability-empty .special-sweep { display: none; }
 .ability kbd { font-size: 9px; padding: 2px 5px; }
 /* Plan 014 round 8 (lever 5): a keycap engraved into the plate under the diamond, not dev-console
    text - a serif capital face (small-caps reads as carved lettering at this size in a way the UI's
@@ -162,7 +168,7 @@ kbd { margin-right: 6px; padding: 3px 6px; border: 1px solid #7d898755; backgrou
   .touch-pad { position: absolute; bottom: 20px; left: 18px; z-index: 5; display: grid; grid-template: repeat(3, 42px) / repeat(3, 42px); gap: 3px; }
   .touch-pad button { border: 1px solid #d4ded84a; background: #071219bb; color: #e4e8df; touch-action: none; backdrop-filter: blur(5px); }
   .touch-pad .up { grid-area: 1 / 2; }.touch-pad .left { grid-area: 2 / 1; }.touch-pad .down { grid-area: 2 / 2; }.touch-pad .right { grid-area: 2 / 3; }
-  .touch-actions { position: absolute; right: 18px; bottom: 30px; z-index: 5; display: flex; align-items: end; gap: 12px; }.touch-actions button { width: 62px; height: 62px; border: 1px solid #d4ded84a; background: #071219bb; color: #e4e8df; touch-action: none; backdrop-filter: blur(5px); border-radius: 50%; font: 650 10px/1 var(--font-geist-mono); letter-spacing: .08em; }.touch-actions .strike { width: 78px; height: 78px; color: #fff0d8; border-color: #ffba6777; background: #922b20cc; }.start-prompt { bottom: 135px; }
+  .touch-actions { position: absolute; right: 18px; bottom: 30px; z-index: 5; display: flex; align-items: end; gap: 12px; }.touch-actions button { width: 62px; height: 62px; border: 1px solid #d4ded84a; background: #071219bb; color: #e4e8df; touch-action: none; backdrop-filter: blur(5px); border-radius: 50%; font: 650 10px/1 var(--font-geist-mono); letter-spacing: .08em; }.touch-actions .strike { width: 78px; height: 78px; color: #fff0d8; border-color: #ffba6777; background: #922b20cc; }.touch-actions .special { width: 56px; height: 56px; margin-bottom: 46px; color: #ffe2a8; border-color: #f2c47b66; }.touch-actions .special:disabled { opacity: .35; }.start-prompt { bottom: 135px; }
 }
 @media (max-width: 480px) {
   .game-title { gap: 8px; }
@@ -289,6 +295,7 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 .key-binds button { display: grid; gap: 4px; padding: 7px 8px; border: 1px solid #96b1ab33; background: #0d1a1f; color: #9db3af; font: 500 10px/1.2 var(--font-geist-mono); letter-spacing: .06em; text-align: left; cursor: pointer; }
 .key-binds kbd { display: block; margin: 0; padding: 3px 5px; font-size: 10px; color: var(--goal); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .key-binds .capturing { border-color: #f2c47b; }.key-binds .capturing kbd { color: #ffd195; }
+.mouse-capture { display: block; width: 100%; margin-top: 8px; padding: 10px 8px; border: 1px dashed #f2c47b99; background: #1a1409; color: #ffd195; font: 500 10px/1.3 var(--font-geist-mono); letter-spacing: .06em; cursor: crosshair; }
 .bind-note { display: block; margin: 10px 0 0; min-height: 2.4em; color: var(--bone-mute); font-size: 11px; line-height: 1.5; }
 .reset-binds { margin-top: 4px; padding: 7px 12px; border: 1px solid #96b1ab55; background: #102329; color: #dae5df; font-size: 12px; cursor: pointer; }
 .success-screen { background: radial-gradient(ellipse at 50% 40%,#254a43aa,#030c12e8); }.success-screen .end-card { width: min(550px,calc(100% - 32px)); border-color: #bce8c566; }.success-sigil { display: block; color: #a9e9c5; font-size: 48px; margin-bottom: 24px; }.success-screen .end-kicker { color: #b5ddc4; }.floor-results { display: flex; justify-content: space-around; gap: 16px; margin: 30px 0 8px; }.floor-results span { display: grid; gap: 8px; color: #a9bfb8; font-size: 13px; }.floor-results strong { color: #e6f3df; font: 30px Georgia,serif; }.end-card .recovery-note { font-size: 12px; margin-top: 16px; }.success-screen button { background: #29574d; }
@@ -332,8 +339,8 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
    the bar's shimmer, the lore crossfade, and the bar's own step - moves by transform or opacity and nothing
    else, so it runs on the compositor: each build stage is still a synchronous block on the main thread, and
    anything driven from there would freeze in the same breath. The bar's length is not an animation: it is
-   the end of the step `stagedBuild` is now running, the same number as the "3 / 5" beneath it
-   (`veilProgress`), eased between steps by a transform transition. */
+   measured work (`veilProgress`: stage weights, texture bands, floor-build phases, linked shader programs),
+   eased between measurements by a transform transition. */
 .loading-veil { position: absolute; inset: 0; z-index: 14; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; padding: 24px; overflow: hidden; background: radial-gradient(ellipse 80% 70% at 50% 44%, #0e232a 0%, #081419 46%, var(--ink-deep) 100%); text-align: center; }
 /* A vignette over everything but the text, so the frame's edge falls away into black like the game's. */
 .loading-veil::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse 75% 70% at 50% 46%, transparent 45%, #000000b8 100%); }
@@ -376,10 +383,8 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 .veil-bar::before, .veil-bar::after { content: ''; position: absolute; top: 50%; width: 9px; height: 9px; margin-top: -5.5px; border: 1px solid var(--brass); background: #0b0806; transform: rotate(45deg); box-shadow: 0 0 6px #ff8a3255; }
 .veil-bar::before { left: -8px; } .veil-bar::after { right: -8px; }
 .veil-bar i { position: relative; display: block; height: 100%; overflow: hidden; background: linear-gradient(90deg, #8a3a10, var(--ember) 70%, #ffd28a); box-shadow: 0 0 10px #ff8a3299; transform-origin: left; transition: transform .45s cubic-bezier(.2,.7,.2,1); }
-.veil-bar i::after { content: ''; position: absolute; inset: 0; width: 40%; background: linear-gradient(90deg, #fff0, #fff6d888, #fff0); animation: veil-shine 1.8s ease-in-out infinite; }
-@keyframes veil-shine { from { transform: translateX(-110%); } to { transform: translateX(260%); } }
+.veil-bar i::after { content: ''; position: absolute; inset: 0; width: 40%; background: linear-gradient(90deg, #fff0, #fff6d888, #fff0); animation: veil-shine 1.8s ease-in-out infinite; }@keyframes veil-shine { from { transform: translateX(-110%); } to { transform: translateX(260%); } }
 .veil-stage { display: flex; gap: 10px; align-items: baseline; margin-top: 12px; color: var(--bone-dim); font: 600 10px/1.2 var(--font-geist-mono); letter-spacing: .2em; text-transform: uppercase; }
-.veil-stage small { color: var(--bone-mute); font-size: 9px; letter-spacing: .12em; }
 
 /* One line of keep-lore at a time: eight lines stacked in one grid cell, each visible for a slice of a 40s
    cycle and crossfaded by opacity alone. */

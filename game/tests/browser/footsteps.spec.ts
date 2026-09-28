@@ -349,7 +349,7 @@ test.describe('the surface decides the feedback', () => {
       expect(mid.every((p: FootstepParticle) => p.droplet === (kind === 'flooded')), `${kind}: wrong particle shape`).toBe(true);
       await game.step(400);
     }
-    // Plan 016 took the bridges out with the corridors they spanned: no floor lays a plank any more, so the
+    // Plan 017 took the bridges out with the corridors they spanned: no floor lays a plank any more, so the
     // walk across one that this used to end with has nothing to walk on. `wood` survives only as a field of
     // the surface index, which tests/dungeon-surface.test.ts still reads.
   });

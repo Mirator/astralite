@@ -44,7 +44,7 @@ export type FloorStage = {
   stairRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> | null;
   stairGlow: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial> | null;
   stairLight: Radiance | null;
-  /** Plan 016: every chamber's ways out, and what the world drives on each. */
+  /** Plan 017: every chamber's ways out, and what the world drives on each. */
   doors: DoorView[];
 };
 
@@ -376,7 +376,7 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
     stage.stairLight = litDisc(shaftSkin, 'stair-shaft-v1', 2.2); stage.stairLight.band.value = 0;
     stage.stairGlow = new THREE.Mesh(new THREE.CircleGeometry(2.05, 32), shaftSkin); stage.stairGlow.rotation.x = -Math.PI / 2; stage.stairGlow.position.set(stage.stairSpot.x, .08, stage.stairSpot.z); stage.stairGlow.visible = false; stage.stairGlow.renderOrder = 4; floorGroup.add(stage.stairGlow);
     stage.stairRing = new THREE.Mesh(new THREE.RingGeometry(1.5, 1.85, 48), new THREE.MeshBasicMaterial({ color: 0xfbc956, transparent: true, opacity: .85, side: THREE.DoubleSide, depthWrite: false })); stage.stairRing.rotation.x = -Math.PI / 2; stage.stairRing.position.set(stage.stairSpot.x, .09, stage.stairSpot.z); stage.stairRing.visible = false; stage.stairRing.renderOrder = 5; floorGroup.add(stage.stairRing); }
-  // Plan 016: the ways out. One arch per door on the chamber's far wall, the side the camera looks away
+  // Plan 017: the ways out. One arch per door on the chamber's far wall, the side the camera looks away
   // from, so nothing ever stands between the player and the choice. Every part is always drawn and only
   // its colour, opacity and the bars' visibility change through the floor, so opening a door can never
   // be the first frame a material is seen.

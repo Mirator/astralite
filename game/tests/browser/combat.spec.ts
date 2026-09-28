@@ -10,6 +10,9 @@ import {
   test,
   TILE,
   trackEnemy,
+  hold,
+  press,
+  release,
   type Floor,
   type Point,
   type ScreenDirection,
@@ -47,9 +50,9 @@ const hazardsOf = (state: Snapshot) =>
 /** One real swing, aimed with a real arrow key and not repeated. */
 const swing = async (page: Page, key: string) => {
   await page.keyboard.down(key);
-  await page.keyboard.down('Space');
+  await hold(page, 'attack');
   await page.keyboard.up(key);
-  await page.keyboard.up('Space');
+  await release(page, 'attack');
 };
 
 const tilesNear = (floor: Floor, near: Point, radius: number) =>
@@ -584,7 +587,7 @@ test('only the live blade is a commitment: a dash aborts anticipation and recove
   await game.step(120);
 
   // Anticipation is the first 65ms: two frames in, the dash still wins and the swing never happens.
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(32);
   expect((await game.state()).player.attackTime).toBeGreaterThan(0);
   await page.keyboard.press('ShiftLeft');
@@ -600,7 +603,7 @@ test('only the live blade is a commitment: a dash aborts anticipation and recove
 
   // Contact runs from 0.065s to 0.175s: 0.13s in the blade is live, so the dash is held. It fires the
   // moment contact ends, into the recovery, rather than waiting for the whole 0.38s swing.
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(130);
   const live = await game.state();
   expect(live.player.attackTime).toBeGreaterThan(0);
@@ -622,7 +625,7 @@ test('only the live blade is a commitment: a dash aborts anticipation and recove
   expect((await game.state()).player.dashCooldown).toBe(0);
 
   // In the recovery, 0.2s in, the swing gives way at once: no wait, no buffer.
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(200);
   const recovering = await game.state();
   expect(recovering.player.attackTime).toBeGreaterThan(0);

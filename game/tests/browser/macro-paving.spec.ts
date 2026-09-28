@@ -14,7 +14,7 @@ import { expect, Game, roomCentre, test, type Floor } from './helpers.ts';
 /** What every scene gets before its first frame: torches lit, water moving. */
 const SETTLE = 640;
 
-/** Seed 0xb, level 1: realizes a pair and a settled single in all three themes at once (re-picked for plan 016's chambers). */
+/** Seed 0xb, level 1: realizes a pair and a settled single in all three themes at once (re-picked for plan 017's chambers). */
 const FIXTURE_SEED = 0xb;
 
 /** Holds every live enemy off cooldown, so a capture meant to show paving does not instead catch a windup. */
@@ -90,7 +90,7 @@ test.describe('a narrow hall reads the same macro paving as a wide room', { tag:
   });
 });
 
-// Plan 016 removed the two captures that stood here: a junction branching several ways and a bridge approach
+// Plan 017 removed the two captures that stood here: a junction branching several ways and a bridge approach
 // beside a merged slab. Chambers are islands joined by doors, so a floor holds neither any more; the narrow
 // hall and the per-theme captures above still frame merged slabs in ordinary chambers.
 

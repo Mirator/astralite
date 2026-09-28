@@ -1,4 +1,4 @@
-import { expect, strikeStance, test, TILE } from './helpers.ts';
+import { expect, strikeStance, test, TILE, hold, press, release } from './helpers.ts';
 
 // The crossbow is the only arm that can be left useless, and the only one whose damage happens some
 // frames after the button. Both of those are what these cover.
@@ -14,7 +14,7 @@ test('the quiver: a bolt is spent, comes back on its own, drains under held fire
   const capacity = loaded.weapon.capacity!;
   expect(loaded.weapon.quiver).toBe(capacity);
 
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(400);
   expect((await game.state()).weapon.quiver).toBe(capacity - 1);
   // Bolts do not come back inside a swing, so a dry quiver is a real state and not a stutter.
@@ -27,14 +27,14 @@ test('the quiver: a bolt is spent, comes back on its own, drains under held fire
   // body in the keep, so a shot that merely recovered on a timer would let him win by walking backwards.
   // Held fire has to empty him (the rates are held in tests/dungeon-projectile.test.ts). At the bottom
   // rather than exactly empty: a bolt that comes back is spent by the next pull almost at once.
-  await page.keyboard.down('Space');
+  await hold(page, 'attack');
   await game.step(9000);
-  await page.keyboard.up('Space');
+  await release(page, 'attack');
   expect((await game.state()).weapon.quiver).toBeLessThanOrEqual(1);
   // Holding longer neither digs a hole nor recovers: the drain is the steady state, not a dip.
-  await page.keyboard.down('Space');
+  await hold(page, 'attack');
   await game.step(4000);
-  await page.keyboard.up('Space');
+  await release(page, 'attack');
   expect((await game.state()).weapon.quiver).toBeLessThanOrEqual(1);
 
   // A melee arm has no quiver at all, and the readout goes with it; taking the crossbow up again fills it.
@@ -55,7 +55,7 @@ test('a flask\'s fire burns on the ground, outlives the arm that threw it, goes 
   expect(loaded.weapon.ranged).toBe(true);
   expect(loaded.weapon.fires).toBe(0);
 
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(1400);
   const burning = await game.state();
   expect(burning.weapon.fires).toBeGreaterThan(0);
@@ -74,7 +74,7 @@ test('a flask\'s fire burns on the ground, outlives the arm that threw it, goes 
 
   // A new floor starts with nothing of the last one still burning.
   await game.equip('flask');
-  await page.keyboard.press('Space');
+  await press(page, 'attack');
   await game.step(1400);
   expect((await game.state()).weapon.fires).toBeGreaterThan(0);
   await game.buildFloor(2);
@@ -87,7 +87,7 @@ test('a flask\'s fire burns on the ground, outlives the arm that threw it, goes 
 test('a chamber cleared with bolts pays, opens and is marked like one cleared with steel', async ({ game, page }) => {
   // Kills by bolt and by fire used to settle a cleared room on a path of their own, which paid the reward
   // but never counted the room or marked it on the map. One path serves steel, bolts and fire now, and it
-  // is also what opens a sealed chamber's doors (plan 016).
+  // is also what opens a sealed chamber's doors (plan 017).
   await game.enter();
   await game.step(120);
   const floor = await game.floor();
@@ -114,9 +114,9 @@ test('a chamber cleared with bolts pays, opens and is marked like one cleared wi
     try { stance = strikeStance(floor, left[0], { distance: 2.5, avoid: others, clearance: 0.8 }); } catch { stance = strikeStance(floor, left[0], { distance: 2 }); }
     await game.teleport(stance.x, stance.z);
     await page.keyboard.down(stance.key);
-    await page.keyboard.down('Space');
+    await hold(page, 'attack');
     await page.keyboard.up(stance.key);
-    await page.keyboard.up('Space');
+    await release(page, 'attack');
     await game.step(900);
   }
   const after = await game.state();

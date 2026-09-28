@@ -1,8 +1,9 @@
 import { expect, test } from './helpers.ts';
 
 /** Every bar the HUD keeps on screen with the sword in hand, sorted: vitality, dash readiness and rank
- * progress, the three the minimal-HUD rule in AGENTS.md allows (a ranged arm adds its quiver). */
-const HUD_BARS = ['Dash readiness', 'Progress to the next boon', 'Vitality'];
+ * progress, the three the minimal-HUD rule in AGENTS.md allows (a ranged arm adds its quiver), plus the
+ * arm's special readiness, the third socket plan 016 decision 4 adds to the ability row. */
+const HUD_BARS = ['Dash readiness', 'Progress to the next boon', 'Undertow Lunge readiness', 'Vitality'];
 
 /**
  * Nothing flat sits over the painted scene but the HUD itself: the blurred foreground silhouettes that
@@ -18,7 +19,9 @@ test('no foreground silhouettes or figure outlines, the ability row stays, and t
   const hud = page.getByRole('region', { name: 'Player status' });
   await expect(hud.getByRole('progressbar', { name: 'Vitality' })).toBeVisible();
   await expect(hud.getByRole('progressbar', { name: 'Dash readiness' })).toBeVisible();
-  await expect(hud.locator('kbd.keycap')).toHaveCount(2);
+  // Strike, the arm's special (plan 016 decision 4: a third socket in the same row; since Stage C every
+  // arm fills it) and dash.
+  await expect(hud.locator('kbd.keycap')).toHaveCount(3);
   // The whole of the persistent readout, not just the parts expected: a new bar here breaks the
   // minimal-HUD rule (AGENTS.md), which absence checks for the retired names would never notice.
   const bars = await hud.getByRole('progressbar').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? el.getAttribute('aria-labelledby') ?? ''));

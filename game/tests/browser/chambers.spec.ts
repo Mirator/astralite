@@ -1,6 +1,6 @@
 import { expect, test, TILE } from './helpers.ts';
 
-// Plan 016: a floor is a chain of sealed chambers joined by doors. The rules - which doors a chamber has,
+// Plan 017: a floor is a chain of sealed chambers joined by doors. The rules - which doors a chamber has,
 // what each shows, that the knight arrives clear of every body - are node tests over the generator
 // (tests/dungeon-floor.test.ts). What this checks is the running game's wiring on real keys: that a
 // sealed chamber's door refuses the swap key, that an open one takes it and only it, and that the knight

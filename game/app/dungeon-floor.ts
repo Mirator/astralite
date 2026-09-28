@@ -4,7 +4,7 @@ import { FOUND_WEAPONS, type WeaponId } from './dungeon-weapon.ts';
 export const TILE = 1.48;
 export type Encounter = 'watch' | 'ambush' | 'gauntlet' | 'sanctuary' | 'warden';
 /**
- * What a chamber pays when it is cleared, and so what the door into it shows (plan 016): the floor's one
+ * What a chamber pays when it is cleared, and so what the door into it shows (plan 017): the floor's one
  * rack (`arm`), a real heal (`mend`) or a purse of experience (`cache`, today's dead-end XP). A shrine,
  * the gate and the stair hall pay nothing of their own.
  */
@@ -68,7 +68,7 @@ export const ARRIVAL_CLEAR = 3.5;
 // `level` is how deep in the keep this floor sits: it lengthens the descent and drags the whole
 // encounter curve forward, so floor 3 opens with what floor 1 kept for its last halls.
 //
-// Plan 016: a floor is no longer one walkable tree of rooms and corridors but a chain of sealed chambers.
+// Plan 017: a floor is no longer one walkable tree of rooms and corridors but a chain of sealed chambers.
 // Each chamber is its own island; the only way between two is a door, taken with the swap key once the
 // chamber behind it is clear. Chambers stand in layers - the gate, then two or three per layer, then the
 // stair hall - and every door leads one layer on, so every path down is the same length and a choice

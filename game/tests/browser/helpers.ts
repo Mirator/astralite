@@ -15,7 +15,48 @@ import {
 } from '../../app/dungeon-floor.ts';
 import type { EnemyKind } from '../../app/dungeon-bestiary.ts';
 
+import { DEFAULT_BINDS, isMouseCode, type Action } from '../../app/dungeon-save.ts';
+
 export { canStand, expect, hasClearPath, TILE };
+
+/**
+ * Plan 016: scenarios name the action they mean, not the key. What a key does moved once already (Space
+ * struck, then dodged), and every spec that spelled the key out had to be found and rewritten by hand.
+ * These resolve the default binding for the keyboard scheme - the first default that is not a mouse
+ * button - and press it for real, so they exercise the same keydown path a player does.
+ */
+export const keyFor = (action: Action) => {
+  const key = DEFAULT_BINDS[action].find((code) => !isMouseCode(code));
+  if (!key) throw new Error(`${action} has no keyboard default`);
+  return key;
+};
+export const press = (page: Page, action: Action) => page.keyboard.press(keyFor(action));
+export const hold = (page: Page, action: Action) => page.keyboard.down(keyFor(action));
+export const release = (page: Page, action: Action) => page.keyboard.up(keyFor(action));
+
+/**
+ * A standard-mapping gamepad the page can read, every button up. The game polls `navigator.getGamepads()`
+ * once an update, so a press is a plain write between steps, exactly as a real pad is sampled. `remove`
+ * puts the browser's own method back - a pooled page must not carry a phantom pad into the next scenario -
+ * and the next update then drops whatever the pad was holding.
+ */
+export const fakePad = async (page: Page) => {
+  await page.evaluate(() => {
+    const buttons = Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 }));
+    const pad = { id: 'test pad', index: 0, connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons, timestamp: 0 };
+    (window as unknown as { __pad: typeof pad }).__pad = pad;
+    Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => [pad] });
+  });
+  return {
+    set: (index: number, pressed: boolean) => page.evaluate(({ index, pressed }) => {
+      (window as unknown as { __pad: { buttons: { pressed: boolean; value: number }[] } }).__pad.buttons[index] = { pressed, value: +pressed } as { pressed: boolean; value: number };
+    }, { index, pressed }),
+    remove: () => page.evaluate(() => {
+      delete (navigator as unknown as { getGamepads?: unknown }).getGamepads;
+      delete (window as unknown as { __pad?: unknown }).__pad;
+    }),
+  };
+};
 
 /**
  * How many RGBA texels differ by more than `threshold` summed across R+G+B, between two same-sized
@@ -198,7 +239,7 @@ export type Snapshot = {
     /** Whether the knight stands on the open stair, where the swap key takes him down. */
     onStair: boolean;
   };
-  /** Plan 016: the chamber the knight stands in and its ways out. */
+  /** Plan 017: the chamber the knight stands in and its ways out. */
   chamber: {
     id: number; layer: number; reward: 'arm' | 'mend' | 'cache' | null; sealed: boolean; crossing: 'out' | 'in' | null;
     doors: { id: number; to: number; sign: string; x: number; z: number; radius: number; open: boolean; over: boolean }[];
@@ -242,6 +283,8 @@ export type Snapshot = {
    * surface emissions, and the last actual support cell/height an emission used. */
   effects: {
     impacts: number;
+    /** Plan 016: the Tolling Slam's shockwave - up or not, the radius it stops at, and where its band is now. */
+    shock: { active: boolean; radius: number; edge: number };
     /** Live sparks in the pooled batch. */
     sparks: number;
     footsteps: {

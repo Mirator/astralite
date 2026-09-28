@@ -11,15 +11,15 @@
 // dodges a tell it has had time to read. It is a consistent yardstick for comparing builds against each
 // other, not a claim about how well a human plays.
 import { eightWay } from '../../app/dungeon-aim.ts';
-import { beatOf, chainLength } from '../../app/dungeon-weapon.ts';
-import { canAbortSwing, DASH_TIME, dashImmune, playerSpeed, swordContacts } from '../../app/dungeon-combat.ts';
+import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
+import { canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
 import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, nearbyDozers, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { landBlow } from '../../app/dungeon-hits.ts';
-import { playerAttackPose } from '../../app/dungeon-attack-pose.ts';
+import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
-import { flyHostile, flyShot, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
-import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
+import { BOLT_RADIUS, flashpointHits, flyHostile, flyShot, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
+import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
 export const FLOORS = 3;
@@ -42,7 +42,7 @@ export type Policy = {
    * "this is how hard the game is at skill X".
    */
   dodge: number;
-  /** Take the door that pays - a purse, else a mending - over the first one offered (plan 016). */
+  /** Take the door that pays - a purse, else a mending - over the first one offered (plan 017). */
   explore: boolean;
   /** What the knight carries for the whole descent. */
   weapon: Weapon;
@@ -62,6 +62,14 @@ export type Policy = {
    * pointer and stick aim existed, which is the only way to price what aim was worth.
    */
   quantise: boolean;
+  /**
+   * Plan 016: use the arm's special whenever it is ready and it would reach at least two bodies (the lunge and
+   * the vault: one; the Heavy Bolt: two on its line; the Flashpoint: two standing in fire). Off for every existing policy, so `balance:check` holding the old bands is the proof that adding
+   * specials moved nothing else.
+   */
+  special?: boolean;
+  /** Seconds the `special` policy holds a charged special before letting go; absent means its minimum. */
+  charge?: number;
   /** Which card to take from a draft. Defaults to the first offered. */
   pickBoon?: (offer: Boon[], run: Run) => string;
 };
@@ -136,6 +144,15 @@ export type FloorReport = {
   /** Shots fired and shots that found a body, for an arm that throws something. */
   shots: number;
   landed: number;
+  /** Specials that reached contact (plan 016); zero for every policy but `special`. */
+  specials: number;
+  /**
+   * One entry per room fought and cleared this floor: seconds from the first frame one of that room's woken
+   * bodies came within REACH_RADIUS of the knight to the frame the room held nothing alive. It is the fight
+   * alone, without the walk to it, which is what a special can actually shorten. A ranged arm that clears a
+   * room before anything closes records no fight for it, so read this column for the melee arms.
+   */
+  fights: number[];
   hpAfter: number;
   maxHpAfter: number;
   rankAfter: number;
@@ -237,7 +254,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const floor = generateFloor(seed, level);
   const weapon = policy.weapon;
   const damage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
-  let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0;
+  let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0, specialCount = 0;
   let idle = 0, aloneRun = 0, aloneMax = 0, firstContactSum = 0, firstContactCount = 0;
   // Rooms already given a first-contact measurement (whether it resolved or the knight walked on), so a
   // second visit never double-counts, and rooms currently waiting on their first arrival.
@@ -251,7 +268,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   // `encounter`, since a tiny room can drop every one of a non-empty roster's placement tries.
   const spawnedRooms = new Set(floor.spawns.map(s => s.room));
   const barrenRoomIds = new Set(floor.rooms.filter(r => !spawnedRooms.has(r.id)).map(r => r.id));
-  // Plan 016: there are no dead ends to walk back out of any more - a chamber is left by a door, never
+  // Plan 017: there are no dead ends to walk back out of any more - a chamber is left by a door, never
   // by the way in - so nothing is ever a backtrack. The column stays so a batch still says so.
   const branchCells = new Set<number>();
   // Every cell the knight has ever stood on, keyed the same way `pursuit`/`goalField` are, so a second
@@ -287,6 +304,17 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   // chainless sword against a game that chains, which is the same class of mistake as the
   // navigator aiming perfectly while the player could not.
   let chainBeat = 0, chainIdle = Infinity, swing: Weapon = weapon;
+  // The special, as dungeon-game.tsx keeps it: which verb the live swing is, a charge being held, where a
+  // lunge started, and the spear while it is out of the hand. Only the `special` policy ever sets any of it.
+  let swingKind: 'strike' | 'special' = 'strike', charging: number | null = null, lungeFrom = { x: 0, z: 0 };
+  let harpoon: { shot: Shot | null; x: number; z: number; dragged: boolean } | null = null;
+  // Stage C: the vault in progress and the Heavy Bolts in the air, which hit with the special's numbers.
+  let vault: { target: Body | null; distance: number; dir: { x: number; z: number }; landed: boolean } | null = null;
+  const heavy = new Set<Shot>();
+  // Read through a function for the same reason as `isSpecial`.
+  const hopping = () => vault;
+  // Read through a function: the closures below assign it, which the loop's own narrowing cannot see.
+  const isSpecial = () => swingKind === 'special';
   const swingHits = new Set<Body>();
   const shots: Shot[] = [];
   // Bolts loosed at the knight, with the kind that loosed them for the damage split.
@@ -294,6 +322,13 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   let quiver = weapon.ranged ? weapon.ranged.capacity : 0, reload = 0;
   const pools: Pool[] = [];
   const cleared = new Set<number>([0]);
+  // Plan 016 fight duration: when each room's fight started, and how long each finished one took.
+  const fightStart = new Map<number, number>(), fights: number[] = [];
+  const clearRoom = (room: number) => {
+    cleared.add(room);
+    const began = fightStart.get(room);
+    if (began !== undefined) { fights.push(+(t - began).toFixed(2)); fightStart.delete(room); }
+  };
 
   const goal = floor.rooms[floor.goal];
   const stair = { x: goal.x * TILE, z: goal.z * TILE };
@@ -364,7 +399,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     // A room the knight stands in with nothing left alive is done with, even if it never held a body to
     // kill. The reward itself is paid on the killing blow, as the game pays it; this only stops the
     // navigator from walking back to a chamber it has already emptied.
-    if (activeRoom >= 0 && !cleared.has(activeRoom) && bodies.every(b => b.room !== activeRoom || b.dead)) cleared.add(activeRoom);
+    if (activeRoom >= 0 && !cleared.has(activeRoom) && bodies.every(b => b.room !== activeRoom || b.dead)) clearRoom(activeRoom);
 
     const live = bodies.filter(b => !b.dead && b.awake);
 
@@ -385,6 +420,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       const step = BESTIARY[threat.kind].attack !== 'swing' ? { x: -away.z, z: away.x } : away;
       facing.x = step.x; facing.z = step.z;
       dashTime = DASH_TIME; dashCooldown = run.dashSpan; attackTime = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; swingHits.clear();
+      charging = null; swingKind = 'strike';
     }
 
     // Only a body the knight could actually walk at in a straight line is worth charging. Without the
@@ -405,9 +441,64 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       const linking = chainIdle <= (weapon.chain?.window ?? 0) && chainBeat + 1 < chainLength(weapon);
       chainBeat = linking ? chainBeat + 1 : 0;
       chainIdle = 0;
-      swing = beatOf(weapon, chainBeat);
+      swing = beatOf(weapon, chainBeat); swingKind = 'strike';
+      if (harpoon && weapon.special?.hurl) swing = { ...swing, damage: swing.damage * weapon.special.hurl.bare };
       attackTime = swing.duration;
     };
+    const openSpecial = (charge: number, aimed: { x: number; z: number }) => {
+      swing = specialSwing(weapon, charge); swingKind = 'special'; attackTime = swing.duration;
+      chainBeat = 0; chainIdle = Infinity; swingHits.clear();
+      attackFacing = aimed; facing.x = aimed.x; facing.z = aimed.z; lungeFrom = { x: player.x, z: player.z };
+      vault = null;
+      const hop = weapon.special?.vault;
+      if (hop) {
+        const at = vaultTarget(floor.cells, player, aimed, live, hop.range, hop.cone);
+        const path = vaultLanding(floor.cells, player, aimed, at >= 0 ? live[at] : null, hop.over, hop.hop);
+        vault = { target: at >= 0 ? live[at] : null, distance: path.distance, dir: path.dir, landed: false };
+      }
+    };
+    // The `special` policy's one decision: fire it whenever it is ready and would reach enough bodies.
+    const special = weapon.special;
+    if (policy.special && special && dashTime <= 0 && charging === null
+      && specialGate({ weapon, ready: specialAvailable(special, { cooled: specialReady(run), quiver, out: !!harpoon }), attackTime, swing, dashTime, specialLive: isSpecial() && attackTime > 0, busy: !!harpoon, pools: pools.length }) === 'start') {
+      const range = (special.swing.ranged?.speed ?? 0) * (special.swing.ranged?.flight ?? 0) * 0.8;
+      const reach = special.kind === 'lunge' ? (special.lunge?.distance ?? 0) + (special.lunge?.width ?? 0)
+        : special.kind === 'throw' || special.kind === 'draw' ? range
+          : special.kind === 'vault' ? special.vault?.range ?? 0
+            : special.kind === 'whirl' ? (special.swing.reach ?? weapon.reach) + run.reach
+              : special.kind === 'detonate' ? Infinity
+                : special.radius?.[0] ?? 0;
+      let near = live
+        .map(b => ({ body: b, distance: Math.hypot(b.x - player.x, b.z - player.z) }))
+        .filter(entry => entry.distance < reach && (special.kind === 'detonate' || hasClearPath(floor.cells, player, entry.body)))
+        .sort((a, b) => a.distance - b.distance);
+      // The bolt counts only what lies on its line to the nearest body; the Flashpoint only what stands in fire.
+      if (special.kind === 'draw' && near.length) {
+        const aim = unit(near[0].body.x - player.x, near[0].body.z - player.z), end = { x: player.x + aim.x * range, z: player.z + aim.z * range };
+        near = near.filter(entry => lineContacts(floor.cells, player, end, entry.body, BOLT_RADIUS));
+      }
+      if (special.kind === 'detonate') {
+        const caught = new Set(flashpointHits(pools, near.map((entry, index) => ({ x: entry.body.x, z: entry.body.z, index }))));
+        near = near.filter((_, index) => caught.has(index));
+      }
+      if (near.length >= (special.kind === 'lunge' || special.kind === 'vault' ? 1 : 2)) {
+        attackTime = 0; swing = weapon;
+        const aimed = aimAs(unit(near[0].body.x - player.x, near[0].body.z - player.z));
+        if (special.kind === 'charge' || special.kind === 'draw') { charging = 0; attackFacing = aimed; }
+        else openSpecial(1, aimed);
+      }
+    }
+    // A charge is let go at `policy.charge` seconds, and by default the moment it would slam: a bot that
+    // stands rooted for a full second beside two bodies measured as a floor-two death rate, not as an arm.
+    // The dodge above is the only thing that drops it early.
+    if (charging !== null && special) {
+      charging += DT;
+      // A drawn bolt keeps its line on the nearest body, and is let go the moment it is full.
+      if (special.draw) {
+        if (target) attackFacing = aimAs(unit(target.body.x - player.x, target.body.z - player.z));
+        if (drawn(special, charging)) { charging = null; if (quiver > 0) openSpecial(1, attackFacing); }
+      } else if (charging >= Math.min(special.chargeMax ?? 0, Math.max(special.chargeMin ?? 0, policy.charge ?? 0))) { const level = chargeLevel(special, charging); charging = null; openSpecial(level, attackFacing); }
+    }
 
     let move: { x: number; z: number } | null = null;
     if (target && dashTime <= 0) {
@@ -418,7 +509,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         // Firing is the whole arm: it is loosed from wherever the knight stands, so what governs is
         // whether there is a bolt in hand, not whether he is close enough to swing.
         const range = bow.speed * bow.flight;
-        if (quiver > 0 && attackTime <= 0 && target.distance < range * 0.8) {
+        if (quiver > 0 && attackTime <= 0 && charging === null && target.distance < range * 0.8) {
           const aimed = aimAs(toward);
           openSwing(); attackFacing = aimed; facing.x = aimed.x; facing.z = aimed.z;
         }
@@ -429,7 +520,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         // Close to just inside the arm's own reach rather than to a fixed 1.55, or a spear would walk
         // into a hammer it could have worked from outside, and a cleaver would stop short of its own edge.
         move = policy.kite && target.distance < 1.2 ? away : toward;
-      } else if (attackTime <= 0) {
+      } else if (attackTime <= 0 && charging === null) {
         const aimed = aimAs(toward);
         openSwing(); attackFacing = aimed; facing.x = aimed.x; facing.z = aimed.z; swingHits.clear();
       }
@@ -458,8 +549,13 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     }
 
     if (move) { facing.x = move.x; facing.z = move.z; }
-    const speed = playerSpeed({ dashing: dashTime > 0, attacking: attackTime > 0, weapon: swing });
-    if (dashTime > 0) moveOnFloor(floor.cells, player, facing.x * speed * DT, facing.z * speed * DT);
+    const speed = charging !== null && dashTime <= 0 ? weapon.moveSpeed * (special?.moveScale ?? 1) : playerSpeed({ dashing: dashTime > 0, attacking: attackTime > 0, weapon: swing });
+    // The lunge carries him down its line for its travel window, as dungeon-game.tsx does.
+    const lunge = isSpecial() && attackTime > 0 && special?.lunge ? lungeStep(special, swing.anticipation, swing.duration - attackTime + DT, DT) : 0;
+    const vaulted = hopping(), hop = isSpecial() && attackTime > 0 && vaulted && special?.vault ? vaultStep(special, swing.anticipation, vaulted.distance, swing.duration - attackTime + DT, DT) : 0;
+    if (lunge > 0) moveOnFloor(floor.cells, player, attackFacing.x * lunge, attackFacing.z * lunge);
+    else if (hop > 0 && vaulted) moveOnFloor(floor.cells, player, vaulted.dir.x * hop, vaulted.dir.z * hop);
+    else if (dashTime > 0) moveOnFloor(floor.cells, player, facing.x * speed * DT, facing.z * speed * DT);
     else if (move) moveOnFloor(floor.cells, player, move.x * speed * DT, move.z * speed * DT);
 
     // --- the blade -----------------------------------------------------------------------------
@@ -469,27 +565,72 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       const back = reloadStep(quiver, weapon.ranged.capacity, reload, weapon.ranged.refill, DT);
       quiver = back.spare; reload = back.timer;
     }
-    chainIdle = attackTime > 0 ? 0 : chainIdle + DT;
+    chainIdle = attackTime > 0 && !isSpecial() ? 0 : chainIdle + DT;
     if (attackTime > 0) {
-      const wasLive = playerAttackPose(swing.duration - attackTime, swing, chainBeat).active;
+      const poseAt = (age: number) => isSpecial() && special ? playerSpecialPose(age, swing, special.kind) : playerAttackPose(age, swing, chainBeat);
+      const wasLive = poseAt(swing.duration - attackTime).active;
       attackTime = Math.max(0, attackTime - DT);
-      const pose = playerAttackPose(swing.duration - attackTime, swing, chainBeat);
+      const pose = poseAt(swing.duration - attackTime);
+      // A Flashpoint whose fire all went out in its wind-up ends on its contact frame, and spends nothing.
+      if (isSpecial() && special && pose.active && !wasLive && !specialSpends(special, { pools: pools.length })) attackTime = 0;
+      else if (isSpecial() && special && pose.active && !wasLive) {
+        spendSpecial(run, special.cooldown); specialCount += 1;
+        // The spear leaves the hand down the same flight a bolt takes, and comes back below.
+        if (special.kind === 'throw' && swing.ranged) {
+          const shot: Shot = { x: player.x, z: player.z, dx: attackFacing.x, dz: attackFacing.z, speed: swing.ranged.speed, life: swing.ranged.flight, pierce: swing.ranged.pierce, damage: swing.damage + run.strike, spent: new Set<number>() };
+          shots.push(shot); harpoon = { shot, x: player.x, z: player.z, dragged: false };
+        }
+        // Stage C. The Heavy Bolt spends the quiver on one bolt that passes through everything on its line.
+        if (special.kind === 'draw' && swing.ranged && quiver > 0) {
+          const shot: Shot = { x: player.x, z: player.z, dx: attackFacing.x, dz: attackFacing.z, speed: swing.ranged.speed, life: swing.ranged.flight, pierce: swing.ranged.pierce, damage: drawDamage(weapon, quiver) + run.strike, spent: new Set<number>() };
+          shots.push(shot); heavy.add(shot); quiver = 0; reload = 0;
+        }
+        // The Flashpoint: every pool goes up and is spent; each body in any of them is caught once.
+        if (special.kind === 'detonate' && pools.length) {
+          const caught = flashpointHits(pools, bodies.map((b, index) => ({ x: b.x, z: b.z, index })).filter(mark => !bodies[mark.index].dead && bodies[mark.index].awake));
+          pools.length = 0;
+          for (const index of caught) {
+            const body = bodies[index];
+            body.hp -= swing.damage + run.strike; body.hitFlash = 0.2;
+            if (body.hp <= 0) {
+              body.dead = true;
+              resolveKill(run);
+              if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
+                clearRoom(body.room);
+                chamberReward(run, floor.rooms[body.room].reward);
+              }
+            }
+          }
+        }
+      }
       // One bolt on the frame the blade would have gone live, rather than damage for every live frame.
-      if (weapon.ranged && pose.active && !wasLive && quiver > 0) {
+      if (!isSpecial() && weapon.ranged && pose.active && !wasLive && quiver > 0) {
         quiver -= 1; shotCount += 1;
         shots.push({ x: player.x, z: player.z, dx: attackFacing.x, dz: attackFacing.z, speed: weapon.ranged.speed, life: weapon.ranged.flight, pierce: weapon.ranged.pierce, damage: weapon.damage + run.strike, spent: new Set<number>() });
       }
-      if (!weapon.ranged && pose.active) for (const body of bodies) {
+      const line = isSpecial() ? special?.lunge : undefined;
+      const lineTo = line ? { x: player.x + attackFacing.x * line.width, z: player.z + attackFacing.z * line.width } : null;
+      // The vault cuts nothing in the air; on landing it turns on the body it went over, and scores that alone.
+      const vaulting = isSpecial() && special?.kind === 'vault' ? special : undefined, leap = hopping();
+      if (vaulting && leap && pose.active && !leap.landed && vaultLanded(vaulting, swing.anticipation, swing.duration - attackTime)) {
+        leap.landed = true;
+        if (leap.target && !leap.target.dead) { const turn = unit(leap.target.x - player.x, leap.target.z - player.z); if (turn.x || turn.z) attackFacing = turn; }
+      }
+      const scoring = !isSpecial() || (special?.kind !== 'detonate' && special?.kind !== 'draw' && (!vaulting || !!leap?.landed));
+      if (!swing.ranged && pose.active && scoring) for (const body of bodies) {
         if (body.dead || !body.awake || swingHits.has(body)) continue;
-        if (!swordContacts(floor.cells, player, attackFacing, body, run.reach, swing)) continue;
+        if (vaulting && body !== leap?.target) continue;
+        if (!(line && lineTo ? lineContacts(floor.cells, lungeFrom, lineTo, body, line.width, player) : swordContacts(floor.cells, player, attackFacing, body, run.reach, swing))) continue;
         swingHits.add(body);
-        // The game's own blow: damage, flash, broken tell, cooldown and shove, in dungeon-hits.
-        landBlow(floor.cells, body, body, { damage: swing.damage + run.strike, stagger: swing.stagger, knockback: weapon.knockback, wardenKnockback: weapon.wardenKnockback }, unit(body.x - player.x, body.z - player.z));
+        // The game's own blow: damage, flash, broken tell, cooldown and shove, in dungeon-hits. A strike shoves
+        // with the arm's own numbers, as it always has here; a special with its own.
+        const shover = isSpecial() ? swing : weapon;
+        landBlow(floor.cells, body, body, { damage: swing.damage + run.strike, stagger: swing.stagger, knockback: shover.knockback, wardenKnockback: shover.wardenKnockback }, unit(body.x - player.x, body.z - player.z));
         if (body.hp <= 0) {
           body.dead = true;
           resolveKill(run);
           if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
-            cleared.add(body.room);
+            clearRoom(body.room);
             chamberReward(run, floor.rooms[body.room].reward);
           }
         }
@@ -550,25 +691,45 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         const shot = shots[i];
         const flight = flyShot(shot, floor.cells, marks, DT);
         shot.x = flight.x; shot.z = flight.z; shot.life = flight.life; shot.pierce = flight.pierce;
+        const hurled = harpoon?.shot === shot || heavy.has(shot) ? special : undefined;
         for (const index of flight.hits) {
           const body = bodies[index];
           if (body.dead) continue;
-          landedCount += 1;
-          landBlow(floor.cells, body, body, { ...weapon, damage: shot.damage }, unit(body.x - player.x, body.z - player.z));
+          if (!hurled) landedCount += 1;
+          // The Harpoon drags the first body it bites that is not steadfast, instead of shoving it; a special's
+          // bolt otherwise carries the special's numbers, a plain bolt the arm's.
+          const thrown = hurled ? hurledBlow(hurled, { harpoon: harpoon?.shot === shot, damage: shot.damage }, { free: !!harpoon && !harpoon.dragged, steadfast: BESTIARY[body.kind].steadfast }) : null;
+          const drags = !!thrown?.drags;
+          const blow = thrown ? thrown.blow : { ...weapon, damage: shot.damage };
+          landBlow(floor.cells, body, body, blow, unit(body.x - player.x, body.z - player.z));
+          if (drags && hurled?.hurl && harpoon) {
+            harpoon.dragged = true;
+            const pull = dragToward(body, player, hurled.hurl.drag);
+            moveOnFloor(floor.cells, body, pull.x, pull.z);
+          }
           if (body.hp <= 0) {
             body.dead = true;
             resolveKill(run);
             if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
-              cleared.add(body.room);
+              clearRoom(body.room);
               chamberReward(run, floor.rooms[body.room].reward);
             }
           }
         }
-        if (flight.done) {
+        if (hurled && harpoon) { harpoon.x = flight.x; harpoon.z = flight.z; }
+        if (flight.done && hurled && harpoon) { harpoon.shot = null; shots.splice(i, 1); }
+        else if (flight.done) {
+          if (heavy.delete(shot)) { shots.splice(i, 1); continue; }
           if (weapon.burst) pools.push({ x: flight.x, z: flight.z, radius: weapon.burst.radius, life: weapon.burst.life, damage: weapon.burst.damage, interval: weapon.burst.interval, timer: 0 });
           shots.splice(i, 1);
         }
       }
+    }
+    // The spear on its way home, straight at the knight at the speed it left.
+    if (harpoon && !harpoon.shot) {
+      const home = homeStep(harpoon, player, special?.swing.ranged?.speed ?? 1, DT);
+      harpoon.x = home.x; harpoon.z = home.z;
+      if (home.home) harpoon = null;
     }
     // Fire on the ground bites what stands in it. It is the only thing the knight owns that goes on
     // working after he has stopped paying attention to it.
@@ -584,7 +745,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           body.dead = true;
           resolveKill(run);
           if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
-            cleared.add(body.room);
+            clearRoom(body.room);
             chamberReward(run, floor.rooms[body.room].reward);
           }
         }
@@ -595,6 +756,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     // as near zero here, which is the only column that catches a weapon winning by walking backwards.
     const reached = live.some(b => Math.hypot(b.x - player.x, b.z - player.z) < REACH_RADIUS);
     if (reached) contact += DT;
+    for (const b of live) if (!cleared.has(b.room) && !fightStart.has(b.room) && Math.hypot(b.x - player.x, b.z - player.z) < REACH_RADIUS) fightStart.set(b.room, t);
     // The room this frame's reach belongs to may already have moved on if the knight is mid-corridor by
     // the time contact lands; pendingContact only ever holds the room he is measured against.
     if (reached && activeRoom >= 0 && pendingContact.has(activeRoom)) {
@@ -659,7 +821,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       barrenRooms: barrenRoomIds.size, spentRecrossings: spentRecross,
       alone: +aloneMax.toFixed(1),
       firstContact: +(firstContactCount ? firstContactSum / firstContactCount : 0).toFixed(2),
-      shots: shotCount, landed: landedCount, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      shots: shotCount, landed: landedCount, specials: specialCount, fights, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }
