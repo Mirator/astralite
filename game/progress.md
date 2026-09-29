@@ -3290,6 +3290,105 @@ its cause ("a won run kept a cause"); empty boons rendering blank (expected 'no 
 using the hazard label ("the card does not name the killer"); the card time forced to 0 ("the card time is
 not the logged one"); the card boons forced empty ("the card does not list the boon taken").
 
+## 2026-09-29 - Plan 018 Stage 0: baseline, and the frame-budget stop rule trips
+
+Stopped after Stage 0; nothing of Stages A-E is written. Added `npm run census` (`scripts/balance/census.ts`, pure,
+reads only `generateFloor`) and `tests/fixtures/spawns-017.json` (90 sweep floors' spawns plus a hash of props and
+weapon drop, generated from `362db84` before any change).
+
+Balance (`balance:check`, 30 runs, 361 s, every metric in band), Stage A is held to these: default escape 100.0,
+floors 1-3 death 0/0/0, HP left 100/100/100, run 147.1 s; weak escape 86.7, death 0/3.3/7.1, HP left 86.4/82.4/73.6,
+run 126.5 s; special 100, 0/0/0, 100/100/100, 142.3 s; special-fangs 100, 0/0/0, 100/100/100, 143.0 s;
+special-cleaver 100, 0/0/0, 100/100/100, 167.2 s; special-crossbow 80.0, 0/0/20.0, 100/100/100, 219.2 s;
+special-flask 100, 0/0/0, 100/100/100, 201.2 s.
+
+Census with today's mixes (30 floors a level; fight chamber = any chamber but the stair hall with a standing body):
+floor 1 448 fights / 402 guards, floor 2 493 / 410, floor 3 557 / 439; every new-kind column zero.
+
+Figure cost, arena level 3, d3d11 (counters matched SwiftShader's flooded hall exactly, 395/272/271), marginal per
+figure from x1 to x2 (calls incl. shadow-pass calls): guard 40 (19 shadow), shieldbearer 40 (19), pyre 36 (17),
+bonecaller 36 (17), rattler 30 (14); triangles guard 4161, shieldbearer 4161, pyre 3173, bonecaller 3292, rattler 3017.
+A gate with four guards reads 398 calls.
+
+Worst new chamber, first version (six bodies in the gate against the flooded-hall budget): 452 calls, 14.4% over 395;
+the stop rule tripped and the operator replaced the comparison (57c2a80) with a like-for-like one, below.
+
+Step 5 redone like for like, level-3 arena, d3d11, 2026-09-29:
+(a) today's worst, a floor-3 purse `guard:4,stalker:2,warden:1`: 7 standing, 486 calls, 286,269 triangles, 173 shadow calls.
+(b) the worst 018 can deal, `bonecaller,shieldbearer,pyre,warden` with all four rattlers standing (asserted): 8 standing,
+508 calls, 286,247 triangles, 184 shadow calls. (b) is +4.5% calls over (a), inside the 10% rule: no stop, no remedy needed.
+
+## 2026-09-29 - Plan 018: bonecaller, pyre and shieldbearer join the descent
+
+Stages A, B, C, D (steps 1-3) and E, on `feat/plan-018-three-kinds`, uncommitted. Stage D step 4, the operator
+playtest, is open. Decisions at the recommended defaults: D2 (shieldbearer 2, pyre 2, bonecaller 3), D5 over the
+eligible chambers (operator revision 57c2a80), D8 (`clearShots` already ran in `arrive`, so nothing to add).
+
+**Stage A - sim parity, nothing dealt.** `scripts/balance/sim.ts` now passes the body's facing to `landBlow` (blocked
+blows counted), raises a caller's reserve on `intent.raise`, routes every death through a `fell` that mirrors the game's
+(`fallOf`: reassemble unpaid or crumble; `deathPool` fire into a six-ring cap), steps the fire against the knight,
+keeps buried bodies asleep (`awake: !ambush && !buried`, entry wake skips them, quarry skips them), and reports
+`blocked`, `raised`, `reassembled`, `poolDamage`. `simulateArena` and `simulateLevel` run one floor. Two policy
+switches, both on by default and inert without the kinds: `avoidFire`, `callerFirst`. `balance:check` printed exactly
+the Stage 0 values for all 56 metrics (365 s). The caller preference is not "within range + 2" as the plan wrote: a
+caller keeps 5 away, so that would never fire; it is any awake caller the knight can walk at (14 units, clear path).
+Planted and caught (message in brackets): no facing to landBlow [the plain strike never met a raised shield]; ignore
+stagger [a stagger arm was turned aside by the shield]; ignore `intent.raise` [the caller never raised anything];
+skip the crumble [the caller fell and left rattlers behind]; never push the pool [the fire never touched a knight
+standing beside it]; avoidance toward the centre [stepping away cost 408, staying 232]; remove the caller preference
+[caller first took 63.0s, nearest first 63.0s]; buried body awake at init [a buried rattler was awake and was struck
+before it was called]. The plan's "a bonecaller fight never ends stuck" test is not written as such: without the
+preference no arena fight goes stuck (168 fights, seven arms, two rosters), so a plant could not fail it; the preference is
+tested by its effect on fight length instead.
+
+**Stage B - dealing.** `firstFloor` 2/2/3; `PACK_MIX.middle` gains shieldbearer .07, pyre .07 (guard .40 -> .26);
+`late` gains shieldbearer .07, pyre .07, bonecaller .08 (guard .30 -> .08). The plan's starting .10/.10 gave floor 2
+42.6%, over the target, so the middle shares were lowered. New pure helpers `oneCaller`, `buryReserves`, `packSource`
+(the rule `roster` deals by, exported so the census counts eligible chambers without copying it);
+`arenaFloor` buries through `buryReserves` and its spawn list is unchanged (literal test). `HOSTILE_POOL_RINGS` now
+lives in `dungeon-projectile.ts`; the game and the sim read it. Census of eligible chambers (30 floors a level):
+floor 2 188 eligible, 34.6% hold a new kind (pyre 20.7, shieldbearer 16.0); floor 3 206 eligible, 48.1% (bonecaller
+21.4, pyre 12.6, shieldbearer 20.4); no chamber holds two callers; at most 2 pyres in one chamber. Of the first two
+layers on floor 3, 48.5% of chambers hold a new kind (31.4% on floor 2). Planted and caught: an extra `random()` after
+`buryReserves` [level 2 seed ...: a prop or the weapon drop moved]; pyre `firstFloor` 1 [pyre was dealt on floor 1];
+`oneCaller` removed [chamber holds 2 bonecallers]; reserve spliced after each caller [spawn is buried in the wrong block];
+`guardCount` counting buried [guardCount is the number of standing spawns]; burial count-1 [caller has 3 in reserve];
+a new kind ahead of the stalker [late: archer past its slice]; every share halved [floor 2: 16.0% ... target 25-40];
+ring count 1 [2 pyres in one chamber, 1 rings]; entry wake without the buried filter [a rattler was cut down before any
+was called / a rattler bit the knight before any was called]. The plan planted "ring count 2"; the sweep's maximum is
+2, so 1 is the plant that can fail. `buryReserves` takes no random source, so the "extra draw" plant is a `random()`
+next to its call.
+
+**Stage 0 step 5, like for like (operator revision):** (a) `guard:4,stalker:2,warden:1` 486 calls, 286,269 triangles,
+173 shadow calls; (b) `bonecaller,shieldbearer,pyre,warden` with four rattlers standing 508 calls, 286,247
+triangles, 184 shadow calls: +4.5%, no stop.
+
+**Stage C - wiring.** `tests/browser/dealt-kinds.spec.ts`: floor 3 of seed 15841 (a caller in a layer-1 chamber, a
+purse), one story through a real door and real strikes: the reserve is buried with `summoner` = the caller's floor-wide
+spawn index; a raised rattler cut down goes back under and pays nothing; the pack and then the caller fall, nothing
+called outlives the caller, only the caller and the purse pay, and the chamber opens. Planted and caught: no
+`buryReserves` [the caller arrived with no reserve]; `fell` skipping its reassemble branch [a raised rattler died
+instead of going back into the ground]; `summoner` written chamber-locally [a buried body does not answer to spawn 4];
+`fell` skipping the crumble [something the caller called outlived it]. The plan expected the chamber-local plant to
+break only the last step; it breaks the first, because that step reads `summoner` off the game, and it would break
+raising too (a body answers to the index that raises it). `frame-budget.spec.ts` gains `caller-chamber` (508 calls,
+286,247 triangles, three identical runs, d3d11; counters equalled SwiftShader on the other scenes); planted: a
+reserve of two [two calls have not raised all four rattlers], a ceiling of 500 [draws more often than the budget allows].
+Also run and green: chambers, dealt-kinds, arena-kinds, arena, frame-budget, gameplay, occlusion.
+
+**Stage D - balance (30 runs a policy, the `balance:check` sweep, in place of 200-run `npm run balance`).** Every band
+holds; no stop rule trips (default escape 100, weak floor-3 deaths 7.1, no new kind among the causes of death). Per floor,
+summed over 30 runs, default policy: floor 2 blocked 24, pyre fire 90; floor 3 blocked 31, raised 8, reassembled 0,
+pyre fire 54. Deaths: weak warden 1, stalker 2; crossbow special warden 2, guard 1; none are the new kinds. Damage taken
+by the default knight: stalker 633, warden 254, archer 67, pyre 144, ember rings 2040. `measured` in `bands.json` was
+re-taken: run lengths moved by 0.3-3.7 s, and the crossbow special escapes 90 (was 80) with 10 floor-3 deaths (was 20).
+One weak-policy run is `stuck` on floor 2 (seed 158381, a lone stalker in room 8 left idle 479 s); the same policy had
+one stuck run at Stage 0 (26 escapes + 3 deaths of 30), so it is not new.
+The bots hardly notice the three kinds; whether a human does is the playtest (step 4, open).
+
+**Stage E.** README paragraph, `GAME_OVERVIEW.md` enemy list (the stale corridor and bridge lines are left for the
+operator), bestiary header, `plans/README.md` row.
+
 ## 2026-09-29 - Copy run log: the local run history can leave the browser
 
 A "Copy run log" button on the title menu, beside Sound and Fullscreen (not on the HUD, and not while paused,

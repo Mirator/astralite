@@ -27,7 +27,7 @@ import { awayFrom, burn as burnBody, landBlow } from './dungeon-hits';
 import { chargePose } from './dungeon-attack-pose';
 import { chainLength, chargeLevel, chargeReleases, devStartingArm, drawDamage, drawn, lungeStep, specialSwing, STARTING_WEAPON, TIDEBLADE, vaultHeight, vaultLanded, vaultStep, weaponById, type Special, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
-import { deathPool, flashpointHits, flyHostile, flyShot, homeStep, hostileBolt, laneLength, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
+import { deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, laneLength, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
 import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
@@ -689,7 +689,7 @@ export default function DungeonGame() {
     const arrowPool = Array.from({ length: 12 }, () => { const arrow = makeArrow(); world.add(arrow); return arrow; });
     // Fire a pyre left where it fell, burning the knight rather than the bodies. Pooled like every other effect.
     const hostilePools: { pool: Pool; mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; kind: EnemyKind }[] = [];
-    const hostilePoolMeshes = Array.from({ length: 6 }, () => { const mesh = makePoolMesh(); world.add(mesh); return mesh; });
+    const hostilePoolMeshes = Array.from({ length: HOSTILE_POOL_RINGS }, () => { const mesh = makePoolMesh(); world.add(mesh); return mesh; });
     // Plan 016: the Tolling Slam's ring on the floor while the maul is wound; the slam itself is impacts.slam.
     // An outline at the reach over a faint wash rather than the flask's solid ring: it has to say "this far"
     // under the knight for a second at a time without the paving disappearing under it. Made once at mount.

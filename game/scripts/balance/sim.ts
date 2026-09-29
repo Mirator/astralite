@@ -13,12 +13,13 @@
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
 import { canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
-import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, nearbyDozers, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
+import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, fallOf, nearbyDozers, raiseSpot, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
+import { arenaFloor, type Floor } from '../../app/dungeon-arena.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
-import { BOLT_RADIUS, flashpointHits, flyHostile, flyShot, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
+import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
@@ -70,6 +71,17 @@ export type Policy = {
   special?: boolean;
   /** Seconds the `special` policy holds a charged special before letting go; absent means its minimum. */
   charge?: number;
+  /**
+   * Plan 018: step out of a pyre's fire. While the knight stands in a hostile pool his move is away from its centre;
+   * his dodge and his strike are unchanged. Inert until a pyre has fallen, so it moves no floor that deals none.
+   * On unless it is `false`; a test switches it off to price the fire.
+   */
+  avoidFire?: boolean;
+  /**
+   * Plan 018: go for a standing bonecaller before anything nearer. On unless it is `false`; a test switches it off to
+   * watch the rattlers stand up and be cut down again, which a knight that goes straight for the caller cuts short.
+   */
+  callerFirst?: boolean;
   /** Which card to take from a draft. Defaults to the first offered. */
   pickBoon?: (offer: Boon[], run: Run) => string;
 };
@@ -136,6 +148,12 @@ export type FloorReport = {
   landed: number;
   /** Specials that reached contact (plan 016); zero for every policy but `special`. */
   specials: number;
+  /** Plan 018. Blows a shield turned aside; bodies a bonecaller stood up; raised bodies cut down and put back. */
+  blocked: number;
+  raised: number;
+  reassembled: number;
+  /** Vitality a pyre's fire took, by the kind that lit it - the part of `damage` that came from the ground. */
+  poolDamage: Record<Cause, number>;
   /**
    * One entry per room fought and cleared this floor: seconds from the first frame one of that room's woken
    * bodies came within REACH_RADIUS of the knight to the frame the room held nothing alive. It is the fight
@@ -170,6 +188,10 @@ type Body = {
   cooldown: number; hitFlash: number; windup: number; lunge: number;
   aim: { x: number; z: number };
   room: number; awake: boolean; dead: boolean;
+  // Plan 018. `face` is the yaw it last turned to (dungeon-enemy-view.ts:180 takes it from the pose; here it is
+  // `intent.face`, which agrees except mid-trail, when a shield is down anyway). A `buried` body is a
+  // summoner's reserve: asleep, untargetable and outside every count until its `summoner` (a spawn index) raises it.
+  face: number; buried: boolean; summoner: number; maxHp: number;
   // Where it spawned, for a dozing body's pace, and how far into noticing it is - see dungeon-enemy.ts.
   anchor: { x: number; z: number }; notice: number;
   // Countdown to a contagion kick a neighbour scheduled for this body; Infinity means none is pending.
@@ -240,11 +262,26 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
   return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], floors };
 }
 
-function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number): FloorReport {
-  const floor = generateFloor(seed, level);
+/**
+ * One floor laid out as the development arena (dungeon-arena.ts): `roster` awake in the Tide Gate, a caller's
+ * reserve buried under it. The run ends when the roster is dead or the knight is - never by walking out of the
+ * gate or down the stair, which is open from the start - so what a test reads is the fight.
+ */
+export function simulateArena(seed: number, level: number, roster: readonly EnemyKind[], policy: Policy = DEFAULT_POLICY): FloorReport {
+  return simulateFloor(seed, level, createRun(), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), arenaFloor(seed, level, roster), true);
+}
+
+/** One generated floor fought by a fresh knight: no earlier floors, no boons, full vitality. For a test that needs a floor and not a descent. */
+export function simulateLevel(seed: number, level: number, policy: Policy = DEFAULT_POLICY): FloorReport {
+  return simulateFloor(seed, level, createRun(), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b));
+}
+
+function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number, built?: Floor, arena = false): FloorReport {
+  const floor = built ?? generateFloor(seed, level);
   const weapon = policy.weapon;
   const damage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
-  let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0, specialCount = 0;
+  let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0, specialCount = 0, blockedCount = 0, raisedCount = 0, reassembledCount = 0;
+  const poolDamage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
   let idle = 0, aloneRun = 0, aloneMax = 0, firstContactSum = 0, firstContactCount = 0;
   // Rooms already given a first-contact measurement (whether it resolved or the knight walked on), so a
   // second visit never double-counts, and rooms currently waiting on their first arrival.
@@ -269,7 +306,10 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       hp: stats.hp, damage: stats.damage, tell: stats.tell, speed: stats.speed,
       // dungeon-game.tsx:617 staggers the opening cooldown so a pack does not swing as one.
       cooldown: 0.4 + (index % 3) * 0.2, hitFlash: 0, windup: 0, lunge: 0,
-      aim: { x: 0, z: 0 }, room: spawn.room, awake: !spawn.ambush, dead: false,
+      // A buried body sleeps until a summon tell stands it up: `awake: !spawn.ambush` alone woke the whole reserve
+      // at the start, the hole the arena's first version had (progress.md, 2026-09-26).
+      aim: { x: 0, z: 0 }, room: spawn.room, awake: !spawn.ambush && !spawn.buried, dead: false,
+      face: 0, buried: !!spawn.buried, summoner: spawn.summoner ?? -1, maxHp: stats.hp,
       anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity,
     };
   });
@@ -304,6 +344,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const hostile: { shot: Shot; kind: EnemyKind }[] = [];
   let quiver = weapon.ranged ? weapon.ranged.capacity : 0, reload = 0;
   const pools: Pool[] = [];
+  // A pyre's fire (dungeon-game.tsx:379-380): it bites the knight, not the bodies, and there are only so many rings.
+  const fires: { pool: Pool; kind: EnemyKind }[] = [];
   const cleared = new Set<number>([0]);
   // Plan 016 fight duration: when each room's fight started, and how long each finished one took.
   const fightStart = new Map<number, number>(), fights: number[] = [];
@@ -344,6 +386,44 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
 
   const stairClear = () => bodies.every(b => b.room !== floor.goal || b.dead);
 
+  // The heading a body looks along, off the yaw it last turned to (dungeon-game.tsx:392 `facingOf`).
+  const facingOf = (body: Body) => ({ x: -Math.sin(body.face), z: -Math.cos(body.face) });
+  // A body going down, however it was brought there (dungeon-game.tsx:373-393 `fell`): one a bonecaller raised
+  // and whose caller still stands goes back into the reserve whole and unpaid; any other fall is a kill, leaves a
+  // pyre's fire where it lay, and crumbles everything the fallen one called, unpaid. Whichever way the chamber
+  // was emptied, the reward is paid once (`settleRoom`).
+  const fell = (body: Body) => {
+    const fall = fallOf(bodies, bodies.indexOf(body));
+    if (fall.reassembles) {
+      const caller = bodies[body.summoner];
+      body.buried = true; body.awake = false; body.hp = body.maxHp;
+      body.windup = 0; body.lunge = 0; body.hitFlash = 0; body.notice = 0;
+      body.x = caller.x; body.z = caller.z;
+      reassembledCount++;
+      return;
+    }
+    body.dead = true;
+    resolveKill(run);
+    const fire = deathPool(body.kind, body);
+    if (fire && fires.length < HOSTILE_POOL_RINGS) fires.push({ pool: fire, kind: body.kind });
+    for (const at of fall.crumble) bodies[at].dead = true;
+    if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
+      clearRoom(body.room);
+      chamberReward(run, floor.rooms[body.room].reward);
+    }
+  };
+  // A bonecaller's tell ran out (dungeon-game.tsx:398-408 `raise`): the next `perTell` of its buried reserve stand
+  // up side by side a pace toward the knight, awake.
+  const raise = (caller: Body, index: number) => {
+    const reserve = bodies.filter(e => e.buried && !e.dead && e.summoner === index).slice(0, BESTIARY[caller.kind].summons?.perTell ?? 0);
+    reserve.forEach((body, slot) => {
+      const at = raiseSpot(floor.cells, caller, player, slot);
+      body.buried = false; body.awake = true; body.room = caller.room;
+      body.x = at.x; body.z = at.z; body.anchor = { x: at.x, z: at.z }; body.cooldown = Math.max(body.cooldown, 0.6);
+      raisedCount++;
+    });
+  };
+
   while (t < FLOOR_TIMEOUT) {
     t += DT;
     tickRun(run, DT);
@@ -374,7 +454,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
 
     // dungeon-game.tsx:826 springs a room's ambush the moment the knight is inside it.
     if (activeRoom >= 0) for (const body of bodies) {
-      if (body.room === activeRoom && !body.awake && !body.dead) { body.awake = true; body.cooldown = Math.max(body.cooldown, 0.9); }
+      if (body.room === activeRoom && !body.awake && !body.dead && !body.buried) { body.awake = true; body.cooldown = Math.max(body.cooldown, 0.9); }
     }
 
     // A room the knight stands in with nothing left alive is done with, even if it never held a body to
@@ -407,10 +487,14 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     // Only a body the knight could actually walk at in a straight line is worth charging. Without the
     // lane check it charges one through the wall of the next room and grinds there until the timeout,
     // which is what eight runs in ten did before this line existed.
-    const target = live
+    const candidates = live
       .map(b => ({ body: b, distance: Math.hypot(b.x - player.x, b.z - player.z) }))
       .filter(entry => entry.distance < 14 && hasClearPath(floor.cells, player, entry.body))
-      .sort((a, b) => a.distance - b.distance)[0];
+      .sort((a, b) => a.distance - b.distance);
+    // Plan 018: a standing caller is the target before anything nearer. Its rattlers stand up again as fast as they
+    // are cut down, so a knight that always swings at the nearest one loops until the timeout and the report
+    // says `stuck` instead of measuring the fight. Inert unless a caller is awake.
+    const target = (policy.callerFirst !== false ? candidates.find(entry => BESTIARY[entry.body.kind].summons) : undefined) ?? candidates[0];
 
     // The keyboard's eight, on the same screen basis the game builds its movement from. Snapping the
     // aim rather than the movement is deliberate: what the keys quantise is the direction the swing
@@ -508,13 +592,13 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     } else if (dashTime <= 0) {
       // Nothing awake in reach. A sealed chamber is fought out first: walk at whatever is left alive in it.
       // Once it is clear the stair, in the warden hall, or else the chosen door, and through it.
-      const quarry = bodies.filter(b => !b.dead && b.room === chamber).sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z))[0];
+      const quarry = bodies.filter(b => !b.dead && !b.buried && b.room === chamber).sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z))[0];
       const door = !quarry && chamber !== floor.goal ? chooseDoor(chamber) : undefined;
       if (door && cleared.has(chamber) && Math.hypot(door.x * TILE - player.x, door.z * TILE - player.z) < DOOR_RADIUS) {
         // The swap key, pressed the frame it arrives: the next chamber's near wall, and nothing carried over.
         const next = floor.rooms[door.to];
         chamber = next.id; player.x = next.entry.x * TILE; player.z = next.entry.z * TILE; fields.clear();
-        shots.length = 0; hostile.length = 0; pools.length = 0;
+        shots.length = 0; hostile.length = 0; pools.length = 0; fires.length = 0;
       } else {
         const field = quarry ? fieldTo(Math.round(quarry.x / TILE), Math.round(quarry.z / TILE)) : door ? fieldTo(door.x, door.z) : goalField;
         const here = field.get(packKey(cellX, cellZ));
@@ -529,6 +613,12 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       }
     }
 
+    // Plan 018: standing in a pyre's fire, walk out of it - straight away from its heart. The dodge and the strike
+    // above are unchanged; this only replaces where he walks, and only while a fire is under him.
+    if (policy.avoidFire !== false && dashTime <= 0) {
+      const burning = fires.find(f => poolCatches(f.pool, player.x, player.z));
+      if (burning) move = unit(player.x - burning.pool.x, player.z - burning.pool.z);
+    }
     if (move) { facing.x = move.x; facing.z = move.z; }
     const speed = charging !== null && dashTime <= 0 ? weapon.moveSpeed * (special?.moveScale ?? 1) : playerSpeed({ dashing: dashTime > 0, attacking: attackTime > 0, weapon: swing });
     // The lunge carries him down its line for its travel window, as dungeon-game.tsx does.
@@ -574,12 +664,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
             const body = bodies[index];
             body.hp -= swing.damage + run.strike; body.hitFlash = 0.2;
             if (body.hp <= 0) {
-              body.dead = true;
-              resolveKill(run);
-              if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
-                clearRoom(body.room);
-                chamberReward(run, floor.rooms[body.room].reward);
-              }
+              fell(body);
             }
           }
         }
@@ -606,14 +691,10 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         // The game's own blow: damage, flash, broken tell, cooldown and shove, in dungeon-hits. A strike shoves
         // with the arm's own numbers, as it always has here; a special with its own.
         const shover = isSpecial() ? swing : weapon;
-        landBlow(floor.cells, body, body, { damage: swing.damage + run.strike, stagger: swing.stagger, knockback: shover.knockback, wardenKnockback: shover.wardenKnockback }, unit(body.x - player.x, body.z - player.z));
+        // The body's facing goes in, so a shield turns a frontal blow aside as it does in the game (dungeon-game.tsx:1847).
+        if (landBlow(floor.cells, body, body, { damage: swing.damage + run.strike, stagger: swing.stagger, knockback: shover.knockback, wardenKnockback: shover.wardenKnockback }, unit(body.x - player.x, body.z - player.z), facingOf(body)).blocked) blockedCount++;
         if (body.hp <= 0) {
-          body.dead = true;
-          resolveKill(run);
-          if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
-            clearRoom(body.room);
-            chamberReward(run, floor.rooms[body.room].reward);
-          }
+          fell(body);
         }
       }
     }
@@ -634,6 +715,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       body.cooldown = intent.cooldown; body.hitFlash = intent.hitFlash; body.windup = intent.windup;
       body.lunge = intent.lunge; body.aim = intent.aim; body.notice = intent.notice;
       body.x = intent.x; body.z = intent.z;
+      if (intent.face !== null) body.face = intent.face;
+      if (intent.raise) raise(body, i);
       if (startedNoticing) {
         const snapshot: Wakeable[] = bodies.map(b => ({ x: b.x, z: b.z, room: b.room, notice: b.notice, dead: b.dead || !b.awake }));
         nearbyDozers(snapshot, i).forEach((idx, rank) => {
@@ -665,6 +748,18 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (run.hp <= 0) return endFloor('died');
     }
 
+    // A pyre's fire, burning the knight on the same clock his own burns bodies on (dungeon-game.tsx:1945-1951).
+    for (let i = fires.length - 1; i >= 0; i--) {
+      const { pool, kind } = fires[i], bite = poolStep(pool, DT);
+      pool.life = bite.life; pool.timer = bite.timer;
+      if (bite.bites && poolCatches(pool, player.x, player.z)) {
+        const dealt = hurt(run, pool.damage, { dashing: dashImmune(dashTime), warded: true });
+        damage[kind] += dealt; poolDamage[kind] += dealt;
+        if (run.hp <= 0) return endFloor('died');
+      }
+      if (pool.life <= 0) fires.splice(i, 1);
+    }
+
     // Bolts fly after the bodies have moved, against where they actually are this frame.
     if (shots.length) {
       const marks: Mark[] = bodies.map((b, index) => ({ x: b.x, z: b.z, index })).filter(mark => !bodies[mark.index].dead && bodies[mark.index].awake);
@@ -682,19 +777,14 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           const thrown = hurled ? hurledBlow(hurled, { harpoon: harpoon?.shot === shot, damage: shot.damage }, { free: !!harpoon && !harpoon.dragged, steadfast: BESTIARY[body.kind].steadfast }) : null;
           const drags = !!thrown?.drags;
           const blow = thrown ? thrown.blow : { ...weapon, damage: shot.damage };
-          landBlow(floor.cells, body, body, blow, unit(body.x - player.x, body.z - player.z));
+          if (landBlow(floor.cells, body, body, blow, unit(body.x - player.x, body.z - player.z), facingOf(body)).blocked) blockedCount++;
           if (drags && hurled?.hurl && harpoon) {
             harpoon.dragged = true;
             const pull = dragToward(body, player, hurled.hurl.drag);
             moveOnFloor(floor.cells, body, pull.x, pull.z);
           }
           if (body.hp <= 0) {
-            body.dead = true;
-            resolveKill(run);
-            if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
-              clearRoom(body.room);
-              chamberReward(run, floor.rooms[body.room].reward);
-            }
+            fell(body);
           }
         }
         if (hurled && harpoon) { harpoon.x = flight.x; harpoon.z = flight.z; }
@@ -723,12 +813,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         body.hp -= pool.damage;
         body.hitFlash = 0.2;
         if (body.hp <= 0) {
-          body.dead = true;
-          resolveKill(run);
-          if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
-            clearRoom(body.room);
-            chamberReward(run, floor.rooms[body.room].reward);
-          }
+          fell(body);
         }
       }
       if (pool.life <= 0) pools.splice(i, 1);
@@ -777,7 +862,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       takeBoon(run, policy.pickBoon ? policy.pickBoon(offer, run) : offer[0].id);
     }
 
-    if (stairClear()) {
+    // An arena has no stair to walk to: it ends when its roster is dead.
+    if (arena) { if (bodies.every(b => b.dead)) return endFloor('cleared'); }
+    else if (stairClear()) {
       // The stair waits on the swap key, and the policy presses it the frame it arrives.
       if (Math.hypot(player.x - stair.x, player.z - stair.z) < STAIR_RADIUS) return endFloor('cleared');
     }
@@ -792,7 +879,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       throw new Error(`idle attribution does not sum to idle on floor ${level} (seed ${seed}): buckets ${idleSum}, idle ${idle}`);
     }
     return {
-      level, outcome, seconds: +t.toFixed(1), kills: run.kills - startKills, spawns: floor.spawns.length, damage, surrounded,
+      level, outcome, seconds: +t.toFixed(1), kills: run.kills - startKills, spawns: floor.guardCount, damage, surrounded,
       contact: +contact.toFixed(1), idle: +idle.toFixed(1),
       idleCorridor: +idleCorridor.toFixed(2), idleBarren: +idleBarren.toFixed(2), idleSpent: +idleSpent.toFixed(2),
       idleLiveNoContact: +idleLiveNoContact.toFixed(2),
@@ -800,7 +887,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       barrenRooms: barrenRoomIds.size, spentRecrossings: spentRecross,
       alone: +aloneMax.toFixed(1),
       firstContact: +(firstContactCount ? firstContactSum / firstContactCount : 0).toFixed(2),
-      shots: shotCount, landed: landedCount, specials: specialCount, fights, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      shots: shotCount, landed: landedCount, specials: specialCount, blocked: blockedCount, raised: raisedCount, reassembled: reassembledCount, poolDamage, fights, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

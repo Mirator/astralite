@@ -10,7 +10,8 @@
 // Adding a kind, in the order the archer went in. The compiler finds the first three for you: a row here;
 // its figure (`skeletonSpec` and `PALETTE` in dungeon-skeleton.ts); its cutaway ellipse
 // (dungeon-occlusion.ts). It does not find the rest: a share in `PACK_MIX` (dungeon-floor.ts) or it is
-// never dealt; a branch in `decideEnemy` and `enemyPose` if its attack or pose style is new; the balance
+// never dealt, and for a summoner a reserve, which `buryReserves` (dungeon-floor.ts) lays under it in both
+// the generator and the arena; a branch in `decideEnemy` and `enemyPose` if its attack or pose style is new; the balance
 // sim's dodge policy for that attack (scripts/balance/sim.ts); node tests for the rule, and a browser test
 // that the running game is wired to it; then `npm run figures` to look at it, `?arena=<kind>:3` to fight it
 // (tests/README.md, The arena), and `npm run balance:check`.
@@ -155,9 +156,10 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
     },
   },
 
-  // Arena only, for now: `firstFloor: Infinity` and no share in PACK_MIX, so the floor generator never
-  // deals any of the six below and the keep plays exactly as it did. Each asks for a response nothing
-  // above asks for; which of them earn a place in the descent is a playtest question.
+  // Each of the five below asks for a response nothing above asks for. The shieldbearer, the pyre and the
+  // bonecaller were promoted into the descent by plan 018 (a `firstFloor` and a share in PACK_MIX); the
+  // reaper stays arena-only, and the rattler enters only as a bonecaller's reserve and is never dealt alone.
+  // Both keep `firstFloor: Infinity`.
 
   // Turns ordinary steel aside from the front. The opening is its own swing: the shield is down while it
   // winds up and while it recovers, so the answer is to bait the blow, step out of it and punish - or to
@@ -165,7 +167,7 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   shieldbearer: {
     stats: { hp: 3 * 4, damage: 10, tell: 0.6, speed: 1.9 },
     strikeRange: 1.55, attackRange: 1.5, holdRange: 1.15, recovery: 1.5,
-    attack: 'swing', steadfast: false, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    attack: 'swing', steadfast: false, advanceBelow: Infinity, firstFloor: 2, keepAway: 0,
     shield: { arc: 0.3 },
     look: {
       pose: 'cut', scale: [1.05, 1.05, 1.05], cue: { shape: 'arc' }, cueScale: 1, barLift: 2.15, alertLift: 2.65, barColor: 0xe89a79, gait: .4, blood: 1, heavy: false,
@@ -190,7 +192,7 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   pyre: {
     stats: { hp: 1.5 * 4, damage: 8, tell: 0.5, speed: 2.4 },
     strikeRange: 1.55, attackRange: 1.5, holdRange: 1.15, recovery: 1.3,
-    attack: 'swing', steadfast: false, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    attack: 'swing', steadfast: false, advanceBelow: Infinity, firstFloor: 2, keepAway: 0,
     deathPool: { radius: 1.7, life: 3.5, damage: 8, interval: 0.6 },
     look: {
       pose: 'cut', scale: [1, 1, 1], cue: { shape: 'arc' }, cueScale: 1, barLift: 2.2, alertLift: 2.7, barColor: 0xffb65f, gait: .48, blood: .9, heavy: false,
@@ -205,7 +207,7 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   bonecaller: {
     stats: { hp: 2 * 4, damage: 0, tell: 1.2, speed: 2.2 },
     strikeRange: 0, attackRange: 9, holdRange: 9, recovery: 2.5,
-    attack: 'summon', steadfast: false, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 5,
+    attack: 'summon', steadfast: false, advanceBelow: Infinity, firstFloor: 3, keepAway: 5,
     summons: { kind: 'rattler', count: 4, perTell: 2 },
     look: {
       pose: 'channel', scale: [1, 1.05, 1], cue: { shape: 'ring', radius: 1.1 }, cueScale: 1, barLift: 2.25, alertLift: 2.75, barColor: 0xe89a79, gait: .4, blood: 1, heavy: false,
