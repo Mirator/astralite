@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, sep } from 'node:path';
 import test from 'node:test';
-import { devOnlyHooks, findLeaks } from '../scripts/build/leaks.ts';
+import { pathToFileURL } from 'node:url';
+import { devOnlyHooks, findLeaks, gameRootFrom } from '../scripts/build/leaks.ts';
 
 const source = readFileSync(new URL('../app/dungeon-game.tsx', import.meta.url), 'utf8');
 
@@ -22,4 +25,21 @@ test('a bundle carrying a development-only hook or the eager-boot switch is repo
   // The arena ships no hook name of its own on the page it lives on; its event and its menu label are what give it away.
   assert.deepEqual(findLeaks(clean + 'dispatchEvent(new CustomEvent(`dungeon-arena`,{detail:a}))', []).leaked, ['dungeon-arena']);
   assert.deepEqual(findLeaks(clean + '"Arena · dev"', []).leaked, ['Arena · dev']);
+});
+
+test('build:check finds the game folder from a checkout path with a space in it', () => {
+  // `new URL('../../', import.meta.url).pathname` gave `/C:/Users/Miroslav%20Pavelek/...` on Windows, and the scan
+  // failed with ENOENT on `C:\C:\Users\Miroslav%20Pavelek\...\dist\client`; the `%20` breaks it on every platform.
+  const checkout = mkdtempSync(join(tmpdir(), 'with space '));
+  try {
+    const game = join(checkout, 'game');
+    mkdirSync(join(game, 'scripts', 'build'), { recursive: true });
+    const script = pathToFileURL(join(game, 'scripts', 'build', 'check.ts'));
+    assert.match(script.href, /%20/, 'the fixture URL has to carry an encoded space to test anything');
+    const root = gameRootFrom(script.href);
+    assert.equal(root, game + sep, `resolved ${root} from ${script.href}`);
+    assert.ok(existsSync(join(root, 'scripts', 'build')), `${root} is not a folder this platform can open`);
+  } finally {
+    rmSync(checkout, { recursive: true, force: true });
+  }
 });
