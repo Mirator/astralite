@@ -98,7 +98,7 @@ overturns them before Stage B starts.
 | D2 | First floor **(operator)** | Shieldbearer 2, pyre 2, bonecaller 3. | Floor 1 teaches the four base kinds. Floor 3 today adds only a third warden. The alternative is bonecaller on 2, if the Stage D playtest finds floor 2 flat. |
 | D3 | Where the shares go | Each new kind is **appended after the existing entries** of `PACK_MIX.middle` and `PACK_MIX.late`. `opening`, `ambush` and `hoard` stay unchanged. | `drawKind` walks the mix in order, so appended kinds leave stalker and archer odds exactly as they are and take only from the guard's leftover share. Ambush is the stalker's identity. A hoard is already the densest pack. |
 | D4 | Starting shares (hypothesis) | `middle`: shieldbearer .10, pyre .10 (guard .40 → .20). `late`: shieldbearer .07, pyre .07, bonecaller .08 (guard .30 → .08). | Stage 0's census replaces these with values set against the D5 targets. |
-| D5 | Targets for the census **(operator)** | Share of fight chambers holding at least one new kind: floor 2 **25–40%**, floor 3 **40–60%**. Bonecaller chambers on floor 3: **15–30%**. | "A kind you meet on most floors," not "a kind in every room". Judged again in Stage D. |
+| D5 | Targets for the census **(operator)** | Share of **eligible** chambers holding at least one new kind: floor 2 **25–40%**, floor 3 **40–60%**. Bonecaller chambers among floor 3's eligible chambers: **15–30%**. An eligible chamber is one whose pack is drawn from `PACK_MIX.middle` or `PACK_MIX.late`. Ambush, gauntlet, purse (hoard), `opening`, shrine and stair-hall chambers can never hold a new kind and are left out of the count (operator, 2026-09-29). | "A kind you meet on most floors," not "a kind in every room". Judged again in Stage D. |
 | D6 | One caller per chamber | A second bonecaller rolled into the same chamber is dealt as a guard, with no extra random draw. | Two callers means eight rattlers and two priorities, which reads as noise. |
 | D7 | Where the reserve comes from | A new pure helper, `buryReserves(spawns)` in `dungeon-floor.ts`, used by both `generateFloor` and `arenaFloor`. It appends each caller's reserve after **every** standing spawn on the floor, on the caller's tile, with `summoner` = the caller's spawn index. It makes no random draw. `guardCount` still counts only standing bodies. | One rule in one place. Appending keeps every standing index stable, and making no draw keeps the rest of the random stream unmoved. |
 | D8 | Pyre fire after a clear | It keeps burning after the chamber opens, and `clearShots` removes it at the transition (`dungeon-game.tsx:1217`, in the crossing, beside `footsteps.clear()`). Stale rings therefore never carry into the next chamber or eat into the six-ring cap. | Killing the pyre in the wrong spot is supposed to cost you. The door only lets you leave. |
@@ -240,21 +240,32 @@ Record the gates and each stage's numbers in `game/progress.md`.
 4. **Figure cost.** Run `dungeonTest.actorStats()` in an arena for each of
    shieldbearer, pyre, bonecaller and rattler (`?arena=<kind>:1&level=3`).
    Record draw calls and triangles per figure, including the shadow pass.
-5. **Worst new chamber.** Stage
-   `?arena=bonecaller:1,shieldbearer:1,pyre:1,guard:1&level=3`. Let one raise
-   land so a caller, two rattlers and three others stand, then record
-   `render.calls`, `render.triangles` and `render.shadow.calls`. Compare them
-   with the current per-chamber frame budget (`frame-budget.spec.ts`, set from
-   measurement in plan 017: flooded hall 395 calls, widest chamber 272).
+5. **Worst chamber, today and after (like for like).** Stage both in the same
+   place, the level-3 arena, and record `render.calls`, `render.triangles` and
+   `render.shadow.calls` for each:
+   - **(a) Today's worst dealable chamber:** a floor-3 purse. That is the
+     largest pack `roster()` deals (`int(2, 4 + 2)` bodies from `hoard`, plus a
+     warden), so stage `?arena=guard:4,stalker:2,warden:1&level=3`.
+   - **(b) The worst chamber 018 can deal:** a late pack with a caller in it
+     (caller plus two other bodies plus the warden), with the caller's four
+     rattlers standing. Stage
+     `?arena=bonecaller:1,shieldbearer:1,pyre:1,warden:1&level=3`, and let two
+     summon tells land so all four rattlers stand. Assert that precondition
+     (four rattlers not buried) before reading the counters.
+
+   Revised 2026-09-29 by the operator. The first version compared a six-body
+   Tide Gate chamber against the flooded-hall budget. Four guards in the gate
+   alone already read 398 calls, so that rule measured body count, not what the
+   new kinds cost.
 6. **Fixture exposure.** Grep `tests/browser` for scenarios on floors 2–3
    (`buildFloor(2`, `buildFloor(3`, `descend`) that pin a seed and depend on a
    kind or a spawn index. List them. Stage B will change which kinds those seeds
    deal.
 
-**Stop rule.** If step 5 exceeds the flooded-hall budget by more than 10%, stop.
-Report the per-figure numbers and propose a bake or palette pass for the three
-figures first. Do not raise a ceiling to make room (AGENTS.md, "Bound both
-sides").
+**Stop rule.** If (b)'s `render.calls` exceeds (a)'s by more than 10%, stop.
+Report both stagings and the per-figure numbers, then propose a remedy (for
+example, a cap on standing rattlers) for the operator to choose. Do not raise a
+ceiling to make room (AGENTS.md, "Bound both sides").
 
 ### Stage A — Sim parity (nothing dealt)
 
