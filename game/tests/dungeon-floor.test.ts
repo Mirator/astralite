@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ARRIVAL_CLEAR, canStand, drawKind, generateFloor, cellKey, moveOnFloor, PACK_MIX, TILE } from '../app/dungeon-floor.ts';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { ARRIVAL_CLEAR, buryReserves, canStand, drawKind, generateFloor, cellKey, moveOnFloor, oneCaller, PACK_MIX, TILE, type Spawn } from '../app/dungeon-floor.ts';
+import { arenaFloor } from '../app/dungeon-arena.ts';
+import { BESTIARY, type EnemyKind } from '../app/dungeon-bestiary.ts';
+import { HOSTILE_POOL_RINGS } from '../app/dungeon-projectile.ts';
 import { FOUND_WEAPONS } from '../app/dungeon-weapon.ts';
+import { sweepSeeds, takeCensus } from '../scripts/balance/census.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
 
@@ -316,10 +322,130 @@ test('archers are dealt from floor two on, never into an ambush, and floor one n
   assert.equal(drawKind(PACK_MIX.middle, 1, PACK_MIX.middle.stalker - 1e-9), 'stalker');
 });
 
-test('the arena-only kinds never appear on a generated floor', () => {
-  const arenaOnly = new Set(['shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler']);
+test('the reaper never appears on a generated floor, and a rattler only as a buried reserve', () => {
   for (const level of [1, 2, 3]) {
-    const dealt = floors(level).flatMap(floor => floor.spawns.filter(s => arenaOnly.has(s.kind)));
-    assert.deepEqual(dealt, [], `floor ${level} dealt an arena-only kind`);
+    const spawns = floors(level).flatMap(floor => floor.spawns);
+    assert.deepEqual(spawns.filter(s => s.kind === 'reaper'), [], `floor ${level} dealt a reaper`);
+    assert.deepEqual(spawns.filter(s => s.kind === 'rattler' && !s.buried), [], `floor ${level} dealt a rattler standing`);
   }
+});
+
+// --- Plan 018: the shieldbearer, the pyre and the bonecaller join the descent -------------------------------------
+
+type Recorded = { level: number; seed: number; spawns: { kind: EnemyKind; x: number; z: number; room: number; ambush: boolean }[]; layout: string };
+const recorded = JSON.parse(readFileSync(new URL('./fixtures/spawns-017.json', import.meta.url), 'utf8')).floors as Recorded[];
+const layoutHash = (floor: Floor) => createHash('sha256').update(JSON.stringify({ props: floor.props, weaponDrop: floor.weaponDrop })).digest('hex').slice(0, 16);
+/** The fixture was laid from `362db84`, before plan 018. Rolls are unchanged, so any difference is the promoted kinds and nothing else. */
+test('dealing the new kinds moves no room, prop, weapon or body: floor one is identical and deeper floors change only guards', () => {
+  assert.equal(recorded.length, 90, 'the recorded sweep is 30 floors on each of three levels');
+  let changed = 0;
+  for (const rec of recorded) {
+    const floor = generateFloor(rec.seed, rec.level), standing = floor.spawns.filter(s => !s.buried);
+    assert.equal(layoutHash(floor), rec.layout, `level ${rec.level} seed ${rec.seed}: a prop or the weapon drop moved, so a random draw was added or removed`);
+    assert.equal(standing.length, rec.spawns.length, `level ${rec.level} seed ${rec.seed}: the number of bodies changed`);
+    standing.forEach((s, i) => {
+      const was = rec.spawns[i];
+      assert.deepEqual([s.x, s.z, s.room, s.ambush], [was.x, was.z, was.room, was.ambush], `level ${rec.level} seed ${rec.seed} body ${i} moved`);
+      if (rec.level === 1) assert.equal(s.kind, was.kind, `floor one seed ${rec.seed} body ${i} changed kind`);
+      else if (s.kind !== was.kind) { assert.equal(was.kind, 'guard', `level ${rec.level} seed ${rec.seed} body ${i}: a ${was.kind} became a ${s.kind}; only guards may be replaced`); changed++; }
+    });
+  }
+  assert.ok(changed > 50, `only ${changed} guards changed kind across the recorded floors, so the promoted kinds were barely dealt`);
+});
+
+test('each promoted kind is dealt from its first floor on, and never before it', () => {
+  const dealt = (level: number, kind: EnemyKind) => sweepSeeds(level).flatMap(seed => generateFloor(seed, level).spawns).filter(s => s.kind === kind).length;
+  for (const [kind, first] of [['shieldbearer', 2], ['pyre', 2], ['bonecaller', 3]] as const) {
+    assert.equal(BESTIARY[kind].firstFloor, first, `${kind} first floor`);
+    for (let level = 1; level < first; level++) assert.equal(dealt(level, kind), 0, `${kind} was dealt on floor ${level}, before its first floor`);
+    assert.ok(dealt(first, kind) > 0, `${kind} was never dealt on floor ${first} across the sweep: pick another sweep`);
+  }
+  assert.equal(BESTIARY.reaper.firstFloor, Infinity);
+  assert.equal(BESTIARY.rattler.firstFloor, Infinity);
+});
+
+test('a second bonecaller in one pack is dealt as a guard, and no chamber holds two', () => {
+  assert.deepEqual(oneCaller(['bonecaller', 'pyre', 'bonecaller', 'bonecaller']), ['bonecaller', 'pyre', 'guard', 'guard']);
+  assert.deepEqual(oneCaller(['pyre', 'guard']), ['pyre', 'guard'], 'a pack with no caller changed');
+  // 300 keeps: an eight percent share in a pack of two or three rolls a pair in a few chambers of a hundred.
+  let callers = 0;
+  for (let seed = 1; seed <= 300; seed++) {
+    const floor = generateFloor(seed * 104729, 3), byRoom = new Map<number, number>();
+    for (const s of floor.spawns) if (s.kind === 'bonecaller') { byRoom.set(s.room, (byRoom.get(s.room) ?? 0) + 1); callers++; }
+    for (const [room, n] of byRoom) assert.equal(n, 1, `seed ${floor.seed}: chamber ${room} holds ${n} bonecallers`);
+  }
+  assert.ok(callers > 100, `only ${callers} callers across 300 keeps, so this measured nothing`);
+});
+
+test('every dealt bonecaller carries its own reserve, buried under it and listed after everything standing', () => {
+  let seen = 0;
+  for (const seed of sweepSeeds(3)) {
+    const floor = generateFloor(seed, 3), standing = floor.spawns.filter(s => !s.buried).length;
+    // Buried bodies come last, in one block, so every standing index is the one the draws gave it.
+    floor.spawns.forEach((s, i) => assert.equal(!!s.buried, i >= standing, `seed ${seed}: spawn ${i} is ${s.buried ? 'buried' : 'standing'} in the wrong block`));
+    floor.spawns.forEach((caller, index) => {
+      if (caller.kind !== 'bonecaller') return;
+      seen++;
+      const reserve = floor.spawns.filter(s => s.summoner === index);
+      assert.equal(reserve.length, BESTIARY.bonecaller.summons!.count, `seed ${seed}: caller ${index} has ${reserve.length} in reserve`);
+      for (const s of reserve) {
+        assert.ok(s.buried && s.kind === BESTIARY.bonecaller.summons!.kind && s.room === caller.room, `seed ${seed}: a reserve body is not a buried rattler in its caller's chamber`);
+        assert.deepEqual([s.x, s.z], [caller.x, caller.z], `seed ${seed}: a reserve body is not on its caller's tile`);
+        assert.ok(floor.spawns.indexOf(s) >= standing, `seed ${seed}: a reserve body is listed among the standing`);
+      }
+    });
+  }
+  assert.ok(seen >= 20, `only ${seen} callers on floor three across the sweep`);
+});
+
+test('guardCount is the number of standing spawns, buried bodies left out', () => {
+  const floor = generateFloor(sweepSeeds(3).find(seed => generateFloor(seed, 3).spawns.some(s => s.buried))!, 3);
+  assert.ok(floor.spawns.some(s => s.buried), 'precondition: this keep buries a reserve');
+  assert.equal(floor.guardCount, floor.spawns.filter(s => !s.buried).length);
+  assert.ok(floor.guardCount < floor.spawns.length);
+});
+
+test('the arena buries a reserve exactly as it did before the generator shared the rule', () => {
+  // Recorded from dungeon-arena.ts at 362db84: seed 7, floor 1, guard + bonecaller + archer.
+  const arena = arenaFloor(7, 1, ['guard', 'bonecaller', 'archer']);
+  assert.deepEqual(arena.spawns.map(s => [s.kind, s.x, s.z, s.room, s.buried ?? null, s.summoner ?? null]), [
+    ['guard', 4, 0, 0, null, null], ['bonecaller', -2, 3, 0, null, null], ['archer', -2, -3, 0, null, null],
+    ['rattler', -2, 3, 0, true, 1], ['rattler', -2, 3, 0, true, 1], ['rattler', -2, 3, 0, true, 1], ['rattler', -2, 3, 0, true, 1],
+  ]);
+  assert.equal(arena.guardCount, 3);
+  // The helper itself: no draw, standing order kept, the reserve after all of it.
+  const pack: Spawn[] = [{ x: 1, z: 2, kind: 'bonecaller', room: 4, ambush: false }, { x: 3, z: 4, kind: 'guard', room: 4, ambush: false }];
+  assert.deepEqual(buryReserves(pack).slice(0, 2), pack);
+  assert.equal(buryReserves(pack).length, 2 + BESTIARY.bonecaller.summons!.count);
+});
+
+test('stalker and archer keep their odds in the middle and late packs, and the new kinds take only from the guard', () => {
+  // Draw order is the odds: the stalker under its share, the archer in the next slice, on the floor that deals both.
+  for (const [name, stalker, archer] of [['middle', .4, .2], ['late', .5, .2]] as const) {
+    const mix = PACK_MIX[name];
+    assert.equal(drawKind(mix, 3, stalker - 1e-9), 'stalker', `${name}: stalker under its odds`);
+    assert.equal(drawKind(mix, 3, stalker + archer / 2), 'archer', `${name}: archer inside its slice`);
+    assert.equal(drawKind(mix, 3, stalker + archer - 1e-9), 'archer', `${name}: archer at the end of its slice`);
+    assert.notEqual(drawKind(mix, 3, stalker + archer), 'archer', `${name}: archer past its slice`);
+    assert.equal(drawKind(mix, 1, 0.99), 'guard', `${name}: the new kinds are not dealt on floor one`);
+  }
+});
+
+test('the census over the sweep stays inside the targets the shares were set against', () => {
+  // Plan 018 D5, over the chambers whose pack is drawn from the middle or late mix. Measured 2026-09-29 on this sweep
+  // with middle .07/.07 and late .07/.07/.08 (shieldbearer / pyre / bonecaller): floor 2 34.6%, floor 3 48.1%,
+  // bonecaller chambers on floor 3 21.4%.
+  const two = takeCensus(2), three = takeCensus(3);
+  assert.ok(two.eligible > 100 && three.eligible > 100, `too few eligible chambers to judge: ${two.eligible}, ${three.eligible}`);
+  const share = (part: number, whole: number) => part / whole * 100;
+  const f2 = share(two.eligibleHoldingAny, two.eligible), f3 = share(three.eligibleHoldingAny, three.eligible), caller = share(three.eligibleHolding.bonecaller, three.eligible);
+  assert.ok(f2 >= 25 && f2 <= 40, `floor 2: ${f2.toFixed(1)}% of eligible chambers hold a new kind, target 25-40`);
+  assert.ok(f3 >= 40 && f3 <= 60, `floor 3: ${f3.toFixed(1)}% of eligible chambers hold a new kind, target 40-60`);
+  assert.ok(caller >= 15 && caller <= 30, `floor 3: ${caller.toFixed(1)}% of eligible chambers hold a bonecaller, target 15-30`);
+});
+
+test('no chamber stands more pyres than the game has fire rings to draw', () => {
+  const most = Math.max(...[2, 3].map(level => takeCensus(level).maxPyres));
+  assert.ok(most >= 1, 'precondition: the sweep deals a pyre');
+  assert.ok(most <= HOSTILE_POOL_RINGS, `${most} pyres in one chamber, ${HOSTILE_POOL_RINGS} rings: a fire beyond the last is neither drawn nor biting`);
 });

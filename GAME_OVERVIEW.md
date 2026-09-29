@@ -43,6 +43,9 @@ Enemy behavior is meant to be learned at a glance:
 - **Guards** close distance and pressure the player with basic melee attacks.
 - **Stalkers** line up a visible long-range pounce that rewards sidestepping.
 - **Wardens** are larger, tougher enemies with wider reach, stronger blows, and committed attacks.
+- **Shieldbearers** turn aside ordinary steel from the front; the shield is down while they wind up and recover, and a stagger arm, a flank or a backstab gets past it (from floor two).
+- **Pyres** are frail, and the danger is where they die: the fire they leave bites anyone standing in it (from floor two).
+- **Bonecallers** never strike; they hold back and call up rattlers, which stand up again as fast as they are cut down while the caller lives. Reach the caller, and everything it called falls with it (from floor three).
 
 Enemy windups use visible cues, attacks require a clear path, and bodies keep enough separation to remain readable in groups. Damage briefly grants invulnerability, while hazards track their own flare cycle so overlapping threats remain consistent.
 

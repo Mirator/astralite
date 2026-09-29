@@ -97,6 +97,13 @@ const BUDGET = {
   // frames that contain no blow, and a change can spend draw calls freely in
   // the one place it actually touches.
   'strike-contact': { calls: 271, triangles: 708_588 },
+  // Plan 018: the heaviest chamber the generator can now deal - a late pack with a caller in it, the shieldbearer, the
+  // pyre and the warden standing, and the caller's four rattlers raised. Staged in the level-3 arena, and compared like
+  // for like with today's heaviest (a floor-three purse, `guard:4,stalker:2,warden:1`: 7 bodies, 486 calls, 286,269
+  // triangles), because four guards in the gate alone already read 398 and that measured body count, not the new kinds.
+  // Measured 2026-09-29 on d3d11 (whose counters equalled SwiftShader's on the three scenes above): 8 bodies, 508 calls,
+  // 286,247 triangles, 184 shadow calls, +4.5% calls on the purse. Each ceiling is the figure measured.
+  'caller-chamber': { calls: 508, triangles: 286_247 },
 } as const;
 
 /** Draws the staged frame, then holds its counters against the ceiling. */
@@ -166,6 +173,26 @@ test.describe('the widest room', () => {
     await game.teleport(centre.x, centre.z);
     await game.step(640);
     await spend(game, 'widest-chamber');
+  });
+});
+
+test.describe('the busiest chamber plan 018 deals', () => {
+  test('a caller with four rattlers standing beside a shieldbearer, a pyre and a warden stays inside its budget', async ({ game, page }) => {
+    await page.evaluate(() => (window as unknown as { dungeonTest: { buildArena: (roster: string[], level: number) => void } }).dungeonTest.buildArena(['bonecaller', 'shieldbearer', 'pyre', 'warden'], 3));
+    await game.enter();
+    // Only the caller acts: the others hold their swings so the knight lives to see the second call land.
+    await game.configureCombat({ enemies: [1, 2, 3].map((index) => ({ index, cooldown: 999, windup: 0 })) });
+    let state = await game.state();
+    for (let t = 0; t < 20_000 && state.enemies.filter((e) => e.kind === 'rattler' && !e.buried).length < 4; t += 50) {
+      await game.step(50);
+      state = await game.state();
+    }
+    // The precondition: two summon tells landed, so the whole reserve stands and none is buried.
+    expect(state.enemies.filter((e) => e.kind === 'rattler' && !e.buried), 'two calls have not raised all four rattlers').toHaveLength(4);
+    expect(state.enemies.filter((e) => e.buried), 'a body is still buried').toHaveLength(0);
+    expect(state.enemies.filter((e) => e.kind !== 'rattler').map((e) => e.kind).sort()).toEqual(['bonecaller', 'pyre', 'shieldbearer', 'warden']);
+    expect(state.health, 'the knight fell before the frame was drawn').toBeGreaterThan(0);
+    await spend(game, 'caller-chamber');
   });
 });
 

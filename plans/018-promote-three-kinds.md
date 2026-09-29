@@ -458,3 +458,16 @@ both sides bounded from this stage's measurement. Write the renderer
 Fill in per stage: gates, the numbers each stage says to record, the census
 tables, the final shares, and the planted bug for each new test with the message
 it failed with.
+
+Filled in 2026-09-29 (`feat/plan-018-three-kinds`, uncommitted); the full record, with each planted bug and the message
+it failed with, is the 2026-09-29 entry in `game/progress.md`.
+
+- **Stage 0.** `balance:check` in band (default escape 100, weak 86.7, crossbow special 80). Census with today's mixes:
+  every new-kind column 0. Figures: guard and shieldbearer 40 calls each, pyre and bonecaller 36, rattler 30. Step 5:
+  (a) purse 486 calls / 286,269 triangles; (b) caller chamber 508 / 286,247, +4.5%, no stop.
+- **Stage A.** `balance:check` printed the Stage 0 values for all 56 metrics.
+- **Stage B.** Final shares: `middle` shieldbearer .07, pyre .07; `late` shieldbearer .07, pyre .07, bonecaller .08.
+  Eligible chambers holding a new kind: floor 2 34.6%, floor 3 48.1%, bonecaller chambers on floor 3 21.4%.
+- **Stage C.** `dealt-kinds.spec.ts` and `frame-budget.spec.ts` (`caller-chamber` 508 / 286,247) green.
+- **Stage D.** Steps 1-3 done: every band holds, no stop rule tripped, `measured` re-taken. Step 4 (the operator
+  playtest, and so the D2 and D5 re-decision) is open.

@@ -147,6 +147,9 @@ export type Pool = {
   timer: number;
 };
 
+/** How many hostile fires the game can draw at once: a pyre falling with every ring lit leaves no fire, and no bite. */
+export const HOSTILE_POOL_RINGS = 6;
+
 /**
  * The fire a kind leaves where it falls (`deathPool` in the bestiary), burning from its first bite; null for
  * every kind that leaves none. What it bites is the caller's choice - the game turns these on the knight.

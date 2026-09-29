@@ -34,9 +34,48 @@ export const PACK_MIX = {
   ambush: { stalker: .85 },
   /** A fight by how far down the floor it sits: under .35 of the way, under .7, and past it. */
   opening: { stalker: .15, archer: .1 },
-  middle: { stalker: .4, archer: .2 },
-  late: { stalker: .5, archer: .2 },
+  // Plan 018: the shieldbearer, the pyre and the bonecaller are appended after the older kinds, so the stalker and
+  // the archer keep their odds exactly and the new ones take only from the guard's leftover share.
+  middle: { stalker: .4, archer: .2, shieldbearer: .07, pyre: .07 },
+  late: { stalker: .5, archer: .2, shieldbearer: .07, pyre: .07, bonecaller: .08 },
 } satisfies Record<string, PackMix>;
+
+/** A second bonecaller in one pack is dealt as a guard: two callers is eight rattlers and two priorities. No random input. */
+export const oneCaller = (pack: EnemyKind[]): EnemyKind[] => {
+  let callers = 0;
+  return pack.map(kind => kind === 'bonecaller' && callers++ > 0 ? 'guard' : kind);
+};
+
+/**
+ * A summoner's reserve, buried at its feet (plan 018): each caller's `summons.count` bodies are appended after
+ * **every** standing spawn on the floor, on the caller's tile, with `summoner` the caller's index in the list. The
+ * standing spawns keep their indices and nothing here draws a random number, so the rooms, props and weapon drop a
+ * seed lays do not move. The generator and the development arena both bury through this one rule.
+ */
+export const buryReserves = (spawns: readonly Spawn[]): Spawn[] => {
+  const all = [...spawns];
+  spawns.forEach((caller, index) => {
+    const summons = BESTIARY[caller.kind].summons;
+    for (let n = 0; n < (summons?.count ?? 0); n++) all.push({ x: caller.x, z: caller.z, kind: summons!.kind, room: caller.room, ambush: false, buried: true, summoner: index });
+  });
+  return all;
+};
+
+/**
+ * Where a chamber's pack comes from. The rule `roster` deals by, named so the census can count the chambers that
+ * can hold a promoted kind (the `middle` and `late` packs) without copying it: `none` deals nobody, `fixed` is a pack
+ * that is not drawn from a mix (the wardens, the gauntlet's stalkers), and the rest name the mix in PACK_MIX.
+ */
+export type PackSource = 'none' | 'fixed' | 'ambush' | 'hoard' | 'opening' | 'middle' | 'late';
+export const packSource = (room: Pick<Room, 'role' | 'encounter' | 'reward' | 'layer'>, level: number, goalLayer: number): PackSource => {
+  if (room.role === 'goal') return 'fixed';
+  if (room.encounter === 'sanctuary') return 'none';
+  if (room.encounter === 'gauntlet') return 'fixed';
+  if (room.encounter === 'ambush') return 'ambush';
+  if (room.reward === 'cache' && room.layer > 2) return 'hoard';
+  const progress = room.layer / goalLayer + (level - 1) * .3;
+  return progress < .35 ? 'opening' : progress < .7 ? 'middle' : 'late';
+};
 
 /**
  * Which kind one roll deals from a mix on this floor. A kind whose `firstFloor` has not come yet is
@@ -211,15 +250,16 @@ export function generateFloor(seed: number, level = 1) {
   const spawns:Spawn[]=[];
   const menace=(level-1)*.3;
   const roster=(room:Room):Spawn['kind'][]=>{
-    const progress=room.layer/goalLayer+menace,pick=(count:number,mix:PackMix):Spawn['kind'][]=>Array.from({length:count},()=>drawKind(mix,level,random()));
+    const progress=room.layer/goalLayer+menace,pick=(count:number,mix:PackMix):Spawn['kind'][]=>oneCaller(Array.from({length:count},()=>drawKind(mix,level,random())));
+    const source=packSource(room,level,goalLayer);
     if(room.role==='goal')return (level>=3?['warden','warden','warden']:['warden','warden']) as Spawn['kind'][];
-    if(room.encounter==='sanctuary')return [];
-    if(room.encounter==='gauntlet')return ['stalker','stalker'];
-    if(room.encounter==='ambush')return pick(int(3,4),PACK_MIX.ambush);
+    if(source==='none')return [];
+    if(source==='fixed')return ['stalker','stalker'];
+    if(source==='ambush')return pick(int(3,4),PACK_MIX.ambush);
     // A purse is paid for: the pack a dead end used to hold, and past halfway sometimes a warden in it.
-    if(room.reward==='cache'&&room.layer>2){const pack=pick(int(2,4+Math.min(2,level-1)),PACK_MIX.hoard);if(progress>.55&&random()<.35)pack.push('warden');return pack;}
-    if(progress<.35)return pick(int(1,2),PACK_MIX.opening);
-    if(progress<.7)return pick(int(2,3),PACK_MIX.middle);
+    if(source==='hoard'){const pack=pick(int(2,4+Math.min(2,level-1)),PACK_MIX.hoard);if(progress>.55&&random()<.35)pack.push('warden');return pack;}
+    if(source==='opening')return pick(int(1,2),PACK_MIX.opening);
+    if(source==='middle')return pick(int(2,3),PACK_MIX.middle);
     return [...pick(int(2,3),PACK_MIX.late),'warden' as const];
   };
   const tilesByRoom=new Map<number,typeof tiles>();
@@ -235,6 +275,8 @@ export function generateFloor(seed: number, level = 1) {
       spawns.push({x:t.x,z:t.z,kind,room:room.id,ambush});break;
     }
   }
+  // Buried under the callers after everything standing; makes no draw, so the drop below is unaffected.
+  const standing=spawns.length,everyone=buryReserves(spawns);
   const dropKind = FOUND_WEAPONS[int(0, FOUND_WEAPONS.length - 1)];
   const centre = {x: armRoom.x * TILE, z: armRoom.z * TILE};
   // Clear of the room's heart, which is where a stair sits, of the way in and the ways out, and of
@@ -260,7 +302,7 @@ export function generateFloor(seed: number, level = 1) {
     }
   }
   const bounds={minX:Math.min(...tiles.map(t=>t.x)),maxX:Math.max(...tiles.map(t=>t.x)),minZ:Math.min(...tiles.map(t=>t.z)),maxZ:Math.max(...tiles.map(t=>t.z))};
-  return {seed,level,rooms,edges,doors,cells,tiles,roomByCell:new Map(tiles.filter(t=>t.room>=0).map(t=>[cellKey(t.x,t.z),t.room])),bounds,props,spawns,weaponDrop,start:0,goal:goal.id,spine:rooms.map(r=>r.id),guardCount:spawns.length};
+  return {seed,level,rooms,edges,doors,cells,tiles,roomByCell:new Map(tiles.filter(t=>t.room>=0).map(t=>[cellKey(t.x,t.z),t.room])),bounds,props,spawns:everyone,weaponDrop,start:0,goal:goal.id,spine:rooms.map(r=>r.id),guardCount:standing};
 }
 
 export function canStand(cells: Set<string>, x: number, z: number, radius = 0.32) {
