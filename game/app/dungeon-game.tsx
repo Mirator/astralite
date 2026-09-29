@@ -33,6 +33,7 @@ import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { createSparks } from './dungeon-sparks';
 import { nearestFirst } from './dungeon-nearest';
+import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
 import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
@@ -176,6 +177,9 @@ export default function DungeonGame() {
   // Not derived from `best`: the record is one run, this is the distribution every balance argument in
   // progress.md currently rests on somebody's memory of.
   const [runLog, setRunLog] = useState<RunEnd[]>([]);
+  // "Copy run log": the note under the button, and the JSON itself when the clipboard refused it, shown in a read-only box so it can be copied by hand. Nothing leaves the page but through the player's own paste.
+  const [exportNote, setExportNote] = useState(''), [exportText, setExportText] = useState('');
+  const copyRuns = () => { const runs = readRuns(); if (!runs.length) { setExportText(''); setExportNote('No runs recorded yet'); return; } const text = serialiseRunExport(runs, new Date()); const count = `${runs.length} ${runs.length === 1 ? 'run' : 'runs'}`; const fallback = () => { setExportText(text); setExportNote(`Copy the ${count} below`); }; if (!navigator.clipboard?.writeText) { fallback(); return; } navigator.clipboard.writeText(text).then(() => { setExportText(''); setExportNote(`Copied ${count}`); }, fallback); };
   const [ended, setEnded] = useState<RunEnd | null>(null);
 
   // Built at call time, not at render time: the ref is only ever read inside a handler, which is the one
@@ -2465,7 +2469,9 @@ export default function DungeonGame() {
           <button data-view="controls" ref={returnFocus} className="opens" onClick={() => openView('controls')}>Controls &amp; journey<span aria-hidden="true">›</span></button>
           <button data-view="settings" ref={returnFocus} className="opens" onClick={() => openView('settings')}>Settings<span aria-hidden="true">›</span></button>
         </nav>
-        <div className="menu-settings"><button onClick={() => action('mute')}>{settings.muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button></div>
+        <div className="menu-settings"><button onClick={() => action('mute')}>{settings.muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button>{!paused && <button className="copy-runs" disabled={!hydrated || runLog.length === 0} onClick={copyRuns}>Copy run log</button>}</div>
+        {!paused && <output className="run-export">{runLog.length === 0 ? 'No runs recorded yet' : exportNote}</output>}
+        {!paused && exportText && <textarea className="run-export-text" readOnly aria-label="Run log JSON" value={exportText} ref={(el) => { el?.select(); }} />}
         {/* Development only, and outside the menu list so the list reads the same in both builds. */}
         {process.env.NODE_ENV !== 'production' && <div className="menu-dev"><button data-view="arena" ref={returnFocus} className="opens" disabled={!hydrated} onClick={() => openView('arena')}>Arena · dev<span aria-hidden="true">›</span></button></div>}
         </> : <div className="menu-panel">

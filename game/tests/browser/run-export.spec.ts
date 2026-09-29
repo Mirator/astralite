@@ -1,0 +1,61 @@
+import { expect, test } from './helpers.ts';
+import { parseRunExport } from '../../app/dungeon-run-export.ts';
+import type { RunEnd } from '../../app/dungeon-save.ts';
+
+const ORIGIN = `http://127.0.0.1:${process.env.GAME_TEST_PORT ?? 3000}`;
+// The run log is stored under the game's real key; three runs, one of them a win, so the count is not a
+// constant a wrong implementation could hit by accident.
+const STORED: RunEnd[] = [
+  { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee },
+  { at: 1_700_000_500_000, floor: 1, won: false, cause: 'guard', seconds: 31, rank: 1, xp: 20, kills: 2, boons: [], seed: 7 },
+  { at: 1_700_001_000_000, floor: 3, won: true, cause: null, seconds: 402, rank: 6, xp: 1290, kills: 44, boons: ['edge', 'ward', 'swift'], seed: 12345 },
+];
+
+// A stored blob is read on mount, so this scenario gets its own page (helpers.ts `needsOwnPage`).
+test.use({
+  storageState: { cookies: [], origins: [{ origin: ORIGIN, localStorage: [{ name: 'drowned-keep:runs', value: JSON.stringify(STORED) }] }] },
+});
+
+test('Copy run log puts the stored runs on the clipboard, and falls back to a read-only box when the clipboard refuses', async ({ game, page }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: ORIGIN });
+  const button = page.getByRole('button', { name: 'Copy run log' });
+  await expect(button).toBeEnabled();
+  // Precondition: the game itself read the stored runs, so the count below is not the fixture's word.
+  await expect(page.locator('.run-log')).toContainText('3 descents logged');
+  await expect(page.locator('.run-export-text')).toHaveCount(0);
+
+  // Keyboard: focus the button and press Enter, as the menu's other buttons are used.
+  await button.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.run-export')).toHaveText('Copied 3 runs');
+  const pasted = await page.evaluate(() => navigator.clipboard.readText());
+  const doc = parseRunExport(pasted);
+  expect(doc, 'the clipboard did not hold an astralite-runs export').not.toBeNull();
+  expect(doc!.runs).toEqual(STORED);
+  expect(Object.keys(JSON.parse(pasted) as object).sort()).toEqual(['exported', 'format', 'runs', 'version']);
+  await expect(page.locator('.run-export-text')).toHaveCount(0);
+
+  // The clipboard refuses (permission policy, insecure origin, a webview): the JSON is shown to copy by hand.
+  await page.evaluate(() => { navigator.clipboard.writeText = () => Promise.reject(new DOMException('denied', 'NotAllowedError')); });
+  await button.focus();
+  await page.keyboard.press('Enter');
+  const box = page.getByRole('textbox', { name: 'Run log JSON' });
+  await expect(box).toBeVisible();
+  await expect(box).toHaveAttribute('readonly', '');
+  await expect(page.locator('.run-export')).toHaveText('Copy the 3 runs below');
+  const shown = await box.inputValue();
+  expect(parseRunExport(shown)?.runs).toEqual(STORED);
+  // Pre-selected: the whole text is already the selection.
+  expect(await box.evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd, el.value.length])).toEqual([0, shown.length, shown.length]);
+  void game;
+});
+
+test.describe('an empty log', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+  test('says so and cannot be copied', async ({ page, game }) => {
+    void game;
+    await expect(page.getByRole('button', { name: 'Copy run log' })).toBeDisabled();
+    await expect(page.locator('.run-export')).toHaveText('No runs recorded yet');
+    await expect(page.locator('.run-log')).toHaveCount(0);
+  });
+});

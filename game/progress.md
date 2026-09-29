@@ -3388,3 +3388,24 @@ The bots hardly notice the three kinds; whether a human does is the playtest (st
 
 **Stage E.** README paragraph, `GAME_OVERVIEW.md` enemy list (the stale corridor and bridge lines are left for the
 operator), bestiary header, `plans/README.md` row.
+
+## 2026-09-29 - Copy run log: the local run history can leave the browser
+
+A "Copy run log" button on the title menu, beside Sound and Fullscreen (not on the HUD, and not while paused,
+where the run statistics are not shown either). It writes `{ format: "astralite-runs", version: 1, exported,
+runs }` to the clipboard and says "Copied N runs" under the button. If the clipboard is missing or refuses,
+the same JSON appears in a read-only, pre-selected textarea. An empty log says "No runs recorded yet" and
+disables the button. Only the `RunEnd` records are exported - no settings, bindings or device data - and
+nothing is sent anywhere.
+
+The serializer and its strict parse-back (`parseRunExport`, which reuses `parseRun` and rejects any record
+that `parseRun` would change) are pure, in `app/dungeon-run-export.ts`, with node tests in
+`tests/dungeon-run-export.test.ts` and one browser story in `tests/browser/run-export.spec.ts` (clipboard
+read-back, then a rejecting `writeText` for the fallback, plus the empty log).
+
+Planted bugs, each watched failing with its own message and restored: the export drops the last run (node:
+round-trip deep-equal; browser: `doc.runs` not equal to the stored log); the parse-back accepts a corrupt
+record (node: the damaged-paste table); the version written as 2 (node: envelope and rejection tests); the
+record leaks a field it was not given (node: the fields-only test); the fallback textarea never renders
+(browser: `toBeVisible` on "Run log JSON"); the confirmation count is off by one (browser: expected "Copied 3
+runs", received "Copied 4 runs").
