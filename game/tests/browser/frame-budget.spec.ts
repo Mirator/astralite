@@ -81,14 +81,22 @@ import {
 // binding constraint on how many separate parts a figure may be drawn as. This
 // is headroom for the characters, not a target for the architecture.
 const BUDGET = {
-  'flooded-hall': { calls: 439, triangles: 596_454 },
-  junction: { calls: 502, triangles: 1_031_148 },
+  // Plan 017, measured 2026-09-28 on SwiftShader on the re-staged scenes: flooded hall (seed 0x3) 395 /
+  // 282,841, widest chamber (seed 0x6 court) 272 / 265,703, strike contact 271 / 205,308. Strike contact is
+  // the one scene staged the same way as before, and its calls fell from 347 (2026-09-26) to 271: nothing of a
+  // neighbouring room is in frame any more. The other two are new scenes and compare with nothing; the
+  // flooded hall has two doors in frame, and a door is eleven meshes (arch, veil, five bars, sigil, ring),
+  // which is what the 375 it read before the doorway alcoves went in rose by. Each call ceiling is the figure
+  // measured, so the saving is kept rather than handed back as headroom. The triangle ceilings stay the
+  // owner's model-round headroom; the widest chamber takes the junction's.
+  'flooded-hall': { calls: 395, triangles: 596_454 },
+  'widest-chamber': { calls: 272, triangles: 1_031_148 },
   // Not one of the two heaviest frames, and here for a different reason: it is
   // the only scene that draws the blade trail, the impact accents and a hit
   // flash at once. Without it, work on how a blow lands is bounded by two
   // frames that contain no blow, and a change can spend draw calls freely in
   // the one place it actually touches.
-  'strike-contact': { calls: 447, triangles: 708_588 },
+  'strike-contact': { calls: 271, triangles: 708_588 },
 } as const;
 
 /** Draws the staged frame, then holds its counters against the ceiling. */
@@ -113,7 +121,7 @@ const spend = async (game: Game, scene: keyof typeof BUDGET) => {
 };
 
 test.describe('the busiest fight', () => {
-  test.use({ seeds: [0x60] });
+  test.use({ seeds: [0x3] });
   test('a flooded hall with the watch closing stays inside its budget', async ({
     game,
   }) => {
@@ -126,7 +134,7 @@ test.describe('the busiest fight', () => {
         floor.spawns.filter((s) => s.room === room.id && s.kind === 'guard')
           .length >= 3,
     );
-    expect(hall, 'seed 0x60 no longer holds the hall this budget was set on')
+    expect(hall, 'seed 0x3 no longer holds the hall this budget was set on')
       .toBeDefined();
     const pack = floor.spawns
       .filter((spawn) => spawn.room === hall!.id)
@@ -142,27 +150,22 @@ test.describe('the busiest fight', () => {
   });
 });
 
+// Plan 017: the junction this scene was, a trunk room with three corridors out of it and its neighbours'
+// walls in frame, no longer exists - chambers are islands and nothing else is ever in view. Its successor
+// is the largest footprint the generator lays, a full-size court, framed from its heart.
 test.describe('the widest room', () => {
-  test.use({ seeds: [0x150] });
-  test('a junction branching three ways stays inside its budget', async ({
+  test.use({ seeds: [0x6] });
+  test('the widest chamber, framed from its heart, stays inside its budget', async ({
     game,
   }) => {
     await game.enter();
     const floor = await game.floor();
-    const junction = floor.rooms.find(
-      (room) =>
-        floor.spine.includes(room.id) &&
-        floor.edges.filter(([a, b]) => a === room.id || b === room.id).length >=
-          4,
-    );
-    expect(
-      junction,
-      'seed 0x150 no longer holds the junction this budget was set on',
-    ).toBeDefined();
-    const centre = roomCentre(floor, junction!.id);
+    const court = floor.rooms.find((room) => room.role === 'path' && room.shape === 'court' && room.halfX >= 8 && room.halfZ >= 7);
+    expect(court, 'seed 0x6 no longer holds the full-size court this budget was set on').toBeDefined();
+    const centre = roomCentre(floor, court!.id);
     await game.teleport(centre.x, centre.z);
     await game.step(640);
-    await spend(game, 'junction');
+    await spend(game, 'widest-chamber');
   });
 });
 

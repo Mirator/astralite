@@ -17,7 +17,7 @@ import { getFlagstoneTexturesSteps, getMasonryTexturesSteps } from './dungeon-te
 import { createDungeonAudio } from './dungeon-audio';
 import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidate } from './dungeon-occlusion';
 import { animateCloth } from './dungeon-motion';
-import { canStand, generateFloor, hasClearPath, moveOnFloor, cellKey, TILE } from './dungeon-floor';
+import { canStand, generateFloor, hasClearPath, moveOnFloor, cellKey, TILE, type Door } from './dungeon-floor';
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
 import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
@@ -34,11 +34,11 @@ import { weaponTrail } from './dungeon-weapon-trail';
 import { createSparks } from './dungeon-sparks';
 import { nearestFirst } from './dungeon-nearest';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
-import { clearRoomReward, createRun, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
 import { dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, type Enemy, type EnemyKind } from './dungeon-enemy-view';
-import { createFloorStage, raiseFloor, type FloorArt } from './dungeon-floor-scene';
+import { createFloorStage, doorSign, raiseFloor, type DoorSign, type FloorArt } from './dungeon-floor-scene';
 import { createMood } from './dungeon-mood';
 import { driveSliced as driveSlicedSteps, linkedPrograms, pollProgramsReady as pollPrograms, precompilePost } from './dungeon-warmup';
 // What the veil says is happening, one label per stage of `stagedBuild`, and how far its bar has run.
@@ -48,6 +48,15 @@ import { actorStat, countDisposals, drainGpu, lightDiagnostics, pointLightCount,
 
 const FLOORS = 3;
 /** Short in-world lines, crossfaded one at a time under the bar (CSS only). */
+// What the prompt at the foot of the screen says a door leads to (plan 017).
+const DOOR_WORDS: Record<DoorSign, string> = { arm: 'an arm on a rack', mend: 'a mending', cache: 'a purse of experience', rest: 'a quiet shrine', stair: 'the stair down', fight: 'a fight' };
+// Each half of the fade a door is taken behind: dark by the first, lit again by the second.
+const CROSS_TIME = .15;
+// Where a chamber sits on the pause-menu map: its layer across, its place in the layer down.
+const mapNode = (floor: ReturnType<typeof generateFloor>, id: number) => {
+  const room = floor.rooms[id], layer = floor.rooms.filter(r => r.layer === room.layer), at = layer.indexOf(room);
+  return { x: room.layer * 12, y: (at - (layer.length - 1) / 2) * 11 };
+};
 const VEIL_LORE = [
   'Braziers mark the rooms the warden still watches.',
   'A skeleton that crouches low is about to lunge.',
@@ -100,6 +109,7 @@ export default function DungeonGame() {
   const [floorMap, setFloorMap] = useState<ReturnType<typeof generateFloor> | null>(null);
   const [visitedCount, setVisitedCount] = useState(1);
   const mapPlayer = useRef<SVGCircleElement>(null);
+  const crossFade = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<'playing' | 'complete' | 'won' | 'lost'>('playing');
   const [mapOpen, setMapOpen] = useState(false);
   const [floorResult, setFloorResult] = useState({ kills: 0, xp: 0, seconds: 0 });
@@ -114,7 +124,7 @@ export default function DungeonGame() {
   const settingsRef = useRef(settings);
   const applyRef = useRef<((settings: Settings, reduceMotion: boolean) => void) | null>(null);
   const reduceMotion = settings.reducedMotion ?? osReduce;
-  const [roomName, setRoomName] = useState('The Tide Gate'), [plundered, setPlundered] = useState(0);
+  const [roomName, setRoomName] = useState('The Tide Gate');
   const [advance, setAdvance] = useState(0);
   const [notice, setNotice] = useState(''), [ready, setReady] = useState(false);
   // What the keep is busy doing while the player waits on it, or null when it is not busy. Only ever set
@@ -311,7 +321,7 @@ export default function DungeonGame() {
     // (dungeon-floor-scene.ts) and replaced field by field by the next build.
     const stage = createFloorStage();
     let visited = new Set<number>([0]), cleared = new Set<number>([0]), spineRooms = new Set<number>();
-    let reached = 0, loot = 0, level = 1;
+    let reached = 0, level = 1;
     let floorStart = 0, floorKills = 0, floorXp = 0;
     // Run-scoped, not floor-scoped: these three outlive a descent and are reset only by `restart`, which
     // is what makes the logged duration, boon list and replay seed describe the whole run and not its
@@ -396,20 +406,18 @@ export default function DungeonGame() {
         burst(body.group.position, 0xb9a4ff, 14);
       });
     };
-    // The last body in a room has fallen, whatever brought it down: the room is cleansed or, if it is a dead
-    // end, plundered - paid, counted, announced and marked on the map - and the stair opens under the last
-    // warden. Steel, bolts and fire all come through here. Bolts and fire used to settle a room on a path of
-    // their own that paid the reward but never counted a dead end as plundered or marked the map, so a
-    // detour cleared with a crossbow was one the HUD said the player had never taken.
+    // The last body in a chamber has fallen, whatever brought it down: it pays what its door promised, its
+    // ways out open, it is announced and marked on the map, and the stair opens under the last warden.
+    // Steel, bolts and fire all come through here, so no weapon can clear a chamber the doors disagree about.
     const settleRoom = (id: number) => {
       if (!cleared.has(id) && stage.enemies.every(e => e.room !== id || e.dead)) {
         cleared.add(id);
-        const room = floor.rooms[id], detour = room.role === 'branch';
-        award(clearRoomReward(run, detour));
-        if (detour) { loot++; setPlundered(loot); }
-        setNotice(`${room.name} · ${detour ? 'dead end plundered' : 'cleansed'}`);
+        const room = floor.rooms[id], ways = stage.doors.filter(view => view.door.from === id);
+        award(chamberReward(run, room.reward));
+        setNotice(`${room.name} · ${ways.length ? 'the way on opens' : 'cleansed'}`);
         noticeTime = 3.5; rewardTime = 1.4; audio.play('clear'); burst(player.position,0x71f4c4,18);
-        document.getElementById(`map-room-${id}`)?.setAttribute('fill', detour ? '#c2b273' : '#a8d5b0');
+        for (const view of ways) burst(view.spot, view.color, 14);
+        document.getElementById(`map-room-${id}`)?.setAttribute('fill', '#a8d5b0');
       }
       if (id === floor.goal && stairClear()) openStair();
     };
@@ -626,7 +634,9 @@ export default function DungeonGame() {
     // Whether the knight is inside the rack's ring this frame, and what the prompt was last told. The
     // second exists only so the offer is pushed into React on the step he arrives and the step he leaves,
     // rather than sixty times a second for as long as he stands there.
-    let overDrop = false, offered: WeaponId | 'stair' | null = null, ringLit = 0;
+    let overDrop = false, offered: WeaponId | 'stair' | `door:${number}` | null = null, ringLit = 0;
+    // Plan 017: the door the knight is standing at, and the fade he is crossing to the next chamber behind.
+    let overDoor: Door | null = null, crossing: { door: Door; time: number; flipped: boolean } | null = null;
     // Put a different arm in the knight's hand. The old geometry is released; the materials are his own
     // and outlive every swap, so nothing but the meshes is rebuilt.
     const equip = (id: WeaponId, kept?: Kept) => {
@@ -733,10 +743,11 @@ export default function DungeonGame() {
     // Push the prompt at the bottom of the screen, or take it away. Null-to-null and same-arm-to-same-arm
     // are dropped here rather than in React: the loop asks every frame and setState on every one of them
     // would re-render the whole shell sixty times a second for a line of text that never changed.
-    const showOffer = (kind: WeaponId | 'stair' | null) => {
+    const showOffer = (kind: WeaponId | 'stair' | `door:${number}` | null) => {
       if (offered === kind) return;
       offered = kind;
       if (kind === 'stair') { setSwapOffer({ act: 'take the stair down', detail: level >= FLOORS ? 'Out of the keep' : `To floor ${level + 1}` }); return; }
+      if (kind?.startsWith('door:')) { const to = floor.rooms[floor.doors[Number(kind.slice(5))].to]; setSwapOffer({ act: 'take this door', detail: `${to.name} · ${DOOR_WORDS[doorSign(to)]}` }); return; }
       const arm = kind === null ? null : weaponById(kind);
       setSwapOffer(arm ? { act: `switch to ${arm.name}`, detail: arm.detail } : null);
     };
@@ -1001,10 +1012,12 @@ export default function DungeonGame() {
       // endSpecial first: a spear in the air is one of the shots, and dropping it without it leaves the arm out of hand.
       swingHits.clear();slash.clear();endSpecial();clearShots();blood.clear();posePlayer(0);
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
-      reached = 0; loot = 0; activeRoom = 0; pathCell = ''; distances.clear();
+      reached = 0; activeRoom = 0; pathCell = ''; distances.clear(); overDoor = null; crossing = null; if (crossFade.current) crossFade.current.style.opacity = '0';
       // The floor itself - paving, flood, parapets, atmosphere, the walking-surface index, hazards, shrines,
       // the stair and every skeleton - is raised by dungeon-floor-scene.ts, one timed phase per yield.
       for (const name of raiseFloor(floor, level, floorGroup, pavingPlan, stage, floorArt)) { phase(name); yield; }
+      // The gate holds nobody, so its doors stand open from the first frame; every other door starts barred.
+      for (const view of stage.doors) view.bars.visible = !cleared.has(view.door.from);
       // Every texture the new floor uses goes to the GPU now. three.js otherwise uploads a texture the
       // first frame something using it is on screen, so which ones were resident depended on where the
       // camera happened to look: walking into a new room hitched on the upload, and the renderer's texture
@@ -1033,7 +1046,7 @@ export default function DungeonGame() {
       // Room fills are painted imperatively as rooms are explored, so the map has to be a new element
       // every build — keying it on the seed alone would keep a retried floor's old fills on screen.
       setFloorMap(floor); setFloorBuild(build => build + 1); setFloorLevel(level); setRoomName(floor.rooms[0].name);
-      setVisitedCount(1); setPlundered(0); setAdvance(0);
+      setVisitedCount(1); setAdvance(0);
       buildMs.total = +(performance.now() - clock).toFixed(1);
     }
     // Runs `buildFloorSteps` to completion synchronously - every caller before plan 015 Stage C.2, and
@@ -1189,14 +1202,38 @@ export default function DungeonGame() {
       audio.play('dash'); slash.clear(); posePlayer(0);
 
     };
+    // Plan 017: a door is taken behind a short fade. The knight is set down in the next chamber at the dark
+    // point of it, so the move is never seen; a reduced-motion player gets a plain cut instead.
+    const takeDoor = (door: Door) => {
+      crossing = { door, time: 0, flipped: false }; overDoor = null; showOffer(null); dropBuffers(pc);
+      audio.play('clear');
+    };
+    // The next chamber is all there is: the knight at its near wall facing its far one, the camera and the
+    // lights on him at once, and nothing of the last chamber's blows, bolts or footprints carried across.
+    const arrive = (id: number) => {
+      const room = floor.rooms[id];
+      player.position.set(room.entry.x * TILE, .03, room.entry.z * TILE); player.rotation.y = 0; pc.facing.x = 0; pc.facing.z = -1;
+      velocity.set(0,0,0); cameraFocus.copy(player.position);
+      swingHits.clear(); slash.clear(); clearShots(); footsteps.clear(); impacts.clear(); sparks.clear();
+      dashTrails.forEach(m=>{m.userData.life=0;m.visible=false;});
+      pathCell = ''; updatePaths(); mood.move(1, floor, player.position.x, player.position.z);
+    };
+    const stepCrossing = (frameDt: number) => {
+      if (!crossing) return;
+      crossing.time += frameDt;
+      if (!crossing.flipped && (easeMotion || crossing.time >= CROSS_TIME)) { arrive(crossing.door.to); crossing.flipped = true; crossing.time = easeMotion ? CROSS_TIME * 2 : CROSS_TIME; }
+      const shade = easeMotion ? 0 : crossing.flipped ? 2 - crossing.time / CROSS_TIME : crossing.time / CROSS_TIME;
+      if (crossFade.current) crossFade.current.style.opacity = String(Math.max(0, Math.min(1, shade)));
+      if (crossing.flipped && crossing.time >= CROSS_TIME * 2) crossing = null;
+    };
     // Answer the rack, or the open stair. Nothing happens unless the knight is standing in a rack's ring
     // or on the stair once its wardens are down, so the key is inert everywhere else in the keep rather
     // than a second thing to be careful with. The rack wins if he somehow stands in both, because the
     // prompt names the arm then. What he was holding goes down where the new arm lay: a swap he regrets
     // is a walk back, not a dead run.
     const requestSwap = () => {
-      if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing' || building) return;
-      if (!drop || !overDrop) { if (stairOpen && onStair) descend(); return; }
+      if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing' || building || crossing) return;
+      if (!drop || !overDrop) { if (stairOpen && onStair) descend(); else if (overDoor && cleared.has(overDoor.from)) takeDoor(overDoor); return; }
       // Both arms keep their own clocks: read the one in hand before `equip` hands over the rack's.
       const taken = weaponById(drop.kind), set = pc.weapon.id, at = { x: drop.x, z: drop.z }, left = keep();
       equip(drop.kind, drop.kept);
@@ -1525,6 +1562,7 @@ export default function DungeonGame() {
       }
       dashTrails.forEach(m=>{m.userData.life=Math.max(0,m.userData.life-dt);m.visible=m.userData.life>0;if(!m.visible)return;(m.material as THREE.MeshBasicMaterial).opacity=m.userData.life*1.8;m.scale.x=.6+m.userData.life*2;});
       if (hasStarted && gameStatus === 'playing') {
+        stepCrossing(frameDt);
         tickBuffers(pc, dt); specialBuffer = Math.max(0, specialBuffer - dt);
         // A dash that waited out the live blade goes first, the moment the recovery begins and ahead of the
         // next held swing, or holding strike would swallow every dodge pressed mid-swing.
@@ -1567,11 +1605,15 @@ export default function DungeonGame() {
           // Only the trunk counts as progress; a dead end must never read as ground gained.
           if (spineRooms.has(currentRoom.id) && currentRoom.depth > reached) { reached = currentRoom.depth; setAdvance(reached); }
           if (currentRoom.id === floor.goal && !stairClear()) { setNotice(`${goalRoom().name} · wardens bar the stair`); noticeTime = 4; }
+          // Plan 017: a chamber with nobody in it has nothing to hold the knight for, so its ways on are
+          // open the moment he arrives. Any other seals behind him until its last body falls.
+          if (!cleared.has(roomId) && !stage.enemies.some(e => e.room === roomId)) { cleared.add(roomId); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#a8d5b0'); }
+          const node = mapNode(floor, roomId); mapPlayer.current?.setAttribute('cx', String(node.x)); mapPlayer.current?.setAttribute('cy', String(node.y));
           const sprung = stage.enemies.filter(e => e.room === currentRoom.id && !e.awake && !e.dead && !e.buried);
           if (sprung.length) {
             sprung.forEach(e => { e.awake = true; e.group.visible = true; e.cooldown = Math.max(e.cooldown, 0.9); burst(e.group.position, 0xff4529, 10); });
             setNotice(`${currentRoom.name} · ambush`); noticeTime = 3; audio.play('warn'); shake = 0.12;
-          }
+          } else if (!cleared.has(roomId) && currentRoom.id !== floor.goal) { setNotice(`${currentRoom.name} · sealed`); noticeTime = 2.5; audio.play('warn'); }
         }
         // The stair opens when the last warden falls and, like a rack, only ever offers: it takes the knight
         // down when he stands on it and presses the swap key, so the floor ends on a choice he made, never on
@@ -1588,6 +1630,19 @@ export default function DungeonGame() {
           drop.ring.scale.setScalar(1 + ringLit * .12);
           drop.group.rotation.y += dt * (overDrop ? 1.5 : .45);
         }
+        // Plan 017: this chamber's ways out. Barred until it is clear, lit once it is, and brighter still
+        // under the knight's feet, like the rack's ring: the door is his for the asking, and the asking is
+        // the swap key.
+        overDoor = null;
+        for (const view of stage.doors) {
+          if (view.door.from !== activeRoom) continue;
+          const open = cleared.has(view.door.from), near = !crossing && Math.hypot(player.position.x - view.spot.x, player.position.z - view.spot.z) < DOOR_RADIUS;
+          if (near) overDoor = view.door;
+          view.lit += ((open ? .5 : 0) + (open && near ? .5 : 0) - view.lit) * (1 - Math.exp(-9 * dt));
+          view.bars.visible = !open;
+          view.veil.material.opacity = .08 + view.lit * .5; view.ring.material.opacity = .15 + view.lit * .7;
+          view.sigil.rotation.y = t * 1.2; view.sigil.position.y = 1.25 + Math.sin(t * 2 + view.door.id) * .08; view.sigil.material.emissiveIntensity = .6 + view.lit * 1.6;
+        }
         if (!stairOpen && stairClear()) openStair();
         if (stairOpen) {
           onStair = Math.hypot(player.position.x - stage.stairSpot.x, player.position.z - stage.stairSpot.z) < STAIR_RADIUS;
@@ -1601,7 +1656,7 @@ export default function DungeonGame() {
           ember.bid(lampAt.set(stage.stairSpot.x, .55, stage.stairSpot.z), Math.hypot(player.position.x - stage.stairSpot.x, player.position.z - stage.stairSpot.z), 9 + stairLit * 19, 0xfbc956);
         }
         // One prompt, asked once a frame, so the rack and the stair never take turns clearing each other's.
-        showOffer(drop && overDrop ? drop.kind : stairOpen && onStair ? 'stair' : null);
+        showOffer(drop && overDrop ? drop.kind : stairOpen && onStair ? 'stair' : overDoor && cleared.has(overDoor.from) ? `door:${overDoor.id}` : null);
         if (gameStatus !== 'playing') return;
         for (const feature of stage.features) {
           const near = Math.hypot(player.position.x-feature.mesh.position.x, player.position.z-feature.mesh.position.z);
@@ -2033,7 +2088,6 @@ export default function DungeonGame() {
       mood.move(1 - Math.exp(-6 * frameDt), floor, player.position.x, player.position.z);
       playerRing.position.set(player.position.x,0.04,player.position.z); (playerRing.material as THREE.MeshBasicMaterial).opacity = pc.dashTime > 0 ? 0.85 : 0.14; ringTime.value = t;
       moon.position.copy(player.position).setY(0).add(MOONRISE); moon.target.position.set(player.position.x,0,player.position.z); moon.target.updateMatrixWorld();
-      mapPlayer.current?.setAttribute('cx', String(player.position.x / TILE)); mapPlayer.current?.setAttribute('cy', String(player.position.z / TILE));
       if (dashMeter.current) dashMeter.current.value = Math.max(0,1-pc.dashCooldown/run.dashSpan);
       if (dashSweep.current) dashSweep.current.style.setProperty('--ready', String(Math.max(0,Math.min(1,1-pc.dashCooldown/run.dashSpan))));
       if (specialSweep.current) { specialSweep.current.style.setProperty('--ready', String(pc.weapon.special ? harpoon ? 0 : pc.weapon.special.draw ? quiver > 0 ? 1 : Math.min(1, reload / (pc.weapon.ranged?.refill ?? 1)) : Math.max(0, Math.min(1, 1 - run.specialCooldown / pc.weapon.special.cooldown)) : 1)); specialSweep.current.parentElement?.classList.toggle('special-ready', glintTime > 0); }
@@ -2179,9 +2233,10 @@ export default function DungeonGame() {
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, fault: faulted, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
       arena: arena ? { roster: [...arena.roster], level: arena.level } : null,
       health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: pc.weapon.special ?? null }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), hostilePools: hostilePools.map(h => ({ kind: h.kind, x: h.pool.x, z: h.pool.z, radius: h.pool.radius, life: h.pool.life, damage: h.pool.damage })), boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: stage.enemies.filter(e => !e.dead && !e.buried).length,
-      objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, onStair: stairOpen && onStair, deadEndsPlundered: loot },
+      objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, onStair: stairOpen && onStair },
+      chamber: { id: activeRoom, layer: floor.rooms[activeRoom]?.layer ?? -1, reward: floor.rooms[activeRoom]?.reward ?? null, sealed: !cleared.has(activeRoom), crossing: crossing ? (crossing.flipped ? 'in' : 'out') : null, doors: stage.doors.filter(view => view.door.from === activeRoom).map(view => ({ id: view.door.id, to: view.door.to, sign: doorSign(floor.rooms[view.door.to]), x: view.spot.x, z: view.spot.z, radius: DOOR_RADIUS, open: !view.bars.visible, over: overDoor?.id === view.door.id })) },
       stair: { x: stage.stairSpot.x, z: stage.stairSpot.z, radius: STAIR_RADIUS },
-      drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered: offered === 'stair' ? null : offered } : null,
+      drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered: offered === 'stair' || offered?.startsWith('door:') ? null : offered } : null,
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, shadow: post.shadow, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: pointLightCount(scene), programs: linkedPrograms(renderer), warmUp, quality: post.quality },
       effects: { impacts: impacts.active, sparks: sparks.active, shock: impacts.shock, flares: flares.length, lane: lane.visible ? { length: lane.scale.y * 1.15, opacity: lane.material.opacity } : null, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
@@ -2300,10 +2355,10 @@ export default function DungeonGame() {
   const roomCount = floorMap?.rooms.length ?? 0;
   const goalName = floorMap?.rooms[floorMap.goal].name ?? 'The Sunken Stair';
   const goalDepth = floorMap?.rooms[floorMap.goal].depth ?? 0;
-  const deadEnds = floorMap?.rooms.filter(r => r.role === 'branch').length ?? 0;
-  const mapAngle = Math.atan2(9.2,11.5), mapCos = Math.cos(mapAngle), mapSin = Math.sin(mapAngle);
-  const mapCorners = floorMap ? [[floorMap.bounds.minX,floorMap.bounds.minZ],[floorMap.bounds.maxX,floorMap.bounds.minZ],[floorMap.bounds.minX,floorMap.bounds.maxZ],[floorMap.bounds.maxX,floorMap.bounds.maxZ]].map(([x,z])=>({x:x*mapCos-z*mapSin,y:x*mapSin+z*mapCos})) : [{x:0,y:0}];
-  const mapBounds = {x:Math.min(...mapCorners.map(p=>p.x))-4,y:Math.min(...mapCorners.map(p=>p.y))-4,width:Math.max(...mapCorners.map(p=>p.x))-Math.min(...mapCorners.map(p=>p.x))+8,height:Math.max(...mapCorners.map(p=>p.y))-Math.min(...mapCorners.map(p=>p.y))+8};
+  // Plan 017: the map is the floor's chambers as the doors join them - the gate on the left, the stair on
+  // the right, a column per layer - rather than their footprints, which now stand far apart in the sea.
+  const mapNodes = floorMap ? floorMap.rooms.map(r => mapNode(floorMap, r.id)) : [{x:0,y:0}];
+  const mapBounds = {x:Math.min(...mapNodes.map(p=>p.x))-6,y:Math.min(...mapNodes.map(p=>p.y))-6,width:Math.max(...mapNodes.map(p=>p.x))-Math.min(...mapNodes.map(p=>p.x))+12,height:Math.max(...mapNodes.map(p=>p.y))-Math.min(...mapNodes.map(p=>p.y))+12};
   const action = (detail: string) => window.dispatchEvent(new CustomEvent('dungeon-action', { detail }));
   // The HUD is deliberately bare, so the log gets one line and no more: how many descents, how many got
   // out, and the floor that has taken the most. The full history is `window.dungeonTest.runLog()`.
@@ -2333,6 +2388,8 @@ export default function DungeonGame() {
   return (
     <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}${ready ? ' world-ready' : ''}${plainVeil ? ' plain-chrome' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
+      {/* Plan 017: the dark a door is taken behind. Driven imperatively from the frame loop, never by React. */}
+      <div ref={crossFade} className="chamber-fade" aria-hidden="true" />
       {/* Plan 015 Stage A.3: a static frame of the keep (npm run backdrop), standing in for the live one
           that used to build behind the menu. Pre-start only, under the intro gradient, never over a
           started run - `.game-canvas` carries the live keep once one exists. Document-relative for the
@@ -2374,14 +2431,11 @@ export default function DungeonGame() {
         </div>
         {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
         {ammo && <div className="quiver" role="progressbar" aria-label="Bolts in hand" aria-valuemin={0} aria-valuemax={ammo.of} aria-valuenow={ammo.held}>{Array.from({ length: ammo.of }, (_, i) => <i key={i} className={i < ammo.held ? 'held' : ''} />)}</div>}<progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} /></section>
-      {floorMap && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action(mapOpen ? 'pause' : 'map')} aria-label={mapOpen ? 'Close floor map' : 'Open floor map'}><svg key={floorBuild} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g transform={`rotate(${mapAngle*180/Math.PI})`}>
-        {/* Plan 014 round 5 (lever C9): brighter, more saturated fills - the round-3 frame gave the
-            panel real contrast against the world behind it, but the room shapes inside it were still
-            close enough in value to the panel to read as a smudge rather than a map. */}
-        <path d={floorMap.tiles.map(t => `M${t.x - 0.5},${t.z - 0.5}h1v1h-1z`).join('')} fill="#3f6572" />
-        {floorMap.rooms.map(r => <path key={r.id} id={`map-room-${r.id}`} d={floorMap.tiles.filter(t=>t.room===r.id).map(t=>`M${t.x-.5},${t.z-.5}h1v1h-1z`).join('')} fill={r.id===0?'#6fd1c0':r.role==='goal'?'#d9a24f':'#5c9aa5'} />)}
-        <circle className="map-mark" cx={floorMap.rooms[floorMap.goal].x} cy={floorMap.rooms[floorMap.goal].z} r="3.4" fill="none" stroke="#ffc573" strokeWidth="0.9" opacity="0.9" />
-        <circle ref={mapPlayer} className="map-mark" cx={floorMap.rooms[0].x} cy={floorMap.rooms[0].z} r="1.8" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
+      {floorMap && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action(mapOpen ? 'pause' : 'map')} aria-label={mapOpen ? 'Close floor map' : 'Open floor map'}><svg key={floorBuild} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g>
+        {floorMap.doors.map(d => <line key={`door-${d.id}`} x1={mapNodes[d.from].x} y1={mapNodes[d.from].y} x2={mapNodes[d.to].x} y2={mapNodes[d.to].y} stroke="#3f6572" strokeWidth="1.1" />)}
+        {floorMap.rooms.map(r => <circle key={r.id} id={`map-room-${r.id}`} cx={mapNodes[r.id].x} cy={mapNodes[r.id].y} r="2.6" fill={r.id===0?'#6fd1c0':r.role==='goal'?'#d9a24f':'#5c9aa5'} />)}
+        <circle className="map-mark" cx={mapNodes[floorMap.goal].x} cy={mapNodes[floorMap.goal].y} r="4.4" fill="none" stroke="#ffc573" strokeWidth="0.9" opacity="0.9" />
+        <circle ref={mapPlayer} className="map-mark" cx={mapNodes[0].x} cy={mapNodes[0].y} r="1.6" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
       </g></svg></button>}
       {notice && started && !paused && status === 'playing' && boonChoice.length === 0 && <output className="chamber-notice"><b>{notice.split(' · ').pop()}</b></output>}
       {/* The one prompt allowed to sit in the world, and it is not persistent: it exists only while the knight
@@ -2397,7 +2451,7 @@ export default function DungeonGame() {
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
       {menuOpen && <div className="intro-screen"><section className={`intro-card${menuView === 'main' ? '' : ' sub-view'}`} role="dialog" aria-modal="true" aria-labelledby="intro-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : arenaOn ? `ARENA · ${arenaOn.roster.length} ${arenaOn.roster.length === 1 ? 'FOE' : 'FOES'} · FLOOR ${arenaOn.level}` : 'THE DROWNED KEEP'}</span><h1 id="intro-title">{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
         {menuView === 'main' ? <>
-        {paused && <p>{advance} / {goalDepth} halls · {visitedCount} / {roomCount} explored · {plundered} / {deadEnds} plundered<br />Rank {rank} · {experience} XP · {rankXp} / {rankNeed} to next boon{xpReward > 0 ? ` · +${xpReward} XP` : ''}</p>}
+        {paused && <p>{advance} / {goalDepth} chambers down · {visitedCount} of {roomCount} seen<br />Rank {rank} · {experience} XP · {rankXp} / {rankNeed} to next boon{xpReward > 0 ? ` · +${xpReward} XP` : ''}</p>}
         {!paused && best && <p className="best-run">Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</p>}
         {!paused && tally.runs > 0 && <p className="run-log">{tally.runs} {tally.runs === 1 ? 'descent' : 'descents'} logged · {tally.wins} escaped{tally.worstFalls > 0 ? ` · floor ${tally.worstFloor} has taken ${tally.worstFalls}` : ''}</p>}
         <nav className="menu-list" aria-label={paused ? 'Pause menu' : 'Main menu'}>

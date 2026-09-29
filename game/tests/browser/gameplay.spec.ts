@@ -11,6 +11,7 @@ import {
   trackEnemy,
   hold,
   release,
+  type Floor,
   type Point,
   type Snapshot,
 } from './helpers.ts';
@@ -44,6 +45,29 @@ const isolated = (state: Snapshot, kind: Enemy['kind']) => {
     found,
     `the pinned floor has no isolated, hazard-free ${kind}`,
   ).toBeDefined();
+  return found!;
+};
+
+/**
+ * Plan 017: a sealed chamber holds its whole pack together, so no body of a pack is ever alone the way one
+ * standing in a wide trunk hall used to be. The kind asked for is kept, hazard-free, and every other
+ * awake body in its chamber is walked out to the empty gate - another island, which nothing crosses - so
+ * the one left is isolated in fact rather than by the luck of a seed.
+ */
+const alone = async (game: Game, floor: Floor, state: Snapshot, kind: Enemy['kind']) => {
+  const hazards = state.features.filter((feature) => !feature.shrine);
+  const found = state.enemies.find((enemy) => enemy.kind === kind && enemy.awake && enemy.room > 0 &&
+    hazards.every((hazard) => Math.hypot(hazard.x - enemy.x, hazard.z - enemy.z) > 8));
+  expect(found, `the pinned floor has no awake, hazard-free ${kind} past the gate`).toBeDefined();
+  const mates = state.enemies.map((enemy, index) => ({ enemy, index })).filter(({ enemy }) => enemy !== found && enemy.awake && enemy.room === found!.room);
+  const gate = floor.tiles.filter((tile) => tile.room === 0).map((tile) => ({ x: tile.x * TILE, z: tile.z * TILE }))
+    .filter((spot, i, all) => all.findIndex((other) => Math.hypot(other.x - spot.x, other.z - spot.z) < 2.5) === i);
+  expect(gate.length, 'the gate has no room to park the rest of the pack').toBeGreaterThanOrEqual(mates.length);
+  if (mates.length) await game.configureCombat({ enemies: mates.map(({ index }, i) => ({ index, x: gate[i].x, z: gate[i].z, cooldown: 60 })) });
+  const after = await game.state();
+  const at = state.enemies.indexOf(found!);
+  const left = after.enemies.filter((enemy, index) => index !== at && enemy.awake && Math.hypot(enemy.x - found!.x, enemy.z - found!.z) <= 6);
+  expect(left, `bodies still stand beside the ${kind}`).toEqual([]);
   return found!;
 };
 
@@ -224,7 +248,7 @@ test.describe('committed enemy attacks', () => {
     await game.enter();
     const floor = await game.floor();
     const opening = await game.state();
-    const stalker = isolated(opening, 'stalker');
+    const stalker = await alone(game, floor, opening, 'stalker');
     const anchor = { x: stalker.x, z: stalker.z };
     const spot = laneSpot(floor, anchor, 2.7, {
       avoid: opening.features.map((f) => ({ x: f.x, z: f.z })),
@@ -247,7 +271,7 @@ test.describe('committed enemy attacks', () => {
     await game.enter();
     const floor = await game.floor();
     const opening = await game.state();
-    const stalker = isolated(opening, 'stalker');
+    const stalker = await alone(game, floor, opening, 'stalker');
     const anchor = { x: stalker.x, z: stalker.z };
     const spot = laneSpot(floor, anchor, 2.7, {
       avoid: opening.features.map((f) => ({ x: f.x, z: f.z })),
@@ -303,7 +327,7 @@ test.describe('committed enemy attacks', () => {
     const floor = await game.floor();
     const opening = await game.state();
     expect(floor.level, 'archers are dealt from floor two').toBe(2);
-    const archer = isolated(opening, 'archer');
+    const archer = await alone(game, floor, opening, 'archer');
     const anchor = { x: archer.x, z: archer.z };
     // Everything else in its room goes on a long cooldown, so a bolt is the only thing that can hurt him.
     const others = opening.enemies

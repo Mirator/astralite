@@ -238,7 +238,11 @@ export type Snapshot = {
     stairOpen: boolean;
     /** Whether the knight stands on the open stair, where the swap key takes him down. */
     onStair: boolean;
-    deadEndsPlundered: number;
+  };
+  /** Plan 017: the chamber the knight stands in and its ways out. */
+  chamber: {
+    id: number; layer: number; reward: 'arm' | 'mend' | 'cache' | null; sealed: boolean; crossing: 'out' | 'in' | null;
+    doors: { id: number; to: number; sign: string; x: number; z: number; radius: number; open: boolean; over: boolean }[];
   };
   drop: {
     x: number;

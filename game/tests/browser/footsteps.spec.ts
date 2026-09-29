@@ -13,9 +13,9 @@ import { ARROW_KEYS, canStand, CAPTURING, expect, type Floor, type FootstepParti
  * the boot" is a measured difference rather than an impression.
  */
 
-/** Seed 0x5d, level 1: three empty sanctuaries, one per theme (0 keep, 5 ruins, 7 flooded), and bridges. */
+/** Seed 0x5d, level 1: three empty chambers, one per theme (0 keep, the gate; 7 ruins and 12 flooded, both shrines). */
 const SEED = 0x5d;
-const ROOMS = { keep: 0, ruins: 5, flooded: 7 } as const;
+const ROOMS = { keep: 0, ruins: 7, flooded: 12 } as const;
 /** Torches lit, water moving, mood settled - before a frame that is going to be looked at. */
 const SETTLE = 640;
 const DIRECTIONS: ScreenDirection[] = ['right', 'left', 'down', 'up'];
@@ -43,11 +43,10 @@ const clearLane = (floor: Floor, from: { x: number; z: number }, direction: { x:
   }
   return true;
 };
-const woodCells = (floor: Floor) => new Set(floor.tiles.filter(t => t.wood).map(t => cellKey(t.x, t.z)));
 /** Every screen direction that walks 4 units straight out of a room's centre on its own stone. */
 const roomLanes = (floor: Floor, room: number) => {
-  const wood = woodCells(floor), centre = roomCentre(floor, room);
-  const lanes = DIRECTIONS.filter(d => clearLane(floor, centre, SCREEN_DIRECTIONS[d], 4, k => floor.roomByCell.get(k) === room && !wood.has(k)));
+  const centre = roomCentre(floor, room);
+  const lanes = DIRECTIONS.filter(d => clearLane(floor, centre, SCREEN_DIRECTIONS[d], 4, k => floor.roomByCell.get(k) === room));
   expect(lanes.length, `seed 0x${SEED.toString(16)} room ${room} has no clear stone lane any more; pick a new fixture`).toBeGreaterThan(0);
   return { centre, lanes };
 };
@@ -328,7 +327,7 @@ test.describe('footfalls on real stone', () => {
 test.describe('the surface decides the feedback', () => {
   test.use({ seeds: [SEED] });
 
-  test('keep and ruins stone raise dust, flooded stone sheds drops, and wood gives nothing', async ({ game, page }) => {
+  test('keep and ruins stone raise dust, flooded stone sheds drops', async ({ game, page }) => {
     await game.enter();
     const floor = await game.floor();
     for (const kind of ['keep', 'ruins', 'flooded'] as const) {
@@ -350,21 +349,9 @@ test.describe('the surface decides the feedback', () => {
       expect(mid.every((p: FootstepParticle) => p.droplet === (kind === 'flooded')), `${kind}: wrong particle shape`).toBe(true);
       await game.step(400);
     }
-    // A bridge: its planks are support, but wood never raises dust or drops.
-    const wood = woodCells(floor);
-    const bridge = floor.tiles.filter(t => t.wood).flatMap(t => DIRECTIONS.map(d => ({ t, d })))
-      .find(({ t, d }) => clearLane(floor, { x: t.x * TILE, z: t.z * TILE }, SCREEN_DIRECTIONS[d], 3.2, k => wood.has(k)));
-    expect(bridge, 'the fixture floor has no straight bridge walk any more').toBeDefined();
-    await game.teleport(bridge!.t.x * TILE, bridge!.t.z * TILE);
-    await game.step(16);
-    const before = steps(await game.state());
-    await page.keyboard.down(ARROW_KEYS[bridge!.d]);
-    await game.step(300);
-    await page.keyboard.up(ARROW_KEYS[bridge!.d]);
-    const after = steps(await game.state());
-    expect(after.contacts - before.contacts, 'the bridge walk planted no footfalls at all').toBeGreaterThan(0);
-    expect(after.emitted, 'wood raised dust or drops').toBe(before.emitted);
-    expect(after.skipped - before.skipped).toBe(after.contacts - before.contacts);
+    // Plan 017 took the bridges out with the corridors they spanned: no floor lays a plank any more, so the
+    // walk across one that this used to end with has nothing to walk on. `wood` survives only as a field of
+    // the surface index, which tests/dungeon-surface.test.ts still reads.
   });
 
   // Determinism (reset replays the same scatter) is held by tests/dungeon-footsteps.test.ts and rebuild leaks by

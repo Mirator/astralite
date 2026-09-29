@@ -3,7 +3,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { pavingGeometry, pavingKind, ROOM_MOOD, tileHash } from './dungeon-art';
 import { addAtmosphere } from './dungeon-atmosphere';
 import { spawnEnemy, type Enemy, type EnemyArt } from './dungeon-enemy-view';
-import { cellKey, TILE, type generateFloor } from './dungeon-floor';
+import { cellKey, TILE, type Door, type generateFloor } from './dungeon-floor';
 import { tidalMaterial, weatherStone } from './dungeon-motion';
 import type { planPavingPatches } from './dungeon-paving-layout';
 import { pavingPatchGeometry } from './dungeon-paving-patches';
@@ -44,12 +44,32 @@ export type FloorStage = {
   stairRing: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> | null;
   stairGlow: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial> | null;
   stairLight: Radiance | null;
+  /** Plan 017: every chamber's ways out, and what the world drives on each. */
+  doors: DoorView[];
 };
+
+/**
+ * A way out of a chamber as the world shows it: a stone arch on the far wall, a veil of light in it tinted
+ * by what the chamber behind pays, the sigil for that reward hanging in the opening, bars while the
+ * chamber is sealed, and a ring on the floor where the knight stands to take it.
+ */
+export type DoorView = {
+  door: Door; spot: THREE.Vector3; color: number;
+  ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
+  veil: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  sigil: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  bars: THREE.Group; lit: number;
+};
+
+/** What a door promises, by the chamber behind it: its reward, or what kind of quiet it is. */
+export type DoorSign = 'arm' | 'mend' | 'cache' | 'rest' | 'stair' | 'fight';
+export const doorSign = (room: Floor['rooms'][number]): DoorSign => room.reward ?? (room.role === 'goal' ? 'stair' : room.encounter === 'sanctuary' ? 'rest' : 'fight');
+export const DOOR_TINT: Record<DoorSign, number> = { arm: 0xc9dcef, mend: 0xff8a8a, cache: 0xfbc956, rest: 0x71f4c4, stair: 0xe0a150, fight: 0xb9a4ff };
 
 export const createFloorStage = (): FloorStage => ({
   features: [], enemies: [], atmosphere: null, surfaceIndex: null, pavingSummary: { pairs: 0, settled: 0, surfaceCells: 0 },
   water: null, tide: null, parapetSkin: null,
-  stairSpot: new THREE.Vector3(), stairSeal: null, stairRing: null, stairGlow: null, stairLight: null,
+  stairSpot: new THREE.Vector3(), stairSeal: null, stairRing: null, stairGlow: null, stairLight: null, doors: [],
 });
 
 /** What the build borrows from the world it is raised in. */
@@ -356,6 +376,30 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
     stage.stairLight = litDisc(shaftSkin, 'stair-shaft-v1', 2.2); stage.stairLight.band.value = 0;
     stage.stairGlow = new THREE.Mesh(new THREE.CircleGeometry(2.05, 32), shaftSkin); stage.stairGlow.rotation.x = -Math.PI / 2; stage.stairGlow.position.set(stage.stairSpot.x, .08, stage.stairSpot.z); stage.stairGlow.visible = false; stage.stairGlow.renderOrder = 4; floorGroup.add(stage.stairGlow);
     stage.stairRing = new THREE.Mesh(new THREE.RingGeometry(1.5, 1.85, 48), new THREE.MeshBasicMaterial({ color: 0xfbc956, transparent: true, opacity: .85, side: THREE.DoubleSide, depthWrite: false })); stage.stairRing.rotation.x = -Math.PI / 2; stage.stairRing.position.set(stage.stairSpot.x, .09, stage.stairSpot.z); stage.stairRing.visible = false; stage.stairRing.renderOrder = 5; floorGroup.add(stage.stairRing); }
+  // Plan 017: the ways out. One arch per door on the chamber's far wall, the side the camera looks away
+  // from, so nothing ever stands between the player and the choice. Every part is always drawn and only
+  // its colour, opacity and the bars' visibility change through the floor, so opening a door can never
+  // be the first frame a material is seen.
+  stage.doors = floor.doors.map((door) => {
+    const sign = doorSign(floor.rooms[door.to]), color = DOOR_TINT[sign];
+    const spot = new THREE.Vector3(door.x * TILE, 0, door.z * TILE);
+    // The wall line sits half a tile out from the standing tile, along the door's face.
+    const wx = spot.x + door.face.x * TILE * .5, wz = spot.z + door.face.z * TILE * .5, across = door.face.x !== 0 ? { x: 0, z: 1 } : { x: 1, z: 0 };
+    const stone = new THREE.MeshStandardMaterial({ color: 0x8d8578, roughness: .85 });
+    for (const side of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(.3, 2.3, .3), stone); post.position.set(wx + across.x * side * .95, 1.15, wz + across.z * side * .95); post.castShadow = true; floorGroup.add(post); }
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(across.x ? 2.3 : .36, .32, across.z ? 2.3 : .36), stone); lintel.position.set(wx, 2.36, wz); lintel.castShadow = true; floorGroup.add(lintel);
+    const veil = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2.1), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .08, side: THREE.DoubleSide, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending }));
+    veil.position.set(wx - door.face.x * .05, 1.07, wz - door.face.z * .05); veil.rotation.y = door.face.x !== 0 ? Math.PI / 2 : 0; veil.renderOrder = 4; floorGroup.add(veil);
+    const bars = new THREE.Group(), iron = new THREE.MeshStandardMaterial({ color: 0x3a2e26, metalness: .8, roughness: .55 });
+    for (let n = -2; n <= 2; n++) { const bar = new THREE.Mesh(new THREE.BoxGeometry(.07, 2.1, .07), iron); bar.position.set(wx + across.x * n * .36 - door.face.x * .12, 1.05, wz + across.z * n * .36 - door.face.z * .12); bars.add(bar); }
+    floorGroup.add(bars);
+    const shape = sign === 'arm' ? new THREE.BoxGeometry(.1, .62, .1) : sign === 'mend' ? new THREE.SphereGeometry(.24, 16, 12) : sign === 'cache' ? new THREE.OctahedronGeometry(.3) : sign === 'rest' ? new THREE.TorusGeometry(.22, .07, 8, 24) : sign === 'stair' ? new THREE.ConeGeometry(.26, .5, 4) : new THREE.TetrahedronGeometry(.3);
+    const sigil = new THREE.Mesh(shape, new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .6, metalness: .3, roughness: .3 }));
+    sigil.position.set(wx - door.face.x * .45, 1.25, wz - door.face.z * .45); floorGroup.add(sigil);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(.95, 1.15, 40), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .15, side: THREE.DoubleSide, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2; ring.position.set(spot.x, .09, spot.z); floorGroup.add(ring);
+    return { door, spot, color, ring, veil, sigil, bars, lit: 0 };
+  });
   art.placeDrop(floor.weaponDrop.kind, floor.weaponDrop.x, floor.weaponDrop.z);
   yield 'atmosphere';
   stage.enemies = floor.spawns.map((spawn, index) => spawnEnemy(spawn, index, level, floorGroup, art, TILE));

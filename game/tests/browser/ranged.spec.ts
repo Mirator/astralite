@@ -84,20 +84,27 @@ test('a flask\'s fire burns on the ground, outlives the arm that threw it, goes 
   expect(fresh.weapon.inFlight).toBe(0);
 });
 
-test('a dead end cleared with bolts is plundered, counted and marked like one cleared with steel', async ({ game, page }) => {
+test('a chamber cleared with bolts pays, opens and is marked like one cleared with steel', async ({ game, page }) => {
   // Kills by bolt and by fire used to settle a cleared room on a path of their own, which paid the reward
-  // but never counted the dead end as plundered or marked it on the map. One path serves all three now.
+  // but never counted the room or marked it on the map. One path serves steel, bolts and fire now, and it
+  // is also what opens a sealed chamber's doors (plan 017).
   await game.enter();
   await game.step(120);
   const floor = await game.floor();
-  const branch = floor.rooms.find((room) => room.role === 'branch' && floor.spawns.some((spawn) => spawn.room === room.id));
-  expect(branch, 'this floor has a dead end with bodies in it').toBeDefined();
+  const branch = floor.rooms.find((room) => room.reward === 'cache' && floor.spawns.some((spawn) => spawn.room === room.id));
+  expect(branch, 'this floor has a purse chamber with bodies in it').toBeDefined();
   const bodies = floor.spawns.map((spawn, index) => ({ spawn, index })).filter(({ spawn }) => spawn.room === branch!.id);
   // One bolt apiece, and no blow back while the knight lines each one up.
   await game.configureCombat({ enemies: bodies.map(({ index }) => ({ index, hp: 1, cooldown: 30 })) });
   await game.equip('crossbow');
   await game.teleport(branch!.x * TILE, branch!.z * TILE);
   await game.step(200);
+  const sealed = await game.state();
+  expect(sealed.chamber.id, 'the knight stands in the purse chamber').toBe(branch!.id);
+  expect(sealed.chamber.sealed, 'and it sealed behind him').toBe(true);
+  expect(sealed.chamber.doors.length, 'it has a way on').toBeGreaterThan(0);
+  expect(sealed.chamber.doors.every((door) => !door.open), 'barred while its bodies stand').toBe(true);
+  const xpBefore = sealed.experience.total;
   for (let shot = 0; shot < 16; shot++) {
     const state = await game.state();
     const left = state.enemies.filter((enemy) => enemy.room === branch!.id);
@@ -113,8 +120,9 @@ test('a dead end cleared with bolts is plundered, counted and marked like one cl
     await game.step(900);
   }
   const after = await game.state();
-  expect(after.enemies.filter((enemy) => enemy.room === branch!.id), 'every body in the dead end fell to a bolt').toEqual([]);
+  expect(after.enemies.filter((enemy) => enemy.room === branch!.id), 'every body in the chamber fell to a bolt').toEqual([]);
   expect(after.floor.cleared).toContain(branch!.id);
-  expect(after.objective.deadEndsPlundered, 'the dead end counts as plundered').toBe(1);
-  await expect(page.locator(`#map-room-${branch!.id}`), 'and is marked on the map as one').toHaveAttribute('fill', '#c2b273');
+  expect(after.experience.total - xpBefore, 'the purse was paid on top of the kills').toBe(25 * bodies.length + 60);
+  expect(after.chamber.doors.every((door) => door.open), 'and every door out of it opened').toBe(true);
+  await expect(page.locator(`#map-room-${branch!.id}`), 'and it is marked on the map as cleared').toHaveAttribute('fill', '#a8d5b0');
 });

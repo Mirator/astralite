@@ -1,6 +1,7 @@
 // One rounding rule for every blow that lands, shared with the game's contact test so a node test and the
 // running keep agree on the number.
 import { incomingDamage } from './dungeon-combat.ts';
+import type { Reward as ChamberReward } from './dungeon-floor.ts';
 
 // The numeric half of a run: vitality, experience, rank, boons and the rules that decide whether a hit
 // lands. Nothing here knows about three.js, the DOM or a clock — dungeon-game.tsx owns the world and
@@ -20,7 +21,12 @@ export const BOONS: Boon[] = [
 // One more starting-blade's worth of damage, in the quarter-hit grain dungeon-enemy quotes vitality in.
 export const STRIKE_BONUS = 4;
 export const XP_PER_ENEMY = 25;
-export const XP_DEAD_END = 60;
+// What a cleared chamber pays (plan 017). Every clear tops the knight up; the door he chose decides the
+// rest: a purse of experience, or a real heal in place of the top-up. These are the dead end's old 60 XP
+// and 30 vitality, split so each door offers one of them rather than both.
+export const XP_CACHE = 60;
+export const MEND = 30;
+export const TOP_UP = 12;
 // Each rank costs more than the last, so a full three-floor descent pays out five or six boons.
 export const rankCost = (rank: number) => 200 + (rank - 1) * 150;
 
@@ -151,12 +157,12 @@ export const resolveKill = (run: Run): Reward => {
   return { xp: XP_PER_ENEMY, ranks, healed: heal(run, run.draught) };
 };
 
-// Detours are optional, so they pay: a dead end gives XP and a real heal, while the trunk only tops you
-// up enough to keep walking.
-export const clearRoomReward = (run: Run, detour: boolean): Reward => {
-  const xp = detour ? XP_DEAD_END : 0;
-  const ranks = detour ? grantXp(run, xp).ranks : 0;
-  return { xp, ranks, healed: heal(run, detour ? 30 : 12) };
+// One payout per chamber, whatever brought its last body down. `arm` pays only the top-up: the rack
+// standing in that chamber is what the door promised.
+export const chamberReward = (run: Run, reward: ChamberReward | null): Reward => {
+  const xp = reward === 'cache' ? XP_CACHE : 0;
+  const ranks = xp ? grantXp(run, xp).ranks : 0;
+  return { xp, ranks, healed: heal(run, reward === 'mend' ? MEND : TOP_UP) };
 };
 
 // The way down. A cleared stair opens but only offers, like a rack: it takes the knight when he stands
@@ -168,3 +174,7 @@ export const STAIR_RADIUS = 1.25;
 // stands on. The rack only offers, and the swap waits on the `swap` key, so taking the wrong arm is a
 // decision rather than a place the knight stood too long.
 export const PICKUP_RADIUS = 1.4;
+
+// How close the knight stands to a door's ring to be offered it (plan 017): the stair's own reach, since
+// a door is taken the same way, with the swap key, once the chamber behind him is clear.
+export const DOOR_RADIUS = STAIR_RADIUS;
