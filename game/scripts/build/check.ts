@@ -3,9 +3,9 @@
 //   npm run build && npm run build:check
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { devOnlyHooks, findLeaks } from './leaks.ts';
+import { devOnlyHooks, findLeaks, gameRootFrom } from './leaks.ts';
 
-const root = new URL('../../', import.meta.url).pathname;
+const root = gameRootFrom(import.meta.url);
 const walk = (dir: string): string[] => readdirSync(dir).flatMap((name) => {
   const path = join(dir, name);
   return statSync(path).isDirectory() ? walk(path) : path.endsWith('.js') ? [path] : [];

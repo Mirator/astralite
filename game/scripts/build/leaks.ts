@@ -2,6 +2,11 @@
 // `NODE_ENV !== 'production'` block, and the `?boot=eager` switch beside it (matched as the minified
 // `get(`boot`)` read, since the literal `boot=eager` appears nowhere in the source). The bundler drops that block
 // because NODE_ENV is inlined; nothing else checked that it still does. Pure, so the node suite runs it.
+import { fileURLToPath } from 'node:url';
+
+/** The `game/` folder as a filesystem path, from the URL of a script in `scripts/build/`. A URL's `.pathname` is
+ * not one: it keeps `%20` for a space and, on Windows, a slash before the drive (`/C:/...`). */
+export const gameRootFrom = (scriptUrl: string | URL): string => fileURLToPath(new URL('../../', scriptUrl));
 
 /** Names the development-only block assigns (`testHooks.name = ...`), read off the source itself so a hook
  * added there is guarded without anyone remembering to list it. */
