@@ -3275,3 +3275,17 @@ guarantee (no pillar can stand next to either any more), the bridge, dark-corrid
 sim's backtrack slice, which measured walking back out of a dead end. Nothing that ran changes: every
 removed branch was guarded by a tile or a pillar that no generated floor can hold, and none of them drew
 from a random stream, so every seed lays and lights the same keep it did before.
+
+## 2026-09-29 - The result card says what ended the run
+
+The result card now shows, inside the existing `xp-summary` block and no new HUD element: on a loss one line
+naming the cause ("Felled by a warden", "Burned by the keep's embers" for the hazard), and on both outcomes
+the run time as m:ss and the boons taken by display name, or "no boons". The wording lives in the new pure
+`dungeon-run-summary.ts` (a `Record<RunCause, string>`, so a new enemy kind fails to compile until it has a
+label); the card renders the same `RunEnd` object `endRun` builds for the run log (also kept for arena runs,
+which still write nothing to storage), not a recomputation. Tests: `tests/dungeon-run-summary.test.ts` (node)
+and one scenario in `combat.spec.ts` that loses to a staged melee blow after a boon and 62 s of clock. Planted
+bugs, each watched failing with its own message: seconds not zero-padded (`0:0` for `0:00`); a won run keeping
+its cause ("a won run kept a cause"); empty boons rendering blank (expected 'no boons'); the card always
+using the hazard label ("the card does not name the killer"); the card time forced to 0 ("the card time is
+not the logged one"); the card boons forced empty ("the card does not list the boon taken").

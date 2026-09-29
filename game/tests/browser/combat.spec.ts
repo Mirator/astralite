@@ -20,6 +20,7 @@ import {
 } from './helpers.ts';
 import type { Page } from '@playwright/test';
 import { BESTIARY } from '../../app/dungeon-bestiary.ts';
+import { CAUSE_LABELS, formatRunTime } from '../../app/dungeon-run-summary.ts';
 
 /** Melee damage by kind, mirrored from dungeon-game.tsx. */
 const MELEE = { guard: 12, stalker: 8, warden: 20 } as const;
@@ -577,6 +578,61 @@ test('a lethal gauntlet ends the tick: nothing moves after the knight falls', as
     previous = now;
   }
   throw new Error(`the gauntlet never killed the knight\n${await game.report()}`);
+});
+
+// The card reads the RunEnd that `finish` logged, so the wording is tested in tests/dungeon-run-summary.test.ts
+// and this only checks the running game hands the card the run's own record: the cause of the blow that
+// landed, the clock the run kept and the boons it took, by name.
+test('the result card names what ended the run, how long it took and which boons were taken', async ({
+  game,
+  page,
+}) => {
+  await game.enter();
+  const floor = await game.floor();
+  const opening = await game.state();
+  assertNothingDeadYet(opening, floor);
+  // Past the first minute, so a clock that reads 0:00 on the card cannot pass for a real one.
+  await game.step(62_000);
+  expect((await game.state()).mode, 'the knight died before the staged blow').toBe('playing');
+  await game.grantXp(200);
+  const boon = await game.takeBoon();
+
+  const attacker = (await game.state()).enemies.find(
+    (enemy) => enemy.awake && BESTIARY[enemy.kind].attack === 'swing',
+  );
+  expect(attacker, 'the pinned floor has no awake enemy that swings').toBeDefined();
+  const stance = duelSpot(floor, { x: attacker!.x, z: attacker!.z }, hazardsOf(opening));
+  await game.teleport(stance.player.x, stance.player.z);
+  await game.step(120);
+  const staged = await game.state();
+  await game.configureCombat({
+    health: 1,
+    enemies: [
+      {
+        index: spawnIndex(staged, staged.enemies.find((enemy) => enemy.kind === attacker!.kind && enemy.awake)!),
+        x: stance.behind.x,
+        z: stance.behind.z,
+        windup: 0.0675,
+        aim: { x: stance.player.x - stance.behind.x, z: stance.player.z - stance.behind.z },
+      },
+    ],
+  });
+  await game.step(300);
+  expect((await game.state()).mode, 'the staged blow never landed').toBe('lost');
+
+  const logged = await page.evaluate(
+    () => (window as unknown as { dungeonTest: { runLog: () => { cause: string | null; seconds: number; boons: string[] }[] } }).dungeonTest.runLog().at(-1),
+  );
+  expect(logged?.cause, 'the run did not end by the kind that was staged').toBe(attacker!.kind);
+  expect(logged!.seconds, 'the run kept no clock').toBeGreaterThanOrEqual(60);
+  expect(logged!.boons, 'the boon was not logged').toHaveLength(1);
+
+  const card = await page.locator('.result-card .xp-summary').innerText();
+  expect(card, 'the card does not name the killer').toContain(CAUSE_LABELS[attacker!.kind]);
+  expect(card, 'the card shows a killer other than the one that struck').not.toContain(CAUSE_LABELS.hazard);
+  expect(card.match(/\d+:\d\d/)?.[0], 'the card time is not the logged one').toBe(formatRunTime(logged!.seconds));
+  expect(card, 'the card does not list the boon taken').toContain(boon);
+  expect(card).not.toContain('no boons');
 });
 
 test('only the live blade is a commitment: a dash aborts anticipation and recovery at once, and waits out contact', async ({
