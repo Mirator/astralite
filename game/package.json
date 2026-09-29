@@ -17,6 +17,7 @@
     "format": "oxfmt",
     "balance": "node --experimental-strip-types scripts/balance/main.ts",
     "balance:check": "node --experimental-strip-types scripts/balance/check.ts",
+    "census": "node --experimental-strip-types scripts/balance/census.ts",
     "shots:compare": "node --experimental-strip-types scripts/shots/compare.ts",
     "figures": "node --experimental-strip-types scripts/figures.ts",
     "perf:boot": "node --experimental-strip-types scripts/perf/boot.ts",

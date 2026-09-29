@@ -467,8 +467,10 @@ test('a raised body cut down while its caller stands goes back into the ground; 
   assert.deepEqual(fallOf(spent, 0).crumble, [2], 'a body already dead crumbled again');
 });
 
-test('the arena-only kinds are never dealt by the floor generator, on any floor', () => {
-  const arenaOnly = ['shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler'] as const;
+test('the reaper and the rattler are never dealt by the floor generator, on any floor', () => {
+  // Plan 018 promoted the shieldbearer, the pyre and the bonecaller; these two stay out. The rattler enters only as a
+  // bonecaller's buried reserve (dungeon-floor.test.ts).
+  const arenaOnly = ['reaper', 'rattler'] as const;
   for (const k of arenaOnly) assert.equal(BESTIARY[k].firstFloor, Infinity, `${k} can be dealt`);
   // A rattler dies to one blow of a starting blade, which is its whole point.
   assert.ok(BASE_STATS.rattler.hp <= HIT, 'a rattler takes more than one blow');
