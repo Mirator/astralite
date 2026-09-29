@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { addCarvedArchitecture, archivolt, facesCamera, headroom, OFF_FRAME, ROOM_MOOD } from './dungeon-art';
+import { addCarvedArchitecture, headroom, OFF_FRAME, ROOM_MOOD } from './dungeon-art';
 import { TILE, type generateFloor } from './dungeon-floor';
 import {
   emberOffset,
@@ -22,7 +22,7 @@ const FLAME_FOOTPRINT: Record<FlameTheme, { w: number; h: number }> = {
   ruins: { w: .7, h: .85 },
   flooded: { w: .78, h: .55 },
 };
-/** Wall sconces and bridge lanterns never take the room's own mood colour - see the round 4 note
+/** Wall sconces never take the room's own mood colour - see the round 4 note
  * this replaces on `sconceWarm`/`sconceCore` below, for why that has to stay a fixed warm orange. */
 const SCONCE_FLAME_COLOUR = new THREE.Color(0xff8c3f);
 
@@ -175,7 +175,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const foam=new THREE.MeshBasicMaterial({color:0xb4e6de,transparent:true,opacity:.7,depthWrite:false});
   // Plan 014 round 6: `flames` no longer holds a body/core mesh pair - each entry is a billboard
   // handle (`dungeon-flame-fx.ts`) plus enough to know which colour it follows. `staticFlames` is the
-  // same handle type for wall sconces and bridge lanterns, which never take the room's own mood
+  // same handle type for wall sconces, which never take the room's own mood
   // colour (round 4's fixed-warm-orange fix, restated for the new flame kind).
   // Plan 014 round A: the coal bed under each brazier flame - basic, unlit and unclamped, so it is
   // the brightest thing inside the bowl (the fire's colour run toward white) and never lit *by* the
@@ -219,11 +219,9 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const haloMaterial=new THREE.SpriteMaterial({map:glowMap,color:0xffbc70,transparent:true,opacity:.07,depthWrite:false,blending:THREE.AdditiveBlending,toneMapped:false});
   let state=floor.seed^0x12345;const random=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/4294967296;};
   function mesh(geo:THREE.BufferGeometry,material:THREE.Material,x:number,y:number,z:number){const m=new THREE.Mesh(geo,material);m.position.set(x,y,z);m.castShadow=m.receiveShadow=true;world.add(m);return m;}
-  // Plan 014 round 7 (lever 7): a plain coordinate lookup for "is a corridor or a bridge tile right
-  // next to this one" - built once, off tile grid coordinates rather than world units, so the pillar
-  // loop below can guarantee its sconce instead of leaving it to a hash.
+  // A plain coordinate lookup for "is there floor next to this tile", off tile grid coordinates rather
+  // than world units; the wall-base debris below reads it.
   const tileAt=new Map<string,typeof floor.tiles[number]>();for(const t of floor.tiles)tileAt.set(`${t.x},${t.z}`,t);
-  const adjoinsPassage=(tx:number,tz:number)=>[[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dz])=>{const nt=tileAt.get(`${tx+dx},${tz+dz}`);return nt!==undefined&&(nt.room<0||nt.wood);});
   // Plan 014 round 9 (lever 5): "a banner on every second pillar" - counted across every pillar the
   // floor places, room or corridor alike, in build order.
   let pillarIndex=0;
@@ -289,23 +287,8 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
       const h=Math.max(.5,Math.min(3.9+random()*1.7,air-.54)),base=mesh(PROP.plinth,carved.pale,x,.24,z);base.scale.set(1.5,1.4,1.5);
       const shaft=mesh(PROP.column,shaftStone,x,h/2+.34,z);shaft.scale.set(1.45,h,1.45);
       const cap=mesh(PROP.capital,carved.pale,x,h+.44,z);cap.scale.set(1.62,1.4,1.62);
-      // Plan 014 round 7 (lever 7), round 9 (lever 5): "guarantee a warm sconce on any pillar
-      // adjacent to a bridge or corridor tile" is a rule, not odds - so it is checked and satisfied
-      // before any of the probabilistic chain/banner/sconce picks below get a turn, not blended in
-      // among them. Height floor dropped from 1.8 to 0.9 - round 9's own diagnosis traced one
-      // still-bare corridor pillar to exactly this: a real corridor-adjacent pillar that simply rolled
-      // a short `h`, which the old floor excluded outright. A sconce mounted low still reads as a
-      // sconce.
-      const nearPassage=adjoinsPassage(p.x,p.z);
-      if(nearPassage&&h>0.9){
-        const facing=Math.floor(random()*4)*Math.PI/2,fx=Math.sin(facing)*.5,fz=Math.cos(facing)*.5,by=Math.min(h-.3,1.9);
-        mesh(new THREE.BoxGeometry(.2,.13,.2),trim,x+fx*.86,by-.15,z+fz*.86).castShadow=false;
-        const sconceHandle=makeFlameBillboard(.38,.5,random()*Math.PI*2);sconceHandle.group.position.set(x+fx*.86,by-.08,z+fz*.86);world.add(sconceHandle.group);staticFlames.push(sconceHandle);
-        lightAnchors.push({x:x+fx*1.9,y:by,z:z+fz*1.9,color:0xff9c52,intensity:14,distance:6.5});
-      }
       // Plan 014 round 9 (lever 5): "a banner on every second pillar" as a density rule, not odds -
-      // checked before the probabilistic chain/banner/sconce picks below, the same way the sconce
-      // guarantee above already is. `pillarIndex` counts every standing pillar the floor has, in the
+      // checked before the probabilistic chain/banner/sconce picks below. `pillarIndex` counts every standing pillar the floor has, in the
       // same deterministic build-order every other pass over `floor.props` already relies on.
       pillarIndex++;
       if(pillarIndex%2===0&&h>2.2){
@@ -358,7 +341,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   }
   const packed=(x:number,z:number)=>(x+4096)*8192+(z+4096);
   const solid=new Set<number>();for(const t of floor.tiles)solid.add(packed(t.x,t.z));
-  const shore=shorelineMaterial(),shoreEdges=floor.tiles.filter(t=>!t.wood).flatMap(t=>[[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dz])=>!solid.has(packed(t.x+dx,t.z+dz))).map(([dx,dz])=>({x:t.x,z:t.z,dx,dz})));
+  const shore=shorelineMaterial(),shoreEdges=floor.tiles.flatMap(t=>[[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dz])=>!solid.has(packed(t.x+dx,t.z+dz))).map(([dx,dz])=>({x:t.x,z:t.z,dx,dz})));
   const shoreline=new THREE.InstancedMesh(new THREE.PlaneGeometry(TILE*1.04,.7),shore.material,shoreEdges.length),shoreMatrix=new THREE.Matrix4(),shoreRotation=new THREE.Quaternion();
   shoreEdges.forEach((e,i)=>{shoreRotation.setFromEuler(new THREE.Euler(-Math.PI/2,0,e.dx?Math.PI/2:0));shoreMatrix.compose(new THREE.Vector3((e.x+e.dx*.65)*TILE,-2.71,(e.z+e.dz*.65)*TILE),shoreRotation,new THREE.Vector3(1,1,1));shoreline.setMatrixAt(i,shoreMatrix);});world.add(shoreline);
   // Plan 014 round 9 (lever 3): "characters standing next to water get no cyan bounce" - a real bounce
@@ -380,8 +363,6 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const blocks:{x:number;y:number;z:number;sx:number;sy:number;sz:number;color:number;room:number}[]=[];
   const bannerRooms=new Set<number>();
   for(const tile of floor.tiles){
-    // Boards over open water carry a trestle instead of masonry; see below.
-    if(tile.wood)continue;
     const room=tile.room<0?null:floor.rooms[tile.room];
     // Corridors were skipped outright, which is why the two flattest frames in the set are the two with no
     // room in them. A run has no heart to measure a `headroom` from, so it measures from the tile the
@@ -541,61 +522,6 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   // on the faces pointing away from the lens carry on up shoulder-high, and one in four of those goes up as
   // a mooring mast to break the empty water at the top of the frame; the faces pointing at the lens stop at
   // a bollard below the knee, because whoever is on the span is standing a single tile from them.
-  const timber=new THREE.MeshStandardMaterial({color:0x7e6547,roughness:.96});weatherStone(timber);
-  const pileGeometry=new THREE.CylinderGeometry(.5,.5,1,6,1,true),railGeometry=new THREE.BoxGeometry(1,1,1);
-  const piles:{x:number;y:number;z:number;w:number;h:number}[]=[],rails:{x:number;y:number;z:number;sx:number;sz:number}[]=[];
-  // Plan 014 round 2 (lever C7): stone arches under the bridge, so a span reads as a bridge - built
-  // stone standing on piers rising out of the water - rather than a plank deck floating over it. Spring
-  // line near the waterline, crown well short of the deck above it, and sparse (a periodic pick on the
-  // same back-facing edges the timber trestle already walks) so the underside reads as punctuated
-  // stonework rather than a solid wall.
-  const bridgeArches:{x:number;z:number;turn:boolean}[]=[];
-  for(const tile of floor.tiles){
-    if(!tile.wood)continue;
-    for(const [dx,dz] of [[-1,0],[0,-1],[1,0],[0,1]]){
-      if(solid.has(packed(tile.x+dx,tile.z+dz)))continue;
-      const x=(tile.x+dx*.52)*TILE,z=(tile.z+dz*.52)*TILE,back=!facesCamera(dx,dz);
-      const mast=back&&Math.abs(tile.x*5+tile.z*11)%4===0;
-      piles.push({x,y:-3.05,z,w:mast?.29:.22,h:3.05+(back?(mast?2.8:1.3+Math.abs(tile.x*3+tile.z*7)%3*.2):.42)});
-      if(back)rails.push({x,y:1.02,z,sx:dz?TILE:.13,sz:dx?TILE:.13});
-      // Plan 014 round 5 (lever B6): a warm lantern on every mooring mast - "add a warm lantern on
-      // bridge pillars" was the coordinator's own fallback for a corridor/bridge shot with no sconce
-      // in view, and a mast is exactly the bridge's own equivalent of a standing pillar.
-      if(mast){
-        const ly=2.9;
-        mesh(PROP.hoop,trim,x,ly,z).scale.set(.5,.4,.5);
-        const lanternHandle=makeFlameBillboard(.36,.4,random()*Math.PI*2);lanternHandle.group.position.set(x,ly+.12,z);world.add(lanternHandle.group);staticFlames.push(lanternHandle);
-        lightAnchors.push({x,y:ly+.3,z,color:0xff9c52,intensity:15,distance:7});
-      }
-      if(back&&Math.abs(tile.x*11+tile.z*13)%7===0)bridgeArches.push({x,z,turn:dx!==0});
-    }
-  }
-  if(piles.length){
-    const trestle=new Map<string,typeof piles>();
-    for(const p of piles){const key=`${Math.floor(p.x/11)},${Math.floor(p.z/11)}`;const list=trestle.get(key);if(list)list.push(p);else trestle.set(key,[p]);}
-    for(const local of trestle.values()){const posts=new THREE.InstancedMesh(pileGeometry,timber,local.length);
-      local.forEach((p,i)=>{matrix.compose(at.set(p.x,p.y+p.h/2,p.z),spin,size.set(p.w,p.h,p.w));posts.setMatrixAt(i,matrix);});
-      posts.castShadow=posts.receiveShadow=true;world.add(posts);}
-    const rail=new THREE.InstancedMesh(railGeometry,timber,rails.length);
-    rails.forEach((r,i)=>{matrix.compose(at.set(r.x,r.y,r.z),spin,size.set(r.sx,.13,r.sz));rail.setMatrixAt(i,matrix);});
-    rail.receiveShadow=true;world.add(rail);
-  } else {pileGeometry.dispose();railGeometry.dispose();timber.dispose();}
-  if(bridgeArches.length){
-    const ARCH_SPAN=.68,ARCH_SPRING=-2.42;
-    const archGeometry=archivolt(ARCH_SPAN,16);
-    const arches=new THREE.InstancedMesh(archGeometry,carved.pale,bridgeArches.length);
-    bridgeArches.forEach((a,i)=>{spin.setFromEuler(new THREE.Euler(0,a.turn?Math.PI/2:0,0));matrix.compose(at.set(a.x,ARCH_SPRING,a.z),spin,size.set(1,1,1));arches.setMatrixAt(i,matrix);});
-    arches.castShadow=arches.receiveShadow=true;world.add(arches);
-    // A pier foot under each leg of the arch, standing on the lakebed rather than the curve simply
-    // stopping in mid-water.
-    const footGeometry=new THREE.BoxGeometry(.4,.5,.4);
-    const feet=new THREE.InstancedMesh(footGeometry,carved.pale,bridgeArches.length*2);
-    let fi=0;for(const a of bridgeArches)for(const side of [-1,1]){
-      const ox=a.turn?0:side*ARCH_SPAN,oz=a.turn?side*ARCH_SPAN:0;
-      matrix.compose(at.set(a.x+ox,ARCH_SPRING-.25,a.z+oz),spin.identity(),size.set(1,1,1));feet.setMatrixAt(fi++,matrix);
-    }
-    feet.castShadow=feet.receiveShadow=true;world.add(feet);
-  }
   // Plan 014 round B: scattered debris along the wall bases - small broken stone chips and dark moss
   // clumps, two instanced draws for the whole floor. Placed by a hash on each tile edge that faces a
   // wall (no neighbouring tile or prop), pushed out toward that edge, so the litter collects where a
@@ -604,7 +530,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     const propCells=new Set(floor.props.map(p=>`${p.x},${p.z}`));
     const chips:THREE.Matrix4[]=[],clumps:THREE.Matrix4[]=[];const q=new THREE.Quaternion(),e=new THREE.Euler(),v=new THREE.Vector3(),sc=new THREE.Vector3();
     const hash=(x:number,z:number,k:number)=>{let h=Math.imul(x|0,0x27d4eb2d)^Math.imul(z|0,0x165667b1)^Math.imul(k+1,0x9e3779b1);h=Math.imul(h^(h>>>15),0x85ebca6b);h=Math.imul(h^(h>>>13),0xc2b2ae35);return((h^(h>>>16))>>>0)/4294967296;};
-    for(const t of floor.tiles){if(t.wood)continue;
+    for(const t of floor.tiles){
       [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dz],side)=>{
         const key=`${t.x+dx},${t.z+dz}`;if(tileAt.has(key)||propCells.has(key))return;
         const count=Math.floor(hash(t.x,t.z,side*7+1)*4.6);
@@ -652,7 +578,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   // column in the keep allocates nothing.
   const paleTint=new THREE.Color(),bowlTint=new THREE.Color(),black=new THREE.Color(0x000000);
   const inlayTint=new THREE.Color(),runnerTint=new THREE.Color(),trimTint=new THREE.Color();
-  const brassCast=new THREE.Color(0xb08a4e),timberCast=new THREE.Color(0x6d523a);
+  const brassCast=new THREE.Color(0xb08a4e);
   return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,lightAnchors,motifs:carved.motifs,
     // Plan 014 round 6: a billboard flame has no single "body" mesh to read a bounding box off any
     // more (three quads, each its own draw). A driver that wants a brazier's footprint reads
@@ -670,12 +596,10 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
     emberMaterial.color.copy(fire);
     coalGlow.color.copy(fire).multiplyScalar(.3);
     red.color.copy(banner);
-    // Brass and timber were the last of the shared kit: one gold hoop and one brown rail in all three
-    // families, and in a chamber committed to violet the hoops were the warmest thing in the frame.
-    // They keep their own character and take the chamber's cast, which is what a metal and a plank do
-    // under a coloured light in any case.
+    // Brass was the last of the shared kit: one gold hoop in all three families, and in a chamber
+    // committed to violet the hoops were the warmest thing in the frame. It keeps its own character and
+    // takes the chamber's cast, which is what a metal does under a coloured light in any case.
     trim.color.copy(trimTint.copy(masonry).lerp(brassCast,.34));
-    timber.color.copy(bowlTint.copy(masonry).lerp(timberCast,.55).lerp(black,.18));
     // Carved work belongs to its chamber. One neutral grey served the whole keep before, which put
     // every column, cornice and arch above the knight in value in all three families; these take the
     // mood, with the carving a shade up from the coursework and the bowl a shade down, because a bowl

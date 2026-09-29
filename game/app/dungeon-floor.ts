@@ -206,7 +206,7 @@ export function generateFloor(seed: number, level = 1) {
       props.push({x,z,kind,room:r.id});cells.delete(cellKey(x,z));ownership.delete(cellKey(x,z));placed++;
     }
   });
-  const tiles=[...cells].map(key=>{const [x,z]=key.split(',').map(Number);return {x,z,room:ownership.get(key)??-1,wood:false};});
+  const tiles=[...cells].map(key=>{const [x,z]=key.split(',').map(Number);return {x,z,room:ownership.get(key)??-1};});
   const goal=layers[goalLayer][0];
   const spawns:Spawn[]=[];
   const menace=(level-1)*.3;
@@ -255,7 +255,7 @@ export function generateFloor(seed: number, level = 1) {
     for(let depth=0;depth<3;depth++){
       door.x+=door.face.x;door.z+=door.face.z;
       const key=cellKey(door.x,door.z);
-      if(!cells.has(key)){cells.add(key);ownership.set(key,door.from);tiles.push({x:door.x,z:door.z,room:door.from,wood:false});}
+      if(!cells.has(key)){cells.add(key);ownership.set(key,door.from);tiles.push({x:door.x,z:door.z,room:door.from});}
       if(!cells.has(cellKey(door.x+across.x,door.z+across.z))&&!cells.has(cellKey(door.x-across.x,door.z-across.z)))break;
     }
   }

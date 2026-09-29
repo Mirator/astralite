@@ -53,15 +53,14 @@ export type FootstepSupport = { kind: FootstepKind; cell: string; y: number };
 
 /**
  * What a planted boot at world `(x, z)` is standing on, for feedback purposes only. Null - no effect -
- * when there is no support under the sole (a seam, the floor's edge, a hole), when the support is
- * wood (no dust off a bridge, and no invented splinters), or when the cell is not one of this floor's
- * own tiles. The theme is the TILE's, per `dungeon-surface.ts`'s metadata (the room that owns the
+ * when there is no support under the sole (a seam, the floor's edge, a hole), or when the cell is not
+ * one of this floor's own tiles. The theme is the TILE's, per `dungeon-surface.ts`'s metadata (the room that owns the
  * cell, else the nearest chamber - the rule the paving material itself was chosen by), never the
  * global mood, which is still cross-fading while a boot stands on a threshold.
  */
 export function footSupport(index: SurfaceIndex | null, x: number, z: number): FootstepSupport | null {
   if (!index || !Number.isFinite(x) || !Number.isFinite(z)) return null;
   const hit = sampleSurface(index, x, z);
-  if (!hit || hit.wood || !index.meta.has(hit.cell)) return null;
+  if (!hit || !index.meta.has(hit.cell)) return null;
   return { kind: hit.theme, cell: hit.cell, y: hit.y };
 }

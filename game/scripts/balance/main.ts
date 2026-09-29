@@ -99,16 +99,16 @@ if (flag('compare')) {
   }
 
   // Where the idle total in the table above actually goes. Corridor/barren/spent/live-no-contact are
-  // disjoint and sum to idle (sim.ts asserts it per floor); backtrack is a cross-cutting slice of the
-  // same idle seconds, not a fifth bucket, so it is not added into the total.
-  console.log('  idle attribution   floor   corridor         barren           spent            live, no contact   backtrack (of idle)');
+  // disjoint and sum to idle (sim.ts asserts it per floor). Plan 017 dropped the backtrack slice with the
+  // dead ends it measured: a chamber is left by a door, never by the way in.
+  console.log('  idle attribution   floor   corridor         barren           spent            live, no contact');
   const idleRow = (label: string, floors: FloorReport[]) => {
     const idleTotal = floors.reduce((s, f) => s + f.idle, 0);
     const bucket = (pick: (f: FloorReport) => number) => floors.reduce((s, f) => s + pick(f), 0);
     const corridor = bucket(f => f.idleCorridor), barren = bucket(f => f.idleBarren), spent = bucket(f => f.idleSpent);
-    const live = bucket(f => f.idleLiveNoContact), backtrack = bucket(f => f.idleBacktrack);
+    const live = bucket(f => f.idleLiveNoContact);
     const cell = (seconds: number) => `${`${seconds.toFixed(0)}s`.padStart(6)} (${share(seconds, idleTotal).padStart(5)})`;
-    console.log(`  ${label.padEnd(18)}   ${cell(corridor).padEnd(14)}   ${cell(barren).padEnd(14)}   ${cell(spent).padEnd(14)}   ${cell(live).padEnd(16)}   ${cell(backtrack)}`);
+    console.log(`  ${label.padEnd(18)}   ${cell(corridor).padEnd(14)}   ${cell(barren).padEnd(14)}   ${cell(spent).padEnd(14)}   ${cell(live)}`);
   };
   for (let level = 1; level <= 3; level++) idleRow(`floor ${level}`, reports.flatMap(r => r.floors.filter(f => f.level === level)));
   idleRow('overall', reports.flatMap(r => r.floors));

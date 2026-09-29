@@ -24,7 +24,7 @@ test('a tilted (settled) slab interpolates height smoothly, exactly matching its
   const tri: SurfaceTriangle = { ax: a.x, ay: a.y, az: a.z, bx: c.x, by: c.y, bz: c.z, cx: b.x, cy: b.y, cz: b.z };
   const upwardY = (tri.bz - tri.az) * (tri.cx - tri.ax) - (tri.bx - tri.ax) * (tri.cz - tri.az);
   assert.ok(upwardY > 0, 'test fixture itself is not upward-wound; fix the fixture before trusting the assertions below');
-  const index = buildSurfaceIndex([tri], meta([['0,0', { theme: 'keep', wood: false }]]));
+  const index = buildSurfaceIndex([tri], meta([['0,0', { theme: 'keep' }]]));
   // The centroid of a triangle carries barycentric weights (1/3, 1/3, 1/3) by construction.
   const centroidX = (a.x + b.x + c.x) / 3, centroidZ = (a.z + b.z + c.z) / 3;
   const expected = (a.y + b.y + c.y) / 3;
@@ -44,8 +44,8 @@ test('a triangle rotated so its long axis runs along Z is still sampled correctl
   const t1 = upTri(0.02, -halfShort, midZ - halfLong, halfShort, midZ - halfLong, halfShort, midZ + halfLong);
   const t2 = upTri(0.02, -halfShort, midZ - halfLong, halfShort, midZ + halfLong, -halfShort, midZ + halfLong);
   const index = buildSurfaceIndex([t1, t2], meta([
-    ['0,0', { theme: 'flooded', wood: false }],
-    ['0,1', { theme: 'flooded', wood: false }],
+    ['0,0', { theme: 'flooded' }],
+    ['0,1', { theme: 'flooded' }],
   ]));
   assert.ok(Math.abs(sampleSurface(index, 0, 0)!.y - 0.02) < 1e-9, 'the near cell of the pair missed the merged top');
   assert.ok(Math.abs(sampleSurface(index, 0, TILE)!.y - 0.02) < 1e-9, 'the far cell of the pair missed the merged top');
@@ -57,8 +57,8 @@ test('a merged two-cell top reads the same continuous height on both sides, no s
   const t1 = upTri(0.02, midX - halfLong, -halfShort, midX + halfLong, -halfShort, midX + halfLong, halfShort);
   const t2 = upTri(0.02, midX - halfLong, -halfShort, midX + halfLong, halfShort, midX - halfLong, halfShort);
   const index = buildSurfaceIndex([t1, t2], meta([
-    ['0,0', { theme: 'ruins', wood: false }],
-    ['1,0', { theme: 'ruins', wood: false }],
+    ['0,0', { theme: 'ruins' }],
+    ['1,0', { theme: 'ruins' }],
   ]));
   const nearCell = sampleSurface(index, 0, 0)!.y;
   const farCell = sampleSurface(index, TILE, 0)!.y;
@@ -75,7 +75,7 @@ test('a merged two-cell top reads the same continuous height on both sides, no s
 test('a motif-like fragment off the cell centre is still sampled where it actually is', () => {
   // A small off-centre triangle, as a floor motif's own carved fragment might be.
   const tri = upTri(0.038, 0.1, 0.1, 0.5, 0.1, 0.5, 0.5);
-  const index = buildSurfaceIndex([tri], meta([['0,0', { theme: 'keep', wood: false }]]));
+  const index = buildSurfaceIndex([tri], meta([['0,0', { theme: 'keep' }]]));
   assert.ok(sampleSurface(index, 0.35, 0.3));
   assert.equal(sampleSurface(index, -0.4, -0.4), null, 'outside the fragment itself must miss, even inside the same cell');
 });
@@ -83,15 +83,14 @@ test('a motif-like fragment off the cell centre is still sampled where it actual
 test('overlapping upward faces at a shared edge: the higher one wins', () => {
   const low = upTri(0, -0.7, -0.7, 0.7, -0.7, 0, 0.7);
   const high = upTri(0.5, -0.7, -0.7, 0.7, -0.7, 0, 0.7);
-  const index = buildSurfaceIndex([low, high], meta([['0,0', { theme: 'keep', wood: false }]]));
+  const index = buildSurfaceIndex([low, high], meta([['0,0', { theme: 'keep' }]]));
   assert.ok(Math.abs(sampleSurface(index, 0, 0)!.y - 0.5) < 1e-9);
 });
 
 test('negative cell coordinates work exactly like positive ones', () => {
   const tri = upTri(0.09, -3 * TILE - 0.7, -2 * TILE - 0.7, -3 * TILE + 0.7, -2 * TILE - 0.7, -3 * TILE, -2 * TILE + 0.7);
-  const index = buildSurfaceIndex([tri], meta([['-3,-2', { theme: 'flooded', wood: true }]]));
+  const index = buildSurfaceIndex([tri], meta([['-3,-2', { theme: 'flooded' }]]));
   const hit = sampleSurface(index, -3 * TILE, -2 * TILE);
   assert.ok(hit);
   assert.equal(hit!.cell, '-3,-2');
-  assert.equal(hit!.wood, true);
 });
