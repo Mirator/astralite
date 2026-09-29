@@ -66,9 +66,8 @@ const roomHash = (seed: number, room: number) => {
 
 /**
  * Whether every cell the motif's inscribed footprint touches belongs to this room's own floor,
- * unowned by a corridor, and not a wood plank or a prop hole — both of which are already absent
- * from `floor.tiles` (a prop takes its cell out of `cells`/`ownership` at generation, and a wood
- * tile is filtered here the same way `addCarvedArchitecture` filters it for the disk it replaces).
+ * and not a prop hole, which is already absent from `floor.tiles` (a prop takes its cell out of
+ * `cells`/`ownership` at generation).
  * The 0.72 factor is conservative: the widest shape at this radius is a flooded strip tip, and nothing
  * built here reaches farther than that fraction of the nominal radius from room centre.
  */
@@ -113,7 +112,7 @@ export function planRoomMotif(floor: Floor, room: Room): MotifLayout | null {
     ? Math.max(Math.abs(drop.x - room.x * TILE), Math.abs(drop.z - room.z * TILE)) // drop is world units, room is tiles
     : Infinity;
   const owner = new Set(
-    floor.tiles.filter((t) => t.room === room.id && !t.wood).map((t) => `${t.x},${t.z}`),
+    floor.tiles.filter((t) => t.room === room.id).map((t) => `${t.x},${t.z}`),
   );
   let radius = baseRadius(room);
   const floorLimit = sanctuary ? MIN_SANCTUARY_RADIUS : MIN_RADIUS;

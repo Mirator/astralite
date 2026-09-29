@@ -11,7 +11,7 @@ const allFloors = () => [1, 2, 3].flatMap((level) => floorsAt(level));
 
 /** Independent of `dungeon-decor-layout`'s own `fits`: recomputed here so the test is not tautological. */
 const ownerCells = (floor: Floor, roomId: number) =>
-  new Set(floor.tiles.filter((t) => t.room === roomId && !t.wood).map((t) => `${t.x},${t.z}`));
+  new Set(floor.tiles.filter((t) => t.room === roomId).map((t) => `${t.x},${t.z}`));
 
 const coversOwnedGround = (floor: Floor, roomId: number, cx: number, cz: number, radius: number) => {
   const owner = ownerCells(floor, roomId);

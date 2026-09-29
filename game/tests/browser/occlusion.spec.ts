@@ -57,7 +57,7 @@ const behindSpots = (occluder: { x: number; z: number }, floor: Floor) => {
  * specific batch exists, which the pixel comparison after placement settles does instead. */
 const perimeterTiles = (floor: Floor) => {
   const solid = new Set(floor.tiles.map((t) => `${t.x},${t.z}`));
-  return floor.tiles.filter((t) => !t.wood && ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const).some(([dx, dz]) => !solid.has(`${t.x + dx},${t.z + dz}`)));
+  return floor.tiles.filter((t) => ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const).some(([dx, dz]) => !solid.has(`${t.x + dx},${t.z + dz}`)));
 };
 
 /** Pillars first: there are only ever a handful, and (unlike a perimeter tile, where placement is

@@ -1,8 +1,8 @@
 import { cellKey, TILE } from './dungeon-floor.ts';
 
 /**
- * A presentation-only support-height index over the floor's own walking surfaces: paving, wood
- * planks and floor motifs. `dungeon-game.tsx` builds one bridge from the realized scene into this
+ * A presentation-only support-height index over the floor's own walking surfaces: paving and floor
+ * motifs. `dungeon-game.tsx` builds one bridge from the realized scene into this
  * module's numeric shape after every floor build (see `buildSurfaceIndex`'s doc comment for what it
  * reads); this file itself never imports three.js and never sees a mesh, so it stays as directly
  * testable as the rest of the pure rule modules. Plan 008 (footstep feedback) is the reason this
@@ -19,9 +19,9 @@ export type SurfaceTriangle = {
 };
 
 /** What a cell's surface is made of, independent of any triangle actually landing in it. */
-export type CellSurface = { theme: 'keep' | 'ruins' | 'flooded'; wood: boolean };
+export type CellSurface = { theme: 'keep' | 'ruins' | 'flooded' };
 
-export type SurfaceHit = { cell: string; y: number; theme: 'keep' | 'ruins' | 'flooded'; wood: boolean };
+export type SurfaceHit = { cell: string; y: number; theme: 'keep' | 'ruins' | 'flooded' };
 
 export type SurfaceIndex = {
   cells: Map<string, SurfaceTriangle[]>;
@@ -102,5 +102,5 @@ export function sampleSurface(index: SurfaceIndex, x: number, z: number): Surfac
   }
   if (!hit) return null;
   const meta = index.meta.get(key);
-  return { cell: key, y: bestY, theme: meta?.theme ?? 'keep', wood: meta?.wood ?? false };
+  return { cell: key, y: bestY, theme: meta?.theme ?? 'keep' };
 }

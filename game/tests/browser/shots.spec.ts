@@ -47,12 +47,6 @@ const shot = async (game: Game, name: string) => {
   console.log(`COST ${name} calls=${r.calls} triangles=${r.triangles} geometries=${r.geometries} textures=${r.textures}`);
 };
 
-/** Lowest-ranked match wins, so the same floor always yields the same spot. */
-const firstBy = <T>(items: T[], rank: (item: T) => number) =>
-  items
-    .map((item) => ({ item, key: rank(item) }))
-    .sort((a, b) => a.key - b.key)[0]?.item;
-
 test.describe('flooded hall', { tag: '@capture' }, () => {
   test.use({ seeds: [0x60] });
   test('a torchlit flooded hall with three guards closing', async ({ game }) => {
@@ -115,33 +109,6 @@ test.describe('warden chamber', { tag: '@capture' }, () => {
     );
     expect(state.objective.stairOpen, 'the seal already lifted').toBe(false);
     await shot(game, 'sealed-warden-chamber');
-  });
-});
-
-test.describe('bridge', { tag: '@capture' }, () => {
-  test.use({ seeds: [0x1] });
-  test('the middle of a plank bridge over open water', async ({ game }) => {
-    await game.enter();
-    const floor = await game.floor();
-    const planks = floor.tiles.filter(
-      (tile) => tile.wood && canStand(floor.cells, tile.x * TILE, tile.z * TILE),
-    );
-    // Deepest into the span, so the frame is bridge rather than shoreline.
-    const middle = firstBy(
-      planks,
-      (tile) =>
-        -planks.filter(
-          (other) =>
-            Math.abs(other.x - tile.x) <= 3 && Math.abs(other.z - tile.z) <= 3,
-        ).length *
-          1e6 +
-        tile.x * 1e3 +
-        tile.z,
-    );
-    expect(middle, 'seed 0x1 no longer lays a plank bridge').toBeDefined();
-    await game.teleport(middle!.x * TILE, middle!.z * TILE);
-    await game.step(SETTLE);
-    await shot(game, 'bridge-over-water');
   });
 });
 
@@ -260,70 +227,8 @@ test.describe('strike', { tag: '@capture' }, () => {
   });
 });
 
-test.describe('dark corridor', { tag: '@capture' }, () => {
-  test.use({ seeds: [0x128] });
-  test('a corridor with no brazier in view', async ({ game }) => {
-    await game.enter();
-    const floor = await game.floor();
-    const braziers = floor.props.filter((prop) => prop.kind === 'brazier');
-    const corridor = floor.tiles
-      .filter(
-        (tile) =>
-          tile.room < 0 && canStand(floor.cells, tile.x * TILE, tile.z * TILE),
-      )
-      .map((tile) => ({
-        tile,
-        away: Math.min(
-          ...braziers.map(
-            (brazier) =>
-              Math.hypot(brazier.x - tile.x, brazier.z - tile.z) * TILE,
-          ),
-        ),
-      }));
-    const darkest = firstBy(
-      corridor,
-      ({ tile, away }) => -away * 1e6 + tile.x * 1e3 + tile.z,
-    );
-    // The view is orthographic and roughly 20 by 14 world units across, so a
-    // brazier further than half that frame's own diagonal (hypot(20,14)/2 =
-    // ~12.2) off the teleported spot cannot be casting into it. 24 was the
-    // margin the old, roughly-twice-as-large rooms happened to clear for free;
-    // rooms this size (see sizeFor in dungeon-floor.ts) no longer carry a
-    // corridor that isolated, so the bar is 18 - still half again the real
-    // geometric minimum, not the frame's edge.
-    expect(
-      darkest?.away ?? 0,
-      'seed 0x128 has no unlit run left',
-    ).toBeGreaterThan(18);
-    await game.teleport(darkest!.tile.x * TILE, darkest!.tile.z * TILE);
-    await game.step(SETTLE);
-    await shot(game, 'dark-corridor');
-  });
-});
-
-test.describe('junction', { tag: '@capture' }, () => {
-  test.use({ seeds: [0x150] });
-  test('a wide junction where three ways branch off the trunk', async ({
-    game,
-  }) => {
-    await game.enter();
-    const floor = await game.floor();
-    const junction = floor.rooms.find(
-      (room) =>
-        floor.spine.includes(room.id) &&
-        floor.edges.filter(([a, b]) => a === room.id || b === room.id).length >=
-          4,
-    );
-    expect(
-      junction,
-      'seed 0x150 no longer branches three ways off one chamber',
-    ).toBeDefined();
-    const centre = roomCentre(floor, junction!.id);
-    await game.teleport(centre.x, centre.z);
-    await game.step(SETTLE);
-    await shot(game, 'wide-branching-junction');
-  });
-});
+// Plan 017 removed three captures that stood here - the middle of a plank bridge, a dark corridor and a
+// wide junction - with the bridges, corridors and junctions they framed: a floor is chambers joined by doors.
 
 /**
  * Two frame sequences, one per verb. A still says whether the keep looks

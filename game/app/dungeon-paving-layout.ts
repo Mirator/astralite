@@ -47,11 +47,11 @@ const hash32 = (seed: number, room: number, a = 0, b = 0, c = 0) => {
 };
 const hashFrac = (seed: number, room: number, a = 0, b = 0, c = 0) => hash32(seed, room, a, b, c) / 4294967296;
 
-/** Every room's own stone cells (not wood, not a corridor), keyed by room id. */
+/** Every room's own stone cells, keyed by room id. */
 const stoneFootprints = (floor: Floor) => {
   const byRoom = new Map<number, Set<string>>();
   for (const t of floor.tiles) {
-    if (t.wood || t.room < 0) continue;
+    if (t.room < 0) continue;
     let set = byRoom.get(t.room);
     if (!set) { set = new Set(); byRoom.set(t.room, set); }
     set.add(cellKey(t.x, t.z));
@@ -67,8 +67,8 @@ const insideReservation = (rects: Rect[], wx: number, wz: number) => rects.some(
 
 /**
  * A cell may host a pair or a settled single only if every cell within two cardinal steps belongs
- * to the same room's own stone footprint (so it is at least two steps clear of any hole, wood tile,
- * corridor or a neighbouring room's ownership - the doorway-approach margin the plan asks for, on
+ * to the same room's own stone footprint (so it is at least two steps clear of any hole, doorway
+ * or wall - the doorway-approach margin the plan asks for, on
  * top of the plain "four cardinal neighbours" rule, since a cell that only just clears its own
  * immediate neighbours can still sit one step from a mouth) and outside every reserved rectangle,
  * with margin.

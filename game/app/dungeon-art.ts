@@ -364,7 +364,7 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
   // weapon drop's own clearance so a motif never spills onto a feature that owns its floor already.
   const motifs = buildFloorMotifs(world, floor, planFloorMotifs(floor), { dark, inlay, lip });
   for (const room of floor.rooms) {
-    const local = floor.tiles.filter(t => t.room === room.id && !t.wood);
+    const local = floor.tiles.filter(t => t.room === room.id);
     for (const tile of local) {
       // All four faces, where before only the two pointing away from the camera were carved. That choice
       // is the whole of the review's finding: every tall thing in the keep stood on the far wall, so the
@@ -460,7 +460,7 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
   // Only the two down-screen faces get them: on the other two the retaining wall points away from the lens
   // and is never drawn, so building it there was paying for geometry with no frame to appear in.
   for (const tile of floor.tiles) {
-    if (tile.wood || (tile.x * 5 + tile.z * 3) % 3) continue;
+    if ((tile.x * 5 + tile.z * 3) % 3) continue;
     for (const [dx, dz] of [[1, 0], [0, 1]]) {
       if (cells.has(`${tile.x + dx},${tile.z + dz}`)) continue;
       const tx = (tile.x + dx * .62) * TILE, tz = (tile.z + dz * .62) * TILE;

@@ -17,7 +17,7 @@ const insideReservation = (floor: Floor, wx: number, wz: number) =>
     wx >= r.minX - RESERVATION_MARGIN && wx <= r.maxX + RESERVATION_MARGIN &&
     wz >= r.minZ - RESERVATION_MARGIN && wz <= r.maxZ + RESERVATION_MARGIN);
 
-const stoneCellSet = (floor: Floor) => new Set(floor.tiles.filter((t) => !t.wood && t.room >= 0).map((t) => `${t.x},${t.z}`));
+const stoneCellSet = (floor: Floor) => new Set(floor.tiles.filter((t) => t.room >= 0).map((t) => `${t.x},${t.z}`));
 
 test('planPavingPatches is repeatable: the same floor plans the same patches every time', () => {
   for (const floor of allFloors().slice(0, 60)) {

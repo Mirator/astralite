@@ -3264,3 +3264,14 @@ door leading to the wrong chamber. Fixtures re-picked where a pinned seed stoppe
 (footsteps, macro paving, frame budget); the committed-attack tests park an isolated body's pack-mates in
 the empty gate; the junction and bridge captures and the bridge footstep walk are gone with what they
 stood on.
+
+## 2026-09-29 - Plan 017 cleanup: the bridges and dead ends go for good
+
+PR #74 merged. What it left unreachable is now removed rather than carried: the `wood` field on floor tiles
+and on the surface index, the footstep rule that went quiet on wood, the bridge deck, trestle, arches and
+mooring lanterns in the scene and atmosphere passes, the "sconce on any pillar next to a corridor or bridge"
+guarantee (no pillar can stand next to either any more), the bridge, dark-corridor and junction captures in
+`shots.spec.ts`, the combat-bridge and corridor frames in `scripts/reference-shot.ts`, and the balance
+sim's backtrack slice, which measured walking back out of a dead end. Nothing that ran changes: every
+removed branch was guarded by a tile or a pillar that no generated floor can hold, and none of them drew
+from a random stream, so every seed lays and lights the same keep it did before.

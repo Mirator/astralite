@@ -1,21 +1,21 @@
 // Reference-art screenshot harness (plan 014, lever 1).
 //
 // Boots its own dev server on GAME_TEST_PORT (default 3100), drives the real game through
-// Playwright/Chromium exactly the way tests/browser/helpers.ts does, and writes three PNGs into the
+// Playwright/Chromium exactly the way tests/browser/helpers.ts does, and writes a PNG into the
 // directory given as the sole CLI argument:
 //
 //   node --experimental-strip-types scripts/reference-shot.ts <outDir>
 //
-// - combat-bridge.png  the knight mid-swing on a plank bridge over open water, 3+ enemies close by
 // - torch-room.png     a torchlit chamber with braziers and a pack of guards
-// - corridor.png       a bare corridor run
 //
-// The floor is pinned to seed 0x1 (the same seed tests/browser/shots.spec.ts uses for its bridge and
-// warden-chamber scenes) via the identical crypto.getRandomValues stub the browser suite uses, so
+// It used to write combat-bridge.png and corridor.png too; plan 017 took the bridges and corridors out.
+//
+// The floor is pinned to seed 0x1 (the same seed tests/browser/shots.spec.ts uses for its warden-chamber
+// scene) via the identical crypto.getRandomValues stub the browser suite uses, so
 // every round of this harness films the same geometry, the same spawns and the same everything else -
 // only the renderer's own output can differ from round to round. `dungeon-floor.ts`'s `generateFloor`
 // is pure and deterministic given that seed, so the exact same geometry is recomputed here, offline, in
-// node, to find bridge tiles, room centres and corridor runs without needing a live page for it.
+// node, to find room centres without needing a live page for it.
 //
 // GAME_TEST_GL defaults to d3d11 here (unlike the committed browser suite, which defaults to
 // SwiftShader for baseline comparability): this harness only ever compares its own output against
@@ -27,14 +27,13 @@ import { createConnection, createServer } from 'node:net';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { canStand, generateFloor, TILE } from '../app/dungeon-floor.ts';
+import { generateFloor, TILE } from '../app/dungeon-floor.ts';
 
 const GAME = fileURLToPath(new URL('../', import.meta.url));
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.GAME_TEST_PORT ?? 3100);
 const BASE_URL = `http://${HOST}:${PORT}`;
 const SEED = 0x1;
-const SETTLE = 700;
 
 const outDir = process.argv[2];
 if (!outDir) {
@@ -61,10 +60,6 @@ const waitForServer = async (url: string, ms: number) => {
   }
   return false;
 };
-
-/** Lowest-ranked match wins, so the same floor always yields the same spot (mirrors shots.spec.ts). */
-const firstBy = <T,>(items: T[], rank: (item: T) => number) =>
-  items.map((item) => ({ item, key: rank(item) })).sort((a, b) => a.key - b.key)[0]?.item;
 
 type GameWindow = Window & {
   render_game_to_text?: () => string;
@@ -127,10 +122,6 @@ async function main() {
     const evalState = () => page.evaluate(() => JSON.parse((window as GameWindow).render_game_to_text!()));
     const teleport = (x: number, z: number) => page.evaluate(({ x, z }) => (window as GameWindow).dungeonTest!.teleport(x, z), { x, z });
     const step = (ms: number, draw = false) => page.evaluate(({ ms, draw }) => (window as GameWindow).advanceTime!(ms, draw), { ms, draw });
-    const act = (detail: string) => page.evaluate((detail) => window.dispatchEvent(new CustomEvent('dungeon-action', { detail })), detail);
-    type CombatFixture = { enemies?: { index: number; x?: number; z?: number; hp?: number; windup?: number; cooldown?: number }[] };
-    const configureCombat = (fixture: CombatFixture) =>
-      page.evaluate((fixture) => (window as GameWindow).dungeonTest!.configureCombatFixture!(fixture), fixture);
     const canvas = page.locator('.game-canvas canvas');
     // Plan 014 round B: turn the knight to a three-quarter front view (facing screen down-right, toward
     // the camera) with real keyboard input - one frame of the diagonal held, which sets his facing and
@@ -154,78 +145,6 @@ async function main() {
     // see the header comment for why this is safe.
     const floor = generateFloor(SEED, 1);
 
-    // ---- combat-bridge.png: knight mid-swing on a plank bridge, water on both sides, 3+ enemies ----
-    {
-      const woodSet = new Set(floor.tiles.filter((t) => t.wood).map((t) => `${t.x},${t.z}`));
-      const isWood = (x: number, z: number) => woodSet.has(`${x},${z}`);
-      // Walk a straight run of wood tiles as far as it goes in one direction.
-      const runLength = (x: number, z: number, dx: number, dz: number) => {
-        let n = 0, cx = x + dx, cz = z + dz;
-        while (isWood(cx, cz)) { n++; cx += dx; cz += dz; }
-        return n;
-      };
-      const planks = floor.tiles.filter((tile) => tile.wood && canStand(floor.cells, tile.x * TILE, tile.z * TILE));
-      // A clean single-width span, well inside a long run rather than at an end or a dock junction:
-      // wood extends both ways along one axis (the run), water sits on both sides of the other axis
-      // (the width) - which is what puts open water in frame left and right of the knight, the way
-      // the reference's own bridge shot is composed - and the two run-lengths are close to equal, so
-      // the spot sits near the run's own middle rather than near either bank.
-      const candidates = planks.map((tile) => {
-        const alongX = runLength(tile.x, tile.z, 1, 0), backX = runLength(tile.x, tile.z, -1, 0);
-        const alongZ = runLength(tile.x, tile.z, 0, 1), backZ = runLength(tile.x, tile.z, 0, -1);
-        const runX = alongX + backX + 1, runZ = alongZ + backZ + 1;
-        const throughX = runX >= runZ;
-        const along = throughX ? alongX : alongZ, back = throughX ? backX : backZ;
-        const runLen = throughX ? runX : runZ;
-        const clean = throughX ? !isWood(tile.x, tile.z + 1) && !isWood(tile.x, tile.z - 1) : !isWood(tile.x + 1, tile.z) && !isWood(tile.x - 1, tile.z);
-        return { tile, runLen, centring: Math.abs(along - back), clean };
-      }).filter((c) => c.clean && c.runLen >= 6);
-      const middle = firstBy(candidates.length ? candidates : candidates, (c) => -c.runLen * 1e3 + c.centring)?.tile
-        ?? firstBy(planks, (tile) => -planks.filter((other) => Math.abs(other.x - tile.x) <= 3 && Math.abs(other.z - tile.z) <= 3).length * 1e6 + tile.x * 1e3 + tile.z);
-      if (!middle) throw new Error('seed 0x1 no longer lays a plank bridge');
-      const spot = { x: middle.x * TILE, z: middle.z * TILE };
-      await teleport(spot.x, spot.z);
-      await step(0);
-      const knight = await faceCamera();
-      // Plan 014 round B: the one enemy he strikes stands where he now faces, so the swing that lands
-      // is also the one that shows his front. Nearest standable tile centre to a point 1.5 ahead.
-      const ahead = { x: knight.x + knight.facing.x * 1.5, z: knight.z + knight.facing.z * 1.5 };
-      const victim = firstBy(floor.tiles.filter((tile) => canStand(floor.cells, tile.x * TILE, tile.z * TILE) && Math.hypot(tile.x * TILE - knight.x, tile.z * TILE - knight.z) > 1),
-        (tile) => Math.hypot(tile.x * TILE - ahead.x, tile.z * TILE - ahead.z));
-      // Three standable tiles spread near, mid and far rather than clustered on top of the knight -
-      // the reference's own fight has bodies at staggered depth, not a huddle.
-      const nearby = floor.tiles
-        .filter((tile) => canStand(floor.cells, tile.x * TILE, tile.z * TILE))
-        .map((tile) => ({ x: tile.x * TILE, z: tile.z * TILE, d: Math.hypot(tile.x * TILE - spot.x, tile.z * TILE - spot.z) }))
-        .filter((p) => p.d > 1.4 && p.d < 9)
-        .sort((a, b) => a.d - b.d);
-      const picks = [0, Math.floor(nearby.length * 0.45), Math.floor(nearby.length * 0.85)]
-        .map((i) => nearby[Math.min(i, nearby.length - 1)]).filter((p): p is NonNullable<typeof p> => !!p);
-      const enemyCount = (await evalState() as { enemies: unknown[] }).enemies.length;
-      const moved = Math.min(3, enemyCount, picks.length);
-      if (moved < 3) console.warn(`  reference-shot: only ${moved} enemies available to stage around the bridge`);
-      if (victim) picks[0] = { x: victim.x * TILE, z: victim.z * TILE, d: 0 };
-      await configureCombat({
-        enemies: Array.from({ length: moved }, (_, i) => ({ index: i, x: picks[i].x, z: picks[i].z, cooldown: 8, windup: 0 })),
-      });
-      // Real distance-based noticing, same as shots.spec.ts's flooded-hall scene: close enough,
-      // long enough, and the watch wakes and closes on its own.
-      await step(900);
-      await act('attack');
-      // Plan 014 round 8 (lever 3): 110ms was well inside the swing but well short of the trail's own
-      // .14s lifetime - the ribbon had only been accumulating for 110ms of a 140ms window, so it was
-      // never at the full length it is capable of. 165ms sits inside the same 65-175ms landing window
-      // the original comment measured, but late enough that close to the whole lifetime's worth of
-      // blade motion is in the buffer, and it lands just after the hit registers, so a blood burst
-      // (see dungeon-game.tsx's swing-hit branch) is caught in flight too.
-      await step(200);
-      await step(0, true);
-      await canvas.screenshot({ path: join(outDir, 'combat-bridge.png') });
-      const after = await evalState() as { enemies: { awake: boolean }[]; player: { attackTime: number } };
-      console.log(`  reference-shot: combat-bridge - victim=${victim ? `${victim.x},${victim.z}` : 'none'} facing=${knight.facing.x.toFixed(2)},${knight.facing.z.toFixed(2)}`);
-      console.log(`  reference-shot: combat-bridge - awake=${after.enemies.filter((e) => e.awake).length}/${after.enemies.length} attackTime=${after.player.attackTime.toFixed(3)}`);
-    }
-
     // ---- torch-room.png: a torchlit chamber with braziers and a pack of guards ----
     {
       const braziers = floor.props.filter((prop) => prop.kind === 'brazier');
@@ -245,28 +164,7 @@ async function main() {
       console.log(`  reference-shot: torch-room - ${hall.room.name} awake=${inRoom.filter((e) => e.awake).length}/${inRoom.length}`);
     }
 
-    // ---- corridor.png: a corridor run with a torch or two actually in view, not the darkest one ----
-    {
-      const braziers = floor.props.filter((prop) => prop.kind === 'brazier');
-      const corridor = floor.tiles
-        .filter((tile) => tile.room < 0 && canStand(floor.cells, tile.x * TILE, tile.z * TILE))
-        .map((tile) => ({ tile, near: Math.min(...braziers.map((b) => Math.hypot(b.x - tile.x, b.z - tile.z) * TILE)) }));
-      // Plan 014 round 3 (lever C7): this used to pick the tile *furthest* from any brazier on
-      // purpose, to prove the corridor read as a corridor with nothing lighting it - which is exactly
-      // what a critic then read as a mostly-black frame. A corridor close enough to a brazier that its
-      // pool of light actually reaches into frame, without standing inside the room the brazier
-      // belongs to, is the shot that is still recognisably a passage and is not mostly void.
-      const lit = firstBy(corridor, ({ tile, near }) => Math.abs(near - 5) + tile.x * 1e-3 + tile.z * 1e-3);
-      if (!lit) throw new Error('seed 0x1 has no corridor tile left');
-      await teleport(lit.tile.x * TILE, lit.tile.z * TILE);
-      await faceCamera();
-      await step(SETTLE - 400);
-      await step(0, true);
-      await canvas.screenshot({ path: join(outDir, 'corridor.png') });
-      console.log(`  reference-shot: corridor - ${lit.near.toFixed(1)} units from the nearest brazier`);
-    }
-
-    console.log(`  reference-shot: wrote combat-bridge.png, torch-room.png, corridor.png to ${outDir}`);
+    console.log(`  reference-shot: wrote torch-room.png to ${outDir}`);
   } finally {
     await browser.close();
     server.kill();

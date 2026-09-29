@@ -1726,7 +1726,7 @@ export default function DungeonGame() {
         player.userData.cape.rotation.x = THREE.MathUtils.damp(player.userData.cape.rotation.x, pc.dashTime > 0 ? -.8 : -locomotion.cape, 16, dt);
         // Plan 008: the SAME crossing the step sound plays on, resolved only now that the legs and the
         // body carry this update's pose, so the sole's world point is not last frame's. The boot's own
-        // x/z, the support's sampled top for y; no support, wood, or a veil pending means no effect.
+        // x/z, the support's sampled top for y; no support or a veil pending means no effect.
         const falls=footfalls(previousPhase,walkPhase,{dashing:pc.dashTime>0,dt,travelled});
         if(falls.length&&!building){
           player.updateWorldMatrix(true,true);

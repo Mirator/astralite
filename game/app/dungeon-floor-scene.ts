@@ -12,7 +12,7 @@ import { buildSurfaceIndex, type CellSurface, type SurfaceIndex, type SurfaceTri
 import { applyFloorDetail, applyStoneTextures, getFlagstoneTextures, getMasonryTextures } from './dungeon-textures';
 import type { WeaponId } from './dungeon-weapon';
 
-// Raising one floor of the keep out of its generated layout: the paving, the bridges and the flood, the
+// Raising one floor of the keep out of its generated layout: the paving and the flood, the
 // parapets, the atmosphere pass, the walking-surface index, the hazards and shrines, the stair and every
 // skeleton. This was the middle of `buildFloorSteps` in dungeon-game.tsx, unchanged but for where its
 // results are kept: everything it makes that outlives the build goes into the one `FloorStage` the
@@ -104,7 +104,7 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
   applyStoneTextures(floorMaterial, getFlagstoneTextures(), 1.1);
   // Plan 014 round B: wall-base grime, near-mirror puddles and per-slab variation (dungeon-textures.ts).
   const floorDetail = applyFloorDetail(floorMaterial, [...floor.tiles, ...floor.props].map(({ x, z }) => ({ x: x * TILE, z: z * TILE })), TILE); floorGroup.userData.floorDetail = floorDetail;
-  const stoneTiles = floor.tiles.filter(t=>!t.wood), bridgeTiles = floor.tiles.filter(t=>t.wood);
+  const stoneTiles = floor.tiles;
   // A corridor tile belongs to no room and used to take the keep's own grey wherever it ran, so a
   // passage through the ruin came out as a grey ribbon laid across an ochre floor. It takes the
   // nearest chamber's theme instead, which is the same rule the lighting uses to decide what to
@@ -216,23 +216,13 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
     }
   }
   yield 'tiles';
-  // Plan 014 round 4 (lever C5): stone flagstone in place of the wood plank deck - the same slab
-  // geometry and the same triplanar flagstone material the rest of the floor stands on, so a
-  // bridge reads as a stone span rather than a wood dock. `slabTint` already resolves a theme for
-  // a tile with no room of its own (a bridge always sits between two rooms), which is exactly the
-  // case this needs. The timber piles and rail below stay - removing them entirely wherever a
-  // stone arch now stands would leave the long stretches between arches looking unsupported, and
-  // this round did not have room to also rebuild the understructure tile by tile.
-  const deck = new THREE.InstancedMesh(tileGeometry, floorMaterial, bridgeTiles.length);
-  bridgeTiles.forEach(({x,z,room},i)=>{slabTint(x,z,room);deck.setColorAt(i,tint);deck.setMatrixAt(i,seat(x,z,false));});
-  deck.receiveShadow=true;deck.userData.walkingSurface=true;floorGroup.add(deck);
   const { minX, maxX, minZ, maxZ } = floor.bounds;
   stage.tide = tidalMaterial(new THREE.Vector4((minX + maxX) * TILE / 2, (minZ + maxZ) * TILE / 2, (maxX - minX) * TILE / 2 + 1.5, (maxZ - minZ) * TILE / 2 + 1.5), floor.tiles.map(({ x, z }) => ({ x: x * TILE, z: z * TILE })), TILE);
   stage.water = new THREE.Mesh(new THREE.PlaneGeometry((maxX - minX + 40) * TILE, (maxZ - minZ + 40) * TILE), stage.tide.material);
   stage.water.rotation.x = -Math.PI / 2; stage.water.position.set((minX + maxX) * TILE / 2, -2.8, (minZ + maxZ) * TILE / 2); floorGroup.add(stage.water);
   const borders: { x: number; z: number; horizontal: boolean }[] = [];
   floor.tiles.forEach(({ x, z }) => { for (const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]) if (!floor.cells.has(cellKey(x + dx,z + dz))) borders.push({ x: (x + dx * 0.5) * TILE, z: (z + dz * 0.5) * TILE, horizontal: dz !== 0 }); });
-  // Low parapets keep the isometric view readable, including narrow bridges.
+  // Low parapets keep the isometric view readable.
   // A kerb this low read as a painted line around the slab rather than as the top of a wall, and the
   // near edge of the platform is the one place in the frame where the reference always has built
   // mass. Half again as tall and near twice as thick, on the same instance count, so it catches the
@@ -268,7 +258,7 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
   // above has actually placed them - set once here, not per frame, since torches do not move.
   if (stage.tide) { const slots = stage.tide.torches.value; atmosphere.torchPositions.slice(0, slots.length).forEach((p, i) => slots[i].copy(p)); }
   // The presentation-only support-height index (plan 006/008): every mesh tagged
-  // `walkingSurface=true` -- paving tops (plain, groove, dish, merged pairs), wood planks and
+  // `walkingSurface=true` -- paving tops (plain, groove, dish, merged pairs) and
   // floor motifs -- is read back into world-space triangles once, here, after everything that
   // could tag one has been built. Collision keeps using `floor.cells`/`canStand`; nothing here is
   // ever consulted for whether a position is legal to stand on.
@@ -311,7 +301,7 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
       }
     });
     const cellMeta = new Map<string, CellSurface>();
-    for (const t of floor.tiles) cellMeta.set(cellKey(t.x, t.z), { theme: themeOf(t.x, t.z, t.room), wood: t.wood });
+    for (const t of floor.tiles) cellMeta.set(cellKey(t.x, t.z), { theme: themeOf(t.x, t.z, t.room) });
     stage.surfaceIndex = buildSurfaceIndex(triangles, cellMeta);
     stage.pavingSummary = { pairs: placedPairs, settled: placedSettled, surfaceCells: stage.surfaceIndex.cells.size };
   }

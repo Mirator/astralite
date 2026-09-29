@@ -111,16 +111,6 @@ export type FloorReport = {
   idleBarren: number;
   idleSpent: number;
   idleLiveNoContact: number;
-  /**
-   * Cross-cutting, not a fifth bucket: of `idle`, how much was spent retracing a dead-end branch's own
-   * footprint (its room(s), role === 'branch', plus the corridor only they are reachable through - see
-   * `branchFootprint`) back toward the trunk. A tile only ever counts once the knight has already stood
-   * on it earlier this floor; the flag then holds until he steps onto a tile outside that footprint, or
-   * one he has never stood on before. That makes a pause mid-retreat still count, while a first walk in,
-   * or a shuffle back onto trodden ground mid-fight, mostly does not - a live fight is rarely `idle` in
-   * the first place, since IDLE_RADIUS is wide enough to still see the body being fought.
-   */
-  idleBacktrack: number;
   /** Seconds spent on a corridor tile, idle or not - what `idleCorridor` is a fraction of. */
   corridorSeconds: number;
   /** Distinct corridor tiles the knight's feet touched this floor. */
@@ -268,15 +258,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   // `encounter`, since a tiny room can drop every one of a non-empty roster's placement tries.
   const spawnedRooms = new Set(floor.spawns.map(s => s.room));
   const barrenRoomIds = new Set(floor.rooms.filter(r => !spawnedRooms.has(r.id)).map(r => r.id));
-  // Plan 017: there are no dead ends to walk back out of any more - a chamber is left by a door, never
-  // by the way in - so nothing is ever a backtrack. The column stays so a batch still says so.
-  const branchCells = new Set<number>();
-  // Every cell the knight has ever stood on, keyed the same way `pursuit`/`goalField` are, so a second
-  // arrival on one is a single Set lookup.
-  const visitedCells = new Set<number>();
   const corridorTileSet = new Set<number>();
-  let backtracking = false;
-  let idleCorridor = 0, idleBarren = 0, idleSpent = 0, idleLiveNoContact = 0, idleBacktrack = 0;
+  let idleCorridor = 0, idleBarren = 0, idleSpent = 0, idleLiveNoContact = 0;
   let corridorSeconds = 0, spentRecross = 0;
 
   const bodies: Body[] = floor.spawns.map((spawn, index) => {
@@ -378,8 +361,6 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     if (cellChanged) {
       const packed = packKey(cellX, cellZ);
       if (activeRoom < 0) corridorTileSet.add(packed);
-      backtracking = branchCells.has(packed) && visitedCells.has(packed);
-      visitedCells.add(packed);
     }
 
     // A fresh room, not yet measured: start the clock on how long it takes something to reach him. A room
@@ -773,8 +754,6 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       else if (barrenRoomIds.has(activeRoom)) idleBarren += DT;
       else if (cleared.has(activeRoom)) idleSpent += DT;
       else idleLiveNoContact += DT;
-      // Cross-cutting: counted above in whichever of the four it fell into, and again here.
-      if (backtracking) idleBacktrack += DT;
     }
     else aloneRun = 0;
 
@@ -816,7 +795,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       level, outcome, seconds: +t.toFixed(1), kills: run.kills - startKills, spawns: floor.spawns.length, damage, surrounded,
       contact: +contact.toFixed(1), idle: +idle.toFixed(1),
       idleCorridor: +idleCorridor.toFixed(2), idleBarren: +idleBarren.toFixed(2), idleSpent: +idleSpent.toFixed(2),
-      idleLiveNoContact: +idleLiveNoContact.toFixed(2), idleBacktrack: +idleBacktrack.toFixed(2),
+      idleLiveNoContact: +idleLiveNoContact.toFixed(2),
       corridorSeconds: +corridorSeconds.toFixed(2), corridorTiles: corridorTileSet.size,
       barrenRooms: barrenRoomIds.size, spentRecrossings: spentRecross,
       alone: +aloneMax.toFixed(1),
