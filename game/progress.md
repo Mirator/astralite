@@ -3410,6 +3410,33 @@ record leaks a field it was not given (node: the fields-only test); the fallback
 (browser: `toBeVisible` on "Run log JSON"); the confirmation count is off by one (browser: expected "Copied 3
 runs", received "Copied 4 runs").
 
+## 2026-09-30 - Run report script, copy-box selection fix, overview brought up to plan 017
+
+`npm run runs:report <file>` (`scripts/runs/report.ts`) reads a pasted "Copy run log" export through
+`parseRunExport` (or a bare run array through `parseRuns`; anything else exits 1 naming the file) and prints
+runs, escapes and escape rate, deaths by floor, deaths by cause (sorted; `hazard` shown as "embers"; bonecaller,
+pyre and shieldbearer always listed, starred, even at zero), median and range of run seconds for won and lost
+runs, boons taken by display name, and the seeds of lost runs as `restart:<seed>`. The summary is a pure
+exported `summariseReport`; node tests are in `tests/runs-report.test.ts`.
+
+The fallback textarea in the title menu re-selected its whole text on every render (an inline callback ref), so a
+hand selection was lost the moment anything re-rendered. It now selects from an effect keyed on the export text
+and `paused`. `tests/browser/run-export.spec.ts` makes a partial selection with the mouse, re-renders through the
+Sound button and expects the selection unchanged. Note for anyone extending it: arrow keys are game bindings and
+never reach a text box, and a press straight into the freshly selected, unfocused box does not move the caret, so
+the test clicks the note above it first.
+
+`GAME_OVERVIEW.md` no longer describes corridors, bridges and side chambers (plan 017), names the three combat verbs
+and the seven arm specials (plan 016), the swap key for doors and the stair, and mentions the richer result card and
+the Copy run log button.
+
+Planted bugs, each watched failing with its own message and restored: median of an even count returns the upper
+middle (node: run seconds test); `hazard` left unrenamed (node: cause table and restart-seed tests); wins counted
+as deaths (node: escape count, floor table and cause table tests); escapes counted as `lost.length` (node: runs,
+escapes and rate test); one boon under-counted (node: boon names test); the old inline `ref={(el) => { el?.select(); }}`
+put back (browser: "the re-render re-selected the whole log and threw the hand selection away", received [0, 706]
+against [10, 11]).
+
 ## 2026-09-30 - The nightly isolated suite, and why the crossbow bot escapes more
 
 **Nightly (`isolated.yml`), eight scenarios red since plan 017.** Bisected on SwiftShader (the nightly's renderer):

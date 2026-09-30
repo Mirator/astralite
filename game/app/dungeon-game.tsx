@@ -179,6 +179,9 @@ export default function DungeonGame() {
   const [runLog, setRunLog] = useState<RunEnd[]>([]);
   // "Copy run log": the note under the button, and the JSON itself when the clipboard refused it, shown in a read-only box so it can be copied by hand. Nothing leaves the page but through the player's own paste.
   const [exportNote, setExportNote] = useState(''), [exportText, setExportText] = useState('');
+  // Selected once when the box appears or its text changes; an inline callback ref would re-select on every render and undo a hand selection.
+  const exportBox = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { exportBox.current?.select(); }, [exportText, paused]);
   const copyRuns = () => { const runs = readRuns(); if (!runs.length) { setExportText(''); setExportNote('No runs recorded yet'); return; } const text = serialiseRunExport(runs, new Date()); const count = `${runs.length} ${runs.length === 1 ? 'run' : 'runs'}`; const fallback = () => { setExportText(text); setExportNote(`Copy the ${count} below`); }; if (!navigator.clipboard?.writeText) { fallback(); return; } navigator.clipboard.writeText(text).then(() => { setExportText(''); setExportNote(`Copied ${count}`); }, fallback); };
   const [ended, setEnded] = useState<RunEnd | null>(null);
 
@@ -2471,7 +2474,7 @@ export default function DungeonGame() {
         </nav>
         <div className="menu-settings"><button onClick={() => action('mute')}>{settings.muted ? 'Sound off' : 'Sound on'}</button><button onClick={() => action('fullscreen')}>Fullscreen</button>{!paused && <button className="copy-runs" disabled={!hydrated || runLog.length === 0} onClick={copyRuns}>Copy run log</button>}</div>
         {!paused && <output className="run-export">{runLog.length === 0 ? 'No runs recorded yet' : exportNote}</output>}
-        {!paused && exportText && <textarea className="run-export-text" readOnly aria-label="Run log JSON" value={exportText} ref={(el) => { el?.select(); }} />}
+        {!paused && exportText && <textarea className="run-export-text" readOnly aria-label="Run log JSON" value={exportText} ref={exportBox} />}
         {/* Development only, and outside the menu list so the list reads the same in both builds. */}
         {process.env.NODE_ENV !== 'production' && <div className="menu-dev"><button data-view="arena" ref={returnFocus} className="opens" disabled={!hydrated} onClick={() => openView('arena')}>Arena · dev<span aria-hidden="true">›</span></button></div>}
         </> : <div className="menu-panel">

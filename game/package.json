@@ -21,7 +21,8 @@
     "shots:compare": "node --experimental-strip-types scripts/shots/compare.ts",
     "figures": "node --experimental-strip-types scripts/figures.ts",
     "perf:boot": "node --experimental-strip-types scripts/perf/boot.ts",
-    "backdrop": "node --experimental-strip-types scripts/backdrop.ts"
+    "backdrop": "node --experimental-strip-types scripts/backdrop.ts",
+    "runs:report": "node --experimental-strip-types scripts/runs/report.ts"
   },
   "dependencies": {
     "@types/three": "^0.185.4",
