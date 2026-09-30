@@ -3473,3 +3473,24 @@ bolt to `landBlow` as `unit(body - player)`, the game (`dungeon-game.tsx:2010`) 
 to a shield's arc and the shove. Using the heading changes every run's trajectory (30 of 30 differ) and blocked bolts 75 ->
 65 of 3282 landed, but not the outcome counts (27 escaped, 3 died, same causes). Left unfixed: it would mean re-taking
 `measured` for an effect this small, and it is not what moved the crossbow. One line if wanted.
+
+## 2026-09-30 - Balance sim: a knight bolt pushes along its own heading
+
+The game lands a bolt with the bolt heading as the push (`dungeon-game.tsx:2004-2010`); the sim passed the line from the
+knight to the body (`scripts/balance/sim.ts`, the `shots` loop), which differs once the knight has moved, for a pierced second
+body off the line and for the harpoon. It now passes `{ x: shot.dx, z: shot.dz }` for plain, harpoon and Heavy Bolt shots. Hostile
+bolts hit the knight and shove nothing, so that path is unchanged, as is the harpoon drag (`dragToward` uses its own direction).
+The melee push (`sim.ts:695`) is untouched. `balance:check` moved two measured values (weak run length 128.2 -> 128.3s,
+special-crossbow 219.2 -> 222.8s); no band moved.
+
+Regression: `tests/balance-sim.test.ts`, crossbow against two shieldbearers and a guard on seeds 3 and 7 (blocks 7 and 10; 5 and 11
+under the old push). Planted bug: the old `unit(body - player)` push restored, failing with "blocked bolts do not follow the bolt
+heading: the sim pushes along the knight-to-body line" (actual 5, 11, expected 7, 10).
+
+Follow-up, same day: a shield-turned bolt now ends that body's handling in the sim (`continue`, as `dungeon-game.tsx:2011`), so it can no
+longer drag or spend the harpoon's drag. This changes no report: the harpoon's blow staggers, a stagger breaks a shield, so the
+harpoon is never blocked (spear special against shieldbearer rosters, seeds 1-24, identical with and without the `continue`;
+`balance:check` identical to the first run). The regression in `tests/balance-sim.test.ts` therefore holds the reason instead of
+the effect: the harpoon blow against a raised shield is not blocked, and the same blow without the stagger is. Planted bug:
+the harpoon swing's `stagger: true` set to false in `dungeon-weapon.ts`, failing with "a shield turned the harpoon aside: its blow
+no longer staggers". The sim's melee push is the same knight-to-body line the game uses (`dungeon-game.tsx:1847`), so it stays.
