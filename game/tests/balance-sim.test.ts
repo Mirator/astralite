@@ -5,6 +5,8 @@ import { arenaFloor } from '../app/dungeon-arena.ts';
 import { generateFloor } from '../app/dungeon-floor.ts';
 import type { EnemyKind } from '../app/dungeon-bestiary.ts';
 import { weaponById } from '../app/dungeon-weapon.ts';
+import { hurledBlow } from '../app/dungeon-combat.ts';
+import { landBlow } from '../app/dungeon-hits.ts';
 
 // The harness is a measuring instrument, so what it owes the suite is not a balance assertion — those
 // are for a human reading a batch — but proof that it is measuring the same game twice. A sim that
@@ -72,6 +74,32 @@ test('a shieldbearer blocks the Tideblade plain strike, and the fight still ends
   const reports = fight(['shieldbearer']);
   for (const r of reports) assert.equal(r.kills, 1, 'the shieldbearer was never brought down, so the block cost nothing to measure');
   assert.ok(total(reports, r => r.blocked) > 0, 'the plain strike never met a raised shield: the sim passes no facing to landBlow');
+});
+
+test('a shield turns a knight bolt by the heading the bolt left along, not the line from the knight to the body', () => {
+  // Measured 2026-09-30 in the arena at level 3, Keep Crossbow, roster shieldbearer x2 + guard. Seeds 3 and 7 are where the
+  // knight has moved or the bolt pierces a second body off his line, so heading and knight-to-body direction disagree on
+  // whether the shield faces the bolt: pushing along knight-to-body gave 5 and 11 blocks there, the bolt's heading gives 7 and 10.
+  // Every other seed agrees between the two, so they cannot tell them apart and are not asserted.
+  const roster: EnemyKind[] = ['shieldbearer', 'shieldbearer', 'guard'];
+  const reports = fight(roster, { weapon: weaponById('crossbow') }, [3, 7]);
+  for (const r of reports) assert.ok(r.landed > 0, 'no bolt landed, so no push was ever passed to landBlow');
+  assert.deepEqual(reports.map(r => r.blocked), [7, 10], 'blocked bolts do not follow the bolt heading: the sim pushes along the knight-to-body line');
+});
+
+test('the harpoon breaks a raised shield, so the sim never has a blocked throw to withhold the drag from', () => {
+  // The sim's `continue` after a blocked bolt (sim.ts, as dungeon-game.tsx:2011) is parity, not behaviour that can be
+  // observed on the harpoon: its blow staggers, and a stagger breaks the guard. Measured 2026-09-30: spear special against
+  // shieldbearer rosters on seeds 1-24 gave identical reports with and without the `continue`. What can fail is the reason
+  // it cannot matter - the same throw with the stagger taken off is turned aside by the very same shield.
+  const harpoon = weaponById('spear').special!;
+  const shield = () => ({ kind: 'shieldbearer' as const, hp: 30, windup: 0, cooldown: 0, hitFlash: 0 });
+  const facing = { x: -1, z: 0 }, push = { x: 1, z: 0 }, at = { x: 0, z: 0 };
+  const throwAt = (stagger: boolean) => landBlow(new Set<string>(), shield(), { ...at }, { ...hurledBlow(harpoon, { harpoon: true, damage: 6 }, { free: true, steadfast: false }).blow, stagger }, push, facing);
+  assert.equal(throwAt(false).blocked, true, 'the staged shield does not turn a plain blow, so the harpoon test below proves nothing');
+  const thrown = hurledBlow(harpoon, { harpoon: true, damage: 6 }, { free: true, steadfast: false });
+  assert.equal(thrown.drags, true, 'the staged throw would not drag, so there is no drag to withhold');
+  assert.equal(landBlow(new Set<string>(), shield(), { ...at }, thrown.blow, push, facing).blocked, false, 'a shield turned the harpoon aside: its blow no longer staggers');
 });
 
 test('the maul swing staggers, so it breaks a shield and records no block', () => {
