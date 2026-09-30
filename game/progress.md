@@ -3436,3 +3436,26 @@ as deaths (node: escape count, floor table and cause table tests); escapes count
 escapes and rate test); one boon under-counted (node: boon names test); the old inline `ref={(el) => { el?.select(); }}`
 put back (browser: "the re-render re-selected the whole log and threw the hand selection away", received [0, 706]
 against [10, 11]).
+
+## 2026-09-30 - The fire check measures the braziers, not the loudest colour of the frame
+
+`art-direction.spec.ts` "the three themes light their chambers three different colours" had failed since plan 017:
+in the keep the top half per cent of pixels by chroma is won by the wall sconces' amber (62 degrees, chroma 59,
+about 1,830 px), not the violet braziers (311 degrees). The scene was right and the measurement was wrong.
+
+Tried first, and reverted: making the keep's braziers win that count. Halo size and opacity, coal-bed strength, a
+larger billboard and a brighter flame moved nothing; only a flame with no white core, dimmer and 1.3x larger passed
+(a `FlameLook` uniform in `dungeon-flame-fx.ts`). It passed by flattening the flame, which the frame did not need, so
+`app/` is back to exactly `origin/main`'s.
+
+The check now projects each brazier's flame footprint (half a tile either side, rim to tip, through the camera the
+snapshot reports) and takes the chroma-weighted hue of the pixels above chroma 30 inside it. Measured on SwiftShader,
+seed 0x1, isolate: keep 320 degrees over 3,573 px (fire 311), ruins 59 over 6,200 (fire 59), flooded 204 over 1,280
+(fire 212). Bounds: at least two footprints on screen, more than 600 saturated pixels, within 20 degrees of the
+family fire, and more than 60 degrees between families. The frame-wide saturation and lightness-band checks stay.
+
+Planted bugs, each watched failing with its own message and restored: the `fire` colour handed to the atmosphere
+update is the ruins orange (keep: "the braziers burn 38 degrees over 3900 px and the family's fire is 311"); keep
+braziers not built (keep: "only 123 saturated pixels over the braziers"); footprints shifted 300 px (keep: "fewer than
+two brazier footprints are on screen"). Hiding only the flame cards, or colouring only them orange, did not fail it:
+the coals, halos and violet light over the footprint carry the hue, so this measures the brazier's fire as a whole.
