@@ -48,7 +48,7 @@ const shot = async (game: Game, name: string) => {
 };
 
 test.describe('flooded hall', { tag: '@capture' }, () => {
-  test.use({ seeds: [0x60] });
+  test.use({ seeds: [0xc] });
   test('a torchlit flooded hall with three guards closing', async ({ game }) => {
     await game.enter();
     const floor = await game.floor();
@@ -65,7 +65,7 @@ test.describe('flooded hall', { tag: '@capture' }, () => {
     );
     expect(
       hall,
-      'seed 0x60 no longer holds a torchlit flooded hall with three guards',
+      'seed 0xc no longer holds a torchlit flooded hall with three guards',
     ).toBeDefined();
     const pack = floor.spawns
       .filter((spawn) => spawn.room === hall!.id)
@@ -503,11 +503,13 @@ test.describe('models', { tag: '@capture' }, () => {
   });
 
   /**
-   * Each found arm as the floor itself lays it out, on the first seed (by a search over the pure
+   * Each found arm as the floor itself lays it out, on a seed (found by a search over the pure
    * generator's `floor.weaponDrop.kind`, level 1) that hands it out. The knight stands 2.6 units to its
    * left on screen, outside the ring, so the rack sits right of centre and the prompt stays down.
+   * The kind is one draw after every spawn is placed, so any change to the dealing moves it: re-picked after plan 018
+   * (fangs, spear, cleaver, maul); a seed that stops handing its arm out fails "pick another seed", it does not skip.
    */
-  const DROPS: [WeaponId, number][] = [['fangs', 0x2], ['spear', 0x1], ['cleaver', 0xb], ['maul', 0x4], ['crossbow', 0x10], ['flask', 0x3]];
+  const DROPS: [WeaponId, number][] = [['fangs', 0x8], ['spear', 0x4], ['cleaver', 0x6], ['maul', 0x1], ['crossbow', 0x10], ['flask', 0x3]];
   for (const [kind, seed] of DROPS) {
     test.describe(`the ${kind} on its rack`, () => {
       test.use({ seeds: [seed] });
