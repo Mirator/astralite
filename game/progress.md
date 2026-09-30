@@ -3474,7 +3474,7 @@ to a shield's arc and the shove. Using the heading changes every run's trajector
 65 of 3282 landed, but not the outcome counts (27 escaped, 3 died, same causes). Left unfixed: it would mean re-taking
 `measured` for an effect this small, and it is not what moved the crossbow. One line if wanted.
 
-## Balance sim: a knight bolt pushes along its own heading (2026-09-30)
+## 2026-09-30 - Balance sim: a knight bolt pushes along its own heading
 
 The game lands a bolt with the bolt heading as the push (`dungeon-game.tsx:2004-2010`); the sim passed the line from the
 knight to the body (`scripts/balance/sim.ts`, the `shots` loop), which differs once the knight has moved, for a pierced second
