@@ -777,7 +777,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           const thrown = hurled ? hurledBlow(hurled, { harpoon: harpoon?.shot === shot, damage: shot.damage }, { free: !!harpoon && !harpoon.dragged, steadfast: BESTIARY[body.kind].steadfast }) : null;
           const drags = !!thrown?.drags;
           const blow = thrown ? thrown.blow : { ...weapon, damage: shot.damage };
-          if (landBlow(floor.cells, body, body, blow, unit(body.x - player.x, body.z - player.z), facingOf(body)).blocked) blockedCount++;
+          // The push is the bolt's own heading, not the line from the knight to the body: the two differ once he has moved, for a pierced second body and for the harpoon (dungeon-game.tsx:2004-2010).
+          // A shield-turned bolt is done with the body: no drag, and the harpoon keeps its one drag (dungeon-game.tsx:2011).
+          if (landBlow(floor.cells, body, body, blow, { x: shot.dx, z: shot.dz }, facingOf(body)).blocked) { blockedCount++; continue; }
           if (drags && hurled?.hurl && harpoon) {
             harpoon.dragged = true;
             const pull = dragToward(body, player, hurled.hurl.drag);
