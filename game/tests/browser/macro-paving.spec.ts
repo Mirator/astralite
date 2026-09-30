@@ -74,13 +74,13 @@ test.describe('all three themes read as a distinct macro change', { tag: '@captu
 });
 
 test.describe('a narrow hall reads the same macro paving as a wide room', { tag: '@capture' }, () => {
-  test.use({ seeds: [0x22] }); // 34 decimal: a 'hall'-shaped room realizes a pair here.
+  test.use({ seeds: [0x11] }); // 17 decimal: a 'hall'-shaped room realizes a pair here (re-picked after plan 017's chambers and plan 018's dealing).
 
   test('a hall\'s merged slabs are captured for review', async ({ game }) => {
     await game.enter();
     const floor = await game.floor();
     const pair = planPavingPatches(floor).pairs.find((p) => floor.rooms[p.room].shape === 'hall');
-    expect(pair, 'seed 0x22 no longer plans a pair in a hall-shaped room').toBeDefined();
+    expect(pair, 'seed 0x11 no longer plans a pair in a hall-shaped room').toBeDefined();
     const room = floor.rooms[pair!.room];
     const centre = roomCentre(floor, room.id);
     await game.teleport(centre.x, centre.z);
