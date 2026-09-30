@@ -6,23 +6,24 @@
 
 ## Overview
 
-**Astralite — The Drowned Keep** is a compact isometric action roguelite played in the browser. The player is a lone knight descending through a flooded fortress whose rooms, paths, encounters, and landmarks are rebuilt for every run.
+**Astralite — The Drowned Keep** is a compact isometric action roguelite played in the browser. The player is a lone knight descending through a flooded fortress whose chambers, doors, encounters, and landmarks are rebuilt for every run.
 
-The experience is designed around a simple promise: **explore, fight, grow stronger, and go deeper**. Controls are intentionally small in number, but timing, positioning, enemy tells, branching routes, hazards, and temporary upgrades give each descent shape. A complete run spans three floors and can be finished in one focused session.
+The experience is designed around a simple promise: **explore, fight, grow stronger, and go deeper**. Controls are intentionally small in number, but timing, positioning, enemy tells, the choice of which door to take, hazards, and temporary upgrades give each descent shape. A complete run spans three floors and can be finished in one focused session.
 
 ## Core loop
 
 1. Enter a newly generated floor.
-2. Follow the main route toward the stair while deciding which side chambers are worth exploring.
+2. Clear the chamber you are in; its doors stay sealed until it is quiet.
 3. Fight skeleton guards, evade stalker pounces, and break through wardens.
-4. Cleanse rooms to recover vitality and earn experience from enemies and optional detours.
-5. Rank up and choose boons that improve the current run.
-6. Defeat the wardens guarding the exit. Their fall unseals the stair; step onto it to review the floor results and descend.
-7. Escape after three floors—or fall, begin a new descent, or retry the same keep seed.
+4. Choose a door with the swap key. Each door shows what waits behind it (a fight, a shrine, an arm on a rack, a mending, or a purse of experience), and every door leads one layer closer to the stair.
+5. Earn experience from enemies and from purse chambers, and recover vitality from cleared chambers, and more from mending chambers.
+6. Rank up and choose boons that improve the current run.
+7. Defeat the wardens guarding the exit. Their fall unseals the stair; stand on it and take it with the swap key to review the floor results and descend.
+8. Escape after three floors—or fall, begin a new descent, or retry the same keep seed.
 
 ## The Drowned Keep
 
-Each floor is a seeded, freely branching fortress rather than a fixed sequence of arenas. It contains roughly 10–24 rooms assembled from several footprints, connected by bent corridors, bridges, and occasional shortcuts. The critical route leads to the floor guardian chamber, while branches reward curiosity with experience, healing, and safer opportunities to prepare.
+Each floor is a seeded chain of sealed chambers rather than a fixed sequence of arenas. It contains roughly 14–30 chambers assembled from several footprints, each its own island. There are no corridors, bridges, or dead ends: the only way between two chambers is a door on one of the two far walls, taken with the swap key once the chamber you stand in is cleared. Chambers stand in layers, from the Tide Gate through two or three chambers per layer to the stair hall, and every door leads exactly one layer on, so every path down is the same length. The choice is which door to take, because each door shows what the chamber behind it pays: a purse of experience, a mending, a quiet shrine, or a fight. Each floor also holds one arm on a rack, in the Tide Gate on the first floor and behind one of the doors on deeper floors.
 
 The keep mixes ruined stone halls, flooded passages, exposed coastal masonry, crypt-like chambers, wooden crossings, waterfalls, banners, braziers, broken walls, pillars, barrels, and scattered defensive remains. Animated tidal water, cloth, flame, embers, damp stone, torchlight, and cool exterior light give the procedural geometry a coherent sense of place.
 
@@ -36,13 +37,14 @@ Rooms are assigned encounter identities so exploration changes the immediate pla
 
 ## Combat and movement
 
-Combat is deliberately built around two verbs: **strike** and **dash**. Movement is screen-relative, attacks can be held to repeat, and a dash can abort a swing before or after the blade is live; while the blade is live, the dash waits for contact to end and then follows. The knight’s swing has anticipation, contact, and recovery phases, allowing attacks to feel responsive without losing visual clarity. A directional slash, hit-stop, particles, sound, recoil, and enemy health bars communicate impact.
+Combat is deliberately built around three verbs: **strike**, **special**, and **dodge** (the dash). Every arm has its own special on a cooldown: the Tideblade lunges along the aim, the Twin Fangs vault a body and stab it in the back, the Salt Spear is thrown and drags its target back, the Warden's Cleaver whirls all the way round, the Bell Maul charges into a slam, the Keep Crossbow draws a piercing heavy bolt, and the Tideflask sets off every burning pool at once. Arms are found on racks and switched with the swap key; the knight starts each descent with the Tideblade. Movement is screen-relative, attacks can be held to repeat, and a dash can abort a swing before or after the blade is live; while the blade is live, the dash waits for contact to end and then follows. The knight’s swing has anticipation, contact, and recovery phases, allowing attacks to feel responsive without losing visual clarity. A directional slash, hit-stop, particles, sound, recoil, and enemy health bars communicate impact.
 
 Enemy behavior is meant to be learned at a glance:
 
 - **Guards** close distance and pressure the player with basic melee attacks.
 - **Stalkers** line up a visible long-range pounce that rewards sidestepping.
 - **Wardens** are larger, tougher enemies with wider reach, stronger blows, and committed attacks.
+- **Archers** hold their distance and loose bolts across the room (from floor two).
 - **Shieldbearers** turn aside ordinary steel from the front; the shield is down while they wind up and recover, and a stagger arm, a flank or a backstab gets past it (from floor two).
 - **Pyres** are frail, and the danger is where they die: the fire they leave bites anyone standing in it (from floor two).
 - **Bonecallers** never strike; they hold back and call up rattlers, which stand up again as fast as they are cut down while the caller lives. Reach the caller, and everything it called falls with it (from floor three).
@@ -51,15 +53,15 @@ Enemy windups use visible cues, attacks require a clear path, and bodies keep en
 
 ## Progression
 
-Experience belongs to the current descent and resets when a new run begins. Defeated enemies and worthwhile side chambers advance the player’s rank. Each rank offers a choice of boons, including improvements to strike strength, reach, dash distance, healing on kills, maximum vitality, and damage resistance.
+Experience belongs to the current descent and resets when a new run begins. Defeated enemies and chambers that pay a purse of experience advance the player’s rank. Each rank offers a choice of boons, including improvements to strike strength, reach, dash distance, healing on kills, maximum vitality, and damage resistance.
 
-The game remembers the deepest descent, the seed of the current keep, settings, and a local history of completed runs. Run records include outcome, floor, playtime, rank, experience, kills, boons, and cause of defeat. This data stays in the browser and is not sent anywhere.
+The game remembers the deepest descent, the seed of the current keep, settings, and a local history of completed runs. Run records include outcome, floor, playtime, rank, experience, kills, boons, seed, and cause of defeat. The result card at the end of a run reads from that record: it names what felled the knight, the time, and the boons taken, and a lost run offers a new descent or the same keep. The title menu has a **Copy run log** button that puts the finished-run records on the clipboard as JSON (or shows them in a box to copy by hand if the clipboard refuses), so a playtester can paste them to the developer; only the run records are included, no settings or device data. Otherwise this data stays in the browser and is not sent anywhere.
 
 ## Player experience
 
-The permanent HUD stays intentionally minimal: vitality, dash readiness, and progress toward the next boon. Controls, journey statistics, settings, and the expanded floor map live in menus instead of competing with the playfield. Short room notices communicate meaningful events without turning objectives into a persistent overlay.
+The permanent HUD stays intentionally minimal: vitality, the strike, special and dash icons (the special and the dash each with a cooldown sweep), and progress toward the next boon. Controls, journey statistics, settings, and the expanded floor map live in menus instead of competing with the playfield. Short room notices communicate meaningful events without turning objectives into a persistent overlay.
 
-Keyboard and touch are first-class inputs. Keyboard bindings can be remapped, and touch supports either a continuous thumbstick or labelled direction buttons alongside separate dash and strike controls. Volume, mute, fullscreen, and reduced-motion settings are saved locally. Reduced motion removes camera shake and animated hurt pulsing while preserving combat timing.
+Keyboard and touch are first-class inputs. Keyboard bindings can be remapped, and touch supports either a continuous thumbstick or labelled direction buttons alongside separate dash, special, and strike controls. Volume, mute, fullscreen, and reduced-motion settings are saved locally. Reduced motion removes camera shake and animated hurt pulsing while preserving combat timing.
 
 ## Direction and design principles
 
@@ -75,6 +77,6 @@ The project’s established principles are:
 
 ## Current form
 
-Astralite is a single-player browser game built with React, Three.js, and TypeScript. Its current playable scope includes procedural three-floor runs, melee combat, three enemy archetypes, multiple room roles, hazards and shrines, run-specific boons, floor results, persistence, keyboard and multitouch controls, accessibility settings, audio, and deterministic test hooks used for automated playthroughs.
+Astralite is a single-player browser game built with React, Three.js, and TypeScript. Its current playable scope includes procedural three-floor runs of sealed chambers joined by reward doors, arm-based combat with a strike, a special, and a dodge, seven arms, a bestiary of guards, stalkers, wardens, archers, shieldbearers, pyres, and bonecallers, multiple encounter types, hazards and shrines, run-specific boons, floor results, persistence, keyboard and multitouch controls, accessibility settings, audio, and deterministic test hooks used for automated playthroughs.
 
 The reference image points toward the broader fantasy: an immediately readable adventure through varied, beautifully lit ruins where every new route feels like another story hidden beneath the waterline.

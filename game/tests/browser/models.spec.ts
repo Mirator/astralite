@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import type { Page, TestInfo } from '@playwright/test';
 import { deltaE, measureMasks, probeScene } from './enemy-mask.ts';
 import { type FigureLightness, knightLightness, probeScenes, settleFacing } from './figure-mask.ts';
-import { CAPTURING, canStand, expect, Game, openSpot, roomCentre, SCREEN_DIRECTIONS, speedOf, test, WARM_UP } from './helpers.ts';
+import { CAPTURING, canStand, expect, Game, openSpot, roomCentre, SCREEN_DIRECTIONS, speedOf, test, TILE, WARM_UP } from './helpers.ts';
 
 // Structural guards for the model round (plans 009-011), read off the live scene through
 // `dungeonTest.actorStats()`. What each figure looks like is judged on the contact sheet
@@ -106,7 +106,13 @@ test.describe('knight', () => {
       await game.buildFloor(2);
       await game.step(0);
       const floor = await game.floor();
-      const mark = openSpot(floor, roomCentre(floor, 0), { radius: 3 });
+      // Three tiles west of the start chamber's heart, not on it. Plan 017 sealed each chamber and darkened the floor at
+      // its heart (SwiftShader, front facings' surround 26.5 -> 20.7 L* with the knight's own p25 unchanged, 24.1), and
+      // 'his darkest quarter is below the floor around him' has to be measured on a floor that is lit. Measured on this
+      // seed and renderer (2026-09-30): west 3 tiles clears it by 4.2-10.2 L* at the five facings that show his front,
+      // the heart by -7.2 to 0.4 (see the progress.md entry).
+      const heart = roomCentre(floor, 0);
+      const mark = openSpot(floor, { x: heart.x - 3 * TILE, z: heart.z }, { radius: 1.5 });
       const read: FigureLightness[] = [];
       for (const keys of FACINGS) {
         await settleFacing(game, mark, keys);

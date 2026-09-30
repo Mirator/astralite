@@ -47,6 +47,24 @@ test('Copy run log puts the stored runs on the clipboard, and falls back to a re
   expect(parseRunExport(shown)?.runs).toEqual(STORED);
   // Pre-selected: the whole text is already the selection.
   expect(await box.evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd, el.value.length])).toEqual([0, shown.length, shown.length]);
+
+  // A hand selection survives a re-render. The box is selected once, when it appears; an inline callback ref
+  // re-selects everything on every render, and the Sound button below re-renders the menu.
+  // Real pointer input. The box starts fully selected and unfocused, and a press straight into that state does
+  // not move the caret, so the reader first clicks the note above it; the double-click then picks a word.
+  await page.locator('.run-export').click();
+  await box.dblclick({ position: { x: 60, y: 30 } });
+  const selection = () => box.evaluate((el: HTMLTextAreaElement) => [el.selectionStart, el.selectionEnd]);
+  const picked = await selection();
+  expect(picked[1] - picked[0], 'precondition: the double-click selected something').toBeGreaterThan(0);
+  expect(picked[1] - picked[0], 'precondition: the selection is partial, not the whole log').toBeLessThan(shown.length);
+  const sound = page.getByRole('button', { name: /^Sound o(n|ff)$/ });
+  const before = await sound.textContent();
+  await sound.click();
+  expect(await sound.textContent(), 'precondition: the menu re-rendered').not.toBe(before);
+  await expect(box).toBeVisible();
+  expect(await selection(), 'the re-render re-selected the whole log and threw the hand selection away').toEqual(picked);
+  await sound.click();
   void game;
 });
 
