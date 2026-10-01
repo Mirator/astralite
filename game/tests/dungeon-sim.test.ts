@@ -194,12 +194,10 @@ test('a chamber pays what its door showed, and every clear tops the knight up', 
   assert.deepEqual(chamberReward(mend, 'mend'), { xp: 0, ranks: 0, healed: MEND });
   assert.deepEqual([mend.totalXp, mend.hp], [0, 70]);
 
-  // An arm's chamber, a shrine and the stair hall pay the top-up alone.
-  for (const reward of ['arm', null] as const) {
-    const plain = createRun();
-    plain.hp = 40;
-    assert.deepEqual(chamberReward(plain, reward), { xp: 0, ranks: 0, healed: TOP_UP }, String(reward));
-  }
+  // A shrine, the gate and the stair hall (no reward) pay the top-up alone. (Plan 019: no chamber pays an arm any more.)
+  const plain = createRun();
+  plain.hp = 40;
+  assert.deepEqual(chamberReward(plain, null), { xp: 0, ranks: 0, healed: TOP_UP });
 
   // Nothing overfills: the heal reported is what was actually restored, up to the cap and no further.
   const nearly = createRun();

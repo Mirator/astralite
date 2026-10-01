@@ -1,3 +1,4 @@
+import { freshMeta } from '../../app/dungeon-meta.ts';
 import { VEIL_STAGES, veilProgress } from '../../app/dungeon-veil.ts';
 import { DEFAULT_SEEDS, expect, type GameWindow, pinSeeds, test, WARM_UP } from './helpers.ts';
 
@@ -203,6 +204,9 @@ test.describe('on an already booted page', () => {
     page,
   }) => {
     const seed = 0x51a7;
+    // Plan 019 Stage C: the racks are part of what a build decides, and a fresh save lays none, so the save owns three arms:
+    // both builds below read it, and each must stand the same two racks on the same slots.
+    await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'spear', 'maul'], arm: 'tideblade' });
     const capture = () =>
       page.evaluate(() => {
         const snapshot = JSON.parse((window as GameWindow).render_game_to_text!()) as {
@@ -211,17 +215,18 @@ test.describe('on an already booted page', () => {
           enemies: unknown;
           features: unknown;
           stair: unknown;
-          drop: unknown;
+          racks: unknown;
           remaining: unknown;
         };
-        // Everything a build decides: the layout, its dressing, the spawns, the stair, the rack and the props.
-        return { floor: snapshot.floor, graphics: snapshot.graphics, enemies: snapshot.enemies, features: snapshot.features, stair: snapshot.stair, drop: snapshot.drop, remaining: snapshot.remaining };
+        // Everything a build decides: the layout, its dressing, the spawns, the stair, the racks and the props.
+        return { floor: snapshot.floor, graphics: snapshot.graphics, enemies: snapshot.enemies, features: snapshot.features, stair: snapshot.stair, racks: snapshot.racks, remaining: snapshot.remaining };
       });
 
     // The sliced path: the same generator, driven incrementally by `restart` (via `dungeonTest.reset`).
     await page.evaluate((s) => (window as GameWindow).dungeonTest!.reset(s), seed);
     await game.built();
     const sliced = await capture();
+    expect((sliced.racks as unknown[]).length, 'the fixture needs racks in the gate for the comparison to cover them').toBe(2);
 
     // The synchronous reference: dungeonTest.buildFloor drains the identical generator in one call.
     await page.evaluate((s) => (window as GameWindow).dungeonTest!.buildFloor(1, s), seed);

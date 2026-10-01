@@ -17,7 +17,7 @@ import { getFlagstoneTexturesSteps, getMasonryTexturesSteps } from './dungeon-te
 import { createDungeonAudio } from './dungeon-audio';
 import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidate } from './dungeon-occlusion';
 import { animateCloth } from './dungeon-motion';
-import { canStand, generateFloor, hasClearPath, moveOnFloor, cellKey, TILE, type Door } from './dungeon-floor';
+import { canStand, gateRacks, generateFloor, hasClearPath, moveOnFloor, cellKey, TILE, type Door } from './dungeon-floor';
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
 import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import AltarPanel, { type AltarKind } from './dungeon-altar-panel';
@@ -37,7 +37,7 @@ import { nearestFirst } from './dungeon-nearest';
 import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readMeta, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
-import { bank, buyArm, buyUpgrade, freshMeta, pearlsFor, runStart as metaRunStart, UPGRADES, type Meta } from './dungeon-meta';
+import { bank, buyArm, buyUpgrade, chooseArm, freshMeta, pearlsFor, runStart as metaRunStart, UPGRADES, type Meta } from './dungeon-meta';
 import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
@@ -53,7 +53,7 @@ import { actorStat, countDisposals, drainGpu, lightDiagnostics, pointLightCount,
 const FLOORS = 3;
 /** Short in-world lines, crossfaded one at a time under the bar (CSS only). */
 // What the prompt at the foot of the screen says a door leads to (plan 017).
-const DOOR_WORDS: Record<DoorSign, string> = { arm: 'an arm on a rack', mend: 'a mending', cache: 'a purse of experience', rest: 'a quiet shrine', stair: 'the stair down', fight: 'a fight' };
+const DOOR_WORDS: Record<DoorSign, string> = { mend: 'a mending', cache: 'a purse of experience', rest: 'a quiet shrine', stair: 'the stair down', fight: 'a fight' };
 // Each half of the fade a door is taken behind: dark by the first, lit again by the second.
 const CROSS_TIME = .15;
 // Where a chamber sits on the pause-menu map: its layer across, its place in the layer down.
@@ -671,13 +671,18 @@ export default function DungeonGame() {
     // sampled at a sword's tip would trail from the middle of its own haft.
     let armed = player.userData.armed as ArmedWeapon;
     let bladeInner=armed.inner.clone(),bladeTip=armed.tip.clone();
-    // The one arm laid out on this floor, and the ring that marks it.
-    // `kept` is what an arm the knight set down there still owed: its special's cooldown and its quiver.
-    let drop: {group:THREE.Group; ring:THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; blade:ArmedWeapon; kind:WeaponId; x:number; z:number; kept?:Kept} | null = null;
-    // Whether the knight is inside the rack's ring this frame, and what the prompt was last told. The
-    // second exists only so the offer is pushed into React on the step he arrives and the step he leaves,
-    // rather than sixty times a second for as long as he stands there.
-    let overDrop = false, offered: WeaponId | 'stair' | `door:${number}` | null = null, ringLit = 0;
+    // Plan 019: the racks laid out on this floor, each with the ring that marks it - the armoury in floor one's Tide
+    // Gate (an owned arm on its own slot), the dev arena's one rack, and none anywhere else. `kept` is what an arm the
+    // knight set down there still owed: its special's cooldown and its quiver; `lit` is how far its ring has eased open.
+    type Rack = {group:THREE.Group; ring:THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; blade:ArmedWeapon; kind:WeaponId; x:number; z:number; kept?:Kept; lit:number};
+    let racks: Rack[] = [];
+    // The rack whose ring the knight is inside this frame (the gate's spacing leaves at most one), and what the prompt
+    // was last told. The second exists only so the offer is pushed into React on the step he arrives and the step he
+    // leaves, rather than sixty times a second for as long as he stands there.
+    let overRack: Rack | null = null, offered: WeaponId | 'stair' | `door:${number}` | null = null;
+    // Plan 019 (D9): once the first door out of the Tide Gate is taken the run's arm is settled - the racks are gone and
+    // the swap key can never equip an arm again. Cleared by every build of floor one.
+    let armLocked = false;
     // Plan 017: the door the knight is standing at, and the fade he is crossing to the next chamber behind.
     let overDoor: Door | null = null, crossing: { door: Door; time: number; flipped: boolean } | null = null;
     // Put a different arm in the knight's hand. The old geometry is released; the materials are his own
@@ -794,20 +799,37 @@ export default function DungeonGame() {
       const arm = kind === null ? null : weaponById(kind);
       setSwapOffer(arm ? { act: `switch to ${arm.name}`, detail: arm.detail } : null);
     };
-    // Lay an arm on a rack. Called once when the floor is built and again on every swap, because what
+    // Lay an arm on a rack. Called once for each rack when the floor is built and again on every swap, because what
     // the knight sets down stays where he found it: a pickup he regrets is a walk back, not a dead run.
-    const placeDrop = (kind: WeaponId, x: number, z: number, kept?: Kept) => {
+    const layRack = (kind: WeaponId, x: number, z: number, kept?: Kept): Rack => {
       const {palette, plate} = player.userData.armoury as {palette: ArmoryPalette; plate: Plate};
-      if (drop) disposeWeaponDrop(drop, palette);
       const built = makeWeaponDrop(kind, palette, plate);
       built.group.position.set(x, 0, z);
       floorGroup.add(built.group);
-      drop = {...built, kind, x, z, kept};
-      overDrop = false; ringLit = 0; showOffer(null);
+      return {...built, kind, x, z, kept, lit: 0};
     };
-    // What a floor build borrows from the world: the shared telegraph art, the scene root, the cutaway
-    // controller's registration and the knight's own rack.
-    const floorArt: FloorArt = { telegraph: telegraphTex, lane: laneTex, alert: alertMaterial, world, register: (mesh) => cutaway.register(mesh), placeDrop };
+    const clearRacks = () => { const {palette} = player.userData.armoury as {palette: ArmoryPalette}; for (const rack of racks) disposeWeaponDrop(rack, palette); racks = []; overRack = null; };
+    // Plan 019 (D8): the Tide Gate's armoury. Every arm the save owns except the one in hand stands on its own slot of
+    // `gateRacks`; the slots of the arms not owned stay empty. Floor one of a campaign run only, and only until the first
+    // door out is taken. Left as it is when the racks already stand as they should (the first ENTER asks again).
+    const layGateRacks = () => {
+      const owned = level === 1 && !arena && !armLocked ? readMeta().arms : [];
+      const want = gateRacks(floor).filter(slot => owned.includes(slot.arm) && slot.arm !== pc.weapon.id);
+      if (want.length === racks.length && want.every((slot, at) => racks[at].kind === slot.arm)) return;
+      clearRacks(); showOffer(null);
+      for (const slot of want) racks.push(layRack(slot.arm, slot.x, slot.z));
+    };
+    // Plan 019 (D9): the knight takes the first door out of the Tide Gate, and the arm he carries is his for the run. It is
+    // written to the save here and not at run end, so a run lost on floor one still remembers the choice.
+    const lockArm = () => {
+      armLocked = true; runArm = pc.weapon.id;
+      const chosen = chooseArm(readMeta(), pc.weapon.id);
+      if (chosen) { writeMeta(chosen); setMeta(chosen); }
+      clearRacks();
+    };
+    // What a floor build borrows from the world: the shared telegraph art, the scene root and the cutaway
+    // controller's registration.
+    const floorArt: FloorArt = { telegraph: telegraphTex, lane: laneTex, alert: alertMaterial, world, register: (mesh) => cutaway.register(mesh) };
     // The pose the live swing is in: a strike's curve, a special's own tracks (`swingPose`), or the maul being wound.
     const poseAt=(age:number)=>charging!==null&&age===0&&pc.swingKind!=='special'&&pc.weapon.special?chargePose(charging/(pc.weapon.special.chargeMin??1),pc.weapon.special.kind):swingPose(pc,age);
     const posePlayer=(age:number)=>{
@@ -858,7 +880,7 @@ export default function DungeonGame() {
       cutaway.releaseFloor();
       // Before the traversal below disposes every material on the floor: the rack is drawn in the
       // knight's own palette, and he is still wearing it.
-      if (drop) { disposeWeaponDrop(drop, (player.userData.armoury as {palette: ArmoryPalette}).palette); drop = null; }
+      clearRacks();
       stage.atmosphere?.dispose();
       impacts.clear(); footsteps.clear();
       floorGroup.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); } });
@@ -1036,7 +1058,7 @@ export default function DungeonGame() {
       buildMs = {};
       if (stage.atmosphere) clearFloor();
       phase('dispose'); yield;
-      level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; stage.features = []; stairOpen = false; onStair = false; stairLit = 0; drop = null; overDrop = false; showOffer(null);
+      level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; stage.features = []; stairOpen = false; onStair = false; stairLit = 0; racks = []; overRack = null; showOffer(null); if (level === 1) armLocked = false;
       gameStatus = 'playing'; setStatus('playing');
       // A staged build (see `stagedBuild`) charts the layout a stage early so the veil can name it; the
       // floor it drew is taken here instead of drawing a second seed. Only a match is taken - the same
@@ -1059,6 +1081,8 @@ export default function DungeonGame() {
       // The floor itself - paving, flood, parapets, atmosphere, the walking-surface index, hazards, shrines,
       // the stair and every skeleton - is raised by dungeon-floor-scene.ts, one timed phase per yield.
       for (const name of raiseFloor(floor, level, floorGroup, pavingPlan, stage, floorArt)) { phase(name); yield; }
+      // The dev arena keeps its one rack where the generator reserved it (D14); a campaign floor never places that spot.
+      if (arena) racks.push(layRack(floor.weaponDrop.kind, floor.weaponDrop.x, floor.weaponDrop.z)); else layGateRacks();
       // The gate holds nobody, so its doors stand open from the first frame; every other door starts barred.
       for (const view of stage.doors) view.bars.visible = !cleared.has(view.door.from);
       // Every texture the new floor uses goes to the GPU now. three.js otherwise uploads a texture the
@@ -1250,6 +1274,7 @@ export default function DungeonGame() {
     // Plan 017: a door is taken behind a short fade. The knight is set down in the next chamber at the dark
     // point of it, so the move is never seen; a reduced-motion player gets a plain cut instead.
     const takeDoor = (door: Door) => {
+      if (level === 1 && door.from === floor.start && !armLocked && !arena) lockArm();
       crossing = { door, time: 0, flipped: false }; overDoor = null; showOffer(null); dropBuffers(pc);
       audio.play('clear');
     };
@@ -1278,13 +1303,14 @@ export default function DungeonGame() {
     // is a walk back, not a dead run.
     const requestSwap = () => {
       if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing' || building || crossing) return;
-      if (!drop || !overDrop) { if (stairOpen && onStair) descend(); else if (overDoor && cleared.has(overDoor.from)) takeDoor(overDoor); return; }
+      const rack = overRack;
+      if (!rack || armLocked) { if (stairOpen && onStair) descend(); else if (overDoor && cleared.has(overDoor.from)) takeDoor(overDoor); return; }
       // Both arms keep their own clocks: read the one in hand before `equip` hands over the rack's.
-      const taken = weaponById(drop.kind), set = pc.weapon.id, at = { x: drop.x, z: drop.z }, left = keep();
-      equip(drop.kind, drop.kept);
-      placeDrop(set, at.x, at.z, left);
-      // Standing still after the swap, so the prompt comes straight back naming the arm just set down.
-      overDrop = true; showOffer(set);
+      const taken = weaponById(rack.kind), set = pc.weapon.id, at = { x: rack.x, z: rack.z }, left = keep(), slot = racks.indexOf(rack);
+      equip(rack.kind, rack.kept);
+      disposeWeaponDrop(rack, (player.userData.armoury as {palette: ArmoryPalette}).palette);
+      // What he set down goes on the same slot; standing still after the swap, the prompt comes straight back naming it.
+      racks[slot] = overRack = layRack(set, at.x, at.z, left); showOffer(set);
       audio.play('clear'); burst(player.position, 0xfbc956, 14);
       setNotice(`${taken.name} in hand`); noticeTime = 3.5;
       setHeldWeapon(taken.name);
@@ -1393,6 +1419,8 @@ export default function DungeonGame() {
       }
       // The first descent never passes through `restart`, so a dev `?arm=` has to be honoured here as well.
       if (process.env.NODE_ENV !== 'production') { const arm = devStartingArm(window.location.search); if (arm && pc.weapon.id !== arm) { equip(arm); setHeldWeapon(weaponById(arm).name); } }
+      // The keep was built before the save was last read (or before a dev `?arm=`), so the armoury is asked again: an arm bought since stands on its slot, and the one in hand does not.
+      layGateRacks();
       runArm = pc.weapon.id; began = startOf();
       floorStart = elapsed; runStart = elapsed; hasStarted = true; setStarted(true); setCapturing(null); };
     // TO THE GATE (plan 019, D10): the result card's way back to the title menu. The ended run stays ended; the next
@@ -1683,14 +1711,16 @@ export default function DungeonGame() {
         // An arm on the floor is only ever offered. Standing in the ring lights it and names it at the foot
         // of the screen; nothing leaves the knight's hand until he answers with the swap key, so walking
         // over a rack mid-fight — or dashing through one — cannot change the weapon he is swinging.
-        if (drop) {
-          overDrop = Math.hypot(player.position.x - drop.x, player.position.z - drop.z) < PICKUP_RADIUS;
+        overRack = null;
+        for (const rack of racks) {
+          const over = Math.hypot(player.position.x - rack.x, player.position.z - rack.z) < PICKUP_RADIUS;
+          if (over) overRack = rack;
           // The ring answers the step rather than a dwell, so it eases rather than fills: what it says now
           // is "this one is yours for the asking", and the asking is the key.
-          ringLit += ((overDrop ? 1 : 0) - ringLit) * (1 - Math.exp(-11 * dt));
-          drop.ring.material.opacity = .35 + ringLit * .6;
-          drop.ring.scale.setScalar(1 + ringLit * .12);
-          drop.group.rotation.y += dt * (overDrop ? 1.5 : .45);
+          rack.lit += ((over ? 1 : 0) - rack.lit) * (1 - Math.exp(-11 * dt));
+          rack.ring.material.opacity = .35 + rack.lit * .6;
+          rack.ring.scale.setScalar(1 + rack.lit * .12);
+          rack.group.rotation.y += dt * (over ? 1.5 : .45);
         }
         // Plan 017: this chamber's ways out. Barred until it is clear, lit once it is, and brighter still
         // under the knight's feet, like the rack's ring: the door is his for the asking, and the asking is
@@ -1718,7 +1748,7 @@ export default function DungeonGame() {
           ember.bid(lampAt.set(stage.stairSpot.x, .55, stage.stairSpot.z), Math.hypot(player.position.x - stage.stairSpot.x, player.position.z - stage.stairSpot.z), 9 + stairLit * 19, 0xfbc956);
         }
         // One prompt, asked once a frame, so the rack and the stair never take turns clearing each other's.
-        showOffer(drop && overDrop ? drop.kind : stairOpen && onStair ? 'stair' : overDoor && cleared.has(overDoor.from) ? `door:${overDoor.id}` : null);
+        showOffer(overRack ? overRack.kind : stairOpen && onStair ? 'stair' : overDoor && cleared.has(overDoor.from) ? `door:${overDoor.id}` : null);
         if (gameStatus !== 'playing') return;
         for (const feature of stage.features) {
           const near = Math.hypot(player.position.x-feature.mesh.position.x, player.position.z-feature.mesh.position.z);
@@ -2278,8 +2308,7 @@ export default function DungeonGame() {
       // the live scene - with every dispose that has reached one of the knight's run-scoped materials.
       const knightDisposals = countDisposals(player);
       testHooks.actorStats = () => {
-        const held = drop ? actorStat(drop.group) : null;
-        return { knight: { ...actorStat(player), disposedMaterials: knightDisposals() }, enemies: stage.enemies.filter(e => !e.dead).map(e => ({ kind: e.kind, ...actorStat(e.group) })), drop: drop && held ? { kind: drop.kind, meshes: held.meshes, triangles: held.triangles } : null };
+        return { knight: { ...actorStat(player), disposedMaterials: knightDisposals() }, enemies: stage.enemies.filter(e => !e.dead).map(e => ({ kind: e.kind, ...actorStat(e.group) })), racks: racks.map(rack => { const held = actorStat(rack.group); return { kind: rack.kind, meshes: held.meshes, triangles: held.triangles }; }) };
       };
       testHooks.textureHash = textureHash;
       testHooks.drainGpu = () => drainGpu(renderer);
@@ -2301,12 +2330,13 @@ export default function DungeonGame() {
       coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, fault: faulted, boonOffer: run.choosing, muted: isMuted, roomName: floor.rooms[activeRoom]?.name ?? 'Passage',
       arena: arena ? { roster: [...arena.roster], level: arena.level } : null,
       // Plan 019: what the live run was dealt, read off the run itself once it was dealt (not off the meta table).
-      run: { start: { ...began } },
+      run: { start: { ...began }, armLocked },
       health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: pc.weapon.special ?? null }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), hostilePools: hostilePools.map(h => ({ kind: h.kind, x: h.pool.x, z: h.pool.z, radius: h.pool.radius, life: h.pool.life, damage: h.pool.damage })), boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: stage.enemies.filter(e => !e.dead && !e.buried).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, onStair: stairOpen && onStair },
       chamber: { id: activeRoom, layer: floor.rooms[activeRoom]?.layer ?? -1, reward: floor.rooms[activeRoom]?.reward ?? null, sealed: !cleared.has(activeRoom), crossing: crossing ? (crossing.flipped ? 'in' : 'out') : null, doors: stage.doors.filter(view => view.door.from === activeRoom).map(view => ({ id: view.door.id, to: view.door.to, sign: doorSign(floor.rooms[view.door.to]), x: view.spot.x, z: view.spot.z, radius: DOOR_RADIUS, open: !view.bars.visible, over: overDoor?.id === view.door.id })) },
       stair: { x: stage.stairSpot.x, z: stage.stairSpot.z, radius: STAIR_RADIUS },
-      drop: drop ? { x: drop.x, z: drop.z, kind: drop.kind, radius: PICKUP_RADIUS, over: overDrop, offered: offered === 'stair' || offered?.startsWith('door:') ? null : offered } : null,
+      // Plan 019: read off the scene - where each rack's group really stands and whether it is attached to the floor - not off the layout that placed it.
+      racks: racks.map(rack => ({ x: rack.group.position.x, z: rack.group.position.z, kind: rack.kind, radius: PICKUP_RADIUS, over: rack === overRack, inScene: rack.group.parent === floorGroup, offered: rack === overRack && offered !== 'stair' && !offered?.startsWith('door:') ? offered : null })),
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, shadow: post.shadow, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: pointLightCount(scene), programs: linkedPrograms(renderer), warmUp, quality: post.quality },
       effects: { impacts: impacts.active, sparks: sparks.active, shock: impacts.shock, flares: flares.length, lane: lane.visible ? { length: lane.scale.y * 1.15, opacity: lane.material.opacity } : null, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },

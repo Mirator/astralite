@@ -1,75 +1,12 @@
-import { BESTIARY } from '../../app/dungeon-bestiary.ts';
 import { ARM_ORDER, freshMeta, pearlsFor, UPGRADES } from '../../app/dungeon-meta.ts';
-import {
-  canStand,
-  DEFAULT_SEEDS,
-  expect,
-  hasClearPath,
-  SCREEN_DIRECTIONS,
-  test,
-  TILE,
-  type Floor,
-  type Game,
-  type Point,
-  type ScreenDirection,
-} from './helpers.ts';
+import { DEFAULT_SEEDS, expect, stageBlow, test } from './helpers.ts';
 
 // Plan 019 Stage B: the running game is wired to the pure rules in dungeon-meta.ts (proved in tests/). These
 // scenarios read what the game did: the save through `dungeonTest.meta()`, the run through `run.start` in the
 // snapshot, the screen through its real buttons. Fixtures only stage a save (`setMeta`) and a blow.
 
-const DIRECTIONS = Object.keys(SCREEN_DIRECTIONS) as ScreenDirection[];
 const NOTHING = freshMeta();
 const DEFAULT_START = { arm: 'tideblade', maxHp: 100, strike: 0, draftSize: 3, defiance: 0 };
-
-/**
- * Somewhere for the knight to stand with a body one step and a bit behind him: close enough for its own
- * melee, on a clear line. Where the knight faces does not matter, nothing here strikes.
- */
-const blowStance = (floor: Floor, near: Point) => {
-  const tiles = floor.tiles
-    .map((tile) => ({ x: tile.x * TILE, z: tile.z * TILE }))
-    .filter((spot) => Math.hypot(spot.x - near.x, spot.z - near.z) < 16)
-    .sort((a, b) => Math.hypot(a.x - near.x, a.z - near.z) - Math.hypot(b.x - near.x, b.z - near.z));
-  for (const player of tiles) {
-    if (!canStand(floor.cells, player.x, player.z)) continue;
-    for (const name of DIRECTIONS) {
-      const facing = SCREEN_DIRECTIONS[name];
-      const behind = { x: player.x - facing.x * 1.2, z: player.z - facing.z * 1.2 };
-      if (canStand(floor.cells, behind.x, behind.z) && hasClearPath(floor.cells, behind, player)) return { player, behind };
-    }
-  }
-  throw new Error(`no stance for a blow near (${near.x.toFixed(2)}, ${near.z.toFixed(2)})`);
-};
-
-/**
- * Sets a swinging body to land a blow on the knight within a few frames, with the knight on `health`.
- * The body is the first on the floor that swings, awake or not (staging a windup wakes it). Returns its
- * kind, so a test can say what the run ought to be blamed on.
- */
-const stageBlow = async (game: Game, health: number) => {
-  const floor = await game.floor();
-  const opening = await game.state();
-  const attacker = opening.enemies.find((enemy) => BESTIARY[enemy.kind].attack === 'swing');
-  expect(attacker, 'this floor has no body that swings').toBeDefined();
-  const stance = blowStance(floor, { x: attacker!.x, z: attacker!.z });
-  await game.teleport(stance.player.x, stance.player.z);
-  await game.step(120);
-  await game.configureCombat({
-    health,
-    enemies: [
-      {
-        index: opening.enemies.indexOf(attacker!),
-        x: stance.behind.x,
-        z: stance.behind.z,
-        windup: 0.0675,
-        cooldown: 0,
-        aim: { x: stance.player.x - stance.behind.x, z: stance.player.z - stance.behind.z },
-      },
-    ],
-  });
-  return { kind: attacker!.kind, stance };
-};
 
 test('death pays, the pearls survive it, TO THE GATE leads to a spent Altar and the next descent is a fresh run on what was bought', async ({
   game,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decorReservations, planRoomMotif } from '../app/dungeon-decor-layout.ts';
-import { generateFloor, TILE } from '../app/dungeon-floor.ts';
+import { gateRacks, generateFloor, TILE } from '../app/dungeon-floor.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
 
@@ -94,5 +94,31 @@ test('a motif never overlaps the weapon drop it shares a room with', () => {
       distance >= layout.radius + 1.5 - 1e-9,
       `seed ${floor.seed} room ${room.id} motif (radius ${layout.radius}) sits ${distance.toFixed(2)} from the drop`,
     );
+  }
+});
+
+// --- Plan 019 Stage C: the Tide Gate's armoury --------------------------------------------------------------------
+
+/** The rect `decorReservations` keeps round a point, if one is centred exactly there. */
+const reservedAt = (floor: Floor, x: number, z: number, half = 1.5) =>
+  decorReservations(floor).some((r) => Math.abs((r.minX + r.maxX) / 2 - x) < 1e-9 && Math.abs((r.minZ + r.maxZ) / 2 - z) < 1e-9 && Math.abs(r.maxX - r.minX - 2 * half) < 1e-9 && Math.abs(r.maxZ - r.minZ - 2 * half) < 1e-9);
+
+test('every rack slot of floor one\'s Tide Gate is reserved, and no deeper floor reserves one', () => {
+  let slots = 0;
+  for (const floor of floorsAt(1)) {
+    for (const slot of gateRacks(floor)) { slots++; assert.ok(reservedAt(floor, slot.x, slot.z), `seed ${floor.seed}: the ${slot.arm} slot is not reserved, so decor could land on its rack`); }
+  }
+  assert.equal(slots, 7 * SEEDS.length, 'the sweep did not seat seven slots on every gate');
+  for (const level of [2, 3]) for (const floor of floorsAt(level)) {
+    for (const slot of gateRacks(floor)) assert.ok(!reservedAt(floor, slot.x, slot.z), `level ${level} seed ${floor.seed}: a deeper floor reserved a slot that nothing stands on`);
+  }
+});
+
+test('no floor-one motif reaches a rack slot (the gate is a keep sanctuary, which has none)', () => {
+  for (const floor of floorsAt(1)) {
+    const gate = floor.rooms[0], layout = planRoomMotif(floor, gate);
+    // Both halves of the claim: today the gate has no motif at all, and should that change, it must clear every slot by the rack's own reservation.
+    if (!layout) { assert.equal(gate.theme, 'keep', `seed ${floor.seed}: the gate lost its motif but is not a keep`); continue; }
+    for (const slot of gateRacks(floor)) assert.ok(Math.max(Math.abs(slot.x - layout.x), Math.abs(slot.z - layout.z)) >= layout.radius + 1.5 - 1e-9, `seed ${floor.seed}: the gate's motif reaches the ${slot.arm} slot`);
   }
 });

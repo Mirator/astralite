@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { freshMeta } from '../../app/dungeon-meta.ts';
 import { ARROW_KEYS, canStand, expect, fakePad, type Floor, type Game, hasClearPath, hold, press, release, SCREEN_DIRECTIONS, type ScreenDirection, strikeStance, test, TILE, type Point, type Snapshot } from './helpers.ts';
 
 // Plan 016 Stages B and C: a special for every arm. Real input only - K, the right button, pad X and the touch
@@ -157,15 +158,18 @@ test('the Harpoon flies the aim, drags the first guard in, comes home, and the k
 });
 
 test('swapping arms with the spear in flight lays the spear on the rack and leaves nothing flying', async ({ game, page }) => {
+  // Plan 019 Stage C: the floor-one rack is gone, so the gate is staged: the knight owns the spear and the maul and starts
+  // holding the spear, which leaves the Tideblade and the maul on their racks. He swaps at the maul's.
+  await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'spear', 'maul'], arm: 'spear' });
   await game.enter();
   await game.step(120);
   const opening = await game.state();
-  expect(opening.drop, 'this floor has a rack').not.toBeNull();
-  const rack = opening.drop!;
-  await game.equip('spear');
+  expect(opening.weapon.id, 'the spear is in hand').toBe('spear');
+  expect(opening.racks.map((r) => r.kind), 'the gate shows the other two arms').toEqual(['tideblade', 'maul']);
+  const rack = opening.racks.find((r) => r.kind === 'maul')!;
   await game.teleport(rack.x, rack.z);
   await game.step(32);
-  expect((await game.state()).drop!.over).toBe(true);
+  expect((await game.state()).racks.find((r) => r.kind === 'maul')!.over).toBe(true);
   await press(page, 'special');
   await game.step(160);
   expect(specialOf(await game.state())!.harpoon).not.toBeNull();
@@ -173,11 +177,12 @@ test('swapping arms with the spear in flight lays the spear on the rack and leav
   await game.step(16);
   const swapped = await game.state();
   expect(swapped.weapon.id).toBe(rack.kind);
-  expect(swapped.drop!.kind, 'the spear is on the rack, not lost').toBe('spear');
+  expect(swapped.racks.map((r) => r.kind).sort(), 'the spear is on the rack, not lost').toEqual(['spear', 'tideblade']);
   expect(swapped.weapon.inFlight, 'and not in the air').toBe(0);
-  // The arm found on the rack is its own, and arrives ready.
+  // The arm taken from the rack is its own, and arrives ready. (The maul has a special, so this always reads one.)
   const special = specialOf(swapped);
-  if (special) expect(special).toMatchObject({ ready: true, cooldown: 0, harpoon: null, bare: false });
+  expect(special, 'the maul has a special to be ready').not.toBeNull();
+  expect(special).toMatchObject({ ready: true, cooldown: 0, harpoon: null, bare: false });
   await game.step(1000);
   expect((await game.state()).weapon.inFlight).toBe(0);
   // Taking it back hands over the spear in hand, but still cooling from the throw: a swap is no way round it.
@@ -190,11 +195,13 @@ test('swapping arms with the spear in flight lays the spear on the rack and leav
 });
 
 test('swap, swap back: the lunge is still cooling and the Heavy Bolt quiver is still spent', async ({ game, page }) => {
+  // Plan 019 Stage C: staged on the gate's one rack (the maul), since the floor-one rack this used is gone.
+  await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'maul'], arm: 'tideblade' });
   await game.enter();
   await game.step(120);
-  const rack = (await game.state()).drop!;
-  expect(rack, 'this floor has a rack').not.toBeNull();
-  const over = async () => { await game.teleport(rack.x, rack.z); await game.step(32); expect((await game.state()).drop!.over).toBe(true); };
+  const rack = (await game.state()).racks[0];
+  expect(rack?.kind, 'the gate has a rack').toBe('maul');
+  const over = async () => { await game.teleport(rack.x, rack.z); await game.step(32); expect((await game.state()).racks[0].over).toBe(true); };
   const swapBack = async (arm: string) => {
     await over();
     await press(page, 'swap');
@@ -203,7 +210,7 @@ test('swap, swap back: the lunge is still cooling and the Heavy Bolt quiver is s
     await game.step(16);
     const back = await game.state();
     expect(back.weapon.id, 'the same arm back in hand').toBe(arm);
-    expect(back.drop!.kind, 'and the rack holds its own again').toBe(rack.kind);
+    expect(back.racks.map((r) => r.kind), 'and the rack holds its own again').toEqual([rack.kind]);
     return back;
   };
 

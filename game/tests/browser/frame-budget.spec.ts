@@ -10,6 +10,7 @@ import {
   TILE,
   WARM_UP,
 } from './helpers.ts';
+import { ARM_ORDER, freshMeta } from '../../app/dungeon-meta.ts';
 
 /**
  * A ceiling on what the staged frames that matter are allowed to cost: the two
@@ -173,6 +174,53 @@ test.describe('the widest room', () => {
     await game.teleport(centre.x, centre.z);
     await game.step(640);
     await spend(game, 'widest-chamber');
+  });
+});
+
+// Plan 019 Stage C: floor one's Tide Gate holds a rack for every owned arm but the one in hand, so with the whole
+// armoury bought it stands six at once (seven arms, one in hand). The operator accepted what that costs, on
+// 2026-10-01, with no remedy: Stage 0 measured seed 0x1's gate at 236 calls with one rack and 310 with seven racks
+// staged by hand (shadow calls 61 to 92), and chose the cost over merging or instancing the rack parts. What this holds is
+// the cost, from both sides: the gate as it is now, drawn empty and drawn with all six, so a rack that stopped being
+// drawn, or a seventh part added to a rack, moves a number. Measured 2026-10-01 on SwiftShader at the heart of the gate
+// of seed 0x1, identical on repeat: ARMOURY below. Bare gate 224 calls, 198,092 triangles, 56 shadow calls; six racks 298 / 203,164 / 87 (+74 calls, +33%; +5,072 triangles, +2.6%; +31 shadow calls, +55%). Each ceiling is the figure measured; each floor 95% of it.
+const ARMOURY = { empty: { calls: 224, triangles: 198_092, shadowCalls: 56 }, full: { calls: 298, triangles: 203_164, shadowCalls: 87 } };
+test.describe('the Tide Gate with the whole armoury bought', () => {
+  test.use({ seeds: [0x1, 0x1] });
+  test('six racks stand in the gate, and their cost stays where it was measured', async ({ game }) => {
+    const drawn = async () => {
+      const floor = await game.floor();
+      const racks = (await game.state()).racks;
+      const stand = openSpot(floor, roomCentre(floor, 0), { radius: 4, avoid: racks, clearance: 1.6 });
+      await game.teleport(stand.x, stand.z);
+      await game.step(640);
+      await game.step(0, true);
+      const { render } = await game.state();
+      return { racks: racks.length, calls: render.calls, triangles: render.triangles, shadowCalls: render.shadow.calls };
+    };
+    await game.setMeta({ ...freshMeta(), arms: [...ARM_ORDER], arm: 'tideblade' });
+    await game.enter();
+    const full = await drawn();
+    // A bare gate on the same floor, from the same stand: the difference is the racks and nothing else.
+    await game.setMeta(freshMeta());
+    await game.buildFloor(1);
+    await game.step(0);
+    const empty = await drawn();
+    console.log(`ARMOURY empty=${JSON.stringify(empty)} full=${JSON.stringify(full)}`);
+    expect(empty.racks, 'the bare gate stood a rack').toBe(0);
+    expect(full.racks, 'the armoury is not six racks: seven arms, one in hand').toBe(6);
+    for (const [name, got, want] of [['empty', empty, ARMOURY.empty], ['full', full, ARMOURY.full]] as const) {
+      expect(got.calls, `${name} gate draws more often than measured; say what bought it and raise the number deliberately`).toBeLessThanOrEqual(want.calls);
+      expect(got.calls, `${name} gate draws far fewer calls than it was measured at`).toBeGreaterThanOrEqual(want.calls * 0.95);
+      expect(got.triangles, `${name} gate pushes more triangles than measured`).toBeLessThanOrEqual(want.triangles);
+      expect(got.triangles, `${name} gate pushes far fewer triangles than measured`).toBeGreaterThanOrEqual(want.triangles * 0.95);
+      expect(got.shadowCalls, `${name} gate casts more shadow draws than measured`).toBeLessThanOrEqual(want.shadowCalls);
+      expect(got.shadowCalls, `${name} gate casts far fewer shadow draws than measured`).toBeGreaterThanOrEqual(want.shadowCalls * 0.95);
+    }
+    // And the racks themselves are what was added: some draw calls and some triangles, and not the order of a second gate.
+    expect(full.calls - empty.calls, 'six racks added no draw calls, so they are not being drawn').toBeGreaterThan(20);
+    expect(full.triangles - empty.triangles, 'six racks added no triangles').toBeGreaterThan(1000);
+    expect(full.calls, 'six racks cost more than half again the bare gate').toBeLessThan(empty.calls * 1.5);
   });
 });
 

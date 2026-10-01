@@ -1,14 +1,14 @@
 import { BESTIARY, type EnemyKind } from './dungeon-bestiary.ts';
-import { FOUND_WEAPONS, type WeaponId } from './dungeon-weapon.ts';
+import { FOUND_WEAPONS, PICKUP_RADIUS, STARTING_WEAPON, type WeaponId } from './dungeon-weapon.ts';
 
 export const TILE = 1.48;
 export type Encounter = 'watch' | 'ambush' | 'gauntlet' | 'sanctuary' | 'warden';
 /**
- * What a chamber pays when it is cleared, and so what the door into it shows (plan 017): the floor's one
- * rack (`arm`), a real heal (`mend`) or a purse of experience (`cache`, today's dead-end XP). A shrine,
- * the gate and the stair hall pay nothing of their own.
+ * What a chamber pays when it is cleared, and so what the door into it shows (plan 017): a real heal
+ * (`mend`) or a purse of experience (`cache`, today's dead-end XP). A shrine, the gate and the stair hall
+ * pay nothing of their own. No chamber pays an arm (plan 019, D7): arms are chosen in the Tide Gate.
  */
-export type Reward = 'arm' | 'mend' | 'cache';
+export type Reward = 'mend' | 'cache';
 export type Room = { encounter: Encounter; id: number; x: number; z: number; halfX: number; halfZ: number; shape: 'hall' | 'round' | 'cross' | 'court' | 'gallery' | 'crypt'; theme: 'keep' | 'ruins' | 'flooded'; name: string; role: 'start' | 'path' | 'goal'; depth: number; heading: number; layer: number; reward: Reward | null; entry: { x: number; z: number } };
 /**
  * A way out of a chamber, on one of the two walls facing away from the camera (the camera sits at +x/+z,
@@ -93,6 +93,15 @@ export const drawKind = (mix: PackMix, level: number, roll: number): EnemyKind =
 export type FloorProp = { x: number; z: number; kind: 'brazier' | 'pillar' | 'rubble' | 'barrel'; room: number };
 export type WeaponDrop = { x: number; z: number; kind: WeaponId; room: number };
 export const cellKey = (x: number, z: number) => `${x},${z}`;
+type Floor = ReturnType<typeof generateFloor>;
+/** Whether a chamber's shape keeps the tile `x`,`z` away from its heart (tiles). The one rule `carveRoom` cuts by, shared so a later pass can tell a chamber's own floor from the alcove a door is cut into. */
+export const carves = (r: Pick<Room, 'shape' | 'halfX' | 'halfZ'>, x: number, z: number) => {
+  if (r.shape === 'round') return (x / (r.halfX + .4)) ** 2 + (z / (r.halfZ + .4)) ** 2 <= 1;
+  if (r.shape === 'cross') return Math.abs(x) <= Math.max(2, r.halfX * .42) || Math.abs(z) <= Math.max(2, r.halfZ * .42);
+  if (r.shape === 'court') return !(x > 2 && z < -2);
+  if (r.shape === 'crypt') return !(Math.abs(x) > r.halfX - 2 && Math.abs(z) > r.halfZ - 2);
+  return true;
+};
 
 /**
  * Centre-to-centre spacing of the chamber islands, in tiles. The widest chamber is nineteen tiles across
@@ -122,12 +131,7 @@ export function generateFloor(seed: number, level = 1) {
   const names={hall:'Hall',round:'Rotunda',cross:'Crossing',court:'Court',gallery:'Gallery',crypt:'Crypt'};
   const carveRoom=(r:Room)=>{
     for(let x=-r.halfX;x<=r.halfX;x++)for(let z=-r.halfZ;z<=r.halfZ;z++){
-      let keep=true;
-      if(r.shape==='round')keep=(x/(r.halfX+.4))**2+(z/(r.halfZ+.4))**2<=1;
-      if(r.shape==='cross')keep=Math.abs(x)<=Math.max(2,r.halfX*.42)||Math.abs(z)<=Math.max(2,r.halfZ*.42);
-      if(r.shape==='court')keep=!(x>2&&z < -2);
-      if(r.shape==='crypt')keep=!(Math.abs(x)>r.halfX-2&&Math.abs(z)>r.halfZ-2);
-      if(keep){const key=cellKey(r.x+x,r.z+z);cells.add(key);ownership.set(key,r.id);}
+      if(carves(r,x,z)){const key=cellKey(r.x+x,r.z+z);cells.add(key);ownership.set(key,r.id);}
     }
   };
   const inRoom=(id:number,x:number,z:number)=>ownership.get(cellKey(x,z))===id;
@@ -220,16 +224,17 @@ export function generateFloor(seed: number, level = 1) {
       room.reward=last===null?(random()<.5?'mend':'cache'):last==='mend'?'cache':'mend';last=room.reward;
     }
   }
-  // One arm lies on every descent. Floor one leaves it in the Tide Gate, which has no bodies in it, so the
-  // first real decision of a run is made in safety and before anything is at stake; deeper floors put it
-  // behind a door partway down, which is what makes that door worth taking over its neighbour.
+  // Plan 019 (D7): no chamber pays an arm any more - arms are chosen at the Tide Gate's racks (`gateRacks`). The
+  // draws are kept all the same, so no spawn, prop or other chamber's reward moves: `armRoom` is still picked
+  // by the same `int()`, and `dropKind` and the drop spot below are still drawn and laid. `weaponDrop` stays a
+  // reserved spot (the decor layout and the dev arena read it); the campaign never places a rack on it. The
+  // chamber keeps the mend or purse it was dealt one line above, and `roster` below still deals it as the
+  // non-hoard fight it always was, or a purse chamber picked here would draw a different pack and move the stream.
   let armRoom=rooms[0];
   if(level>1){
     const candidates=layers.slice(2,goalLayer-1).flat().filter(r=>r.reward!==null);
-    // Taken from a chamber whose reward a neighbour already offers where there is one, so the layer it
-    // lands in still offers three different things rather than an arm and the same thing twice.
     const doubled=candidates.filter(r=>layers[r.layer].some(o=>o!==r&&o.reward===r.reward)),pool=doubled.length?doubled:candidates;
-    if(pool.length){armRoom=pool[int(0,pool.length-1)];armRoom.reward='arm';}
+    if(pool.length)armRoom=pool[int(0,pool.length-1)];
   }
   for (const room of rooms) if (room.role === 'path') room.name = room.encounter === 'sanctuary' ? 'The Stillwater Shrine' : room.encounter === 'gauntlet' ? 'The Ember Crossing' : room.encounter === 'ambush' ? 'The Bone Crypt' : room.name;
   // Nothing is set down in a doorway or where the knight arrives.
@@ -251,7 +256,8 @@ export function generateFloor(seed: number, level = 1) {
   const menace=(level-1)*.3;
   const roster=(room:Room):Spawn['kind'][]=>{
     const progress=room.layer/goalLayer+menace,pick=(count:number,mix:PackMix):Spawn['kind'][]=>oneCaller(Array.from({length:count},()=>drawKind(mix,level,random())));
-    const source=packSource(room,level,goalLayer);
+    // The former arm chamber is dealt as it was when its reward read `arm` (never a hoard), so its pack and every draw after it stay put.
+    const source=packSource(room===armRoom?{...room,reward:null}:room,level,goalLayer);
     if(room.role==='goal')return (level>=3?['warden','warden','warden']:['warden','warden']) as Spawn['kind'][];
     if(source==='none')return [];
     if(source==='fixed')return ['stalker','stalker'];
@@ -303,6 +309,54 @@ export function generateFloor(seed: number, level = 1) {
   }
   const bounds={minX:Math.min(...tiles.map(t=>t.x)),maxX:Math.max(...tiles.map(t=>t.x)),minZ:Math.min(...tiles.map(t=>t.z)),maxZ:Math.max(...tiles.map(t=>t.z))};
   return {seed,level,rooms,edges,doors,cells,tiles,roomByCell:new Map(tiles.filter(t=>t.room>=0).map(t=>[cellKey(t.x,t.z),t.room])),bounds,props,spawns:everyone,weaponDrop,start:0,goal:goal.id,spine:rooms.map(r=>r.id),guardCount:standing};
+}
+
+/** One slot of the Tide Gate's armoury (plan 019, D8): the arm that stands on it when it is owned, and where, in world units. */
+export type GateRack = { arm: WeaponId; x: number; z: number };
+/** The arms the Tide Gate has a slot for, in slot order: the Tideblade first, then `FOUND_WEAPONS`. */
+export const GATE_ARMS: readonly WeaponId[] = [STARTING_WEAPON, ...FOUND_WEAPONS];
+/** Slots stand at least this far apart, so standing in one rack's ring can never also be standing in another's. */
+export const GATE_SPACING = 2 * PICKUP_RADIUS;
+
+/**
+ * The armoury of the floor-one Tide Gate (plan 019, D8): one slot for each arm in `GATE_ARMS`, a fixed layout
+ * read off the floor alone. It makes no random draw and never sees the save, so which arms the knight owns
+ * changes what stands on the slots and nothing about where they are (or the decor kept clear of them).
+ *
+ * Inside the gate's own floor (not a prop's hole, not the alcove a door is cut into), clear of its heart by
+ * the drop's own 1.9, and two tiles clear of the way in and of every doorway, as the weapon drop is. A slot may
+ * stand against a wall (operator, 2026-10-01). Seven are laid on an ellipse round the heart, each on the free
+ * tile nearest its place on it; a gate whose ellipse is too crowded is searched for any seven that keep their
+ * distance, and a gate that cannot seat seven returns the ones that fit - which `tests/dungeon-floor.test.ts`
+ * holds to never happening across its sweep, because the spacing is not something to loosen.
+ */
+export function gateRacks(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors'>): GateRack[] {
+  const gate = floor.rooms[0], heart = { x: gate.x * TILE, z: gate.z * TILE };
+  const shut = [gate.entry, ...floor.doors.filter(door => door.from === gate.id)];
+  const free = floor.tiles
+    .filter(t => t.room === gate.id && carves(gate, t.x - gate.x, t.z - gate.z) && shut.every(way => Math.hypot(way.x - t.x, way.z - t.z) >= 2))
+    .map(t => ({ x: t.x * TILE, z: t.z * TILE }))
+    .filter(spot => Math.hypot(spot.x - heart.x, spot.z - heart.z) > 1.9);
+  const apart = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z) >= GATE_SPACING - 1e-9;
+  const away = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
+  const reach = { x: Math.min(gate.halfX - 1, 4) * TILE, z: Math.min(gate.halfZ - 1, 3) * TILE };
+  let picked: { x: number; z: number }[] = [];
+  for (let i = 0; i < GATE_ARMS.length; i++) {
+    const angle = -Math.PI / 2 + i * 2 * Math.PI / GATE_ARMS.length, place = { x: heart.x + Math.cos(angle) * reach.x, z: heart.z + Math.sin(angle) * reach.z };
+    const spot = free.filter(c => picked.every(p => apart(p, c))).sort((a, b) => away(a, place) - away(b, place))[0];
+    if (!spot) break;
+    picked.push(spot);
+  }
+  if (picked.length < GATE_ARMS.length) {
+    const angled = [...free].sort((a, b) => Math.atan2(a.z - heart.z, a.x - heart.x) - Math.atan2(b.z - heart.z, b.x - heart.x) || away(a, heart) - away(b, heart));
+    const seat = (from: number, held: { x: number; z: number }[]): { x: number; z: number }[] | null => {
+      if (held.length === GATE_ARMS.length) return held;
+      for (let at = from; at < angled.length; at++) if (held.every(p => apart(p, angled[at]))) { const found = seat(at + 1, [...held, angled[at]]); if (found) return found; }
+      return null;
+    };
+    picked = seat(0, []) ?? picked;
+  }
+  return picked.map((spot, i) => ({ arm: GATE_ARMS[i], x: spot.x, z: spot.z }));
 }
 
 export function canStand(cells: Set<string>, x: number, z: number, radius = 0.32) {

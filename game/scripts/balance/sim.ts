@@ -382,7 +382,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const chooseDoor = (room: number) => {
     const ways = floor.doors.filter(d => d.from === room);
     if (!policy.explore) return ways[0];
-    const pays = (d: typeof ways[number]) => ({ cache: 0, mend: 1, arm: 2 } as Record<string, number>)[floor.rooms[d.to].reward ?? ''] ?? 3;
+    const pays = (d: typeof ways[number]) => ({ cache: 0, mend: 1 } as Record<string, number>)[floor.rooms[d.to].reward ?? ''] ?? 3;
     return [...ways].sort((a, b) => pays(a) - pays(b))[0];
   };
   let chamber = 0;

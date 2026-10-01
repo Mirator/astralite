@@ -175,8 +175,8 @@ export const resolveKill = (run: Run): Reward => {
   return { xp: XP_PER_ENEMY, ranks, healed: heal(run, run.draught) };
 };
 
-// One payout per chamber, whatever brought its last body down. `arm` pays only the top-up: the rack
-// standing in that chamber is what the door promised.
+// One payout per chamber, whatever brought its last body down. A shrine, the gate and the stair hall (no
+// reward) pay only the top-up.
 export const chamberReward = (run: Run, reward: ChamberReward | null): Reward => {
   const xp = reward === 'cache' ? XP_CACHE : 0;
   const ranks = xp ? grantXp(run, xp).ranks : 0;
@@ -190,8 +190,9 @@ export const STAIR_RADIUS = 1.25;
 
 // A shade wider than the stair, because an arm on a rack is a thing the knight walks up to rather than
 // stands on. The rack only offers, and the swap waits on the `swap` key, so taking the wrong arm is a
-// decision rather than a place the knight stood too long.
-export const PICKUP_RADIUS = 1.4;
+// decision rather than a place the knight stood too long. Defined in dungeon-weapon.ts, where the floor generator
+// (which lays the Tide Gate's racks that far apart) can read it without a cycle through this module.
+export { PICKUP_RADIUS } from './dungeon-weapon.ts';
 
 // How close the knight stands to a door's ring to be offered it (plan 017): the stair's own reach, since
 // a door is taken the same way, with the swap key, once the chamber behind him is clear.

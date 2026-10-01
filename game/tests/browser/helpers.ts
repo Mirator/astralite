@@ -13,7 +13,7 @@ import {
   hasClearPath,
   TILE,
 } from '../../app/dungeon-floor.ts';
-import type { EnemyKind } from '../../app/dungeon-bestiary.ts';
+import { BESTIARY, type EnemyKind } from '../../app/dungeon-bestiary.ts';
 
 import { DEFAULT_BINDS, isMouseCode, type Action } from '../../app/dungeon-save.ts';
 import type { Meta } from '../../app/dungeon-meta.ts';
@@ -206,7 +206,7 @@ export type Snapshot = {
     fires: number;
   };
   /** Plan 019: what the live run was dealt (arm, vitality, strike, boon cards, revives), read off the run itself. */
-  run: { start: { arm: string; maxHp: number; strike: number; draftSize: number; defiance: number } };
+  run: { start: { arm: string; maxHp: number; strike: number; draftSize: number; defiance: number }; /** Plan 019 (D9): the first door out of the Tide Gate has been taken, so the run's arm is settled. */ armLocked: boolean };
   /** The development arena this page is charting floors as, or null for an ordinary keep. */
   arena: { roster: EnemyKind[]; level: number } | null;
   /** Fire a pyre left where it fell, burning the knight. */
@@ -244,19 +244,25 @@ export type Snapshot = {
   };
   /** Plan 017: the chamber the knight stands in and its ways out. */
   chamber: {
-    id: number; layer: number; reward: 'arm' | 'mend' | 'cache' | null; sealed: boolean; crossing: 'out' | 'in' | null;
+    id: number; layer: number; reward: 'mend' | 'cache' | null; sealed: boolean; crossing: 'out' | 'in' | null;
     doors: { id: number; to: number; sign: string; x: number; z: number; radius: number; open: boolean; over: boolean }[];
   };
-  drop: {
+  /**
+   * Plan 019: the racks on the floor, read off the scene. The Tide Gate of floor one holds one for every owned arm but the
+   * one in hand; the dev arena has its own; every other floor has none.
+   */
+  racks: {
     x: number;
     z: number;
     kind: string;
     radius: number;
     /** Whether the knight is inside the ring, which is all that standing there does. */
     over: boolean;
-    /** The arm the swap prompt is currently naming, or null when it is not on screen. */
+    /** Whether the rack's group is attached to the floor being drawn. */
+    inScene: boolean;
+    /** The arm the swap prompt is currently naming while the knight stands in this ring, or null when it is not on screen. */
     offered: string | null;
-  } | null;
+  }[];
   stair: { x: number; z: number; radius: number };
   experience: {
     total: number;
@@ -464,7 +470,7 @@ export type GameWindow = Window & {
 export type ActorStats = {
   knight: { meshes: number; triangles: number; shadowless: number; height: number; disposedMaterials: number };
   enemies: { kind: EnemyKind; meshes: number; triangles: number; shadowless: number; height: number }[];
-  drop: { kind: string; meshes: number; triangles: number } | null;
+  racks: { kind: string; meshes: number; triangles: number }[];
 };
 
 // Screen-relative movement basis, mirrored from dungeon-game.tsx so a fixture
@@ -1439,3 +1445,52 @@ export const roomCentre = (floor: Floor, id: number): Point => ({
   x: floor.rooms[id].x * TILE,
   z: floor.rooms[id].z * TILE,
 });
+
+/**
+ * Somewhere for the knight to stand with a body one step and a bit behind him: close enough for its own
+ * melee, on a clear line. Where the knight faces does not matter, nothing here strikes.
+ */
+export const blowStance = (floor: Floor, near: Point) => {
+  const tiles = floor.tiles
+    .map((tile) => ({ x: tile.x * TILE, z: tile.z * TILE }))
+    .filter((spot) => Math.hypot(spot.x - near.x, spot.z - near.z) < 16)
+    .sort((a, b) => Math.hypot(a.x - near.x, a.z - near.z) - Math.hypot(b.x - near.x, b.z - near.z));
+  for (const player of tiles) {
+    if (!canStand(floor.cells, player.x, player.z)) continue;
+    for (const name of Object.keys(SCREEN_DIRECTIONS) as ScreenDirection[]) {
+      const facing = SCREEN_DIRECTIONS[name];
+      const behind = { x: player.x - facing.x * 1.2, z: player.z - facing.z * 1.2 };
+      if (canStand(floor.cells, behind.x, behind.z) && hasClearPath(floor.cells, behind, player)) return { player, behind };
+    }
+  }
+  throw new Error(`no stance for a blow near (${near.x.toFixed(2)}, ${near.z.toFixed(2)})`);
+};
+
+/**
+ * Sets a swinging body to land a blow on the knight within a few frames, with the knight on `health`.
+ * The body is the first on the floor that swings, awake or not (staging a windup wakes it). Returns its
+ * kind, so a test can say what the run ought to be blamed on.
+ */
+export const stageBlow = async (game: Game, health: number) => {
+  const floor = await game.floor();
+  const opening = await game.state();
+  const attacker = opening.enemies.find((enemy) => BESTIARY[enemy.kind].attack === 'swing');
+  expect(attacker, 'this floor has no body that swings').toBeDefined();
+  const stance = blowStance(floor, { x: attacker!.x, z: attacker!.z });
+  await game.teleport(stance.player.x, stance.player.z);
+  await game.step(120);
+  await game.configureCombat({
+    health,
+    enemies: [
+      {
+        index: opening.enemies.indexOf(attacker!),
+        x: stance.behind.x,
+        z: stance.behind.z,
+        windup: 0.0675,
+        cooldown: 0,
+        aim: { x: stance.player.x - stance.behind.x, z: stance.player.z - stance.behind.z },
+      },
+    ],
+  });
+  return { kind: attacker!.kind, stance };
+};

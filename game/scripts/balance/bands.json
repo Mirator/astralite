@@ -1,5 +1,5 @@
 {
-  "note": "Bot numbers from scripts/balance/sim.ts, not human ones: they say whether the keep moved, not how hard it is. Bands are deliberately loose so they catch accidental large drift, not tuning. A deliberate balance change is expected to fail npm run balance:check and to update this file (measured and bands) in the same pull request. Rates and HP are percentages (death rate is of runs that reached the floor; HP left is the median over floors cleared); run length is seconds. With 30 runs one run is 3.3 points of a rate. Plan 017 (2026-09-28): floors became chains of sealed chambers joined by doors, with no corridors or dead ends to walk. Every policy's run is shorter (default 268.5s -> 147.1s) and its run-length band moved with it. One real change besides: the crossbow special escapes 80% of runs, not 100%, and dies on floor 3 in 20% - a sealed chamber has no corridor to back into, which is how a crossbow outlasted everything - so its escape and floor-3 death bands were widened to hold what was measured, not tuned back. Plan 018 (2026-09-29): the shieldbearer, pyre and bonecaller are dealt (floors 2, 2 and 3), the sim models their shield, fire and reserve, and the measured block was re-taken. Every band still holds, so none moved. The bots barely notice the three kinds: no death is theirs, and the pyre's fire is 4.6% of the default knight's damage taken. The measured drift is run length (default 147.1s -> 148.6s and similar for the others) and the crossbow special (escape 80 -> 90, floor-3 deaths 20 -> 10; one run in ten is one chamber's luck at 30 runs, and the cause was not chased) Sim parity fix (2026-09-30): a knight's bolt now pushes along its own heading, as the game does, instead of the knight-to-body line, which changes which bolts a shield turns; only two measured values moved (weak run length 128.2s -> 128.3s, special-crossbow 219.2s -> 222.8s) and no band moved).",
+  "note": "Bot numbers from scripts/balance/sim.ts, not human ones: they say whether the keep moved, not how hard it is. Bands are deliberately loose so they catch accidental large drift, not tuning. A deliberate balance change is expected to fail npm run balance:check and to update this file (measured and bands) in the same pull request. Rates and HP are percentages (death rate is of runs that reached the floor; HP left is the median over floors cleared); run length is seconds. With 30 runs one run is 3.3 points of a rate. Plan 017 (2026-09-28): floors became chains of sealed chambers joined by doors, with no corridors or dead ends to walk. Every policy's run is shorter (default 268.5s -> 147.1s) and its run-length band moved with it. One real change besides: the crossbow special escapes 80% of runs, not 100%, and dies on floor 3 in 20% - a sealed chamber has no corridor to back into, which is how a crossbow outlasted everything - so its escape and floor-3 death bands were widened to hold what was measured, not tuned back. Plan 018 (2026-09-29): the shieldbearer, pyre and bonecaller are dealt (floors 2, 2 and 3), the sim models their shield, fire and reserve, and the measured block was re-taken. Every band still holds, so none moved. The bots barely notice the three kinds: no death is theirs, and the pyre's fire is 4.6% of the default knight's damage taken. The measured drift is run length (default 147.1s -> 148.6s and similar for the others) and the crossbow special (escape 80 -> 90, floor-3 deaths 20 -> 10; one run in ten is one chamber's luck at 30 runs, and the cause was not chased) Sim parity fix (2026-09-30): a knight's bolt now pushes along its own heading, as the game does, instead of the knight-to-body line, which changes which bolts a shield turns; only two measured values moved (weak run length 128.2s -> 128.3s, special-crossbow 219.2s -> 222.8s) and no band moved). Plan 019 Stage C (2026-10-01): no chamber pays an arm any more, so the chamber that did keeps the mend or purse it was dealt (the generator draws everything it drew, so every spawn and prop is where it was) and the sim's door preference (cache, then mend, then arm) now sees one more mend or purse door per floor and no arm door. That chamber also pays a heal of 30 or a purse of 60 where it paid the 12-point top-up. Every band still holds, so none moved; measured was re-taken. The drift: weak escapes 83.3% (was 86.7) with floor-3 deaths 10.7% (was 7.1), special-crossbow escapes 93.3% (was 90.0) with floor-3 deaths 6.7% (was 10.0), special-flask runs 196.7s (was 202.7), and the rest within a second. At 30 runs one run is 3.3 points, so these are one or two runs of the losing policies and no cause beyond the door order was chased.",
   "runs": 30,
   "firstSeed": 1,
   "policies": {
@@ -13,7 +13,7 @@
         "floor1.medianHpLeft": 100,
         "floor2.medianHpLeft": 100,
         "floor3.medianHpLeft": 100,
-        "medianRunSeconds": 148.6
+        "medianRunSeconds": 149
       },
       "bands": {
         "escapeRate": { "min": 85, "max": 100 },
@@ -29,14 +29,14 @@
     "weak": {
       "policy": { "dodge": 0, "reaction": 0.6 },
       "measured": {
-        "escapeRate": 86.7,
+        "escapeRate": 83.3,
         "floor1.deathRate": 0,
         "floor2.deathRate": 3.3,
-        "floor3.deathRate": 7.1,
+        "floor3.deathRate": 10.7,
         "floor1.medianHpLeft": 86.4,
-        "floor2.medianHpLeft": 82.4,
+        "floor2.medianHpLeft": 82,
         "floor3.medianHpLeft": 73.6,
-        "medianRunSeconds": 128.3
+        "medianRunSeconds": 127.9
       },
       "bands": {
         "escapeRate": { "min": 75, "max": 100 },
@@ -59,7 +59,7 @@
         "floor1.medianHpLeft": 100,
         "floor2.medianHpLeft": 100,
         "floor3.medianHpLeft": 100,
-        "medianRunSeconds": 146
+        "medianRunSeconds": 146.3
       },
       "bands": {
         "escapeRate": { "min": 85, "max": 100 },
@@ -105,7 +105,7 @@
         "floor1.medianHpLeft": 100,
         "floor2.medianHpLeft": 100,
         "floor3.medianHpLeft": 100,
-        "medianRunSeconds": 169.1
+        "medianRunSeconds": 168.8
       },
       "bands": {
         "escapeRate": { "min": 85, "max": 100 },
@@ -121,10 +121,10 @@
     "special-crossbow": {
       "policy": { "special": true, "weapon": "crossbow" },
       "measured": {
-        "escapeRate": 90,
+        "escapeRate": 93.3,
         "floor1.deathRate": 0,
         "floor2.deathRate": 0,
-        "floor3.deathRate": 10,
+        "floor3.deathRate": 6.7,
         "floor1.medianHpLeft": 100,
         "floor2.medianHpLeft": 100,
         "floor3.medianHpLeft": 100,
@@ -151,7 +151,7 @@
         "floor1.medianHpLeft": 100,
         "floor2.medianHpLeft": 100,
         "floor3.medianHpLeft": 100,
-        "medianRunSeconds": 202.7
+        "medianRunSeconds": 196.7
       },
       "bands": {
         "escapeRate": { "min": 85, "max": 100 },

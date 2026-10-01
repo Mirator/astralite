@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import type { Page, TestInfo } from '@playwright/test';
+import { freshMeta } from '../../app/dungeon-meta.ts';
 import { deltaE, measureMasks, probeScene } from './enemy-mask.ts';
 import { type FigureLightness, knightLightness, probeScenes, settleFacing } from './figure-mask.ts';
 import { CAPTURING, canStand, expect, Game, openSpot, roomCentre, SCREEN_DIRECTIONS, speedOf, test, TILE, WARM_UP } from './helpers.ts';
@@ -12,7 +13,9 @@ import { CAPTURING, canStand, expect, Game, openSpot, roomCentre, SCREEN_DIRECTI
 /** The eight facings of `models-knight-strip` in shots.spec.ts: clockwise on screen from facing the lens. */
 const FACINGS = [['ArrowDown'], ['ArrowDown', 'ArrowLeft'], ['ArrowLeft'], ['ArrowUp', 'ArrowLeft'], ['ArrowUp'], ['ArrowUp', 'ArrowRight'], ['ArrowRight'], ['ArrowDown', 'ArrowRight']];
 
-test('actorStats reads the knight, every living enemy and the rack off the live scene', async ({ game }) => {
+test('actorStats reads the knight, every living enemy and the racks off the live scene', async ({ game }) => {
+  // Plan 019 Stage C: the floor-one rack is gone; the Tide Gate holds one rack for each owned arm but the one in hand.
+  await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'maul', 'spear'], arm: 'tideblade' });
   await game.enter();
   const state = await game.state();
   const stats = await game.actorStats();
@@ -24,9 +27,10 @@ test('actorStats reads the knight, every living enemy and the rack off the live 
   expect(stats.knight.height).toBeLessThan(2.3);
   expect(stats.enemies.map((enemy) => enemy.kind)).toEqual(state.enemies.map((enemy) => enemy.kind));
   for (const enemy of stats.enemies) expect(enemy.meshes, `a ${enemy.kind} reports no meshes`).toBeGreaterThan(0);
-  expect(stats.drop?.kind).toBe(state.drop!.kind);
+  expect(state.racks.map((rack) => rack.kind), 'the gate shows the two arms owned besides the sword in hand').toEqual(['spear', 'maul']);
+  expect(stats.racks.map((rack) => rack.kind)).toEqual(state.racks.map((rack) => rack.kind));
   // Plan 009: the arm, its plinth and collar, the glow and the ring - baked, a rack is at most eight.
-  expect(stats.drop!.meshes, 'the rack is drawn as more than eight meshes').toBeLessThanOrEqual(8);
+  for (const rack of stats.racks) expect(rack.meshes, `the ${rack.kind} rack is drawn as more than eight meshes`).toBeLessThanOrEqual(8);
 });
 
 test('swapping arms and back to the Tideblade leaks no geometry, and every arm taken up casts a shadow', async ({ game }) => {
@@ -55,19 +59,25 @@ test('tearing a floor down leaves the knight his own materials', async ({ game }
   // The rack is built from the knight's palette, so a teardown that disposes everything on the floor
   // releases the steel, iron and brass he is still wearing. three.js recompiles a disposed material on
   // its next draw, which hides the fault from the eye and turns every descent into a shader stall.
+  // Plan 019 Stage C: racks stand on floor one only (the Tide Gate's armoury), so the teardown that matters is the gate's.
+  await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'maul'], arm: 'tideblade' });
   await game.enter();
   await game.step(0, true);
   const before = await game.actorStats();
-  expect(before.drop, 'the fixture needs a rack on the floor being torn down').not.toBeNull();
-  // Once with the rack as the floor laid it, once holding another arm so the rack is the Tideblade.
+  expect(before.racks.map((rack) => rack.kind), 'the fixture needs a rack on the floor being torn down').toEqual(['maul']);
+  // Torn down as the gate laid it, then the gate rebuilt holding the maul so the rack is the Tideblade, then a deeper floor.
   await game.buildFloor(2);
   await game.step(0, true);
+  expect((await game.actorStats()).racks, 'a campaign floor below the gate laid a rack').toEqual([]);
   await game.equip('maul');
+  await game.buildFloor(1);
+  await game.step(0, true);
+  expect((await game.actorStats()).racks.map((rack) => rack.kind), 'the rebuilt gate did not lay the arm just set down').toEqual(['tideblade']);
   await game.buildFloor(3);
   await game.step(0, true);
   const after = await game.actorStats();
   expect(after.knight.disposedMaterials - before.knight.disposedMaterials, 'floor teardown disposed a material the knight still wears').toBe(0);
-  expect(after.drop, 'the new floor laid no rack').not.toBeNull();
+  expect(after.racks, 'the last floor laid a rack').toEqual([]);
 });
 
 test.describe('knight', () => {
