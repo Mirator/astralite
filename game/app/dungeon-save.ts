@@ -2,6 +2,8 @@
 // Safari private mode and can hold anything a previous version (or a user) left behind, so every
 // value that comes back is re-validated and every failure degrades to "nothing remembered".
 import { ENEMY_KINDS, type EnemyKind } from './dungeon-bestiary.ts';
+import { ARM_ORDER, freshMeta, PEARL_CAP, UPGRADES, type Meta } from './dungeon-meta.ts';
+import { STARTING_WEAPON, type WeaponId } from './dungeon-weapon.ts';
 
 export type BestRun = { floor: number; xp: number; kills: number; won: boolean };
 
@@ -10,8 +12,12 @@ export type BestRun = { floor: number; xp: number; kills: number; won: boolean }
 // keep's own embers — and is null exactly when the run was won. `seed` is floor 1's, so an interesting
 // run can be taken again with `restart:<seed>`. Boons are ids, not names: shorter, and they are what
 // the `boon:<id>` console hook speaks.
+//
+// Plan 019 added the last three, because runs on different meta levels are not comparable: `arm` is the arm
+// the run was fought with, `upgrades` the ranks held when it began (id to rank, only ids above zero) and
+// `pearls` what it paid. A record from before then reads as a Tideblade run on no upgrades that paid nothing.
 export type RunCause = EnemyKind | 'hazard';
-export type RunEnd = { at: number; floor: number; won: boolean; cause: RunCause | null; seconds: number; rank: number; xp: number; kills: number; boons: string[]; seed: number };
+export type RunEnd = { at: number; floor: number; won: boolean; cause: RunCause | null; seconds: number; rank: number; xp: number; kills: number; boons: string[]; seed: number; arm: WeaponId; upgrades: Meta['upgrades']; pearls: number };
 
 // What the player has asked the game to be, as opposed to what one run left behind. Every default here
 // reproduces the game exactly as it shipped, so a blank, blocked or corrupt cell is not a different game:
@@ -80,6 +86,7 @@ export const bindKey = (binds: Binds, action: Action, code: string): Binds | nul
 };
 
 const BEST_KEY = 'drowned-keep:best', SEED_KEY = 'drowned-keep:seed', RUNS_KEY = 'drowned-keep:runs', SETTINGS_KEY = 'drowned-keep:settings';
+export const META_KEY = 'drowned-keep:meta';
 const CAUSES: readonly string[] = [...ENEMY_KINDS, 'hazard'];
 
 // An entry is ~150 bytes of JSON, so the whole log is ~15 KB — a few hundred times under the smallest
@@ -95,6 +102,20 @@ export const betterRun = (a: BestRun | null, b: BestRun | null): BestRun | null 
   !b ? a : !a ? b : b.floor > a.floor || (b.floor === a.floor && b.xp > a.xp) ? b : a;
 
 const whole = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
+
+// Ranks keyed by upgrade id, rebuilt from scratch: unknown ids are dropped, each rank is a whole number held
+// to [1, ranks] (a rank of zero is absent, so the same purchases always serialise the same way), and the keys
+// come out in the table's order whatever order they arrived in.
+const parseUpgrades = (value: unknown): Meta['upgrades'] => {
+  const out: Meta['upgrades'] = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
+  const stored = value as Record<string, unknown>;
+  for (const { id, ranks } of UPGRADES) {
+    const rank = Object.hasOwn(stored, id) ? whole(stored[id]) : null;
+    if (rank) out[id] = Math.min(ranks, rank);
+  }
+  return out;
+};
 
 // Anything that is not a complete, sane record counts as no record at all.
 export const parseBest = (raw: string | null): BestRun | null => {
@@ -121,7 +142,9 @@ export const parseRun = (value: unknown): RunEnd | null => {
   if (won ? cause !== null : cause === null) return null;
   // A stored boon list is capped on the way in too, so a hand-grown array cannot bloat the log.
   const boons = Array.isArray(end.boons) ? end.boons.filter((id): id is string => typeof id === 'string').slice(0, 12) : [];
-  return { at, floor, won, cause, seconds: whole(end.seconds) ?? 0, rank: whole(end.rank) || 1, xp: whole(end.xp) ?? 0, kills: whole(end.kills) ?? 0, boons, seed };
+  // Plan 019 fields. A record from an older build has none of them, and is not thereby damaged.
+  const arm = typeof end.arm === 'string' && ARM_ORDER.includes(end.arm as WeaponId) ? end.arm as WeaponId : STARTING_WEAPON;
+  return { at, floor, won, cause, seconds: whole(end.seconds) ?? 0, rank: whole(end.rank) || 1, xp: whole(end.xp) ?? 0, kills: whole(end.kills) ?? 0, boons, seed, arm, upgrades: parseUpgrades(end.upgrades), pearls: Math.min(PEARL_CAP, whole(end.pearls) ?? 0) };
 };
 
 // A log that is not a list is not a log. A list keeps exactly the entries that survive re-validation,
@@ -191,6 +214,24 @@ export const parseSettings = (raw: string | null): Settings => {
   return settings;
 };
 
+// The meta save (plan 019) is re-validated whole, like the settings: a cell that is not an object is a fresh
+// meta, and every field that is, stands on its own. The Tideblade is always owned, whatever the cell says,
+// and `arm` falls back to it when the arm it names is not one the player owns.
+export const parseMeta = (raw: string | null): Meta => {
+  const meta = freshMeta();
+  if (!raw) return meta;
+  let data: unknown;
+  try { data = JSON.parse(raw); } catch { return meta; }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return meta;
+  const stored = data as Record<string, unknown>;
+  meta.pearls = Math.min(PEARL_CAP, whole(stored.pearls) ?? 0);
+  meta.upgrades = parseUpgrades(stored.upgrades);
+  const owned = Array.isArray(stored.arms) ? stored.arms.filter((id): id is string => typeof id === 'string') : [];
+  meta.arms = ARM_ORDER.filter(id => id === STARTING_WEAPON || owned.includes(id));
+  meta.arm = typeof stored.arm === 'string' && meta.arms.includes(stored.arm as WeaponId) ? stored.arm as WeaponId : STARTING_WEAPON;
+  return meta;
+};
+
 // The only two places that touch the browser; both swallow everything, including the SecurityError
 // thrown merely by naming localStorage when site data is blocked.
 const read = (key: string) => { try { return localStorage.getItem(key); } catch { return null; /* storage blocked */ } };
@@ -206,3 +247,5 @@ export const readRuns = () => parseRuns(read(RUNS_KEY));
 export const writeRuns = (log: RunEnd[]) => write(RUNS_KEY, JSON.stringify(log.slice(-RUN_LOG_CAP)));
 export const readSettings = () => parseSettings(read(SETTINGS_KEY));
 export const writeSettings = (settings: Settings) => write(SETTINGS_KEY, JSON.stringify(settings));
+export const readMeta = () => parseMeta(read(META_KEY));
+export const writeMeta = (meta: Meta) => write(META_KEY, JSON.stringify(meta));

@@ -449,7 +449,9 @@ export default function DungeonGame() {
       slash.clear();stage.enemies.forEach(enemy=>enemy.trails.forEach(trail=>trail.effect.clear()));footsteps.clear();
       // Re-read instead of holding a snapshot: a second tab may have logged its own runs since this one
       // began, and the log is cheap enough to reread once per run that guessing is not worth it.
-      const end: RunEnd = { at: Date.now(), floor: level, won: !cause, cause, seconds: Math.max(0, Math.round(elapsed - runStart)), rank: run.rankLevel, xp: run.totalXp, kills: run.kills, boons: [...boonsTaken], seed: firstSeed };
+      const end: RunEnd = { at: Date.now(), floor: level, won: !cause, cause, seconds: Math.max(0, Math.round(elapsed - runStart)), rank: run.rankLevel, xp: run.totalXp, kills: run.kills, boons: [...boonsTaken], seed: firstSeed,
+        // Plan 019 Stage A: the record carries the three new fields at their no-meta values until Stage B wires the meta.
+        arm: 'tideblade', upgrades: {}, pearls: 0 };
       setEnded(end);
       if (arena) return;
       const log = appendRun(readRuns(), end);

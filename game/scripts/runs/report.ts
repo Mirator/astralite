@@ -7,6 +7,7 @@
 // tolerant `parseRuns`. A file that is neither exits 1 and says why. Plain text, no dependencies.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { ARM_ORDER } from '../../app/dungeon-meta.ts';
 import { parseRunExport } from '../../app/dungeon-run-export.ts';
 import { parseRuns, type RunEnd } from '../../app/dungeon-save.ts';
 import { BOONS } from '../../app/dungeon-sim.ts';
@@ -24,6 +25,10 @@ export const median = (values: number[]): number | null => {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
 
+// Plan 019: runs on different arms and different upgrades are different games, so the report breaks escapes and
+// deaths down by each. `ranks` is the total of every upgrade rank held when the run began.
+export type Split = { runs: number; escapes: number; deaths: number };
+
 export type Span = { count: number; median: number; min: number; max: number };
 export type RunReport = {
   runs: number; escapes: number; deaths: number; escapeRate: number;
@@ -31,10 +36,15 @@ export type RunReport = {
   deathsByCause: { cause: string; deaths: number; floors: Record<number, number> }[];
   won: Span | null; lost: Span | null;
   boons: { id: string; name: string; taken: number }[];
+  byArm: ({ arm: string } & Split)[];
+  byUpgrades: ({ ranks: number } & Split)[];
   lostSeeds: { seed: number; floor: number; cause: string }[];
 };
 
 const span = (seconds: number[]): Span | null => seconds.length ? { count: seconds.length, median: median(seconds)!, min: Math.min(...seconds), max: Math.max(...seconds) } : null;
+
+const split = (runs: readonly RunEnd[]): Split => ({ runs: runs.length, escapes: runs.filter(run => run.won).length, deaths: runs.filter(run => !run.won).length });
+const totalRanks = (run: RunEnd) => Object.values(run.upgrades).reduce((sum, rank) => sum + (rank ?? 0), 0);
 
 export const summariseReport = (runs: readonly RunEnd[]): RunReport => {
   const lost = runs.filter(run => !run.won), won = runs.filter(run => run.won);
@@ -52,9 +62,13 @@ export const summariseReport = (runs: readonly RunEnd[]): RunReport => {
   for (const run of runs) for (const id of run.boons) taken.set(id, (taken.get(id) ?? 0) + 1);
   const boons = [...taken].map(([id, count]) => ({ id, name: BOONS.find(boon => boon.id === id)?.name ?? `${id} (unknown)`, taken: count }))
     .sort((a, b) => b.taken - a.taken || BOONS.findIndex(boon => boon.id === a.id) - BOONS.findIndex(boon => boon.id === b.id));
+  // Only what the log holds: an arm nobody carried gets no row, where the new kinds above always do, because
+  // there are seven arms and a playtest is expected to leave most of them alone. Fixed arm order, then rank order.
+  const byArm = ARM_ORDER.filter(arm => runs.some(run => run.arm === arm)).map(arm => ({ arm: arm as string, ...split(runs.filter(run => run.arm === arm)) }));
+  const byUpgrades = [...new Set(runs.map(totalRanks))].sort((a, b) => a - b).map(ranks => ({ ranks, ...split(runs.filter(run => totalRanks(run) === ranks)) }));
   return {
     runs: runs.length, escapes: won.length, deaths: lost.length, escapeRate: runs.length ? won.length / runs.length : 0,
-    deathsByFloor, deathsByCause, won: span(won.map(run => run.seconds)), lost: span(lost.map(run => run.seconds)), boons,
+    deathsByFloor, deathsByCause, won: span(won.map(run => run.seconds)), lost: span(lost.map(run => run.seconds)), boons, byArm, byUpgrades,
     lostSeeds: lost.map(run => ({ seed: run.seed, floor: run.floor, cause: causeName(run.cause!) })),
   };
 };
@@ -73,6 +87,10 @@ export const formatReport = (report: RunReport): string => {
     const mark = WATCHED.includes(row.cause) ? '*' : ' ';
     out.push(`  ${mark} ${row.cause.padEnd(13)}${String(row.deaths).padStart(3)}  ${where}`);
   }
+  out.push('', 'By arm carried');
+  for (const row of report.byArm) out.push(`  ${row.arm.padEnd(13)}${String(row.runs).padStart(3)} runs  escapes ${String(row.escapes).padStart(3)}  deaths ${String(row.deaths).padStart(3)}`);
+  out.push('', 'By upgrade ranks held at the start (total across all upgrades)');
+  for (const row of report.byUpgrades) out.push(`  ${String(row.ranks).padStart(2)} ranks   ${String(row.runs).padStart(3)} runs  escapes ${String(row.escapes).padStart(3)}  deaths ${String(row.deaths).padStart(3)}`);
   out.push('', 'Run time', spanText('won', report.won), spanText('lost', report.lost));
   out.push('', 'Boons taken');
   for (const boon of report.boons) out.push(`  ${boon.name.padEnd(20)}${String(boon.taken).padStart(3)}`);

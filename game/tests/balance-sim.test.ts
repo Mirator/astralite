@@ -5,6 +5,7 @@ import { arenaFloor } from '../app/dungeon-arena.ts';
 import { generateFloor } from '../app/dungeon-floor.ts';
 import type { EnemyKind } from '../app/dungeon-bestiary.ts';
 import { weaponById } from '../app/dungeon-weapon.ts';
+import { freshMeta, type Meta } from '../app/dungeon-meta.ts';
 import { hurledBlow } from '../app/dungeon-combat.ts';
 import { landBlow } from '../app/dungeon-hits.ts';
 
@@ -174,4 +175,41 @@ test('walking into a chamber that holds a bonecaller wakes nothing in its reserv
     assert.equal(report.damage.rattler, 0, `seed ${seed}: a rattler bit the knight before any was called`);
   }
   assert.ok(quiet >= 3, `only ${quiet} keeps let the caller fall before its first tell, so this measured nothing`);
+});
+
+// --- Plan 019 -------------------------------------------------------------------------------------------
+const bought = (upgrades: Meta['upgrades']): Meta => ({ ...freshMeta(), upgrades });
+
+test('a policy that carries a meta starts every floor with what it bought', () => {
+  // The same seed deals the same boons to both, so what separates the two bars is the purchase and nothing else.
+  const plain = simulateLevel(0x1, 1, policy()), lunged = simulateLevel(0x1, 1, policy({ meta: bought({ lungs: 3 }) }));
+  assert.ok(plain.maxHpAfter >= 100, 'precondition: a fresh knight ends the floor on at least a 100 bar');
+  assert.equal(lunged.maxHpAfter - plain.maxHpAfter, 30, 'a policy meta did not reach the run');
+  const arena = (meta?: Meta) => simulateArena(0x1, 1, ['guard'], policy({ meta })).maxHpAfter;
+  assert.equal(arena(bought({ lungs: 1 })) - arena(), 10);
+});
+
+test('the sim offers as many cards as the run it plays is owed', () => {
+  const sizes: number[] = [];
+  const watch = (offer: { id: string }[]) => { sizes.push(offer.length); return offer[0].id; };
+  simulateRun(0x7c0de, policy({ meta: bought({ eye: 1 }), pickBoon: watch }));
+  assert.ok(sizes.length > 0, 'precondition: the run drafted at least once');
+  assert.deepEqual([...new Set(sizes)], [4], 'a knight with Keen Eye was not offered four cards in the sim');
+  sizes.length = 0;
+  simulateRun(0x7c0de, policy({ pickBoon: watch }));
+  assert.ok(sizes.length > 0);
+  assert.deepEqual([...new Set(sizes)], [3], 'a knight without Keen Eye was not offered three cards in the sim');
+});
+
+test('a run report says what banking it would pay', () => {
+  // Written out, not recomputed: a pearl a kill, 15 a floor behind him, 25 for getting out.
+  const won = simulateRun(0x1, policy());
+  assert.equal(won.outcome, 'escaped', 'precondition: the default knight escapes this seed');
+  assert.equal(won.pearls, won.kills + 3 * 15 + 25, 'an escaped run report does not carry what a win pays');
+  // Seeds 15839 and 158381 are lost by the weak knight on floors 2 and 3 (bands.json's `weak` policy).
+  for (const [seed, floor] of [[15839, 2], [158381, 3]] as const) {
+    const lost = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
+    assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
+    assert.equal(lost.pearls, lost.kills + (floor - 1) * 15, `a run lost on floor ${floor} does not report what a death pays`);
+  }
 });
