@@ -27,6 +27,11 @@ test('the arena page puts a chosen roster, awake, in the gate of the chosen floo
     expect(enemy.room, `a ${enemy.kind} stands outside the gate`).toBe(state.floor.start);
     expect(enemy.awake, `a ${enemy.kind} was hidden`).toBe(true);
   }
+  // Plan 019 (D14): the arena keeps its own rack, laid on the spot the generator reserves on this floor (the campaign
+  // lays none there), so an arm can still be tried against a roster.
+  const reserved = (await game.floor()).weaponDrop;
+  expect(state.racks.map((rack) => [rack.kind, rack.x, rack.z]), 'the arena lost its rack').toEqual([[reserved.kind, expect.closeTo(reserved.x, 3), expect.closeTo(reserved.z, 3)]]);
+  expect(state.racks[0].inScene, 'the arena\'s rack is not attached to the floor').toBe(true);
   // Met, not merely placed: something winds up against the knight within a few seconds of arriving.
   let engaged = false;
   for (let t = 0; t < 4000 && !engaged; t += 100) {

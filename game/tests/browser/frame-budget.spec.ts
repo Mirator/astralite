@@ -177,13 +177,16 @@ test.describe('the widest room', () => {
   });
 });
 
-// Plan 019 Stage C: floor one's Tide Gate holds a rack for every owned arm but the one in hand, so with the whole
-// armoury bought it stands six at once (seven arms, one in hand). The operator accepted what that costs, on
-// 2026-10-01, with no remedy: Stage 0 measured seed 0x1's gate at 236 calls with one rack and 310 with seven racks
-// staged by hand (shadow calls 61 to 92), and chose the cost over merging or instancing the rack parts. What this holds is
-// the cost, from both sides: the gate as it is now, drawn empty and drawn with all six, so a rack that stopped being
-// drawn, or a seventh part added to a rack, moves a number. Measured 2026-10-01 on SwiftShader at the heart of the gate
-// of seed 0x1, identical on repeat: ARMOURY below. Bare gate 224 calls, 198,092 triangles, 56 shadow calls; six racks 298 / 203,164 / 87 (+74 calls, +33%; +5,072 triangles, +2.6%; +31 shadow calls, +55%). Each ceiling is the figure measured; each floor 95% of it.
+// Plan 019 Stage C: floor one's Tide Gate holds a rack for every owned arm but the one in hand, so with the whole armoury
+// bought it stands six at once: seven slots, but one arm is always in the knight's hand. The operator accepted what that
+// costs on 2026-10-01, with no remedy (Stage 0's stop rule had tripped: seed 0x1's gate drew 236 calls with the old single
+// rack and 310 with seven racks staged by hand, shadow calls 61 to 92; the cost was chosen over merging or instancing the
+// rack parts). This replaces that stop rule with a bound from both sides: the gate bare and with all six racks, so a rack
+// that stopped being drawn, or a part added to one, moves a number and has to be argued for.
+// Measured 2026-10-01 on SwiftShader at the stand below in the gate of seed 0x1, identical on repeat:
+//   bare gate  224 calls, 198,092 triangles, 56 shadow calls;
+//   six racks  298 calls, 203,164 triangles, 87 shadow calls (+74 calls, +33%; +5,072 triangles, +2.6%; +31 shadow calls, +55%).
+// Each ceiling is the figure measured (counts are deterministic: three.js's own tally of a fixed scene); each floor is 95% of it.
 const ARMOURY = { empty: { calls: 224, triangles: 198_092, shadowCalls: 56 }, full: { calls: 298, triangles: 203_164, shadowCalls: 87 } };
 test.describe('the Tide Gate with the whole armoury bought', () => {
   test.use({ seeds: [0x1, 0x1] });

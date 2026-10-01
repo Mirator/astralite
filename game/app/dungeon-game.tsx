@@ -811,9 +811,10 @@ export default function DungeonGame() {
     const clearRacks = () => { const {palette} = player.userData.armoury as {palette: ArmoryPalette}; for (const rack of racks) disposeWeaponDrop(rack, palette); racks = []; overRack = null; };
     // Plan 019 (D8): the Tide Gate's armoury. Every arm the save owns except the one in hand stands on its own slot of
     // `gateRacks`; the slots of the arms not owned stay empty. Floor one of a campaign run only, and only until the first
-    // door out is taken. Left as it is when the racks already stand as they should (the first ENTER asks again).
+    // door out is taken; an arena keeps the one rack `build` laid (D14). Left as it is when the racks already stand as they should (the first ENTER asks again).
     const layGateRacks = () => {
-      const owned = level === 1 && !arena && !armLocked ? readMeta().arms : [];
+      if (arena) return;
+      const owned = level === 1 && !armLocked ? readMeta().arms : [];
       const want = gateRacks(floor).filter(slot => owned.includes(slot.arm) && slot.arm !== pc.weapon.id);
       if (want.length === racks.length && want.every((slot, at) => racks[at].kind === slot.arm)) return;
       clearRacks(); showOffer(null);
