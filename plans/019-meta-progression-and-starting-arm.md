@@ -514,3 +514,18 @@ Full numbers, call sites and every planted bug with its message are in `game/pro
   279 calls (+18.2%), 201,944 triangles, 61 shadow calls. Still over 10% on calls.
 - **Gates:** typecheck, lint, node suite (374), `balance:check` (every metric in band, identical to the
   baseline), PR-gate browser run: see the progress entry.
+
+### Stage B (2026-10-01)
+
+Details, plants and messages are in `game/progress.md` ("Plan 019 Stage B"). In brief:
+
+- **Wired:** save read at every run start (`restart`, and `enter` when the stored meta differs from what the run was dealt),
+  banking after the arena return, `RunEnd` fields, `draftSize`, Second Tide notice/chime/burst, pearls line, TO THE GATE
+  (a `gate` command; the next ENTER is a `restart`), pearl line on the title menu, the Tide Altar page, `dungeonTest.meta()` /
+  `setMeta()`, `run.start` in the snapshot.
+- **Tests:** `tests/browser/meta.spec.ts`, five tests for the six scenarios (1 and 2 are one story), every plant failing on its
+  own message (progress entry). Pooled and `GAME_TEST_ISOLATE=1` runs agree.
+- **Gates:** typecheck, lint, node suite (374), `balance:check` (equal to Stage 0), PR-gate browser run (132 of 133 first time,
+  the one failure an exact-list assertion on the main menu's buttons that now includes Tide Altar; fixed and passing).
+- **Interpreted:** `RunEnd.arm` is the arm dealt at run start until Stage C locks it at the door; the Altar's "arms are chosen at
+  the Tide Gate" is ahead of the game until Stage C.

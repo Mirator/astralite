@@ -3641,3 +3641,89 @@ shim) 128 passed in 14.4 min.
 
 **Not done / for the operator.** Stage 0 step 5 needs a wall-margin decision and step 6's stop rule needs a remedy chosen,
 both before Stage C. AGENTS.md's pure-module list is Stage F. `readMeta`/`writeMeta` exist but nothing calls them yet.
+
+## 2026-10-01 - Plan 019 Stage B: the meta save wired into the game, the Tide Altar, TO THE GATE
+
+Stage B connects Stage A's rules to the running game. No generator change, no rack change (Stage C), no price change
+(placeholders stay for Stage D). At zero meta every existing scenario behaves as before; one existing spec needed an
+expectation edit for the new menu button (below, and it is not a D13 leak).
+
+**By file.**
+- `app/dungeon-game.tsx` (edited in place, no reformat): the world closure keeps `dealt` (the save the live run was
+  dealt from), `runUpgrades`, `runArm`, `atGate` and `began`. `restart` reads `readMeta()` on every call (D11), builds
+  `createRun(metaRunStart(meta))`, equips `meta.arm` (dev `?arm=` still wins) and sets `runArm`. `enter` reads the save
+  again and deals a new run only when the stored meta differs from `dealt` (so the first ENTER of a page, and an ENTER
+  after `setMeta` or a purchase on a reset page, deals from the save, while `restart(seed, enter)` is not dealt twice).
+  `endRun` fills `arm`, `upgrades`, `pearls` (0 in an arena) and, after the arena return and the log write, re-reads the
+  save, `bank`s and writes it. `offerBoon` passes `run.draftSize`. `tideReturns` (notice "The tide gives you back",
+  the `clear` chime, a 28-spark burst, clears `run.defied`) runs after each of the two `hurt` call sites. New command
+  `gate` -> `toGate`: only from a finished run; clears input, `hasStarted = false`, re-reads the save into the menu.
+  `start` after a gate goes through `restart(pinned, enter)` (the `atGate` flag), never `enter()` alone. The result card
+  is drawn only while `started`, so the ended run's card does not sit over the title menu. Hooks `dungeonTest.meta()` /
+  `setMeta()` (through the save), `run.start` in the snapshot (`{ arm, maxHp, strike, draftSize, defiance }`, read off the
+  live `run` and held arm once the run is dealt).
+- `app/dungeon-altar-panel.tsx` (new, React only, like `dungeon-arena-panel.tsx`): the Tide Altar page.
+- `app/dungeon-input.ts`: `Command` and `parseCommand` gain `gate`; `tests/dungeon-input.test.ts` gains the two lines.
+- `app/dungeon-test-hooks.ts`: `meta`, `setMeta` on `TestHooks`. `app/globals.css`: pearl line, result-card pearls line,
+  Altar rows, the scrolling card (`.intro-screen:has(.altar-view)`), the pause button hidden on that page.
+- `tests/browser/helpers.ts`: `Snapshot.run.start`, `meta`/`setMeta` types and `Game.meta()` / `Game.setMeta()`.
+  `tests/browser/a11y.spec.ts`: the main-menu button list gains "Tide Altar" and the page joins the focus round trip.
+  `tests/browser/meta.spec.ts` (new).
+
+**What the player sees (nobody had seen it before this entry).**
+- Title menu: a quiet monospace line "N pearls held" under "Deepest descent" (shown at 0 as well), and a menu item
+  "TIDE ALTAR ›" between Last keep and Controls & journey. The pause menu has no Altar.
+- The Tide Altar: a page of the same card, with BACK, the heading "The Tide Altar", "N pearls held", one sentence "Arms are
+  chosen at the Tide Gate, not here. The Tideblade is always yours; anything bought here is only unlocked.", then ARMS (six
+  two-line rows: name and "Special · <name>" on the left, "100 pearls", "200 pearls · 25 short" or "Unlocked" on the right),
+  then UPGRADES (Deep Lungs · 1 of 3, Whetted Start · 0 of 2, Keen Eye, Second Tide; the same shape; "Fully bought" /
+  "Bought" at the top rank), then a note line ("Deep Lungs bought.", or on a refused press why: "Keen Eye costs 150 pearls; you
+  hold 35."). Rows are real buttons that stay in the tab order when unaffordable (`aria-disabled`, not `disabled`). On a
+  phone (360 x 740) the card scrolls inside the screen; no horizontal scroll.
+- Result card: under the cause and time lines, "+15 pearls · 175 held". Buttons: NEW DESCENT, SAME KEEP (lost runs), TO THE
+  GATE (not in an arena). TO THE GATE shows the title menu (kicker "THE DROWNED KEEP"), where ENTER THE KEEP starts a fresh run.
+- Second Tide: the usual chamber notice reads "The tide gives you back"; no persistent HUD mark. The pause menu does not say
+  whether it is spent (the plan said "may").
+
+**Call sites of `hurt`** (the plan's check that a defied blow leaves `hp > 0`): `dungeon-game.tsx` the hazard tick and
+`hurtBy` (swing and bolt, every enemy kind), both ending the run on `run.hp === 0`; the balance sim's own two. No call site
+changed except to add `tideReturns()`.
+
+**Interpretations.**
+- `RunEnd.arm` is the arm in hand when the run was dealt. Stage C replaces it with the arm locked at the first door (an arm
+  taken from today's racks mid-run is not recorded).
+- The Altar says arms are chosen at the Tide Gate, which is not true in the game until Stage C; until then `meta.arm` only
+  changes through `setMeta`.
+- `run.start` is captured once the run is dealt (from the live `run`), so it stays what the run began with while boons move
+  `run.strike` and `run.maxHp`; `defiance` there is the revive dealt, not the revive left.
+- Playwright treats `aria-disabled` as not enabled, so the refusal click in the Altar test is `force: true`.
+- Scenarios 1 and 2 of the plan are one test (the plan says 1 continues into 2's ENTER), so six scenarios are five tests.
+- The existing `a11y.spec.ts` menu test asserted the exact list of main-menu buttons; the new Tide Altar item is the only
+  reason it failed (the same run's other 132 scenarios passed unchanged), so this is an intended expectation change.
+
+**Scenario plants** (each applied to the app or CSS, the test run alone, the first failure recorded, then restored):
+1. Death pays (`meta.spec.ts`). Bank into a copy that is never written (`writeMeta(banked)` removed): "the earnings were not
+   banked into the save" (Expected 175, Received 160). `restart` calls `createRun()` without the start: "the new run was not
+   dealt from what the Altar sold". The ended run resumed (`start` with no `atGate` check): "the ended run was resumed instead
+   of a new one begun" (lost vs playing). The Altar rows `disabled` instead of `aria-disabled`: "Tab did not walk every arm and
+   upgrade row, one by one".
+2. Unlock. `buyArm` also sets `arm` (in `dungeon-meta.ts`; the Stage A node test trips as well): "buying an arm equipped it"
+   (maul vs spear). `enter` never dealing from the save: "the run did not start with the arm the save holds" (tideblade vs spear).
+3. Second Tide. `hurtBy` ends the run on `hp <= damage` read before `hurt`: "the blow ended the run: the revive was not applied
+   before the end was decided" (lost vs playing).
+4. Contamination. The plan's "read once at mount" would fail scenario 2 before it reached the reset, so the plant is a held copy
+   refreshed only when the cell exists (a cleared save keeps the old copy): "a reset run was dealt from a save that no longer
+   exists" (maul / 130 / 8 / 4 / 1 against the defaults). With the test's own assertion removed, the pool's prove step fails
+   instead: "this scenario left state behind that a reset did not clear", its diff starting at `run.start` (arm, maxHp, strike,
+   draftSize, defiance), then health and weapon.
+5. Phone. A 420 px minimum width on `.altar-item`: "something in the Altar card overflows it sideways" (420 vs 304).
+   `draftBoons(run)` without the size: "Keen Eye did not put a fourth card in the offer" (3 of 4).
+
+**Gates.** typecheck clean; lint clean; node suite 374 of 374; `balance:check` every metric in band and equal to the Stage 0
+values (default 100 / weak 86.7 / crossbow 90.0 with floor-3 deaths 10.0, 222.8 s, flask 202.7 s ...); PR-gate browser run
+(SwiftShader, 1 worker, installed Chromium through a shim) 133 scenarios: 132 passed in 17.7 min, the one failure being the
+`a11y.spec.ts` button list above, which passed alone after the edit; `meta.spec.ts` under `GAME_TEST_ISOLATE=1`: 5 of 5 (pooled
+path 5 of 5 as well, the two agree).
+
+**Not done.** No pause-menu line for Second Tide, no meta export, nothing of Stage C or D. The Altar was looked at on
+SwiftShader screenshots at 1000 x 700 and 360 x 740; nobody has played it by hand.
