@@ -486,3 +486,31 @@ Fill in per stage: gates, Stage 0 earnings and the human-earnings assumption,
 the final prices and their arithmetic, the Stage D policies' measurements, the
 playtest table, and the planted bug for each new test with the message it failed
 with.
+
+### Stage 0 and Stage A (2026-10-01)
+
+Full numbers, call sites and every planted bug with its message are in `game/progress.md`
+("Plan 019 Stage 0 and Stage A"). In brief:
+
+- **Baseline (`balance:check`, 30 runs a policy, seed 1):** equal to the `measured` block of
+  `bands.json`. Escape rate: default, special, special-fangs, special-cleaver, special-flask 100%;
+  weak 86.7% (one of its four losses is a stuck run, seed 1 on floor 2); special-crossbow 90.0%
+  (floor-3 deaths 10.0%). Run seconds: 148.6, 128.3, 146.0, 142.7, 169.1, 222.8, 202.7. After Stage A the
+  metric lines are byte-identical (D13 holds).
+- **Bot earnings, pearls per run:** median 146 for every policy (range 135-158; weak 47-158; crossbow
+  special 75-158). A bot that escapes earns kills + 70, and the default knight kills 76 bodies a run
+  (floors: 19, 24, 33).
+- **Human-earnings assumption (a guess; the repo holds no human run log): about 45 pearls a run** early on
+  (a death on floor 1 with ~10 kills pays 10, on floor 2 with ~31 kills 46, on floor 3 with ~59 kills 89, an
+  escape 146; weighted 40/40/15/5), so D6's twenty runs is a price total near 900.
+- **Fixture exposure:** see the progress entry; six browser files hold racks (`controls`, `models`, `shots`,
+  `special`, `weapon`, `loading` by snapshot), `ranged` none, and four node tests read `weaponDrop` or `'arm'`.
+- **Gate fit (step 5):** under D8 as written every one of 51 start rooms seats seven slots 2.8 apart (worst:
+  the 9 x 7 crypt, 21 candidate tiles, 3.31 achievable spacing). If a slot must stand one tile in from a
+  wall, 15 of 51 do not (worst four of seven, seeds 0x4, 0x60 and others). D8 does not say; decide before
+  Stage C.
+- **Gate frame cost (step 6): the stop rule tripped.** Seed 0x1 Tide Gate, one rack: 236 calls, 198,812
+  triangles, 61 shadow calls. Seven racks: 310 (+31.4%), 204,116 (+2.7%), 92 (+50.8%). Racks without shadows:
+  279 calls (+18.2%), 201,944 triangles, 61 shadow calls. Still over 10% on calls.
+- **Gates:** typecheck, lint, node suite (374), `balance:check` (every metric in band, identical to the
+  baseline), PR-gate browser run: see the progress entry.

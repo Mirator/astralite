@@ -3526,3 +3526,118 @@ nights from 2026-09-23 to 2026-09-30 were stale `@nightly`/`@capture` fixtures a
 drift; all eight were fixed by #81 and #83. Consequence: `@nightly` scenarios and the isolated oracle now run only
 by hand (locally, or with the `captures` input on Verify and Deploy, which also deploys when run from main). AGENTS.md,
 `tests/README.md` and the comments that described the nightly are updated; `plans/README.md` rows now name their merge PRs.
+
+## 2026-10-01 - Plan 019 Stage 0 and Stage A: pearls, upgrades and Second Tide as pure rules
+
+Stage 0 measured the baseline and the two things that could stop Stage C; Stage A wrote the rules and nothing else.
+No game wiring, no generator change, no UI. `createRun()` with no argument is the run it always was, and
+`balance:check` prints the same metric lines as before the change (diffed against the baseline run).
+
+**Stage A, by file.**
+- `app/dungeon-meta.ts` (new, pure): `Meta`, `UPGRADES` (Deep Lungs 3 ranks, Whetted Start 2, Keen Eye 1, Second Tide 1),
+  `ARM_PRICES`, `freshMeta`, `pearlsFor`, `bank`, `buyUpgrade`, `buyArm`, `chooseArm`, `runStart`. Prices are placeholders
+  until Stage D. `FLOORS` lives here too, and a node test holds it equal to the sim's and the game's.
+- `app/dungeon-sim.ts`: `createRun(start?)`; `Run` gains `draftSize`, `defiance`, `defied`; `hurt` spends a revive when a
+  blow would kill (`hp = round(0.4 * maxHp)`, `invuln` stays `INVULN`); `START_HP`, `DRAFT_SIZE`, `DEFIANCE_SHARE` named.
+- `app/dungeon-save.ts`: `META_KEY`, `parseMeta`, `readMeta`, `writeMeta`; `RunEnd` and `parseRun` gain `arm`, `upgrades`,
+  `pearls` (older records parse as `'tideblade'`, `{}`, `0`).
+- `app/dungeon-run-export.ts`: stays version 1; `parseRunExport` accepts a record that lacks all three new fields (it
+  appends the defaults before the unchanged-by-parse check) and still rejects a partial or wrong one.
+- `scripts/balance/sim.ts`: `Policy.meta`, `RunReport.pearls`, the draft passes `run.draftSize`.
+- `scripts/runs/report.ts`: escapes and deaths by arm and by total upgrade ranks.
+- `app/dungeon-game.tsx`: ONE edit, forced by the type: the `RunEnd` that `endRun` builds now carries
+  `arm: 'tideblade', upgrades: {}, pearls: 0` with a comment that Stage B wires them. `tests/browser/run-export.spec.ts`:
+  its stored fixture gained the three fields (one record carries a maul and ranks so the round trip is not all defaults).
+
+**`hurt` call sites checked (Second Tide changes none).** Every caller ends the run on `hp` reaching zero, and a defied
+blow leaves `hp` at 40% of the bar: `dungeon-game.tsx` (ember tick, `if(run.hp===0)endRun('hazard')`; enemy contact,
+`if(run.hp===0)endRun(kind)`), `scripts/balance/sim.ts` (melee `run.hp <= 0`, hostile bolt, pyre fire, ember ring: each
+`if (run.hp <= 0) return endFloor('died')`). The sim never clears `run.defied` (only the game will read it).
+
+**Stage 0.**
+1. Baseline `balance:check` (353 s, every metric in band; equal to `bands.json` `measured`). Escape / floor 1-3 deaths /
+   floor 1-3 median HP left / run seconds: default 100 / 0 0 0 / 100 100 100 / 148.6; weak 86.7 / 0 3.3 7.1 / 86.4 82.4 73.6 /
+   128.3; special 100 / 0 0 0 / 100 100 100 / 146.0; special-fangs 142.7; special-cleaver 169.1; special-crossbow
+   escape 90.0, floor-3 deaths 10.0, 222.8 s; special-flask 202.7 (the three other special policies are 100 / 0 / 100).
+   After Stage A the same command prints identical metric lines.
+2. Pearls per run, 30 runs each (the `pearls` report field; a throwaway script ran the `bands.json` policies):
+   default median 146, range 135-158, mean 145.9; weak 145.5, 47-158, 136.3 (26 escaped, 3 died with 51, 103, 102, one
+   stuck run on seed 1 floor 2 with 47, which the sim scores like a death); special 146, 135-158, 145.9; special-fangs and
+   special-cleaver the same; special-crossbow 146, 75-158, 140.1 (3 floor-3 deaths: 84, 91, 75); special-flask 146,
+   135-158, 146.1. An escape is kills + 70 and the default knight kills 76 a run (median per floor 19, 24, 33).
+   **Human-earnings assumption: about 45 pearls a run, a guess.** The repo holds no human run log (`progress.md` and
+   `output/` have none), so it is built from the formula and the bots' kills per floor: a death on floor 1 with ~10 kills
+   pays 10, on floor 2 with ~31 kills 46, on floor 3 with ~59 kills 89, an escape 146; weighted 40/40/15/5 that is ~43.
+   Stage D prices the twenty runs of D6 against about 45, so a total near 900. Replace it with Stage E's table.
+3. Fixture exposure (what Stage C restages). Browser: `controls.spec.ts` pad-X test (`rack = state().drop` after
+   `equip('cleaver')`; the knight never stands on it, so `expect(whirled.drop?.kind).toBe(rack?.kind)` already passes
+   with no rack at all; restage with `setMeta` plus a teleport onto a gate slot so it can fail); `models.spec.ts`
+   (`actorStats` reads `drop`, "tearing a floor down" needs a rack on floor 1 and on the rebuilt floors: `setMeta` for
+   both, and the floor-2/3 assertion `after.drop not null` becomes "no rack on a campaign floor"); `weapon.spec.ts` (all
+   of it is about a rack; restage with `setMeta` owning an arm and walk into its gate slot; "every floor lays one arm" and
+   "a restart hands back the sword" change meaning); `special.spec.ts` ("swapping arms with the spear in flight" and "swap,
+   swap back" use the floor-1 rack: `setMeta` plus gate racks; every other scenario uses `equip` and is untouched);
+   `shots.spec.ts` (`@capture`: `models-drop-<kind>` reads `floor.weaponDrop.kind` per pinned seed, which stops choosing the
+   rack, so six seeds become one seed plus `setMeta` owning the arm; `intoGate` on floor 2 keeps working because
+   `weaponDrop` stays as a reserved spot); `loading.spec.ts` (the sliced-vs-sync fingerprint includes `snapshot.drop`;
+   with no rack it is null on both sides, so it needs `setMeta` to stay meaningful); `helpers.ts` (`Reward` type lists
+   `'arm'`). Checked and not exposed: `ranged.spec.ts` (equips only), `frame-budget.spec.ts` (its scenes stand outside
+   the gate; it gains the seven-rack scene), `art-direction.spec.ts` (a comment), `chambers.spec.ts`, `arena*.spec.ts`
+   (the arena keeps its rack, D14). Anything that starts on the Tideblade still does on a fresh save. Node:
+   `dungeon-floor.test.ts:117` (a former arm room pays `'arm'`), `:264-294` (one arm per floor, never the Tideblade,
+   gate on floor 1, same keep same arm), `:337` (`layoutHash` includes `weaponDrop`); `dungeon-decor-layout.test.ts:41,46,87`
+   (`weaponDrop` in the layout comparisons and "a motif never overlaps the weapon drop"); `dungeon-arena.test.ts:34` (the
+   arena's own rack, stays); `dungeon-sim.test.ts:198` (`chamberReward` with `'arm'`); `scripts/balance/sim.ts:385` (door
+   preference `arm: 2`).
+4. Phone menu at 360 x 740 today: no horizontal scroll (page 360 of 360), the intro card 304 x 454 with nothing to scroll;
+   buttons ENTER THE KEEP, Controls & journey, Settings, Sound, Fullscreen, Copy run log, Arena (dev). Screenshot (kept
+   outside the repo, so it will not travel): `/tmp/claude-0/-home-user-astralite/1b6f96b8-7513-5e3c-8da2-38a53cb58f01/scratchpad/title-360x740.png`.
+5. Gate fit, 51 floor-1 start rooms (the 30 `balance:check` seeds plus every hex seed pinned in `tests/browser`, 15841
+   and 4242); a throwaway copy of the generator exposed the doorways before the alcove cut. The Tide Gate is always a
+   crypt, 9-13 by 7-11 tiles. Slot rules as D8 states them (a walkable tile of the room, more than 1.9 units from the
+   heart, 2 tiles from the entry and from every doorway, not a prop tile; seven pairwise 2.8 apart): **all 51 seat seven**,
+   worst case the 9 x 7 crypt (seeds 0x4, 0x60, 158381, 166300, 221733 and others; 48 tiles, 21 candidates, seven fit at
+   spacing 3.31, a lower bound from randomised packing). **D8 is silent on a wall margin, and it decides the answer:**
+   if a slot must stand one tile in from a wall (all four neighbours walkable), 15 of 51 cannot seat seven (0x26aad,
+   0x2899c, 0x36225, 0x4, 0x60 fit 4; 0x34336, 0x8 fit 5; 0x11668, 0x3, 0x11, 0x7bbd, 0xb99b, 0x1d002, 0x24bbe, 0x8000
+   fit 6) and if a slot must also stay 2 tiles from every prop, 25 of 51 cannot. Not tripped on the plan's own wording; the
+   operator should pick the margin before Stage C (a slot on the wall-adjacent row puts the rack against the wall).
+   Also: at most six racks ever stand at once (seven arms, one in hand).
+6. Gate frame cost, **STOP RULE TRIPPED.** Seed 0x1, floor-1 Tide Gate, SwiftShader, 2026-10-01 (`render.calls` /
+   `render.triangles` / `render.shadow.calls`; identical on repeat): today's one rack 236 / 198,812 / 61; seven racks
+   (staged by a temporary hook, not committed) 310 / 204,116 / 92, which is **+31.4% calls and +50.8% shadow calls** and
+   +2.7% triangles. A rack is 6 meshes, 360 triangles. The plan's example remedy measured: racks that cast no shadow,
+   279 / 201,944 / 61, still **+18.2% calls**. Not enough alone; the rest is the rack's own draw calls (about 7 per extra
+   rack), so something must also merge or instance the rack parts. I did not implement a remedy. `placeDrop` is not
+   reachable from the console and only holds one `drop`, which is why the staging needed a temporary hook.
+
+**Tests, each planted, watched failing with its own message, restored** (driver kept outside the repo; the full list
+re-ran at the end). File, bug planted, first failing message:
+- `dungeon-sim`: "createRun() with no argument is exactly the run the game always started": default `draftSize` 4 ->
+  "createRun() with no argument no longer deals the run the game always started" (also fails the Keen Eye default, 4 !== 3).
+  "each rank of Deep Lungs": `hp` not filled -> "rank 1 began wounded: 100 !== 110". Whetted Start ignored -> "[0, 4, 1]
+  vs [8, 4, 1]". "Second Tide turns the one blow...": `defiance` not decremented -> "the revive was not spent: 1 !== 0";
+  revive on any blow -> "a blow that does not kill is not defied" (hp 40 vs 80); `invuln` 2 s -> "2 !== 0.35"; `draftBoons`
+  ignores `size` -> "Keen Eye offers four distinct cards": "3 !== 4".
+- `dungeon-meta`: `pearlsFor` counts `floor` -> "a floor-1 death with no kills has no floor behind it: 15 !== 0"; `bank`
+  mutates -> "bank returned the meta it was given"; `buyUpgrade` charges `price(rank + 1)` -> "the first rank was not charged
+  at the first rank's price" (900 vs 940) and "exactly enough must buy"; no max rank -> "lungs past its last rank"; `buyArm` sets
+  `arm` -> "buying an arm must not equip it"; `buyArm` free -> "1000 !== 850"; `chooseArm` takes any id -> "an arm not bought";
+  `runStart` ignores Keen Eye -> draftSize 3 vs 4; ranks unclamped -> "500 !== 130"; `FLOORS` = 4 -> "4 !== 3".
+- `dungeon-save`: Tideblade force dropped -> "the Tideblade must always be owned (missing from a list)"; pearls unclamped ->
+  1000000000000 vs 999999; ranks unclamped (record and meta) -> lungs 99 / 9 vs 3; unowned `arm` kept -> 'crossbow' vs
+  'tideblade'; `parseRun` rejects a record without `arm` -> "a pre-019 record was not read as a Tideblade run on no upgrades".
+- `dungeon-run-export`: strict compare -> "a pre-019 export was rejected"; compare dropped -> "a record with an extra field" and
+  "an arm this build does not know" parse.
+- `runs-report`: grouped by `boons[0]` -> "escapes and deaths were not grouped by the arm carried"; ranks counted as upgrade
+  kinds -> "were not grouped by total upgrade ranks".
+- `balance-sim`: draft ignores `run.draftSize` -> "a knight with Keen Eye was not offered four cards in the sim"; `Policy.meta`
+  ignored -> "a policy meta did not reach the run: 0 !== 30"; a win reported as a loss -> "an escaped run report does not carry
+  what a win pays: 115 !== 155".
+
+**Gates.** typecheck clean; lint clean; node suite 374 of 374 (was 341); `balance:check` every metric in band and identical to the
+baseline lines; PR-gate browser run (`--grep-invert "@capture|@nightly"`, SwiftShader, 2 workers, the installed Chromium through a
+shim) 128 passed in 14.4 min.
+
+**Not done / for the operator.** Stage 0 step 5 needs a wall-margin decision and step 6's stop rule needs a remedy chosen,
+both before Stage C. AGENTS.md's pure-module list is Stage F. `readMeta`/`writeMeta` exist but nothing calls them yet.
