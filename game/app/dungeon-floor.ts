@@ -324,17 +324,21 @@ export const GATE_SPACING = 2 * PICKUP_RADIUS;
  * changes what stands on the slots and nothing about where they are (or the decor kept clear of them).
  *
  * Inside the gate's own floor (not a prop's hole, not the alcove a door is cut into), clear of its heart by
- * the drop's own 1.9, and two tiles clear of the way in and of every doorway, as the weapon drop is. A slot may
- * stand against a wall (operator, 2026-10-01). Seven are laid on an ellipse round the heart, each on the free
- * tile nearest its place on it; a gate whose ellipse is too crowded is searched for any seven that keep their
- * distance, and a gate that cannot seat seven returns the ones that fit - which `tests/dungeon-floor.test.ts`
- * holds to never happening across its sweep, because the spacing is not something to loosen.
+ * the drop's own 1.9, and two tiles clear of the way in and of every doorway, as the weapon drop is: measured
+ * from the doorway the generator kept clear (the gate's last tile on the way to the door), and from the door
+ * as cut back into the wall. A slot may stand against a wall (operator, 2026-10-01). Seven are laid on an
+ * ellipse round the heart, each on the free tile nearest its place on it; a gate whose ellipse is too crowded
+ * is searched for any seven that keep their distance, and a gate that cannot seat seven returns the ones that
+ * fit - which `tests/dungeon-floor.test.ts` holds to never happening across its sweep, because the spacing is
+ * not something to loosen.
  */
 export function gateRacks(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors'>): GateRack[] {
   const gate = floor.rooms[0], heart = { x: gate.x * TILE, z: gate.z * TILE };
-  const shut = [gate.entry, ...floor.doors.filter(door => door.from === gate.id)];
+  const own = (x: number, z: number) => Math.abs(x - gate.x) <= gate.halfX && Math.abs(z - gate.z) <= gate.halfZ && carves(gate, x - gate.x, z - gate.z);
+  const mouth = (door: Door) => { let at = { x: door.x, z: door.z }; for (let back = 0; back < 4 && !own(at.x, at.z); back++) at = { x: at.x - door.face.x, z: at.z - door.face.z }; return at; };
+  const shut = [gate.entry, ...floor.doors.filter(door => door.from === gate.id).flatMap(door => [door, mouth(door)])];
   const free = floor.tiles
-    .filter(t => t.room === gate.id && carves(gate, t.x - gate.x, t.z - gate.z) && shut.every(way => Math.hypot(way.x - t.x, way.z - t.z) >= 2))
+    .filter(t => t.room === gate.id && own(t.x, t.z) && shut.every(way => Math.hypot(way.x - t.x, way.z - t.z) >= 2))
     .map(t => ({ x: t.x * TILE, z: t.z * TILE }))
     .filter(spot => Math.hypot(spot.x - heart.x, spot.z - heart.z) > 1.9);
   const apart = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z) >= GATE_SPACING - 1e-9;

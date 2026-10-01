@@ -488,6 +488,15 @@ test('no room on any sweep floor has the reward arm', () => {
 // A sweep wide enough to hold the smallest gate (a 9 x 7 crypt) many times over, plus the seeds the browser suite and the balance sim pin.
 const GATE_SEEDS = [...Array.from({ length: 400 }, (_, i) => i + 1), ...sweepSeeds(1), 0x4, 0x60, 0x11, 0x8000, 0x26aad, 0x2899c, 0x36225, 158381, 166300, 221733, 15841, 4242];
 const gates = GATE_SEEDS.map(seed => generateFloor(seed, 1));
+/** Whether a tile is the gate's own floor: inside its rectangle and not cut away by its shape, which a door's alcove (cut after) is not. */
+const ownFloor = (gate: Floor['rooms'][number], x: number, z: number) => Math.abs(x - gate.x) <= gate.halfX && Math.abs(z - gate.z) <= gate.halfZ && carves(gate, x - gate.x, z - gate.z);
+/** The tile the door's alcove opens from: the first of the gate's own floor going back from the door. */
+const doorMouth = (gate: Floor['rooms'][number], door: Floor['doors'][number]) => {
+  let at = { x: door.x, z: door.z };
+  for (let back = 0; back < 4 && !ownFloor(gate, at.x, at.z); back++) at = { x: at.x - door.face.x, z: at.z - door.face.z };
+  assert.ok(ownFloor(gate, at.x, at.z), `door ${door.id} has no mouth within three tiles`);
+  return at;
+};
 
 test('gateRacks seats seven, one per arm, on the gate\'s own floor and clear of the heart, the entry, every doorway and every prop', () => {
   assert.equal(GATE_ARMS.length, 7);
@@ -500,10 +509,15 @@ test('gateRacks seats seven, one per arm, on the gate\'s own floor and clear of 
       const tile = { x: Math.round(slot.x / TILE), z: Math.round(slot.z / TILE) };
       assert.ok(Math.abs(slot.x - tile.x * TILE) < 1e-9 && Math.abs(slot.z - tile.z * TILE) < 1e-9, `${at} ${slot.arm}: the slot is not on a tile`);
       assert.equal(floor.roomByCell.get(cellKey(tile.x, tile.z)), gate.id, `${at} ${slot.arm}: the slot is off the gate's floor`);
-      assert.ok(carves(gate, tile.x - gate.x, tile.z - gate.z), `${at} ${slot.arm}: the slot stands in a door's alcove, not in the gate`);
+      assert.ok(ownFloor(gate, tile.x, tile.z), `${at} ${slot.arm}: the slot stands in a door's alcove, not in the gate`);
       assert.ok(Math.hypot(slot.x - gate.x * TILE, slot.z - gate.z * TILE) > 1.9, `${at} ${slot.arm}: the slot is underfoot at the heart`);
       assert.ok(Math.hypot(tile.x - gate.entry.x, tile.z - gate.entry.z) >= 2, `${at} ${slot.arm}: the slot is at the knight's arrival`);
-      for (const door of floor.doors.filter(d => d.from === gate.id)) assert.ok(Math.hypot(tile.x - door.x, tile.z - door.z) >= 2, `${at} ${slot.arm}: the slot is in door ${door.id}'s way`);
+      for (const door of floor.doors.filter(d => d.from === gate.id)) {
+        assert.ok(Math.hypot(tile.x - door.x, tile.z - door.z) >= 2, `${at} ${slot.arm}: the slot is in door ${door.id}'s way`);
+        // The doorway the generator keeps clear is the gate's last tile on the way to the door, which the alcove was cut back from.
+        const mouth = doorMouth(gate, door);
+        assert.ok(Math.hypot(tile.x - mouth.x, tile.z - mouth.z) >= 2, `${at} ${slot.arm}: the slot stands in the mouth of door ${door.id}`);
+      }
       for (const prop of floor.props.filter(p => p.room === gate.id)) assert.ok(Math.hypot(tile.x - prop.x, tile.z - prop.z) >= 1, `${at} ${slot.arm}: the slot stands in a ${prop.kind}`);
     }
     for (let a = 0; a < slots.length; a++) for (let b = a + 1; b < slots.length; b++) {
