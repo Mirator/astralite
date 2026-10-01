@@ -3727,3 +3727,141 @@ path 5 of 5 as well, the two agree).
 
 **Not done.** No pause-menu line for Second Tide, no meta export, nothing of Stage C or D. The Altar was looked at on
 SwiftShader screenshots at 1000 x 700 and 360 x 740; nobody has played it by hand.
+
+## 2026-10-01 - Plan 019 Stage C: the armoury in the Tide Gate, and no arms in the keep
+
+**Resumed from an interrupted WIP commit.** A previous session was killed by a container restart mid-stage and left its
+unverified work as `41d6769` ("Plan 019 Stage C: work in progress"). This session reviewed that diff critically before
+building on it. Kept as written: the generator change (checked below), the `Rack` list in the game, `layGateRacks` /
+`lockArm` / the lock in `takeDoor`, the decor reservation, `stageBlow` / `blowStance` moved into `helpers.ts`, the restaged
+scenarios, the four armoury scenarios, the seven-rack frame test, the `bands.json` / `sim.ts` edits. Fixed: `gateRacks`
+measured its two-tile doorway clearance from the door as cut back into the wall (a looser rule than the drop's, which
+measures from the doorway the alcove was cut from) and called a door's alcove "the gate" on the strength of the shape's
+cut corners alone; and `enter()` asked `layGateRacks` again, which **cleared the dev arena's rack** (an arena owns no gate),
+so D14 was broken and nothing noticed (no test looked). No plant was found half-applied in the tree. Redone: nothing wholesale.
+
+**What changed.**
+- `app/dungeon-floor.ts`: `Reward` is `'mend' | 'cache'`. The arm chamber's `int()` pick, `dropKind` and the drop spot are still
+  drawn; the chosen chamber keeps the mend or purse it was dealt one line earlier, and `roster` still deals it as the
+  non-hoard fight it was (`packSource` sees `reward: null` for it; otherwise a purse chamber past layer 2 would draw a hoard
+  and move the stream). `carves` is exported (the rule `carveRoom` cuts by). `GATE_ARMS`, `GATE_SPACING` (2 x `PICKUP_RADIUS`),
+  `GateRack` and `gateRacks(floor)`: seven slots, one per arm, no draw, no save: each on the free tile nearest its place on an
+  ellipse round the heart, else any seven that keep their distance. Free = the gate's own floor (inside its rectangle, not
+  cut away by its shape), more than 1.9 from the heart, two tiles from the entry and from every doorway (the doorway the
+  generator kept clear, and the door as cut), not a prop's tile. A slot MAY stand against a wall (operator).
+- `app/dungeon-weapon.ts`, `app/dungeon-sim.ts`: `PICKUP_RADIUS` lives in the weapon module (the generator reads it without a
+  cycle) and is re-exported by the sim.
+- `app/dungeon-decor-layout.ts`: every gate slot of floor one is reserved (1.5 half-width, as the drop), whatever is owned.
+- `app/dungeon-floor-scene.ts`: the door sign for `arm` and `FloorArt.placeDrop` are gone; the scene lays no rack.
+- `app/dungeon-game.tsx` (edited in place): `drop` is `racks`, a list; `overRack` is the rack whose ring holds the knight;
+  `layRack` / `clearRacks` / `layGateRacks` (floor one, owned arms except the one in hand, each on its slot; asked again by
+  `enter`; an arena keeps its own); `lockArm` at the first door out of the floor-1 gate (`takeDoor`): `armLocked`, `runArm`,
+  `chooseArm` + `writeMeta`, racks disposed; `requestSwap` refuses once locked; a build of floor one clears the lock; snapshot
+  `racks` (read off each rack's group: position, `inScene`, `over`, `offered`) replaces `drop`, and `run.armLocked` is added;
+  `actorStats().racks`. `RunEnd.arm` is the locked arm.
+- Scripts: `scripts/balance/sim.ts` door preference no longer lists `arm`; `bands.json` measured / note (below).
+
+**Fixture `tests/fixtures/rewards-019.json`: legitimate, kept.** It is a recording of what the generator dealt BEFORE this
+stage (every room's reward and `weaponDrop.room` for 90 floors), and it was checked rather than trusted: regenerating all 90
+floors from a worktree of `f4ae3f5` (Stage B, before Stage C) reproduces it exactly. A broader differential against that same
+commit over 400 seeds x 3 levels (1200 floors) found spawns, props, weapon drop and doors identical and every reward identical
+except the 800 former arm chambers, each now `mend` or `cache`. It is not recomputed from the new code.
+
+**Interpretations.**
+- The layout hash against `spawns-017.json` still includes `weaponDrop` (the plan says it is "no longer compared"): the
+  generator still draws and lays it, so keeping it in the hash is the stronger check and it passes. Plants P6 and P7 below
+  show it catching a removed draw.
+- "Seven racks" in the frame test is seven SLOTS: one arm is always in hand, so at most six racks stand at once.
+- The `armLocked` refusal in `requestSwap` is defence in depth: the racks are gone after the lock, so no test can reach a
+  swap that the refusal alone stops (plant A3d survives, below). It stays because the plan asks for it.
+- The old arm chamber is dealt its pack as a non-hoard (above), so its reward changes but its spawns do not.
+
+**Operator decisions recorded.**
+1. Gate frame cost: the Stage 0 stop rule tripped (seed 0x1 gate: 236 calls with one rack, 310 with seven, shadow calls 61 to
+   92). The operator accepts that cost with no remedy; the stop rule is replaced by a bound in `frame-budget.spec.ts`.
+2. Wall margin: racks may stand against the walls; D8's other rules stand. 642 start rooms (600 seeds, the 30 balance seeds
+   and the pinned ones) all seat seven slots; the closest pair is 2.96 apart (the rule is 2.8), the closest slot to a door 4.19
+   units (ring 1.4 + door ring 1.25 = 2.65, so a rack ring never overlaps a door ring), to a heart 2.09.
+
+**Frame budget** (SwiftShader, 2026-10-01, seed 0x1 Tide Gate, a fixed stand, identical on repeat; `render.calls` /
+`triangles` / `shadow.calls`): bare gate 224 / 198,092 / 56; all six racks 298 / 203,164 / 87 (+74 calls = +33%, +5,072
+triangles = +2.6%, +31 shadow calls = +55%). Stage 0's numbers agree: its 310 - 236 is the same +74. The test bounds each
+count above at the measured figure and below at 95% of it, for the bare and the full gate, and asks the six racks to add more
+than 20 calls and 1,000 triangles but stay under 1.5 times the bare gate.
+
+**Balance** (`balance:check`, 30 runs, seed 1, 315 s; every metric inside its band, so no band moved). Before (Stage 0
+measured) -> after: weak escape 86.7 -> 83.3, weak floor-3 deaths 7.1 -> 10.7, weak floor-2 HP left 82.4 -> 82.0, weak run
+128.3 -> 127.9 s; special-crossbow escape 90.0 -> 93.3, floor-3 deaths 10.0 -> 6.7; default run 148.6 -> 149.0 s; special
+146.0 -> 146.3; special-cleaver 169.1 -> 168.8; special-flask 202.7 -> 196.7; fangs and crossbow run seconds and every other
+number unchanged. Cause: the sim prefers doors cache, then mend, then arm, then the rest; with no arm chamber the former one
+is a mend or a purse, which pays 30 HP or 60 XP where it paid the 12-point top-up, and the door order changes with it. At 30
+runs one run is 3.3 points, so the weak policy's change is one run and the crossbow's is one run; the cause beyond the door
+order was not chased. `bands.json`'s `measured` block and note (which the WIP had edited) were checked against this run and
+are exactly it.
+
+**Restaged scenarios** (the Stage 0 step 3 list, each run, each given a plant that fails it):
+- `controls.spec.ts` pad-X test: `setMeta` owning the maul, `equip('cleaver')`, teleport into the maul's ring and assert
+  `over` before pressing X, so "X took nothing" can fail.
+- `weapon.spec.ts`: `setMeta` owning the maul and the rack story staged at the gate's maul rack; the restart ends with
+  "the gate laid out again".
+- `special.spec.ts`: "spear in flight" owns the spear and maul, starts holding the spear and swaps at the maul's rack (the
+  `if (special)` guard became an `expect`, since the maul always has a special); "swap, swap back" stages the maul's rack.
+- `models.spec.ts`: `actorStats` returns `racks`; "tearing a floor down" tears down the gate with a rack, a deeper floor
+  (no rack), a rebuilt gate holding the maul (the Tideblade on the rack) and floor 3 (none).
+- `loading.spec.ts` sliced vs sync: `setMeta` owning two arms; the capture compares `racks` and asserts there are two.
+- `shots.spec.ts` (`@capture`): `models-drop-<kind>` is one seed (0x1) with `setMeta` owning that arm, the stand searched in a
+  wider circle (a slot may stand against a wall); the gate scene on floor 2 asserts no rack there.
+- `arena.spec.ts`: new assertion that the arena keeps its rack (D14), which caught the `enter()` bug.
+- `meta.spec.ts` / `helpers.ts`: `stageBlow` and `blowStance` moved to the helpers (armoury.spec uses them); `Snapshot.racks`
+  and `Snapshot.run.armLocked` replace `drop`. Not exposed: `ranged`, `art-direction` (a comment), `chambers`, the other arena specs.
+- Node: `dungeon-floor.test.ts` (the arm-reward, one-arm-per-floor, gate, same-keep tests now speak of the reserved spot;
+  new rewards, sweep, `gateRacks` and no-draw tests), `dungeon-decor-layout.test.ts`, `dungeon-paving-layout.test.ts`,
+  `dungeon-sim.test.ts` (`chamberReward` with `'arm'` is gone).
+
+**New tests, each planted for real, watched failing on its own message, restored** (drivers kept outside the repo).
+Node (`dungeon-floor.test.ts`, `dungeon-decor-layout.test.ts`, `dungeon-paving-layout.test.ts`):
+- P1 remove the arm chamber's `int()` pick (`armRoom = pool[0]`): "level 2 seed 2: the arm chamber's pick moved, so its draw was
+  removed" (12 !== 14), and the `spawns-017` layout test: "level 2 seed 2: a prop or the weapon drop moved, so a random draw was
+  added or removed".
+- P2 keep `reward = 'arm'` on floor 3 only: "level 3 seed 3: the former arm chamber pays arm" and, in the sweep test, "level 3 seed
+  7919 room 9 pays arm".
+- P3 `GATE_SPACING = PICKUP_RADIUS`: "seed 2: tideblade and fangs are closer than two pickup radii, so one ring could hold both".
+- P4 one slot jittered by `Math.random()`: "gateRacks drew a random number".
+- P5 reserve only the first slot: "seed 6151: the fangs slot is not reserved, so decor could land on its rack". No reservation at
+  all additionally fails the paving test: "seed 80: a paving patch at 1,2 sits on the cleaver rack's slot". (The paving test
+  survives the first-slot-only plant; the decor test is what holds that one.)
+- P6 `roster` without the former arm chamber's `reward: null`: "level 2 seed 7921: a prop or the weapon drop moved...". P7 the
+  `dropKind` draw removed: "level 1 seed 1: a prop or the weapon drop moved..." (this is why `weaponDrop` stays in the hash).
+- P8/P9 doorway clearance measured from the cut door only, or `own` without the rectangle: "seed 1 tideblade: the slot stands in
+  the mouth of door 1". **P10, `own` removed from the free filter, survives:** the two doorway clearances already exclude every
+  alcove tile, so the "inside the gate" guard is redundant; the test's alcove assertion cannot fail on its own.
+Browser, `armoury.spec.ts` (scenarios 1-3 are one story, 4 is its own test):
+- A1 every arm but the one in hand on a rack: "the gate does not show exactly the arms owned besides the one in hand" (fangs,
+  cleaver added). A2 `requestSwap` takes `racks[0]`: "the swap key did not take the arm of the rack he stood in" (spear vs maul).
+- A3a `meta.arm` written at run end instead of the door: "the arm was not written at the door" (tideblade vs maul). A3b racks not
+  disposed at the lock: "the racks stand on after the door was taken". A3c `runArm` not set at the lock: "the run record does not
+  carry the locked arm" (tideblade vs maul). A3e the lock never cleared by a new floor one: "the gate does not show the other two
+  arms" (empty). **A3d, the `armLocked` guard removed from `requestSwap`, survives** (see Interpretations).
+- A4 `floor.weaponDrop` laid on deeper floors: "a rack was laid on floor 2" (a cleaver rack). Its precondition (the pick still
+  lands on the former arm chamber) reads `floor.weaponDrop.room` against the pre-Stage-C recording.
+- All four also pass under `GAME_TEST_ISOLATE=1` (2 of 2) and pooled (2 of 2).
+Restaged scenarios: R1 pad X also swaps -> "X is the Whirl" (the X press swapped to the maul first, so the first assertion trips,
+not "did not swap anything"); R2 the arm set down is lost -> weapon.spec and both special.spec swap tests fail ("the spear is on
+the rack, not lost"); R3 the kept clocks not handed to the rack -> "swapping arms with the spear in flight" fails on
+`ready: false` expected, true received; R4 a slot jittered in the sliced path -> the loading comparison shows the x of the spear
+rack differing; R5 `actorStats` with the first rack only -> `[spear]` vs `[spear, maul]`; R6 the teardown leaving the racks to the
+traversal -> "floor teardown disposed a material the knight still wears" (8 vs 0); `shots.spec.ts` models-drop-maul under A1 ->
+"the gate does not show exactly the maul". Frame budget: F1 racks hidden -> "full gate draws far fewer calls than it was measured
+at" (224 vs >= 283.1); F2 a seventh part on every rack -> "full gate draws more often than measured" (304 vs <= 298). Arena: the
+`enter()` bug itself was the plant, "the arena lost its rack" (it failed on the WIP, and passes now).
+
+**Gates.** typecheck clean; lint clean; node suite 381 of 381 (was 374); `balance:check` every metric in band (above);
+PR-gate browser run (`--grep-invert "@capture|@nightly"`, SwiftShader, 1 worker, installed Chromium through a shim) **136 of
+136 passed in 15.2 min** (the 133 of Stage B plus `armoury.spec.ts` x2 and the frame-budget armoury test); the restaged `@capture`
+and `@nightly` scenarios (`shots.spec.ts` all 16, `models.spec.ts` the two `@nightly`) **18 of 18 passed**; `armoury.spec.ts` under
+`GAME_TEST_ISOLATE=1` 2 of 2; the frame-budget armoury test x3 identical.
+
+**Not done / not verified.** The six-rack gate has not been looked at by eye (racks may now stand against walls: the operator
+accepted that, and nothing here judges how it reads). `AGENTS.md`, `GAME_OVERVIEW.md`, `README.md`, `tests/README.md` (the
+snapshot's `racks` replaces `drop`; "Y takes an arm") are Stage F and are untouched. The Altar's sentence "arms are chosen at
+the Tide Gate" is now true.

@@ -529,3 +529,28 @@ Details, plants and messages are in `game/progress.md` ("Plan 019 Stage B"). In 
   the one failure an exact-list assertion on the main menu's buttons that now includes Tide Altar; fixed and passing).
 - **Interpreted:** `RunEnd.arm` is the arm dealt at run start until Stage C locks it at the door; the Altar's "arms are chosen at
   the Tide Gate" is ahead of the game until Stage C.
+
+### Stage C (2026-10-01)
+
+Resumed from an interrupted WIP commit (`41d6769`), reviewed and finished; details, every plant and its message are in
+`game/progress.md` ("Plan 019 Stage C"). In brief:
+
+- **Operator decisions.** Gate frame cost: the Stage 0 stop rule tripped and the operator accepted the cost with no remedy, so
+  `frame-budget.spec.ts` bounds it instead. Wall margin: racks may stand against the walls; D8's other rules stand.
+- **Built.** No chamber pays an arm (every draw kept; the former arm chamber keeps its mend or purse and is still dealt as a
+  non-hoard fight); `gateRacks(floor)` (pure, no draw, 642 start rooms all seat seven, closest pair 2.96 against a rule of 2.8);
+  decor reserves every gate slot; `racks` is a list; floor 1 lays owned arms except the one in hand; the first door out of the
+  gate locks the arm, disposes the racks and writes `meta.arm`; `RunEnd.arm` is the locked arm; the dev arena keeps its rack.
+- **Fixture `rewards-019.json`** is a recording of the generator before this stage (reproduced exactly from `f4ae3f5`), so it
+  stays. A 1200-floor differential against `f4ae3f5` found only the 800 former arm chambers' rewards changed.
+- **Frame cost** (SwiftShader, 2026-10-01, seed 0x1 gate): bare 224 calls / 198,092 triangles / 56 shadow calls; six racks 298 /
+  203,164 / 87 (+33% calls, +2.6% triangles, +55% shadow calls). At most six racks stand (seven slots, one arm in hand).
+- **Balance** (`balance:check`, every metric in band, no band moved): weak escapes 83.3% (was 86.7), floor-3 deaths 10.7% (was 7.1);
+  special-crossbow 93.3% (was 90.0), floor-3 deaths 6.7% (was 10.0); special-flask 196.7 s (was 202.7); the rest within a second.
+  Cause: the sim's door order meets a mend or purse where it met an arm.
+- **Tests.** Node 381 (was 374); `armoury.spec.ts` (scenarios 1-3 one story, 4 its own), the restaged scenarios, the seven-slot
+  frame test and an arena-rack assertion, each planted and failing on its own message except two redundant guards that
+  survive their plants (`requestSwap`'s `armLocked` check, the gate's own-floor filter), both named in the progress entry.
+- **Gates.** typecheck, lint, node suite, `balance:check`, PR-gate browser run 136 of 136, `@capture`/`@nightly` restaged
+  scenarios 18 of 18, `armoury.spec.ts` under `GAME_TEST_ISOLATE=1` 2 of 2.
+
