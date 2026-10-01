@@ -241,8 +241,7 @@ jobs:
           browser: 'true'
       # `@capture` scenarios only stage frames for a human, and `@nightly` ones pin
       # art tuning or repeat a check the gate already makes; neither guards a PR.
-      # The nightly isolated run (isolated.yml) still runs both, and a capture
-      # run draws everything.
+      # A capture run (the `captures` input) draws everything, both tags included.
       - run: |
           specs=$(node --experimental-strip-types scripts/shards/plan.ts 3 ${{ matrix.shard }})
           echo "shard ${{ matrix.shard }}/3 runs: $specs"
