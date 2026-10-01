@@ -62,7 +62,7 @@ test('cards are dialogs that take focus, and the background stays out of reach w
  */
 test('the menu opens its pages in place and always comes back to the list', async ({ game, page }) => {
   const menu = page.getByRole('navigation', { name: 'Main menu' });
-  await expect(menu.getByRole('button')).toHaveText([/^ENTER THE KEEP/, /^Controls & journey/, /^Settings/]);
+  await expect(menu.getByRole('button')).toHaveText([/^ENTER THE KEEP/, /^Tide Altar/, /^Controls & journey/, /^Settings/]);
 
   await menu.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(menu).toHaveCount(0);
@@ -72,6 +72,13 @@ test('the menu opens its pages in place and always comes back to the list', asyn
   await expect(back).toBeFocused();
   await back.click();
   await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeFocused();
+
+  // Plan 019: the Tide Altar is a page of the same card (title menu only; the pause menu below has none).
+  await menu.getByRole('button', { name: /^Tide Altar/ }).click();
+  await expect(page.getByRole('heading', { name: 'The Tide Altar' })).toBeVisible();
+  await expect(back).toBeFocused();
+  await back.click();
+  await expect(page.getByRole('button', { name: /^Tide Altar/ })).toBeFocused();
 
   await page.getByRole('button', { name: 'Controls & journey' }).click();
   await expect(page.getByRole('heading', { name: 'Controls & journey' })).toBeVisible();

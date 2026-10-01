@@ -117,7 +117,7 @@ export const readKey = (code: string, repeat: boolean, binds: Binds, live: boole
 
 /** A `dungeon-action` event's detail, parsed. Unknown details parse to null and do nothing. */
 export type Command =
-  | { kind: 'continue' } | { kind: 'restart'; seed?: number } | { kind: 'start'; seed?: number }
+  | { kind: 'continue' } | { kind: 'restart'; seed?: number } | { kind: 'start'; seed?: number } | { kind: 'gate' }
   | { kind: 'map' } | { kind: 'pause' } | { kind: 'mute' } | { kind: 'fullscreen' }
   | { kind: 'boon'; id: string } | { kind: 'stick'; stick: Stick | null }
   | { kind: 'attack' } | { kind: 'hold-attack' } | { kind: 'release-attack' } | { kind: 'dash' } | { kind: 'swap' }
@@ -129,13 +129,14 @@ const seedAfter = (detail: string, prefix: number) => { const seed = Number.pars
 
 /**
  * `restart` opens a fresh keep and `restart:<seed>` takes the same one again; `start:<seed>` enters the
- * keep a previous visit left. `stick:<x>,<z>` plants the thumbstick and anything unparseable after it
+ * keep a previous visit left; `gate` (TO THE GATE, plan 019) leaves a finished run for the title menu. `stick:<x>,<z>` plants the thumbstick and anything unparseable after it
  * is a release, so a lift always lands. `move:`/`stop:` press and release a touch d-pad direction.
  */
 export const parseCommand = (detail: string): Command | null => {
   if (detail === 'continue') return { kind: 'continue' };
   if (detail === 'restart' || detail.startsWith('restart:')) return { kind: 'restart', seed: seedAfter(detail, 8) };
   if (detail === 'start' || detail.startsWith('start:')) return { kind: 'start', seed: seedAfter(detail, 6) };
+  if (detail === 'gate') return { kind: 'gate' };
   if (detail === 'map' || detail === 'pause' || detail === 'mute' || detail === 'fullscreen') return { kind: detail };
   if (detail.startsWith('boon:')) return { kind: 'boon', id: detail.slice(5) };
   if (detail.startsWith('stick:')) { const [x, z] = detail.slice(6).split(',').map(Number); return { kind: 'stick', stick: Number.isFinite(x) && Number.isFinite(z) ? { x, z } : null }; }

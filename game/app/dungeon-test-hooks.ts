@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { CombatFixture } from './dungeon-fixture';
 import type { Enemy, EnemyKind } from './dungeon-enemy-view';
+import type { Meta } from './dungeon-meta';
 import type { RunEnd } from './dungeon-save';
 import { getFlagstoneTextures, getMasonryTextures } from './dungeon-textures';
 import type { WeaponId } from './dungeon-weapon';
@@ -20,6 +21,9 @@ export type TestHooks = {
   grantXp: (amount: number) => void;
   reset: (seed?: number) => void;
   runLog: () => RunEnd[];
+  /** Plan 019: the stored meta, straight off the save and re-validated; `setMeta` writes one, for fixture setup. */
+  meta: () => Meta;
+  setMeta: (meta: Meta) => void;
   configureCombatFixture?: (fixture: CombatFixture) => void;
   cutawayDiagnostics?: () => unknown;
   setCutawayEnabled?: (enabled: boolean) => void;

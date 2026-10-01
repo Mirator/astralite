@@ -16,6 +16,7 @@ import {
 import type { EnemyKind } from '../../app/dungeon-bestiary.ts';
 
 import { DEFAULT_BINDS, isMouseCode, type Action } from '../../app/dungeon-save.ts';
+import type { Meta } from '../../app/dungeon-meta.ts';
 
 export { canStand, expect, hasClearPath, TILE };
 
@@ -204,6 +205,8 @@ export type Snapshot = {
     inFlight: number;
     fires: number;
   };
+  /** Plan 019: what the live run was dealt (arm, vitality, strike, boon cards, revives), read off the run itself. */
+  run: { start: { arm: string; maxHp: number; strike: number; draftSize: number; defiance: number } };
   /** The development arena this page is charting floors as, or null for an ordinary keep. */
   arena: { roster: EnemyKind[]; level: number } | null;
   /** Fire a pyre left where it fell, burning the knight. */
@@ -430,6 +433,9 @@ export type GameWindow = Window & {
     buildFloor: (level: number, seed?: number) => void;
     grantXp: (amount: number) => void;
     reset: (seed?: number) => void;
+    /** Plan 019: the stored meta, re-validated; `setMeta` writes one and takes effect at the next run start. */
+    meta: () => Meta;
+    setMeta: (meta: Meta) => void;
     configureCombatFixture?: (fixture: CombatFixture) => void;
     /** Read-only target/material state; absent from a production build. */
     cutawayDiagnostics?: () => CutawayDiagnostics;
@@ -860,6 +866,24 @@ export class Game {
       hook.equip(weapon);
     }, id);
     await this.step(32);
+  }
+
+  /** Plan 019: the meta as the save holds it, read through the game's own hook. */
+  meta(): Promise<Meta> {
+    return this.page.evaluate(() => {
+      const hook = (window as GameWindow).dungeonTest;
+      if (!hook) throw new Error('dungeonTest is gone');
+      return hook.meta();
+    });
+  }
+
+  /** Plan 019: fixture setup. Writes the save the way a purchase would; the next run start reads it. */
+  async setMeta(meta: Meta) {
+    await this.page.evaluate((value: Meta) => {
+      const hook = (window as GameWindow).dungeonTest;
+      if (!hook) throw new Error('dungeonTest is gone');
+      hook.setMeta(value);
+    }, meta);
   }
 
   async grantXp(amount: number) {
