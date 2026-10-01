@@ -3517,3 +3517,12 @@ update is the ruins orange (keep: "the braziers burn 38 degrees over 3900 px and
 braziers not built (keep: "only 123 saturated pixels over the braziers"); footprints shifted 300 px (keep: "fewer than
 two brazier footprints are on screen"). Hiding only the flame cards, or colouring only them orange, did not fail it:
 the coals, halos and violet light over the footprint carry the hue, so this measures the brazier's fire as a whole.
+
+## 2026-10-01 - The nightly isolated workflow is gone
+
+`.github/workflows/isolated.yml` is removed at the operator's request. It ran the whole browser suite under
+`GAME_TEST_ISOLATE=1` every night and filed every failure as pooled-vs-isolated drift (#46), but the eight red
+nights from 2026-09-23 to 2026-09-30 were stale `@nightly`/`@capture` fixtures after plans 017 and 018, not reset
+drift; all eight were fixed by #81 and #83. Consequence: `@nightly` scenarios and the isolated oracle now run only
+by hand (locally, or with the `captures` input on Verify and Deploy, which also deploys when run from main). AGENTS.md,
+`tests/README.md` and the comments that described the nightly are updated; `plans/README.md` rows now name their merge PRs.

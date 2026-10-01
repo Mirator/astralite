@@ -74,8 +74,10 @@ the flare: each ring carries its own `burned` flag, cleared the moment it stops 
 ## What the pull-request gate runs
 
 Two tags take scenarios off the PR gate without deleting them. `.github/workflows/deploy-pages.yml` passes
-`--grep-invert "@capture|@nightly"` unless a capture run was asked for, and the nightly isolated run
-(`isolated.yml`) runs everything.
+`--grep-invert "@capture|@nightly"` unless a capture run was asked for, and a capture run (the `captures`
+input on Verify and Deploy) runs everything. Nothing runs them on a schedule: the nightly isolated workflow
+was removed on 2026-10-01, so `@nightly` now means "run by hand before merging a change that could move it"
+(locally, or with a capture run).
 
 - **`@capture`**: the scenario only stages a frame for review. `game.capture()` writes nothing unless
   `GAME_TEST_CAPTURE=1`, so on a PR it would boot, stage and assert only that the seed still produces the

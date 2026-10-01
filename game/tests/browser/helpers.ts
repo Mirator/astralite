@@ -113,8 +113,8 @@ export const WARM_UP = 90_000;
  * WebGL context and a first floor - paid eighty-five times for a page every test threw away.
  *
  * The pooled path is the default and the isolated one is kept alive deliberately: it is the oracle. If
- * the two ever disagree, a reset is not returning the page to the state a boot leaves it in, and the
- * nightly `isolated` run on main is what says so before a pull request inherits it.
+ * the two ever disagree, a reset is not returning the page to the state a boot leaves it in. Nothing runs
+ * it on a schedule; reach for `GAME_TEST_ISOLATE=1` when a pooled failure looks like contamination.
  */
 export const ISOLATED = process.env.GAME_TEST_ISOLATE === '1';
 

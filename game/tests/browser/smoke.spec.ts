@@ -1,7 +1,7 @@
 import { expect, test } from './helpers.ts';
 
 // The boot itself is proven by every worker: the pool's page is opened through the same `Game.open`, which
-// fails loudly if WebGL, the pinned floor or the hooks do not come up, and the nightly GAME_TEST_ISOLATE run
+// fails loudly if WebGL, the pinned floor or the hooks do not come up, and a GAME_TEST_ISOLATE run
 // gives this scenario a fresh page of its own. What is left here is that a ready page shows a real floor and
 // enters it, which the pooled page answers as well as a fresh one, without paying another cold boot.
 

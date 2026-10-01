@@ -59,7 +59,7 @@ between a suite you can iterate on and one you cannot:
 | `GAME_TEST_CAPTURE=1` | Writes the reference frames. Off by default — nothing asserts on a PNG, and drawing them is the expensive half of the suite. Needed only when reviewing the art, and then on SwiftShader, since the baseline in `output/shots/baseline/` came off that renderer. |
 | `GAME_TEST_WORKERS` | How many scenarios run at once. One locally; CI sets two. Nothing here measures wall-clock time, so this is a throughput knob, not a correctness one. |
 | `GAME_TEST_PORT` | Moves the dev server, so two checkouts can verify at once. |
-| `GAME_TEST_ISOLATE=1` | Boots a page per scenario, as the suite did before pooling. This is the oracle: a nightly run on main compares it against the pooled path, and a disagreement means a reset is not restoring something a boot sets. Reach for it when a pooled failure looks like contamination. |
+| `GAME_TEST_ISOLATE=1` | Boots a page per scenario, as the suite did before pooling. This is the oracle: run it against the pooled path, and a disagreement means a reset is not restoring something a boot sets. Nothing runs it on a schedule any more. Reach for it when a pooled failure looks like contamination. |
 
 The two combine: `GAME_TEST_GL=d3d11 GAME_TEST_CAPTURE=1 npm run test:browser`
 gives you frames quickly, but they are a different renderer's output and are
