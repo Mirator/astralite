@@ -1,124 +1,92 @@
 import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
-import { gateRacks } from '../../app/dungeon-floor.ts';
+import { altarHall, gateRacks } from '../../app/dungeon-floor.ts';
 import { freshMeta, type Meta } from '../../app/dungeon-meta.ts';
-import { canStand, expect, type Floor, type Game, hasClearPath, keyToward, press, SCREEN_DIRECTIONS, stageBlow, test, TILE, type Point, type ScreenDirection } from './helpers.ts';
+import { expect, press, stageBlow, test, TILE, walkUntil } from './helpers.ts';
 
-// Plan 019 Stage C: the arm is chosen in the Tide Gate and locked at the first door out of it, and no chamber pays
-// an arm. Which slot an arm stands on and that no slot, motif or prop collides are rules over the generator, proved in
-// tests/dungeon-floor.test.ts; what this holds is that the running game lays exactly the owned arms on them, swaps at
-// whichever rack the knight is standing in, writes the choice at the door, and lays no rack anywhere else. The fixtures
-// only stage a save (`setMeta`) and a blow; the walking, the swap and the doors are real keys.
+// Plan 019 Stage C: the arm is chosen on a rack and no chamber pays an arm. Plan 020 moved the armoury from floor one's Tide Gate to the Tide Altar's hall,
+// and the choice is settled by the way down instead of the first door out of the gate. Which slot an arm stands on and that no slot, motif or prop collides
+// are rules over the generator, proved in tests/dungeon-floor.test.ts; what this holds is that the running game lays exactly the owned arms on the hall's
+// slots, swaps at whichever rack the knight is standing in, writes the choice at the way down, carries it into the run and its record, and shows the other
+// arms again when a death brings him back. The fixtures only stage a save (`setMeta`), a teleport to the way down and a blow; the walking, the swap and the
+// card are real input. (hall.spec.ts holds the altar, the shop and what the way down leaves behind on floor one.)
 
 const OWNED: Meta = { ...freshMeta(), arms: ['tideblade', 'spear', 'maul'], arm: 'tideblade' };
 
-/** A spot a few units off a rack, on a clear line along one of the four arrow directions, so one held key walks the ring's edge in. */
-const approach = (floor: Floor, rack: Point) => {
-  for (const name of Object.keys(SCREEN_DIRECTIONS) as ScreenDirection[]) {
-    const way = SCREEN_DIRECTIONS[name], from = { x: rack.x - way.x * 3.4, z: rack.z - way.z * 3.4 };
-    if (canStand(floor.cells, from.x, from.z) && hasClearPath(floor.cells, from, rack)) return { from, key: keyToward(way).key };
-  }
-  throw new Error(`no clear approach to the rack at (${rack.x.toFixed(2)}, ${rack.z.toFixed(2)})`);
-};
-
-/** Holds the arrow key until the knight is inside the named arm's ring, in at most two seconds of game time. */
-const walkIn = async (game: Game, page: Page, floor: Floor, arm: string) => {
-  const rack = (await game.state()).racks.find((r) => r.kind === arm)!;
-  const { from, key } = approach(floor, rack);
-  await game.teleport(from.x, from.z);
-  await game.step(64);
-  expect((await game.state()).racks.find((r) => r.kind === arm)!.over, `the knight starts outside the ${arm}'s ring`).toBe(false);
-  await page.keyboard.down(key);
-  for (let i = 0; i < 64 && !(await game.state()).racks.find((r) => r.kind === arm)!.over; i++) await game.step(32);
-  await page.keyboard.up(key);
-  await game.step(16);
-};
-
 const lastRun = (page: Page) => page.evaluate(() => (window as unknown as { dungeonTest: { runLog: () => { arm: string; cause: string | null }[] } }).dungeonTest.runLog().at(-1)!);
 
-test('the gate shows what is owned, the choice is made on a rack, and the first door out settles it', async ({ game, page }) => {
-  // Owning the Tideblade, the spear and the maul and holding the Tideblade: two racks, the spear's and the maul's.
-  await game.setMeta(OWNED);
-  await game.enter();
-  const floor = await game.floor();
-  const opening = await game.state();
-  expect(opening.weapon.id).toBe('tideblade');
-  expect(opening.floor.level).toBe(1);
+test.describe('the armoury in the hall', () => {
+  test.use({ hall: true });
 
-  // 1. Only what is owned is on a rack: read off the scene, each on its own slot of the armoury.
-  expect(opening.racks.map((rack) => rack.kind), 'the gate does not show exactly the arms owned besides the one in hand').toEqual(['spear', 'maul']);
-  expect(opening.racks.every((rack) => rack.inScene), 'a rack is not attached to the floor').toBe(true);
-  const slots = gateRacks(floor);
-  for (const rack of opening.racks) {
-    const slot = slots.find((s) => s.arm === rack.kind)!;
-    expect([rack.x, rack.z], `the ${rack.kind} does not stand on its slot`).toEqual([expect.closeTo(slot.x, 3), expect.closeTo(slot.z, 3)]);
-  }
-  expect(opening.run.armLocked, 'the arm is settled before any door was taken').toBe(false);
+  test('the hall shows what is owned, the choice is made on a rack, the way down settles it, and the run and the next hall carry it', async ({ game, page }) => {
+    // Owning the Tideblade, the spear and the maul and holding the Tideblade: two racks, the spear's and the maul's.
+    await game.setMeta(OWNED);
+    await game.enter();
+    const hall = altarHall();
+    const opening = await game.state();
+    expect(opening.weapon.id).toBe('tideblade');
+    expect(opening.hall, 'the page did not boot into the hall').toBe(true);
 
-  // 2. The choice is made by walking in and pressing the swap key: the maul is in hand, the Tideblade on the maul's rack.
-  const maul = opening.racks.find((rack) => rack.kind === 'maul')!;
-  await walkIn(game, page, floor, 'maul');
-  const standing = await game.state();
-  expect(standing.racks.find((rack) => rack.kind === 'maul')!.over, 'the walk never reached the maul\'s ring').toBe(true);
-  expect(standing.racks.find((rack) => rack.kind === 'spear')!.over, 'the spear\'s ring answers for the maul\'s').toBe(false);
-  expect(standing.weapon.id, 'standing in the ring took the arm by itself').toBe('tideblade');
-  await press(page, 'swap');
-  await game.step(32);
-  const armed = await game.state();
-  expect(armed.weapon.id, 'the swap key did not take the arm of the rack he stood in').toBe('maul');
-  expect(armed.racks.map((rack) => [rack.kind, rack.x, rack.z]), 'the sword he set down is not on the maul\'s slot, or the spear\'s rack moved').toEqual(
-    [['spear', expect.closeTo(opening.racks[0].x, 3), expect.closeTo(opening.racks[0].z, 3)], ['tideblade', expect.closeTo(maul.x, 3), expect.closeTo(maul.z, 3)]],
-  );
-  // Still his to undo: nothing is written until a door is taken.
-  expect((await game.meta()).arm, 'the choice was written before any door').toBe('tideblade');
-  expect(armed.run.armLocked).toBe(false);
+    // 1. Only what is owned is on a rack: read off the scene, each on its own slot of the armoury.
+    expect(opening.racks.map((rack) => rack.kind), 'the hall does not show exactly the arms owned besides the one in hand').toEqual(['spear', 'maul']);
+    expect(opening.racks.every((rack) => rack.inScene), 'a rack is not attached to the floor').toBe(true);
+    const slots = gateRacks(hall);
+    for (const rack of opening.racks) {
+      const slot = slots.find((s) => s.arm === rack.kind)!;
+      expect([rack.x, rack.z], `the ${rack.kind} does not stand on its slot`).toEqual([expect.closeTo(slot.x, 3), expect.closeTo(slot.z, 3)]);
+    }
+    expect(opening.run.armLocked, 'the arm is settled before the way down was taken').toBe(false);
 
-  // 3. The first door out of the gate locks it. The gate is never sealed, so the door takes the key at once.
-  const door = armed.chamber.doors[0];
-  await game.teleport(door.x, door.z);
-  await game.step(200);
-  expect((await game.state()).chamber.doors[0].over, 'the knight is not at the door').toBe(true);
-  await press(page, 'swap');
-  await game.step(32);
-  const leaving = await game.state();
-  expect(leaving.chamber.crossing, 'the swap key did not start a crossing').toBe('out');
-  expect(leaving.chamber.id, 'the precondition is that the knight is still in the gate when the choice is written').toBe(0);
-  expect(leaving.racks, 'the racks stand on after the door was taken').toEqual([]);
-  expect(leaving.run.armLocked).toBe(true);
-  expect((await game.meta()).arm, 'the arm was not written at the door').toBe('maul');
-  await game.step(400, true);
-  const arrived = await game.state();
-  expect(arrived.chamber.id, 'the door led somewhere other than the chamber it named').toBe(door.to);
-  expect(arrived.racks).toEqual([]);
+    // 2. The choice is made by walking in and pressing the swap key: the maul is in hand, the Tideblade on the maul's rack.
+    const maul = opening.racks.find((rack) => rack.kind === 'maul')!;
+    expect(await walkUntil(game, page, maul, (state) => state.racks.find((rack) => rack.kind === 'maul')!.over), 'the walk never reached the maul\'s ring').toBe(true);
+    const standing = await game.state();
+    expect(standing.racks.find((rack) => rack.kind === 'spear')!.over, 'the spear\'s ring answers for the maul\'s').toBe(false);
+    expect(standing.weapon.id, 'standing in the ring took the arm by itself').toBe('tideblade');
+    await press(page, 'swap');
+    await game.step(32);
+    const armed = await game.state();
+    expect(armed.weapon.id, 'the swap key did not take the arm of the rack he stood in').toBe('maul');
+    expect(armed.racks.map((rack) => [rack.kind, rack.x, rack.z]), 'the sword he set down is not on the maul\'s slot, or the spear\'s rack moved').toEqual(
+      [['spear', expect.closeTo(opening.racks[0].x, 3), expect.closeTo(opening.racks[0].z, 3)], ['tideblade', expect.closeTo(maul.x, 3), expect.closeTo(maul.z, 3)]],
+    );
+    // Still his to undo: nothing is written until the way down is taken.
+    expect((await game.meta()).arm, 'the choice was written before the way down').toBe('tideblade');
+    expect(armed.run.armLocked).toBe(false);
 
-  // Back on a slot where a rack stood (the gate is reached by a hook; no door leads back), the key does nothing.
-  const spear = slots.find((slot) => slot.arm === 'spear')!;
-  await game.teleport(spear.x, spear.z);
-  await game.step(64);
-  expect((await game.state()).chamber.id, 'the knight is not back in the gate').toBe(0);
-  await press(page, 'swap');
-  await game.step(64);
-  const after = await game.state();
-  expect(after.weapon.id, 'the swap key changed the arm after the lock').toBe('maul');
-  await expect(page.locator('.swap-prompt')).toHaveCount(0);
+    // 3. The way down settles it: the arm is written, the racks are gone, and the run is dealt the arm that was chosen.
+    await game.takeWayDown();
+    const run = await game.state();
+    expect([run.hall, run.floor.level, run.mode]).toEqual([false, 1, 'playing']);
+    expect(run.racks, 'the racks stand on after the way down was taken').toEqual([]);
+    expect(run.run.armLocked).toBe(true);
+    expect((await game.meta()).arm, 'the arm was not written at the way down').toBe('maul');
+    expect(run.run.start.arm, 'the run was not dealt the arm settled at the way down').toBe('maul');
+    expect(run.weapon.id).toBe('maul');
+    await expect(page.locator('.swap-prompt')).toHaveCount(0);
 
-  // The run record carries the arm that was locked, not the one the run was dealt: lose the run on floor one.
-  expect(opening.run.start.arm, 'precondition: the run was dealt the Tideblade, so a record of the maul is the lock\'s').toBe('tideblade');
-  const { kind } = await stageBlow(game, 1);
-  await game.step(300);
-  expect((await game.state()).mode, 'the staged blow never landed').toBe('lost');
-  const record = await lastRun(page);
-  expect(record.cause, 'the run did not end by the body that was staged').toBe(kind);
-  expect(record.arm, 'the run record does not carry the locked arm').toBe('maul');
+    // The run record carries the arm that was chosen: lose the run on floor one.
+    const { kind } = await stageBlow(game, 1);
+    await game.step(300);
+    expect((await game.state()).mode, 'the staged blow never landed').toBe('lost');
+    const record = await lastRun(page);
+    expect(record.cause, 'the run did not end by the body that was staged').toBe(kind);
+    expect(record.arm, 'the run record does not carry the arm that was chosen').toBe('maul');
 
-  // The next descent starts holding the maul, with the gate showing the Tideblade and the spear.
-  await page.getByRole('button', { name: 'TO THE GATE' }).click();
-  await game.enter();
-  const next = await game.state();
-  expect(next.run.start.arm, 'the next run did not start with the arm settled at the door').toBe('maul');
-  expect(next.weapon.id).toBe('maul');
-  expect(next.racks.map((rack) => rack.kind), 'the gate does not show the other two arms').toEqual(['tideblade', 'spear']);
-  expect(next.run.armLocked, 'a new run began locked').toBe(false);
+    // The next attempt starts holding the maul, with the hall showing the Tideblade and the spear, and nothing locked.
+    await page.getByRole('button', { name: 'RETURN TO THE ALTAR' }).click();
+    await game.built();
+    await game.step(16);
+    const next = await game.state();
+    expect(next.hall, 'the card did not bring him back to the hall').toBe(true);
+    expect(next.weapon.id, 'the next attempt did not begin with the arm settled at the way down').toBe('maul');
+    expect(next.racks.map((rack) => rack.kind), 'the hall does not show the other two arms').toEqual(['tideblade', 'spear']);
+    expect(next.run.armLocked, 'a new attempt began locked').toBe(false);
+    await game.takeWayDown();
+    const again = await game.state();
+    expect(again.run.start.arm, 'taking the way down without a swap changed the arm').toBe('maul');
+    expect(again.weapon.id).toBe('maul');
+  });
 });
 
 test.describe('the keep below the gate', () => {

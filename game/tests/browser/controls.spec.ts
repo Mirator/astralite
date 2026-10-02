@@ -76,8 +76,9 @@ test('Tab opens and closes the floor map while playing, and moves focus everywhe
 });
 
 test('a pad opens and closes the map on View, dodges on B and RB, and answers X with the special', async ({ game, page }) => {
-  // Plan 019 Stage C: the X check below needs a rack under the knight, and the floor-one rack it used is gone; the Tide Gate's
-  // armoury stands there once an arm besides the Tideblade is owned.
+  // Plan 019 Stage C: the X check below needs a rack under the knight, and the floor-one rack it used is gone; the armoury stands
+  // in the Tide Altar's hall (plan 020) once an arm besides the Tideblade is owned, so the check is made there: the page is rebuilt as the hall by hook
+  // (`buildHall`, as `buildFloor` builds a deeper floor) after the map and the dodges, which are floor one's business. hall.spec.ts walks in.
   await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'maul'], arm: 'tideblade' });
   await game.enter();
   await game.step(120);
@@ -111,9 +112,10 @@ test('a pad opens and closes the map on View, dodges on B and RB, and answers X 
     await game.step(1600);
 
     // X is the special now, and no longer takes an arm off a rack.
+    await game.buildHall();
     await game.equip('cleaver');
     const rack = (await game.state()).racks[0];
-    expect(rack?.kind, 'the Tide Gate shows the one arm owned besides the one at the gate').toBe('maul');
+    expect(rack?.kind, 'the hall shows the one arm owned besides the one in hand').toBe('maul');
     // The knight stands in the rack's ring, where the swap key would take the maul; the precondition that makes "X took nothing" mean something.
     await game.teleport(rack.x, rack.z);
     await game.step(32);

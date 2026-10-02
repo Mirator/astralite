@@ -210,8 +210,8 @@ test.describe('on an already booted page', () => {
     page,
   }) => {
     const seed = 0x51a7;
-    // Plan 019 Stage C: the racks are part of what a build decides, and a fresh save lays none, so the save owns three arms:
-    // both builds below read it, and each must stand the same two racks on the same slots.
+    // Plan 019 Stage C: the racks are part of what a build decides. Floor one's gate lays none any more (plan 020 moved the armoury to the hall, whose own
+    // sliced-against-synchronous build is the next scenario), so the save owns three arms to prove that: both builds below read it and stand no rack.
     await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'spear', 'maul'], arm: 'tideblade' });
     const capture = () =>
       page.evaluate(() => {
@@ -232,7 +232,7 @@ test.describe('on an already booted page', () => {
     await page.evaluate((s) => (window as GameWindow).dungeonTest!.reset(s), seed);
     await game.built();
     const sliced = await capture();
-    expect((sliced.racks as unknown[]).length, 'the fixture needs racks in the gate for the comparison to cover them').toBe(2);
+    expect(sliced.racks, 'floor one\'s gate laid a rack, owned arms or not').toEqual([]);
 
     // The synchronous reference: dungeonTest.buildFloor drains the identical generator in one call.
     await page.evaluate((s) => (window as GameWindow).dungeonTest!.buildFloor(1, s), seed);
@@ -336,6 +336,35 @@ test.describe('on an already booted page', () => {
     await game.act('restart', 'restart');
     await game.built();
     expect((await game.state()).floor.seed).toBe(seeds[1] >>> 0);
+  });
+});
+
+/**
+ * Plan 020: the hall is built through the same sliced generator, and the product's first press and every return from a run go through it, so what the boot
+ * and a restart raise must be what the synchronous hook builds - the room, its dressing, its racks on their slots, its altar and its way down. Its own page: the
+ * pooled one was booted past the hall (`?hall=skip`), and `dungeonTest.reset` returns a page to the mode it booted in.
+ */
+test.describe('the hall', () => {
+  test.use({ hall: true, isolate: false });
+
+  test('the hall built through the sliced path is identical to the synchronous one, racks, altar and way down included', async ({ game, page }) => {
+    await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'spear', 'maul'], arm: 'tideblade' });
+    const capture = () =>
+      page.evaluate(() => {
+        const snapshot = JSON.parse((window as GameWindow).render_game_to_text!()) as Record<string, unknown>;
+        const { floor, graphics, enemies, features, stair, racks, remaining, hall, hallProps } = snapshot;
+        return { floor, graphics, enemies, features, stair, racks, remaining, hall, hallProps };
+      });
+    // The sliced path: `reset` rebuilds the mode the page booted in through `restart`, which in this mode is the hall.
+    await page.evaluate(() => (window as GameWindow).dungeonTest!.reset());
+    await game.built();
+    const sliced = await capture();
+    expect(sliced.hall, 'the reset did not rebuild the hall').toBe(true);
+    expect((sliced.racks as unknown[]).length, 'the fixture needs racks in the hall for the comparison to cover them').toBe(2);
+    // The synchronous reference.
+    await page.evaluate(() => (window as GameWindow).dungeonTest!.buildHall());
+    const unsliced = await capture();
+    expect(sliced, 'the hall the staged build raised is not the hall the synchronous hook builds').toEqual(unsliced);
   });
 });
 

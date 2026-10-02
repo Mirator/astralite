@@ -14,7 +14,8 @@ import { CAPTURING, canStand, expect, Game, openSpot, roomCentre, SCREEN_DIRECTI
 const FACINGS = [['ArrowDown'], ['ArrowDown', 'ArrowLeft'], ['ArrowLeft'], ['ArrowUp', 'ArrowLeft'], ['ArrowUp'], ['ArrowUp', 'ArrowRight'], ['ArrowRight'], ['ArrowDown', 'ArrowRight']];
 
 test('actorStats reads the knight, every living enemy and the racks off the live scene', async ({ game }) => {
-  // Plan 019 Stage C: the floor-one rack is gone; the Tide Gate holds one rack for each owned arm but the one in hand.
+  // Plan 019 Stage C: the floor-one rack is gone; the armoury holds one rack for each owned arm but the one in hand, and since plan 020 it stands
+  // in the Tide Altar's hall, which has no bodies: floor one is read for its enemies, then the page is rebuilt as the hall (by hook) for its racks.
   await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'maul', 'spear'], arm: 'tideblade' });
   await game.enter();
   const state = await game.state();
@@ -27,10 +28,16 @@ test('actorStats reads the knight, every living enemy and the racks off the live
   expect(stats.knight.height).toBeLessThan(2.3);
   expect(stats.enemies.map((enemy) => enemy.kind)).toEqual(state.enemies.map((enemy) => enemy.kind));
   for (const enemy of stats.enemies) expect(enemy.meshes, `a ${enemy.kind} reports no meshes`).toBeGreaterThan(0);
-  expect(state.racks.map((rack) => rack.kind), 'the gate shows the two arms owned besides the sword in hand').toEqual(['spear', 'maul']);
-  expect(stats.racks.map((rack) => rack.kind)).toEqual(state.racks.map((rack) => rack.kind));
+  expect(state.enemies.length, 'precondition: floor one has bodies, so the comparison above covered some').toBeGreaterThan(0);
+  expect(state.racks, 'floor one\'s gate laid a rack').toEqual([]);
+  await game.buildHall();
+  const hall = await game.state();
+  const hallStats = await game.actorStats();
+  expect(hall.racks.map((rack) => rack.kind), 'the hall shows the two arms owned besides the sword in hand').toEqual(['spear', 'maul']);
+  expect(hallStats.racks.map((rack) => rack.kind)).toEqual(hall.racks.map((rack) => rack.kind));
+  expect(hallStats.enemies, 'someone stands in the hall').toEqual([]);
   // Plan 009: the arm, its plinth and collar, the glow and the ring - baked, a rack is at most eight.
-  for (const rack of stats.racks) expect(rack.meshes, `the ${rack.kind} rack is drawn as more than eight meshes`).toBeLessThanOrEqual(8);
+  for (const rack of hallStats.racks) expect(rack.meshes, `the ${rack.kind} rack is drawn as more than eight meshes`).toBeLessThanOrEqual(8);
 });
 
 test('swapping arms and back to the Tideblade leaks no geometry, and every arm taken up casts a shadow', async ({ game }) => {
@@ -59,20 +66,22 @@ test('tearing a floor down leaves the knight his own materials', async ({ game }
   // The rack is built from the knight's palette, so a teardown that disposes everything on the floor
   // releases the steel, iron and brass he is still wearing. three.js recompiles a disposed material on
   // its next draw, which hides the fault from the eye and turns every descent into a shader stall.
-  // Plan 019 Stage C: racks stand on floor one only (the Tide Gate's armoury), so the teardown that matters is the gate's.
+  // Plan 019 Stage C: racks stand in one place only (the armoury; plan 020 moved it from floor one's Tide Gate to the Tide Altar's hall, which the page
+  // is rebuilt as by hook), so the teardown that matters is the hall's.
   await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'maul'], arm: 'tideblade' });
   await game.enter();
+  await game.buildHall();
   await game.step(0, true);
   const before = await game.actorStats();
   expect(before.racks.map((rack) => rack.kind), 'the fixture needs a rack on the floor being torn down').toEqual(['maul']);
-  // Torn down as the gate laid it, then the gate rebuilt holding the maul so the rack is the Tideblade, then a deeper floor.
+  // Torn down as the hall laid it, then the hall rebuilt holding the maul so the rack is the Tideblade, then a deeper floor.
   await game.buildFloor(2);
   await game.step(0, true);
-  expect((await game.actorStats()).racks, 'a campaign floor below the gate laid a rack').toEqual([]);
+  expect((await game.actorStats()).racks, 'a campaign floor below the hall laid a rack').toEqual([]);
   await game.equip('maul');
-  await game.buildFloor(1);
+  await game.buildHall();
   await game.step(0, true);
-  expect((await game.actorStats()).racks.map((rack) => rack.kind), 'the rebuilt gate did not lay the arm just set down').toEqual(['tideblade']);
+  expect((await game.actorStats()).racks.map((rack) => rack.kind), 'the rebuilt hall did not lay the arm just set down').toEqual(['tideblade']);
   await game.buildFloor(3);
   await game.step(0, true);
   const after = await game.actorStats();
