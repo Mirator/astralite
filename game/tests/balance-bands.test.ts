@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compareBands, describeViolation, summarise, type Band } from '../scripts/balance/bands.ts';
+import { buildPolicy, compareBands, describeViolation, summarise, type Band } from '../scripts/balance/bands.ts';
+import { runStart } from '../app/dungeon-meta.ts';
 import type { FloorReport, RunReport } from '../scripts/balance/sim.ts';
 
 // The gate is only as honest as its comparison: a band that silently passes a metric nobody measured is
@@ -34,4 +35,16 @@ test('a floor nobody reached leaves its metrics out of the summary', () => {
   assert.equal(summary['floor2.deathRate'], 100);
   assert.ok(!('floor2.medianHpLeft' in summary), 'no floor two was cleared, so there is no HP to report');
   assert.ok(!('floor3.deathRate' in summary), 'no run reached floor three');
+});
+
+test('a policy that says meta "max" starts every run on everything bought, and one that does not starts on nothing', () => {
+  const plain = buildPolicy({ dodge: 0, reaction: 0.6 });
+  assert.equal(plain.meta, undefined, 'a policy that never named a meta was dealt one');
+  const maxed = buildPolicy({ dodge: 0, reaction: 0.6, meta: 'max' });
+  assert.ok(maxed.meta, 'the meta flag never reached the policy');
+  assert.deepEqual(runStart(maxed.meta), { maxHp: 130, strike: 8, draftSize: 4, defiance: 1, arm: 'tideblade' });
+  // The flag adds a meta and nothing else: the knight is as weak as the plain one, and holds the arm the policy names.
+  assert.deepEqual({ ...maxed, meta: undefined }, { ...plain, meta: undefined });
+  assert.equal(buildPolicy({ special: true, weapon: 'maul', meta: 'max' }).weapon.id, 'maul');
+  assert.throws(() => buildPolicy({ meta: 'most' as 'max' }), /unknown meta "most"/);
 });

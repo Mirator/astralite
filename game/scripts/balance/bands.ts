@@ -2,8 +2,23 @@
 // numbers held against the checked-in bands in bands.json. Nothing here runs the sim, so the node suite
 // can prove the comparison without paying a minute of simulated descents for it; check.ts is the part
 // that does the running.
-import type { RunReport } from './sim.ts';
-import { FLOORS } from './sim.ts';
+import type { RunReport, Policy } from './sim.ts';
+import { DEFAULT_POLICY, FLOORS } from './sim.ts';
+import { maxedMeta } from '../../app/dungeon-meta.ts';
+import { weaponById } from '../../app/dungeon-weapon.ts';
+
+/**
+ * How bands.json spells a policy: the sim's own knobs, an arm by name, and (plan 019) `meta: "max"` for a knight
+ * who has bought everything. The flag is resolved here, through dungeon-meta.ts, so the file never carries a
+ * hand-written meta that could fall behind the upgrade table.
+ */
+export type PolicySpec = { dodge?: number; reaction?: number; special?: boolean; weapon?: string; meta?: 'max' };
+
+export function buildPolicy(spec: PolicySpec): Policy {
+  const { weapon, meta, ...rest } = spec;
+  if (meta !== undefined && meta !== 'max') throw new Error(`unknown meta "${String(meta)}" in a balance policy (only "max" exists)`);
+  return { ...DEFAULT_POLICY, ...rest, ...(weapon ? { weapon: weaponById(weapon) } : {}), ...(meta ? { meta: maxedMeta() } : {}) };
+}
 
 /** Inclusive on both ends. */
 export type Band = { min: number; max: number };

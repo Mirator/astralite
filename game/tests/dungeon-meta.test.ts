@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { ARM_ORDER, ARM_PRICES, bank, buyArm, buyUpgrade, chooseArm, FLOORS, freshMeta, pearlsFor, PEARL_CAP, rankOf, runStart, UPGRADES, type Meta } from '../app/dungeon-meta.ts';
+import { ARM_ORDER, ARM_PRICES, bank, buyArm, buyUpgrade, chooseArm, FLOORS, freshMeta, maxedMeta, pearlsFor, PEARL_CAP, rankOf, runStart, UPGRADES, type Meta } from '../app/dungeon-meta.ts';
 import { FLOORS as SIM_FLOORS } from '../scripts/balance/sim.ts';
 import { STRIKE_BONUS } from '../app/dungeon-sim.ts';
 import { FOUND_WEAPONS } from '../app/dungeon-weapon.ts';
@@ -118,4 +118,19 @@ test('a run starts with exactly what the ranks held add up to', () => {
   assert.equal(runStart(rich({ arm: 'maul' })).arm, 'tideblade');
   assert.equal(rankOf({ lungs: 2 }, 'lungs'), 2);
   assert.equal(rankOf({}, 'tide'), 0);
+});
+
+test('the maxed meta has bought everything there is: nothing is left to buy and the run starts at the top of every rank', () => {
+  const all = maxedMeta();
+  // Observed from the table's side: every upgrade refuses another rank and every arm refuses a second purchase,
+  // so an upgrade or an arm the maxed meta forgot would be bought here and fail.
+  const rich = { ...all, pearls: PEARL_CAP };
+  for (const { id } of UPGRADES) assert.equal(buyUpgrade(rich, id), null, `${id} still had a rank to buy`);
+  for (const arm of FOUND_WEAPONS) assert.equal(buyArm(rich, arm), null, `${arm} was not owned`);
+  assert.equal(all.arms.length, 1 + FOUND_WEAPONS.length, 'precondition: the Tideblade and every other arm');
+  assert.deepEqual(runStart(all), { maxHp: 130, strike: 2 * STRIKE_BONUS, draftSize: 4, defiance: 1, arm: 'tideblade' });
+  assert.equal(all.pearls, 0, 'a maxed knight carries no pearls');
+  // Two calls share nothing.
+  maxedMeta().arms.pop();
+  assert.equal(maxedMeta().arms.length, all.arms.length);
 });

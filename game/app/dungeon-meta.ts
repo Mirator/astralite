@@ -31,8 +31,12 @@ export type Upgrade = {
 /** Vitality one rank of Deep Lungs adds. */
 export const LUNGS_HP = 10;
 
-// PRICES ARE PLACEHOLDERS (plan 019, Stage A). Stage D sets them from measured earnings against D6's target
-// of about twenty human runs, and writes the sum and the earning assumption beside this table.
+// PRICES ARE STILL PLACEHOLDERS (plan 019). Stage D was to set them from measured earnings against D6's target of
+// about twenty human runs and write the sum and the earning assumption beside this table; it stopped first. The
+// plan's stop rule tripped (2026-10-02): the weak bot with everything bought escapes 300 of 300 runs, so the
+// upgrades take away the little tension that bot still has, and that is a finding for the operator, not a
+// price to tune around. These numbers total 1820 pearls (upgrades 920, arms 900), about 40 runs at the Stage 0
+// guess of 45 pearls a run, twice D6's target, and no test pins them. Do not read them as decided.
 export const UPGRADES: readonly Upgrade[] = [
   { id: 'lungs', name: 'Deep Lungs', detail: `+${LUNGS_HP} max vitality`, ranks: 3, price: held => 60 + held * 40 },
   { id: 'whet', name: 'Whetted Start', detail: 'Begin with one more blade’s worth of bite on every strike', ranks: 2, price: held => 80 + held * 60 },
@@ -56,6 +60,14 @@ export const rankOf = (upgrades: Meta['upgrades'], id: UpgradeId) => {
 };
 
 export const freshMeta = (): Meta => ({ pearls: 0, upgrades: {}, arms: [STARTING_WEAPON], arm: STARTING_WEAPON });
+
+/**
+ * Everything bought: every upgrade at its top rank and every arm owned, still holding the Tideblade, with no
+ * pearls left. Read off `UPGRADES` and `ARM_ORDER`, so a fifth upgrade or a rank added later is bought here
+ * too. The balance bands' `meta-max` policies name this rather than carrying a blob that could go stale.
+ */
+export const maxedMeta = (): Meta =>
+  ({ pearls: 0, upgrades: Object.fromEntries(UPGRADES.map(upgrade => [upgrade.id, upgrade.ranks])), arms: [...ARM_ORDER], arm: STARTING_WEAPON });
 
 /**
  * What a finished run pays (D3): a pearl a kill, 15 a floor behind him, 25 for getting out. A death on

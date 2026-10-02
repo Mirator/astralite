@@ -2,22 +2,23 @@
 //
 //   npm run balance:check
 //
-// Seven policies, the same seeds main.ts walks. `special` (plan 016) is the default knight firing the
+// Nine policies, the same seeds main.ts walks. `special` (plan 016) is the default knight firing the
 // Tideblade's lunge whenever it is worth it, and `special-<arm>` the same knight holding one of the four
-// Stage C arms and firing its special; `default` and `weak` never touch a special. The bands are loose on purpose: they catch a change that
-// moved the keep a long way by accident, not a retune, and they are bot numbers rather than a claim about
+// Stage C arms and firing its special; `default` and `weak` never touch a special.
+// `meta-max` and `weak-meta-max` (plan 019) are the default and the weak knight with every upgrade bought
+// (`"meta": "max"`), so the shop can be seen to make the game easier, and by how much. The bands are loose on
+// purpose: they catch a change that moved the keep a long way by accident, not a retune, and they are bot numbers rather than a claim about
 // how a human plays. A deliberate balance change is expected to fail this and to update bands.json - the
 // `measured` block as well as the bands - in the same pull request, so the new numbers are reviewed with
 // the change that caused them.
 import { readFileSync } from 'node:fs';
-import { compareBands, describeViolation, summarise, type Band, type Violation } from './bands.ts';
-import { DEFAULT_POLICY, simulateRun, type Policy } from './sim.ts';
-import { weaponById } from '../../app/dungeon-weapon.ts';
+import { buildPolicy, compareBands, describeViolation, summarise, type Band, type PolicySpec, type Violation } from './bands.ts';
+import { simulateRun } from './sim.ts';
 
 type Expected = {
   runs: number;
   firstSeed: number;
-  policies: Record<string, { policy: { dodge?: number; reaction?: number; special?: boolean; weapon?: string }; measured: Record<string, number>; bands: Record<string, Band> }>;
+  policies: Record<string, { policy: PolicySpec; measured: Record<string, number>; bands: Record<string, Band> }>;
 };
 
 const expected = JSON.parse(readFileSync(new URL('./bands.json', import.meta.url), 'utf8')) as Expected;
@@ -27,8 +28,7 @@ const violations: Violation[] = [];
 console.log(`\n  ${expected.runs} runs a policy from seed ${expected.firstSeed}\n`);
 console.log('  policy    metric                 measured   band');
 for (const [name, entry] of Object.entries(expected.policies)) {
-  const { weapon, ...rest } = entry.policy;
-  const policy: Policy = { ...DEFAULT_POLICY, ...rest, ...(weapon ? { weapon: weaponById(weapon) } : {}) };
+  const policy = buildPolicy(entry.policy);
   const reports = Array.from({ length: expected.runs }, (_, i) => simulateRun(expected.firstSeed + i * 7919, policy));
   const summary = summarise(reports);
   const found = compareBands(name, summary, entry.bands);
