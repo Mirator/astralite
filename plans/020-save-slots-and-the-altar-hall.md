@@ -405,3 +405,19 @@ Full detail, with every plant and its failure message, is in `game/progress.md` 
   keys" but copies the four per-player cells (settings never moved).
 - **Gates**: typecheck, lint, `npm test` 391/391, `balance:check` 72 of 72 values equal to `bands.json`'s `measured` and inside their bands (462 s),
   PR-gate browser run 136 of 136 (20.2 min, SwiftShader).
+
+### Stage B (2026-10-02)
+
+Full detail, with every plant and its failure message, is in `game/progress.md` ("Plan 020 Stage B").
+
+- **Picker**: ENTER THE KEEP opens a page of the title card (`menuView === 'slots'`): three cards (`SLOT n`, `LAST PLAYED`, pearls, deepest floor, runs logged, arms, or `Empty`), each with an Erase beside it
+  when the slot holds anything; Erase arms on the first press (`PRESS AGAIN TO ERASE`, the line under the cards says so) and erases on the second; one card is armed at a time and leaving the picker disarms.
+  Choosing a card is `slot:<n>` then `start`. `SLOT` is gone; the closure's `activeSlot` (initially `readSlot() ?? 1`, persisted with `writeSlot`) is on every read and write, and the snapshot reports `slot`.
+  `migrateStored()` runs once at mount. Copy run log exports the slot last played and says `Copied 3 runs from slot 2`. The title's Tide Altar panel is removed (`dungeon-altar-panel.tsx` kept for Stage C).
+- **Restaged**: `Game.enter(slot = 1)` chooses the slot on the picker (138 callers unchanged); seven direct ENTER clicks (the exposure list said 11; four were the pause menu's RESUME); the `a11y` title list and
+  page; three `meta.spec` scenarios now stage purchases with `setMeta` and the pure rules (the Altar's UI scenarios return with the hall); `run-export.spec` reads slot 2.
+- **Plants** (each against its own test): migrate into slot 2 -> "slot 1's card does not show the legacy save's pearls, floor, runs and arms"; `enter` reads `readMeta(1)` -> "slot 2's run was not dealt from slot 2 ...";
+  Erase on the first press -> "the first press did not arm Erase"; Erase not tabbable -> "Tab did not walk every card and its Erase, in order"; a 420 px card -> "at rest: something in the card overflows it sideways".
+  Two plants survived once (a redundant disarm handler, since deleted; a CSS rule overridden by its own later declaration, redone).
+- **Gates**: typecheck, lint, `npm test` 391/391, `build` and `build:check`; `balance:check` 72 of 72 equal to `bands.json` (467 s); local `slots.spec.ts` 4/4 pooled and 4/4 isolated, restaged specs 26/26;
+  the full PR-gate browser run is CI on draft PR #86 at f24e1d6 (green on all three shards; 140 scenarios), not a local run.

@@ -4144,3 +4144,92 @@ that the slot-1 keys and the three moved specs hold). Run once, on the code comm
 **Not done / not verified.** Stage B onward. The hall has not been seen on screen. The boot-cost stop rule is a model on SwiftShader
 counts, not a GPU measurement. `tests/README.md` still describes the five legacy keys (Stage F). No browser scenario covers the
 slot keys beyond the three specs that moved to them: the picker is Stage B.
+
+## 2026-10-02 - Plan 020 Stage B: the slot picker on the title
+
+Stage B of `plans/020-save-slots-and-the-altar-hall.md`. The game still enters floor 1 directly after a slot is chosen; the hall is Stage C.
+
+### What changed
+
+- `app/dungeon-game.tsx`: `const SLOT` is gone. The world closure holds `activeSlot` (initially `readSlot() ?? 1`), and every read and write of progress passes it; the
+  React side mirrors it as `slotOn` (the best-run write, `copyRuns`, the picker). `migrateStored()` runs once at mount, before `restoreSave()`. Two new commands, `slot:<n>`
+  (sets `activeSlot`, `writeSlot`, `setSlotOn`, `restoreSave`) and `erase:<n>` (`eraseSlot`, and `restoreSave` when it was the active slot), both ignored while a run is live or a
+  build is pending. `enter()` records the keep it enters under the chosen slot (`writeSeed`), because a test boot builds floor 1 before any slot is chosen. `dungeonTest.reset`
+  restores `activeSlot` from storage, calls `restoreSave()` and sets the menu back to `main`. `dungeonTest.runLog/meta/setMeta` take an optional slot. The snapshot gains `slot`,
+  read from the closure. The title: ENTER THE KEEP opens the picker (`menuView === 'slots'`); the Tide Altar button, its `altar` view, `buy` and the pearl-balance line are gone;
+  the best-run and run-log lines are prefixed `Slot N ·`; Copy run log says `Copied 3 runs from slot 2`.
+- `app/dungeon-slot-picker.tsx` (new): the picker's page. `app/globals.css`: its rules; the dead `.pearl-balance` rule removed, the `.altar-*` rules kept for Stage C.
+- `app/dungeon-input.ts`: `slot:<n>` and `erase:<n>` parse (1, 2 or 3 and nothing else). `app/dungeon-test-hooks.ts`: the hook types.
+- `app/dungeon-altar-panel.tsx` is kept, with a header note; nothing mounts it until Stage C.
+- Tests: `tests/browser/slots.spec.ts` (new, four scenarios), `helpers.ts`, the restaged specs below, `tests/dungeon-input.test.ts` (inside the existing parse test), `tests/README.md`.
+
+**The UI.** Title: ENTER THE KEEP, Controls & journey, Settings (and Last keep when a seed is remembered), as before minus Tide Altar. ENTER THE KEEP replaces the list with a page of
+the same card: `← BACK`, the heading "Choose a slot", one line ("Each slot keeps its own pearls, arms and run log. Settings are shared."), then three cards. Each card is a wide button:
+`SLOT 1` (and `LAST PLAYED` in gold when it is the slot last played and not empty) over `137 pearls · deepest floor 2 · 2 runs logged · 2 arms`, or `Empty` in italics; beside it, for a
+slot that holds anything, an `ERASE` button. Erase armed: the button reads `PRESS AGAIN TO ERASE` with a red border, the card's border reddens and the line under the cards says
+`Slot 2 will be erased for good. Press Erase again to confirm.`; after the second press the card says `Empty`, the line says `Slot 2 erased.` and focus moves to the card. Back returns focus to
+ENTER THE KEEP. At 360 x 740 the three cards fit under the title with no scrolling of the card and no sideways scroll (looked at once in a SwiftShader screenshot, and held by the phone scenario).
+
+**Decisions and interpretations.**
+- The picker is a sub-view of the title card (`menuView`), not a screen of its own: it gets Back, focus return and the dialog for free. The plan's risk (the card resets `menuView` when
+  `menuOpen` flips) is the right behaviour here, since choosing a card starts a run and closes the card. What it does not cover is a card that never closes: a scenario ending with the
+  picker open. `reset` therefore sets the view back to `main` (plant C3).
+- Choosing a card is two dispatches, `slot:<n>` then `start`, so the slot is set before anything is dealt or built. `start` with no `slot:` before it (Last keep, the console) plays the active slot.
+- "Empty" is Stage A's: none of the four cells exists. A slot entered once has its seed written by the first build and is no longer Empty (it reads `0 pearls · no floor reached · 0 runs logged · 1 arm`).
+  Under the harness slot 1 is never Empty, since the eager boot writes its seed before any test looks; scenarios that need an empty slot use slot 3, and Erase on slot 1 is real.
+- An empty slot has no Erase (nothing to erase), so "every card and its Erase" is five tab stops with slot 3 empty.
+- One card is armed at a time (state is "which slot", not "armed"). I first also wrote a capture-phase "any other press disarms" and the planted no-op of it survived; it was redundant with the single
+  state, so it is deleted. Leaving the picker disarms through `openView`.
+- D2 is "once at mount, only into an empty slot 1", which is `migrateStored`; it runs before the eager boot writes a slot-1 seed, so a legacy seed is not overwritten before it is read.
+- The title keeps the best-run and run-log lines, for the slot last played and named, rather than dropping them: `run-export.spec.ts` reads the log line and Copy run log needs the slot named beside it.
+- Dead CSS on purpose: `.altar-*` and the `:has(.altar-view)` rules wait for the hall's overlay.
+
+### Restaged scenarios
+
+- `Game.enter(slot = 1)`: clicks ENTER THE KEEP, waits for the picker, clicks that slot's card, waits for the card to go. The 138 callers are unchanged. New exports `openSlots`, `chooseSlot`,
+  `enterKeep`, for specs that drive a page without a `Game`.
+- Direct ENTER clicks, now `enterKeep(page)`: `frame-clock.spec.ts` (two), `robustness.spec.ts` (one), `loading.spec.ts` (three: the held-rAF press, the reset during the boot, the loading bar), `frame-budget.spec.ts`
+  (one, isolated). In the held-rAF scenario ENTER now opens the picker, so it also asserts that opening it raises no veil and builds nothing, and the card is the press that does.
+- The Stage 0 list counted `footsteps.spec.ts:448` and `gameplay.spec.ts:214` and `:235` as direct ENTER clicks; they are the pause menu's RESUME (also `.primary-action`), so they are unchanged.
+  Real direct ENTER clicks: 7, not 11. `loading.spec.ts` LAST KEEP and the prerendered-HTML check are unchanged and pass.
+- `a11y.spec.ts`: the title list is ENTER THE KEEP, Controls & journey, Settings; the Altar page and its focus-return step became the picker's (heading "Choose a slot", Back focused, three
+  cards, Back returns focus to ENTER THE KEEP). The pause list is unchanged mid-run.
+- `meta.spec.ts`: the three scenarios that bought through the title panel buy through the pure rules (`buyUpgrade`, `buyArm`) and `dungeonTest.setMeta`, with a comment that the purchase UI moves
+  to the hall in Stage C. They keep their assertions about the run being dealt from the save (`run.start`, the vitality bar, the strike, the arm in hand, the arm not equipped by an unlock),
+  and the title's pearl-balance line became the slot card's text. **Lost until Stage C:** the Altar's Tab order, its notes, the refused-purchase note and the 360 x 740 layout of its rows; the
+  phone scenario keeps its Keen Eye half and is renamed.
+- `run-export.spec.ts`: the three runs sit in slot 2 and the device remembers slot 2; slot 1 holds one other run. The note must say `Copied 3 runs from slot 2` and the clipboard must hold slot 2's log.
+- `arena.spec.ts` (reads slot-1 keys since Stage A) and `loading.spec.ts` LAST KEEP pass unchanged.
+
+### The four scenarios, each planted for real
+
+Each plant was one edit to one file, run against its own test only (`-g`), watched failing on its own message, and reverted (`git checkout` of that file; `git status` clean after each).
+`slots.spec.ts` (1) a save from before slots, (2) slots are separate, (3) Erase, (4) on a phone.
+- (1) `migrateLegacy` writes slot 2's keys instead of slot 1's -> "slot 1's card does not show the legacy save's pearls, floor, runs and arms" (expected `137 pearls · deepest floor 2 · 2 runs logged · 2 arms`, received `0 pearls · no floor reached · 0 runs logged · 1 arm`).
+- (2) `enter()` reads `readMeta(1)` -> "slot 2's run was not dealt from slot 2 (the maul, Second Tide, Whetted Start)" (the run came out as the Tideblade with no revive). This is the plan's plant, and it only fails because the
+  scenario reaches slot 2 after a reset has built the keep under slot 1; choosing slot 1 first would have passed it.
+  `slot` command ignored (the slot is not set) and the snapshot's `slot` pinned to 1 -> both "choosing slot 2 did not make it the active slot, as the snapshot reads it" (2 expected, 1 received); they are one observation and
+  the test cannot tell them apart. `enter()` not recording the keep under its slot -> "the keep was not recorded under slot 2".
+  `reset` not restoring the slot -> the leak guard, "this scenario left state behind that a reset did not clear ..." with `"slot": 2` against `"slot": 1`.
+- (3) Erase confirms on the first press (the early `return` removed) -> "the first press did not arm Erase". Armed kept as a boolean (any second press confirms whichever card it is on) -> "one card is armed at a time" (1 expected, 0
+  received: the press on slot 1 erased it). `reset` not closing the picker -> "the reset left the picker open". Opening the picker not clearing an armed Erase -> "leaving the picker and coming back did not disarm Erase".
+  Survived: a capture-phase "disarm on any press" made a no-op; it was redundant and is deleted.
+- (4) Erase buttons `tabIndex={-1}` -> "Tab did not walk every card and its Erase, in order". `.slot-choose` `min-width: 420px` -> "at rest: something in the card overflows it sideways" (<= 304 expected, 420 received).
+  Survived once: my first CSS plant added a `min-width` that the rule's own later `min-width: 0` overrode, a no-op; the plant was redone on the existing declaration.
+- Not in the plan, added: Copy run log reads slot 1 -> `run-export.spec.ts`, "Copy run log did not say how many runs of which slot it copied" (`Copied 1 run from slot 2` against `Copied 3 runs from slot 2`). The node
+  parse test for `slot:`/`erase:` (inside "every dungeon-action detail parses ..."): `slot:4` accepted -> "slot:4 is not a slot".
+
+### Gates
+
+- typecheck clean; lint clean; `npm test` 391 of 391 (the parse assertions are inside an existing test, so the count did not move).
+- `npm run build` and `npm run build:check` ("11 development-only hooks, none shipped").
+- `balance:check`: run before the operator dropped it from this stage; 467.4 s, every metric inside its band, all 72 printed values equal to `bands.json`'s `measured` (compared by script). Stage B changes no rule, sim or generator.
+- Browser, local, restaged and new specs only, SwiftShader, one worker: `slots.spec.ts` 4 of 4 pooled and 4 of 4 under `GAME_TEST_ISOLATE=1`; a11y, meta, run-export, loading, frame-clock, robustness and arena
+  26 of 26. `frame-budget.spec.ts` (isolated, restaged) and `gameplay.spec.ts`'s pause scenario (RESUME) ran inside the full-suite attempt below and passed.
+- The full PR-gate browser run was started locally (1 worker) and stopped by instruction at 119 passed, 0 failed, when CI on draft PR #86 turned green at f24e1d6 on all three shards. **That CI run is Stage B's full gate**;
+  the suite is 140 scenarios now (136 and the four of `slots.spec.ts`).
+
+### Not done / not verified
+
+- Nothing of the hall. The Altar's purchase UI has no browser scenario until Stage C. The picker has been seen once on SwiftShader at 360 x 740 and not on a GPU. `tests/README.md` still describes the legacy key names in
+  its Persistence section (Stage F). The boot-cost numbers of Stage 0 are unchanged (ENTER now costs a click before the press; nothing builds on it).
