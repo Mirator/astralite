@@ -369,15 +369,13 @@ test.describe('the hall', () => {
 });
 
 /**
- * LAST KEEP is a menu item that enters the floor 1 a previous visit left, not a button that raises a
- * fresh floor 1 first and only then rebuilds with the remembered seed. The stored seed is read on mount,
- * before floor 1 overwrites it.
+ * Plan 020, operator 2026-10-02: there is no LAST KEEP. Like SAME KEEP on the death card (D9), it was an instant
+ * retry that skipped the hall, and as in Hades every attempt now leaves from the hall. A slot still remembers its last
+ * seed (the run log replays it with `restart:<seed>`, and `start:<seed>` stays a command), so the precondition here is
+ * that a seed really is stored: an empty slot would show no such button anyway, and the absence would prove nothing.
  *
- * This drives the plain URL directly rather than through the `game` fixture: `Game.open` passes
- * `boot=eager` on every `goto` so the rest of the suite gets a floor already built, and eager-booting
- * here would build a first floor from the pinned queue before LAST KEEP ever got to press anything -
- * exactly the spare build this test exists to rule out. `pinSeeds` is the same interception `Game.open`
- * installs, called directly for the same reason.
+ * This drives the plain URL rather than the `game` fixture, which passes `boot=eager` and `hall=skip`; the title
+ * under test is the one a player sees, and pressing ENTER from it must land in the hall, not in the remembered keep.
  */
 test.describe('with a keep remembered from a previous visit', () => {
   const remembered = 0x2468ace;
@@ -393,24 +391,20 @@ test.describe('with a keep remembered from a previous visit', () => {
     },
   });
 
-  test('LAST KEEP enters that keep in one press, with no build before it', async ({ page }) => {
+  test('the title offers no LAST KEEP, and ENTER leads through the slots to the hall', async ({ page }) => {
     await pinSeeds(page, DEFAULT_SEEDS);
     await page.goto('/');
-    const lastKeep = page.getByRole('button', { name: 'Last keep' });
-    await expect(lastKeep).toBeEnabled();
-    await lastKeep.click();
+    const stored = await page.evaluate(() => localStorage.getItem('drowned-keep:1:seed'));
+    expect(stored, 'precondition: slot 1 remembers a keep, or a missing LAST KEEP proves nothing').toBe(String(remembered));
+    await expect(page.locator('.intro-screen .primary-action')).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Last keep' }), 'the title still offers LAST KEEP, a retry that skips the hall').toHaveCount(0);
+    await enterKeep(page, 1);
     await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
     const state = await page.evaluate(
-      () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string; floor: { seed: number } },
+      () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string; hall: boolean; floor: { seed: number } },
     );
-    expect(state.mode).toBe('playing');
-    expect(state.floor.seed).toBe(remembered);
-    // The lazy path takes `bootSeed` (the remembered seed) directly, so `generateFloor` never draws from
-    // the pinned queue at all - not for a spare first build, and not for the remembered one either.
-    const index = await page.evaluate(
-      () => (window as unknown as { __pinnedSeeds: { index: number } }).__pinnedSeeds.index,
-    );
-    expect(index, 'a build drew from the pinned seed queue before LAST KEEP\'s own').toBe(0);
+    expect(state.hall, 'ENTER did not lead to the hall').toBe(true);
+    expect(state.floor.seed, 'ENTER entered the remembered keep instead of the hall').not.toBe(remembered);
   });
 });
 

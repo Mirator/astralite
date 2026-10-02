@@ -167,7 +167,7 @@ outranks `move:`, and only for as long as it is live — releasing it hands stee
 `start` is the press that enters the keep (plan 020: ENTER THE KEEP on the title only opens the slot picker; a slot's card sends `slot:<n>` and then `start`, and `Game.enter(slot = 1)` in
 `tests/browser/helpers.ts` does both with real clicks, so the 138 callers did not change). `slot:<n>` makes slot n the one every read and write of progress speaks for and remembers it as the
 slot last played; `erase:<n>` empties one. Neither is answered while a run is live or a build is pending. `render_game_to_text().slot` is the active slot, read off the game's closure. Pressed before
-floor 1 exists, `start` is held behind the loading bar and answered the frame the keep is drawn. `start:<seed>` is the menu's LAST KEEP, entering the floor 1 a previous
+floor 1 exists, `start` is held behind the loading bar and answered the frame the keep is drawn. `start:<seed>` (no menu item sends it since plan 020 removed LAST KEEP) enters the floor 1 a previous
 visit left.
 
 `restart` resets the whole run in place — health, rank, boons, XP, kills, input — and rebuilds floor 1
@@ -242,7 +242,7 @@ start, since no warden bars it, and taking it brings the same roster a floor dee
 The menu page's **Ordinary keep**, or `dungeonTest.reset`, leaves it. `render_game_to_text().arena` reports
 `{ roster, level }` or null, which is also how the pooled suite notices a scenario that forgot to leave it.
 A link that names an unknown kind or a bad count is ignored whole rather than half-obeyed. An arena run is never
-recorded: no run log entry, no best run, and its seed does not become LAST KEEP.
+recorded: no run log entry, no best run, and its seed does not become the slot's stored seed.
 
 Two kinds exist only here - `reaper` and `rattler` - with `firstFloor: Infinity` and no share in `PACK_MIX`,
 so the floor generator never deals them standing. The other three arena kinds were promoted into the descent by

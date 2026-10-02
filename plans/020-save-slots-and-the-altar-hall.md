@@ -439,3 +439,5 @@ Full detail, with every plant and its failure message, is in `game/progress.md` 
 - **F, documents.** `GAME_OVERVIEW.md`, `README.md` (also the stale corridors and bridges), `game/tests/README.md`, `plans/README.md`, `game/progress.md`.
 - **Gates.** typecheck, lint, `npm test` 392/392, `build` and `build:check`; local browser specs as listed in progress.md (hall and death also under `GAME_TEST_ISOLATE=1`, and 18/18 over `--repeat-each=2`);
   `balance:check` not run (no rule, sim or generator change). The full PR gate is CI's on #86. Stage G is open.
+
+**After Stage F (operator, 2026-10-02):** the title's LAST KEEP button is removed as well, for the same reason as D9: it skipped the hall. `start:<seed>` survives as a command. See `game/progress.md`.

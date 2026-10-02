@@ -37,7 +37,7 @@ import { createSparks } from './dungeon-sparks';
 import { nearestFirst } from './dungeon-nearest';
 import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
-import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, migrateStored, readBest, readMeta, readRuns, readSeed, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
+import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, migrateStored, readBest, readMeta, readRuns, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
 import { bank, buyArm, buyUpgrade, chooseArm, freshMeta, pearlsFor, runStart as metaRunStart, UPGRADES, type Meta } from './dungeon-meta';
 import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
@@ -178,7 +178,6 @@ export default function DungeonGame() {
   // like `displayFailed`: there is no run left to pause and nothing but a reload brings one back.
   const [fault, setFault] = useState(false);
   const [best, setBest] = useState<BestRun | null>(null);
-  const [priorSeed, setPriorSeed] = useState<number | null>(null);
   // Not derived from `best`: the record is one run, this is the distribution every balance argument in
   // progress.md currently rests on somebody's memory of.
   const [runLog, setRunLog] = useState<RunEnd[]>([]);
@@ -1103,7 +1102,7 @@ export default function DungeonGame() {
       phase('generate'); yield;
       // Floor 1 is the run's fingerprint: keeping its seed is what lets a lost run be taken again, and it
       // is what a logged entry carries, so the log is held here rather than read off the current floor.
-      // The hall is not a keep anyone replays: its seed is a constant, and LAST KEEP must never offer it.
+      // The hall is not a keep anyone replays: its seed is a constant, and it must never become the stored seed.
       if (level === 1 && !hall) { firstSeed = floor.seed; runStart = elapsed; if (!arena) writeSeed(activeSlot, floor.seed); }
       floorGroup = new THREE.Group(); world.add(floorGroup);
       // endSpecial first: a spear in the air is one of the shots, and dropping it without it leaves the arm out of hand.
@@ -1204,8 +1203,9 @@ export default function DungeonGame() {
       player.rotation.set(0, Math.atan2(-pc.facing.x, -pc.facing.z), 0); player.userData.sword.rotation.y = 0;
       audio.pause(false);
     }, then);
-    // Read before floor 1 overwrites the stored seed, so "Last keep" still offers the previous visit's.
-    const restoreSave = () => { setBest(readBest(activeSlot)); setPriorSeed(readSeed(activeSlot)); setRunLog(readRuns(activeSlot)); setMeta(readMeta(activeSlot)); };
+    // The stored seed is still written per slot (the run log and `start:<seed>` replay it), but the title no longer
+    // offers it: as in Hades, every attempt leaves from the hall (plan 020 D9, extended to LAST KEEP by the operator).
+    const restoreSave = () => { setBest(readBest(activeSlot)); setRunLog(readRuns(activeSlot)); setMeta(readMeta(activeSlot)); };
     // Plan 020, D2: a pre-slot save is copied into slot 1 once, before anything reads a slot, and only into a slot 1 that holds nothing. The legacy cells stay.
     migrateStored(); setSlotOn(activeSlot);
     restoreSave();
@@ -1504,7 +1504,8 @@ export default function DungeonGame() {
         case 'erase': if (hasStarted || building || enterWhenBuilt) return; eraseSlot(command.slot); if (command.slot === activeSlot) restoreSave(); return;
         // `elapsed` runs from mount, so both clocks restart here or a logged run would bill the time spent
         // reading the menu. A restart mid-run has `hasStarted` already true and gets its reset in buildFloor.
-        // `start:<seed>` enters the keep a previous visit left, which is what the menu's LAST KEEP asks for.
+        // `start:<seed>` enters a named keep directly. No menu item sends it any more (LAST KEEP is gone); it is the
+        // console's and the test hooks' way to replay a seed, as `restart:<seed>` is mid-run.
         // Pressed before floor 1 exists, the press is held behind the loading bar and answered the frame the
         // keep is on screen - and the seed, if any, becomes the one that floor is built from. The audio is
         // woken here either way, inside the gesture, because Safari will not wake it from a later frame.
@@ -2515,7 +2516,7 @@ export default function DungeonGame() {
       // actually starts, so it is also the one place a page that never enters never reaches.
       if (!raf) raf = requestAnimationFrame(animate);
       const bootLevel = arena?.level ?? 1;
-      // The hall unless the URL skips it, an arena was asked for, or the press named a keep (LAST KEEP): a seed is a floor one.
+      // The hall unless the URL skips it, an arena was asked for, or the press named a keep (`start:<seed>`): a seed is a floor one.
       wantHall = startsInHall() && bootSeed === undefined;
       void stagedBuild(bootLevel, bootSeed, (token) => driveSliced(buildFloorSteps(bootLevel, bootSeed), token), () => {
         built = true;
@@ -2661,7 +2662,6 @@ export default function DungeonGame() {
           {paused && !hallOn && <button onClick={() => action('map')}>Floor map</button>}
           {/* Plan 020 (D10): only in the hall. Mid-run the pause menu has no way out: a run ends on its card. */}
           {paused && hallOn && <button onClick={() => { action('title'); openView('slots'); }}>LEAVE TO TITLE</button>}
-          {!started && priorSeed !== null && <button disabled={!hydrated} onClick={() => action(`start:${priorSeed}`)}>Last keep</button>}
           <button data-view="controls" ref={returnFocus} className="opens" onClick={() => openView('controls')}>Controls &amp; journey<span aria-hidden="true">›</span></button>
           <button data-view="settings" ref={returnFocus} className="opens" onClick={() => openView('settings')}>Settings<span aria-hidden="true">›</span></button>
         </nav>

@@ -4362,3 +4362,17 @@ The full PR-gate browser run is CI's on draft PR #86; CI at 23231c8 (Stage C alo
 - Stage G (the operator's playtest on a real GPU, a fresh profile and a legacy save) is open; the boot-cost stop rule is still Stage 0's model, not a GPU measurement.
 - The hall has only been looked at on SwiftShader; whether it reads as a place, and whether the altar and the way down are obvious, is the operator's to judge.
 - `scripts/shards/durations.json` has no row for `slots`, `hall` or `death`; each weighs the median until a green run's logs refresh it.
+
+## 2026-10-02 - Plan 020: LAST KEEP removed from the title
+
+The operator extended D9 ("same as Hades") to the title: LAST KEEP, which entered the slot's remembered seed straight
+into floor 1, skipped the hall exactly as SAME KEEP did on the death card, and is gone. The slot still stores its last
+seed (the run log carries every run's seed, and `start:<seed>` / `restart:<seed>` remain commands and test hooks), so
+nothing about replaying a reported run is lost; only the menu item is. The unused `priorSeed` state and its `readSeed`
+import went with it.
+
+`loading.spec.ts`'s "LAST KEEP enters that keep in one press" became "the title offers no LAST KEEP, and ENTER leads
+through the slots to the hall": with a seed stored in slot 1 (asserted as the precondition) the title has no such
+button, and ENTER → slot 1 lands in the hall, not the remembered keep. Planted bug: a LAST KEEP button put back on the
+title, failing with "the title still offers LAST KEEP, a retry that skips the hall". Gates: typecheck, lint, `npm test`
+392/392; a11y, slots, arena and loading specs 20/20 (SwiftShader, 2 workers). Full suite on the PR's CI.
