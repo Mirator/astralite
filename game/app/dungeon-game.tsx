@@ -2265,8 +2265,8 @@ export default function DungeonGame() {
         setArena(null);
         hasStarted = false; setStarted(false); setCapturing(null); enterWhenBuilt = false; setEntering(false);
         // Plan 020: the slot and the picker go back to what a boot leaves - the slot last played (the harness has just cleared the store, so slot 1)
-        // and the title's main list, with no Erase armed.
-        activeSlot = readSlot() ?? 1; setSlotOn(activeSlot); restoreSave(); setMenuView('main'); setErasing(null); setSlotNote('');
+        // and the title's main list. (An armed Erase and the picker's note are cleared by opening the picker, so a closed one has nothing to leave.)
+        activeSlot = readSlot() ?? 1; setSlotOn(activeSlot); restoreSave(); setMenuView('main');
         elapsed = 0; runStart = 0; floorStart = 0; activeRoom = 0;
         // A fresh page has never seen the cursor. The veil used to clear this by covering the canvas for a few
         // frames (Chrome then sends it a pointerleave), but a reset under the driver's clock draws none.

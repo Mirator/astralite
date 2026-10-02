@@ -82,29 +82,31 @@ test('slots are separate: a purchase in slot 2 leaves slot 1\'s card alone, and 
   expect(await card(page, 1).innerText(), 'a purchase in slot 2 changed slot 1\'s card').toBe(before);
   expect(await game.meta(1), 'a purchase in slot 2 changed slot 1\'s save').toEqual(slot1);
 
-  // Slot 2's run is dealt from slot 2, although the keep on the page was built while slot 1 was the active one.
+  // A run in slot 1 is dealt from slot 1 (the keep on the page was built while slot 1 was the active one, so this much a stale slot would also get right).
   expect((await game.state()).slot, 'precondition: the page began in slot 1').toBe(1);
   await back(page).click();
-  await game.enter(2);
-  let state = await game.state();
-  expect(state.slot).toBe(2);
-  expect(state.run.start, 'slot 2\'s run was not dealt from slot 2 (the maul, Second Tide, Whetted Start)').toEqual({ arm: 'maul', maxHp: 100, strike: WHET_STRIKE, draftSize: 3, defiance: 1 });
-  expect(state.weapon.id).toBe('maul');
-  expect(await page.evaluate(() => localStorage.getItem('drowned-keep:slot'))).toBe('2');
-  expect(await page.evaluate((seed) => localStorage.getItem('drowned-keep:2:seed') === String(seed), state.floor.seed), 'the keep was not recorded under slot 2').toBe(true);
-
-  // Back to the title with the storage kept (the pooled reset clears it, so the hook is called directly), then a run in slot 1.
-  await page.evaluate(() => (window as GameWindow).dungeonTest!.reset());
-  await game.built();
-  await game.step(0);
-  expect((await game.state()).slot, 'the title did not come back on the slot last played').toBe(2);
   await game.enter(1);
-  state = await game.state();
+  let state = await game.state();
   expect(state.slot).toBe(1);
   expect(state.run.start, 'slot 1\'s run was not dealt from slot 1 (Deep Lungs, no Second Tide, the Tideblade)').toEqual({ arm: 'tideblade', maxHp: 110, strike: 0, draftSize: 3, defiance: 0 });
   expect(state.weapon.id).toBe('tideblade');
   expect(await game.meta(2), 'a run in slot 1 touched slot 2\'s save').toEqual(bought);
-  expect(await page.evaluate(() => localStorage.getItem('drowned-keep:slot'))).toBe('1');
+
+  // Back to the title with the storage kept (the pooled reset clears it, so the hook is called directly), which comes back on the slot last played.
+  // Then slot 2: dealt from slot 2, although the keep on the page was built for slot 1. The scenario ends in slot 2, so the pooled reset
+  // that follows it has to bring the slot back to a boot's, and the leak guard holds it to that.
+  await page.evaluate(() => (window as GameWindow).dungeonTest!.reset());
+  await game.built();
+  await game.step(0);
+  expect((await game.state()).slot, 'the title did not come back on the slot last played').toBe(1);
+  await game.enter(2);
+  state = await game.state();
+  expect(state.slot).toBe(2);
+  expect(state.run.start, 'slot 2\'s run was not dealt from slot 2 (the maul, Second Tide, Whetted Start)').toEqual({ arm: 'maul', maxHp: 100, strike: WHET_STRIKE, draftSize: 3, defiance: 1 });
+  expect(state.weapon.id).toBe('maul');
+  expect(await page.evaluate(() => localStorage.getItem('drowned-keep:slot')), 'the slot chosen was not remembered as the one last played').toBe('2');
+  expect(await page.evaluate((seed) => localStorage.getItem('drowned-keep:2:seed') === String(seed), state.floor.seed), 'the keep was not recorded under slot 2').toBe(true);
+  expect(await game.meta(1), 'a run in slot 2 touched slot 1\'s save').toEqual(slot1);
 });
 
 test('Erase asks twice, another press disarms it, and the picker comes back closed after a reset', async ({ game, page }) => {
