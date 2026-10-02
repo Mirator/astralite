@@ -15,7 +15,7 @@ import {
 } from '../../app/dungeon-floor.ts';
 import { BESTIARY, type EnemyKind } from '../../app/dungeon-bestiary.ts';
 
-import { DEFAULT_BINDS, isMouseCode, type Action } from '../../app/dungeon-save.ts';
+import { DEFAULT_BINDS, isMouseCode, type Action, type Slot } from '../../app/dungeon-save.ts';
 import type { Meta } from '../../app/dungeon-meta.ts';
 
 export { canStand, expect, hasClearPath, TILE };
@@ -34,6 +34,23 @@ export const keyFor = (action: Action) => {
 export const press = (page: Page, action: Action) => page.keyboard.press(keyFor(action));
 export const hold = (page: Page, action: Action) => page.keyboard.down(keyFor(action));
 export const release = (page: Page, action: Action) => page.keyboard.up(keyFor(action));
+
+/**
+ * Plan 020, D3: ENTER THE KEEP opens the slot picker, and a slot's card is what enters. `openSlots` is the first press (it waits for the
+ * button, then for the picker); `enterKeep` is both. A specification that measures the press itself (the loading ones) takes the
+ * second press as its press, since that is the one that starts a build.
+ */
+export const openSlots = async (page: Page) => {
+  const enterButton = page.locator('.intro-screen .primary-action');
+  await expect(enterButton).toBeEnabled();
+  await enterButton.click({ timeout: WARM_UP });
+  await expect(page.locator('.slot-picker')).toBeVisible();
+};
+export const chooseSlot = (page: Page, slot: Slot = 1) => page.locator(`.slot-choose[data-slot="${slot}"]`).click({ timeout: WARM_UP });
+export const enterKeep = async (page: Page, slot: Slot = 1) => {
+  await openSlots(page);
+  await chooseSlot(page, slot);
+};
 
 /**
  * A standard-mapping gamepad the page can read, every button up. The game polls `navigator.getGamepads()`
@@ -185,6 +202,8 @@ export type Snapshot = {
   building: boolean;
   /** Whether the world stopped on a throw it could not answer and is showing the reload screen. */
   fault: boolean;
+  /** Plan 020: the save slot every read and write of progress speaks for, read off the game's closure. */
+  slot: Slot;
   boonOffer: boolean;
   muted: boolean;
   roomName: string;
@@ -440,8 +459,8 @@ export type GameWindow = Window & {
     grantXp: (amount: number) => void;
     reset: (seed?: number) => void;
     /** Plan 019: the stored meta, re-validated; `setMeta` writes one and takes effect at the next run start. */
-    meta: () => Meta;
-    setMeta: (meta: Meta) => void;
+    meta: (slot?: Slot) => Meta;
+    setMeta: (meta: Meta, slot?: Slot) => void;
     configureCombatFixture?: (fixture: CombatFixture) => void;
     /** Read-only target/material state; absent from a production build. */
     cutawayDiagnostics?: () => CutawayDiagnostics;
@@ -874,22 +893,22 @@ export class Game {
     await this.step(32);
   }
 
-  /** Plan 019: the meta as the save holds it, read through the game's own hook. */
-  meta(): Promise<Meta> {
-    return this.page.evaluate(() => {
+  /** Plan 019: the meta as the save holds it, read through the game's own hook. Plan 020: of the active slot, or of `slot`. */
+  meta(slot?: Slot): Promise<Meta> {
+    return this.page.evaluate((forSlot) => {
       const hook = (window as GameWindow).dungeonTest;
       if (!hook) throw new Error('dungeonTest is gone');
-      return hook.meta();
-    });
+      return hook.meta(forSlot);
+    }, slot);
   }
 
-  /** Plan 019: fixture setup. Writes the save the way a purchase would; the next run start reads it. */
-  async setMeta(meta: Meta) {
-    await this.page.evaluate((value: Meta) => {
+  /** Plan 019: fixture setup. Writes the save the way a purchase would; the next run start reads it. Plan 020: into the active slot, or into `slot`, which stages another one without choosing it. */
+  async setMeta(meta: Meta, slot?: Slot) {
+    await this.page.evaluate(({ value, forSlot }: { value: Meta; forSlot?: Slot }) => {
       const hook = (window as GameWindow).dungeonTest;
       if (!hook) throw new Error('dungeonTest is gone');
-      hook.setMeta(value);
-    }, meta);
+      hook.setMeta(value, forSlot);
+    }, { value: meta, forSlot: slot });
   }
 
   async grantXp(amount: number) {
@@ -1028,13 +1047,14 @@ export class Game {
     }, fixture);
   }
 
-  /** Clicks the real entry button and waits for the intro card to go away. */
-  async enter() {
-    const enterButton = this.page.locator('.intro-screen .primary-action');
-    await expect(enterButton).toBeEnabled();
+  /**
+   * Clicks the real entry button, chooses a slot on the picker it opens (plan 020; slot 1 unless told otherwise, which
+   * is why the 138 callers did not change) and waits for the intro card to go away.
+   */
+  async enter(slot: Slot = 1) {
     // A freshly booted page may still be inside its one synchronous warm-up compile, and a click cannot land
     // until the main thread comes back - on SwiftShader that outlasts the default action timeout.
-    await enterButton.click({ timeout: WARM_UP });
+    await enterKeep(this.page, slot);
     // A page whose floor 1 is built but still warming answers the press behind the veil.
     await expect(this.page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
     // Lifting the menu repaints most of the screen, and on a software rasteriser that repaint is

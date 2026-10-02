@@ -1,6 +1,6 @@
 import { freshMeta } from '../../app/dungeon-meta.ts';
 import { VEIL_STAGES, veilProgress } from '../../app/dungeon-veil.ts';
-import { DEFAULT_SEEDS, expect, type GameWindow, pinSeeds, test, WARM_UP } from './helpers.ts';
+import { DEFAULT_SEEDS, enterKeep, expect, type GameWindow, openSlots, chooseSlot, pinSeeds, test, WARM_UP } from './helpers.ts';
 
 // A boot is the thing under test here, so a page that is already booted has nothing to show. Every
 // scenario here needs its own load. Each fresh load also pays a cold shader warm-up behind the veil
@@ -107,7 +107,14 @@ test('the keep is built on the press, not before it', async ({
   ).toBe('undefined');
   await expect(page.locator('.loading-veil')).toHaveCount(0);
 
-  await enter.click();
+  // Plan 020: ENTER THE KEEP opens the slot picker, which builds nothing; the slot's card is the press that raises the veil.
+  await openSlots(page);
+  await expect(page.locator('.loading-veil'), 'opening the picker raised the loading veil').toHaveCount(0);
+  expect(
+    await page.evaluate(() => typeof (window as GameWindow).render_game_to_text),
+    'opening the picker built floor 1',
+  ).toBe('undefined');
+  await chooseSlot(page);
   const veil = page.locator('.loading-veil');
   await expect(veil).toBeVisible();
   await expect(veil).toContainText('Waking the keep');
@@ -174,8 +181,7 @@ test('a reset issued while the boot is still polling its programs does not corru
     { timeout: WARM_UP },
   );
   // And a real press afterward has to work - this is exactly what hung before `boot` claimed `building`.
-  const enter = page.locator('.intro-screen .primary-action');
-  await enter.click({ timeout: WARM_UP });
+  await enterKeep(page);
   await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
   const state = await page.evaluate(
     () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string },
@@ -388,9 +394,8 @@ test.describe('with a keep remembered from a previous visit', () => {
  */
 test('the loading bar follows measured work, never runs backwards and ends full', async ({ page }) => {
   await page.goto('/');
-  const enter = page.locator('.intro-screen .primary-action');
-  await expect(enter).toBeEnabled();
-  await enter.click();
+  await expect(page.locator('.intro-screen .primary-action')).toBeEnabled();
+  await enterKeep(page);
   await expect(page.locator('.loading-veil')).toBeVisible();
   const samples = await page.evaluate(() => new Promise<{ stage: string; progress: number }[]>((done) => {
     const out: { stage: string; progress: number }[] = [];

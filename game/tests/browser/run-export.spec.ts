@@ -11,9 +11,16 @@ const STORED: RunEnd[] = [
   { at: 1_700_001_000_000, floor: 3, won: true, cause: null, seconds: 402, rank: 6, xp: 1290, kills: 44, boons: ['edge', 'ward', 'swift'], seed: 12345, arm: 'maul', upgrades: { lungs: 2, tide: 1 }, pearls: 118 },
 ];
 
+// Plan 020: the log being exported is the slot last played's. The three runs sit in slot 2 and the device remembers slot 2 as last played; slot 1
+// holds a single other run, so a Copy that read the wrong slot would export that one and name the wrong slot.
+const OTHER: RunEnd[] = [{ ...STORED[1], seed: 99 }];
 // A stored blob is read on mount, so this scenario gets its own page (helpers.ts `needsOwnPage`).
 test.use({
-  storageState: { cookies: [], origins: [{ origin: ORIGIN, localStorage: [{ name: 'drowned-keep:1:runs', value: JSON.stringify(STORED) }] }] },
+  storageState: { cookies: [], origins: [{ origin: ORIGIN, localStorage: [
+    { name: 'drowned-keep:2:runs', value: JSON.stringify(STORED) },
+    { name: 'drowned-keep:1:runs', value: JSON.stringify(OTHER) },
+    { name: 'drowned-keep:slot', value: '2' },
+  ] }] },
 });
 
 test('Copy run log puts the stored runs on the clipboard, and falls back to a read-only box when the clipboard refuses', async ({ game, page }) => {
@@ -21,17 +28,17 @@ test('Copy run log puts the stored runs on the clipboard, and falls back to a re
   const button = page.getByRole('button', { name: 'Copy run log' });
   await expect(button).toBeEnabled();
   // Precondition: the game itself read the stored runs, so the count below is not the fixture's word.
-  await expect(page.locator('.run-log')).toContainText('3 descents logged');
+  await expect(page.locator('.run-log')).toContainText('Slot 2 · 3 descents logged');
   await expect(page.locator('.run-export-text')).toHaveCount(0);
 
   // Keyboard: focus the button and press Enter, as the menu's other buttons are used.
   await button.focus();
   await page.keyboard.press('Enter');
-  await expect(page.locator('.run-export')).toHaveText('Copied 3 runs');
+  await expect(page.locator('.run-export'), 'Copy run log did not name the slot it exported').toHaveText('Copied 3 runs from slot 2');
   const pasted = await page.evaluate(() => navigator.clipboard.readText());
   const doc = parseRunExport(pasted);
   expect(doc, 'the clipboard did not hold an astralite-runs export').not.toBeNull();
-  expect(doc!.runs).toEqual(STORED);
+  expect(doc!.runs, 'the export was not the slot last played\'s log').toEqual(STORED);
   expect(Object.keys(JSON.parse(pasted) as object).sort()).toEqual(['exported', 'format', 'runs', 'version']);
   await expect(page.locator('.run-export-text')).toHaveCount(0);
 
@@ -42,7 +49,7 @@ test('Copy run log puts the stored runs on the clipboard, and falls back to a re
   const box = page.getByRole('textbox', { name: 'Run log JSON' });
   await expect(box).toBeVisible();
   await expect(box).toHaveAttribute('readonly', '');
-  await expect(page.locator('.run-export')).toHaveText('Copy the 3 runs below');
+  await expect(page.locator('.run-export')).toHaveText('Copy the 3 runs from slot 2 below');
   const shown = await box.inputValue();
   expect(parseRunExport(shown)?.runs).toEqual(STORED);
   // Pre-selected: the whole text is already the selection.

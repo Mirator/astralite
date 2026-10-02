@@ -1,16 +1,21 @@
-import { ARM_ORDER, ARM_PRICES, freshMeta, pearlsFor, UPGRADES, WHET_STRIKE, type UpgradeId } from '../../app/dungeon-meta.ts';
-import { DEFAULT_SEEDS, expect, stageBlow, test } from './helpers.ts';
+import { ARM_PRICES, buyArm, buyUpgrade, freshMeta, pearlsFor, UPGRADES, WHET_STRIKE, type UpgradeId } from '../../app/dungeon-meta.ts';
+import { DEFAULT_SEEDS, expect, openSlots, stageBlow, test } from './helpers.ts';
 
 // Plan 019 Stage B: the running game is wired to the pure rules in dungeon-meta.ts (proved in tests/). These
 // scenarios read what the game did: the save through `dungeonTest.meta()`, the run through `run.start` in the
 // snapshot, the screen through its real buttons. Fixtures only stage a save (`setMeta`) and a blow.
+//
+// Plan 020 Stage B took the Tide Altar's panel off the title, so a purchase has no screen to be made on until Stage C puts the shop in the
+// hall. These scenarios therefore stage what a purchase leaves behind, through the pure rules in dungeon-meta.ts (`buyUpgrade`, `buyArm`)
+// and `setMeta`, and keep their assertions about the run being dealt from the save and about what the title shows of it. The purchase UI
+// (Tab order, notes, refusals, the phone layout of the rows) loses its browser scenario here and gets it back in the hall's.
 
 const NOTHING = freshMeta();
 const DEFAULT_START = { arm: 'tideblade', maxHp: 100, strike: 0, draftSize: 3, defiance: 0 };
 // What the first rank of an upgrade costs, read off the table so a price change restages nothing here.
 const firstRank = (id: UpgradeId) => UPGRADES.find(upgrade => upgrade.id === id)!.price(0);
 
-test('death pays, the pearls survive it, TO THE GATE leads to a spent Altar and the next descent is a fresh run on what was bought', async ({
+test('death pays, the pearls survive it, TO THE GATE leads to a title that shows them and the next descent is a fresh run on what was bought', async ({
   game,
   page,
 }) => {
@@ -37,45 +42,27 @@ test('death pays, the pearls survive it, TO THE GATE leads to a spent Altar and 
   expect((await game.meta()).pearls, 'the earnings were not banked into the save').toBe(160 + earned);
   await expect(page.locator('.result-card .run-pearls')).toHaveText(`+${earned} pearls · ${160 + earned} held`);
 
-  // TO THE GATE: the title menu, with the balance, and the finished run is not on screen.
+  // TO THE GATE: the title menu, and the finished run is not on screen. The balance is on the slot's card, in the picker ENTER THE KEEP opens
+  // (it was a line of the title beside the Altar button before plan 020).
   await page.getByRole('button', { name: 'TO THE GATE' }).click();
   await expect(page.locator('.result-card')).toHaveCount(0);
-  await expect(page.locator('.intro-screen .pearl-balance')).toHaveText(`${160 + earned} pearls held`);
   expect((await game.state()).mode, 'the title menu is not showing: the run is still live behind it').toBe('ready');
+  await openSlots(page);
+  await expect(page.locator('.slot-choose[data-slot="1"]'), 'the title does not show the pearls the run banked').toContainText(`${160 + earned} pearls`);
+  await page.getByRole('button', { name: /Back/ }).click();
 
-  // The Altar, by keyboard: every row is reachable with Tab, in order, whether or not it can be bought.
-  await page.getByRole('button', { name: /^Tide Altar/ }).focus();
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('heading', { name: 'The Tide Altar' })).toBeVisible();
-  await expect(page.locator('.altar-panel')).toContainText('chosen at the Tide Gate');
-  const order = [...ARM_ORDER.filter((id) => id !== 'tideblade'), ...UPGRADES.map((upgrade) => upgrade.id)];
-  await page.getByRole('button', { name: /Back/ }).focus();
-  const reached: (string | undefined)[] = [];
-  for (let i = 0; i < order.length; i++) {
-    await page.keyboard.press('Tab');
-    reached.push(await page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.item));
-  }
-  expect(reached, 'Tab did not walk every arm and upgrade row, one by one').toEqual(order);
-  // Keyboard purchase: Deep Lungs, focused and bought with Enter.
-  await page.locator('[data-item="lungs"]').focus();
-  await page.keyboard.press('Enter');
-  await expect(page.locator('.altar-note')).toHaveText('Deep Lungs bought.');
-  expect((await game.meta()).upgrades, 'the keyboard purchase did not reach the save').toEqual({ lungs: 1 });
-  // Pointer purchase: Whetted Start.
-  await page.locator('[data-item="whet"]').click();
-  await expect(page.locator('.altar-note')).toHaveText('Whetted Start bought.');
-  const spent = await game.meta();
-  expect(spent.upgrades).toEqual({ lungs: 1, whet: 1 });
+  // What the Altar will sell, bought here by the pure rules and written to the save the way a purchase writes it: Deep Lungs, then Whetted Start.
+  const banked = await game.meta();
+  const lungs = buyUpgrade(banked, 'lungs')!;
+  const spent = buyUpgrade(lungs, 'whet')!;
+  expect(spent.upgrades, 'precondition: both purchases were made').toEqual({ lungs: 1, whet: 1 });
   expect(spent.pearls, 'the purchases were not charged at the Altar\'s prices').toBe(160 + earned - firstRank('lungs') - firstRank('whet'));
   expect(spent.pearls, 'precondition: Keen Eye must be out of reach, or the refusal below cannot happen').toBeLessThan(firstRank('eye'));
-  // A purchase that cannot be made says why and charges nothing. The row is aria-disabled, which Playwright
-  // counts as not enabled, so the click is forced: a player's click on it lands all the same.
-  await page.locator('[data-item="eye"]').click({ force: true });
-  await expect(page.locator('.altar-note')).toContainText(`costs ${firstRank('eye')} pearls`);
-  expect(await game.meta(), 'a refused purchase changed the save').toEqual(spent);
+  expect(buyUpgrade(spent, 'eye'), 'a purchase that cannot be made was made').toBeNull();
+  await game.setMeta(spent);
+  expect(await game.meta(), 'the purchases did not reach the save').toEqual(spent);
 
-  // Back, and ENTER THE KEEP: a fresh run, on floor 1, dealt from what was just bought.
-  await page.getByRole('button', { name: /Back/ }).click();
+  // ENTER THE KEEP: a fresh run, on floor 1, dealt from what was just bought.
   await game.enter();
   await game.built();
   const fresh = await game.state();
@@ -95,18 +82,23 @@ test('an unlock is recorded and not equipped: the next run still starts with the
 }) => {
   // The arm held going in is the spear, not the Tideblade, so "unchanged" cannot be the default by accident.
   await game.setMeta({ ...NOTHING, pearls: 400, arms: ['tideblade', 'spear'], arm: 'spear', upgrades: { lungs: 1 } });
-  await page.getByRole('button', { name: /^Tide Altar/ }).click();
-  await expect(page.locator('[data-item="maul"]')).toContainText(`${ARM_PRICES.maul} pearls`);
   expect((await game.meta()).arms, 'precondition: the maul is not owned yet').not.toContain('maul');
-  await page.locator('[data-item="maul"]').click();
-  await expect(page.locator('[data-item="maul"]')).toContainText('Unlocked');
-  const bought = await game.meta();
-  expect(bought.arms, 'the unlock was not recorded').toContain('maul');
-  expect(bought.arms, 'buying one arm took another').toEqual(expect.arrayContaining(['tideblade', 'spear']));
-  expect(bought.pearls).toBe(400 - ARM_PRICES.maul);
-  expect(bought.arm, 'buying an arm equipped it').toBe('spear');
+  // The unlock, by the pure rule and written to the save (the Altar's button is the hall's from Stage C).
+  const bought = buyArm(await game.meta(), 'maul')!;
+  expect(bought, 'precondition: the maul can be bought with 400 pearls').not.toBeNull();
+  await game.setMeta(bought);
+  const kept = await game.meta();
+  expect(kept.arms, 'the unlock was not recorded').toContain('maul');
+  expect(kept.arms, 'buying one arm took another').toEqual(expect.arrayContaining(['tideblade', 'spear']));
+  expect(kept.pearls).toBe(400 - ARM_PRICES.maul);
+  expect(kept.arm, 'buying an arm equipped it').toBe('spear');
 
+  // The title reads the same save: the slot's card shows the unlock and what it cost.
+  await openSlots(page);
+  await expect(page.locator('.slot-choose[data-slot="1"]')).toContainText(`${400 - ARM_PRICES.maul} pearls`);
+  await expect(page.locator('.slot-choose[data-slot="1"]')).toContainText('3 arms');
   await page.getByRole('button', { name: /Back/ }).click();
+
   await game.enter();
   const start = (await game.state()).run.start;
   expect(start.arm, 'the run did not start with the arm the save holds').toBe('spear');
@@ -177,43 +169,21 @@ test('nothing bought survives a reset: a rich save deals a rich run, and the res
   expect((await game.state()).weapon.id).toBe('tideblade');
 });
 
-test.describe('the Altar and Keen Eye on a phone', () => {
+test.describe('Keen Eye on a phone', () => {
   test.use({ viewport: { width: 360, height: 740 }, hasTouch: true, isMobile: true });
 
-  test('360 x 740: no horizontal scroll, every arm and upgrade button reachable by scrolling the card, and four boon cards fit', async ({
-    game,
-    page,
-  }) => {
+  // The Altar's rows had their own 360 x 740 layout check here; they have no screen until the hall (plan 020 Stage C), which brings it back.
+  // The slot picker's own fit is held in slots.spec.ts.
+  test('360 x 740: no horizontal scroll on the title, and four boon cards fit', async ({ game, page }) => {
     await game.setMeta({ ...NOTHING, pearls: 999, upgrades: { eye: 1 } });
     const widths = () => page.evaluate(() => ({
       viewport: window.innerWidth,
       page: document.documentElement.scrollWidth,
-      card: (document.querySelector('.intro-card') as HTMLElement).scrollWidth,
-      cardBox: (document.querySelector('.intro-card') as HTMLElement).clientWidth,
     }));
+    expect((await widths()).viewport, 'precondition: the phone viewport is the one asked for').toBe(360);
     expect((await widths()).page, 'the title menu already scrolls sideways').toBeLessThanOrEqual(360);
 
-    await page.getByRole('button', { name: /^Tide Altar/ }).click();
-    const items = page.locator('.altar-item');
-    await expect(items).toHaveCount(ARM_ORDER.length - 1 + UPGRADES.length);
-    const shown = await widths();
-    expect(shown.viewport, 'precondition: the phone viewport is the one asked for').toBe(360);
-    expect(shown.page, 'the Altar scrolls the page sideways').toBeLessThanOrEqual(shown.viewport);
-    expect(shown.card, 'something in the Altar card overflows it sideways').toBeLessThanOrEqual(shown.cardBox);
-    for (let i = 0; i < (await items.count()); i++) {
-      const row = items.nth(i);
-      await row.scrollIntoViewIfNeeded();
-      const box = (await row.boundingBox())!;
-      const label = await row.getAttribute('data-item');
-      expect(box.x, `${label} starts left of the screen`).toBeGreaterThanOrEqual(0);
-      expect(box.x + box.width, `${label} runs off the right of the screen`).toBeLessThanOrEqual(360);
-      expect(box.y, `${label} is above the screen after scrolling to it`).toBeGreaterThanOrEqual(0);
-      expect(box.y + box.height, `${label} is below the screen after scrolling to it`).toBeLessThanOrEqual(740);
-    }
-    expect((await widths()).page).toBeLessThanOrEqual(360);
-
     // Keen Eye: the draft shows four cards and all four fit the screen.
-    await page.getByRole('button', { name: /Back/ }).click();
     await game.enter();
     expect((await game.state()).run.start.draftSize, 'precondition: the run was dealt Keen Eye').toBe(4);
     await game.grantXp(200);

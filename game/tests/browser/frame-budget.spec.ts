@@ -1,5 +1,6 @@
 import {
   CAPTURING,
+  enterKeep,
   expect,
   type Game,
   type GameWindow,
@@ -351,7 +352,7 @@ test.describe('the full post chain', () => {
       return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
     }, undefined, { timeout: WARM_UP });
     await page.evaluate(() => (window as GameWindow).advanceTime!(0, false));
-    await page.locator('.intro-screen .primary-action').click({ timeout: WARM_UP });
+    await enterKeep(page);
     await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
     const frame = await page.evaluate(() => {
       (window as GameWindow).advanceTime!(16, true);

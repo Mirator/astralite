@@ -111,6 +111,9 @@ test('every dungeon-action detail parses to the command the game answers', () =>
   assert.deepEqual(parseCommand('start:7'), { kind: 'start', seed: 7 });
   assert.deepEqual(parseCommand('gate'), { kind: 'gate' });
   assert.equal(parseCommand('gates'), null);
+  assert.deepEqual(parseCommand('slot:2'), { kind: 'slot', slot: 2 });
+  assert.deepEqual(parseCommand('erase:3'), { kind: 'erase', slot: 3 });
+  for (const junk of ['slot', 'slot:', 'slot:0', 'slot:4', 'slot:1.5', 'slot:-1', 'slot:junk', 'erase:0', 'erase:12', 'erase:']) assert.equal(parseCommand(junk), null, `${junk} is not a slot`);
   assert.deepEqual(parseCommand('boon:edge'), { kind: 'boon', id: 'edge' });
   assert.deepEqual(parseCommand('stick:0.5,-1'), { kind: 'stick', stick: { x: 0.5, z: -1 } });
   assert.deepEqual(parseCommand('stick:junk'), { kind: 'stick', stick: null }, 'junk is a release');

@@ -1,4 +1,4 @@
-import { expect, type GameWindow, test, WARM_UP } from './helpers.ts';
+import { enterKeep, expect, type GameWindow, test, WARM_UP } from './helpers.ts';
 
 // Both scenarios here watch the real frame loop, which a pooled page gives up for good on its first
 // `advanceTime`. A fresh load pays the cold shader warm-up (see WARM_UP in helpers.ts), so each gets room for it.
@@ -19,9 +19,9 @@ test.describe.configure({ timeout: 120_000 + WARM_UP });
  */
 test('a paused frame is not redrawn in real time, and resumes drawing once unpaused', async ({ page }) => {
   await page.goto('/');
-  const enter = page.locator('.intro-screen .primary-action');
-  await enter.waitFor({ state: 'visible', timeout: WARM_UP });
-  await enter.click();
+  await page.locator('.intro-screen .primary-action').waitFor({ state: 'visible', timeout: WARM_UP });
+  // Plan 020: ENTER THE KEEP opens the slot picker, and slot 1's card is the press that raises the keep.
+  await enterKeep(page);
   await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
 
   const pause = () => page.evaluate(() => window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'pause' })));
@@ -68,9 +68,9 @@ test('a sliced restart draws only its two warm-up frames and takes no input', as
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(String(error)));
   await page.goto('/');
-  const enter = page.locator('.intro-screen .primary-action');
-  await enter.waitFor({ state: 'visible', timeout: WARM_UP });
-  await enter.click();
+  await page.locator('.intro-screen .primary-action').waitFor({ state: 'visible', timeout: WARM_UP });
+  // Plan 020: ENTER THE KEEP opens the slot picker, and slot 1's card is the press that raises the keep.
+  await enterKeep(page);
   await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
 
   type Sample = { frames: number; attackTime: number; attackBuffer: number; dashTime: number; dashCooldown: number };

@@ -62,7 +62,8 @@ test('cards are dialogs that take focus, and the background stays out of reach w
  */
 test('the menu opens its pages in place and always comes back to the list', async ({ game, page }) => {
   const menu = page.getByRole('navigation', { name: 'Main menu' });
-  await expect(menu.getByRole('button')).toHaveText([/^ENTER THE KEEP/, /^Tide Altar/, /^Controls & journey/, /^Settings/]);
+  // Plan 020: the Tide Altar left the title (the shop moves into the hall in Stage C); ENTER THE KEEP opens the slot picker instead.
+  await expect(menu.getByRole('button')).toHaveText([/^ENTER THE KEEP/, /^Controls & journey/, /^Settings/]);
 
   await menu.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(menu).toHaveCount(0);
@@ -73,12 +74,15 @@ test('the menu opens its pages in place and always comes back to the list', asyn
   await back.click();
   await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeFocused();
 
-  // Plan 019: the Tide Altar is a page of the same card (title menu only; the pause menu below has none).
-  await menu.getByRole('button', { name: /^Tide Altar/ }).click();
-  await expect(page.getByRole('heading', { name: 'The Tide Altar' })).toBeVisible();
+  // Plan 020: the slot picker is a page of the same card (title menu only; the pause menu below has none), opened by ENTER THE KEEP, and
+  // the way back returns focus to the button that opened it.
+  await menu.getByRole('button', { name: /^ENTER THE KEEP/ }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Choose a slot' })).toBeVisible();
   await expect(back).toBeFocused();
+  await expect(page.locator('.slot-choose')).toHaveText([/^Slot 1/, /^Slot 2/, /^Slot 3/]);
   await back.click();
-  await expect(page.getByRole('button', { name: /^Tide Altar/ })).toBeFocused();
+  await expect(page.getByRole('button', { name: /^ENTER THE KEEP/ })).toBeFocused();
 
   await page.getByRole('button', { name: 'Controls & journey' }).click();
   await expect(page.getByRole('heading', { name: 'Controls & journey' })).toBeVisible();
