@@ -34,7 +34,7 @@ test('Copy run log puts the stored runs on the clipboard, and falls back to a re
   // Keyboard: focus the button and press Enter, as the menu's other buttons are used.
   await button.focus();
   await page.keyboard.press('Enter');
-  await expect(page.locator('.run-export'), 'Copy run log did not name the slot it exported').toHaveText('Copied 3 runs from slot 2');
+  await expect(page.locator('.run-export'), 'Copy run log did not say how many runs of which slot it copied').toHaveText('Copied 3 runs from slot 2');
   const pasted = await page.evaluate(() => navigator.clipboard.readText());
   const doc = parseRunExport(pasted);
   expect(doc, 'the clipboard did not hold an astralite-runs export').not.toBeNull();

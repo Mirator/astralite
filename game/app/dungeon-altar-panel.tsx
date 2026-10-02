@@ -3,7 +3,8 @@
 import { ARM_ORDER, ARM_PRICES, rankOf, UPGRADES, type BoughtArm, type Meta } from './dungeon-meta';
 import { STARTING_WEAPON, weaponById } from './dungeon-weapon';
 
-// The Tide Altar (plan 019, D10): the title menu's page where pearls are spent. Two lists - the arms to
+// The Tide Altar (plan 019, D10): the page where pearls are spent. It was the title menu's; plan 020 Stage B took it off the title and nothing
+// mounts it until Stage C puts it in the hall as an overlay (the `buy` that answers it lives in the game, and goes back with it). Two lists - the arms to
 // unlock and the upgrades to buy the next rank of - and nothing else. It does not choose an arm: that is
 // done at the Tide Gate. Every row is a real button that stays in the tab order when it cannot be bought
 // (`aria-disabled`, not `disabled`), so a keyboard player can land on it and read why; pressing it then

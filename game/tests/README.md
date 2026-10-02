@@ -121,8 +121,8 @@ automated drivers; nothing in the game itself calls them.
 | `dungeonTest.buildArena(roster, level = 1)` | Development only: rebuilds as an arena, `roster` awake in the gate (see [The arena](#the-arena)) |
 | `dungeonTest.grantXp(amount)` | Awards XP, so the boon draft can be reached in one line |
 | `dungeonTest.runLog()` | The stored history of finished runs, oldest first — re-read and re-validated on every call |
-| `dungeonTest.meta()` | Plan 019: the stored pearl save (`{ pearls, upgrades, arms, arm }`), re-read and re-validated on every call |
-| `dungeonTest.setMeta(meta)` | Plan 019: writes a pearl save through the real storage path. Fixture setup only; see [The pearl save](#the-pearl-save) |
+| `dungeonTest.meta(slot?)` | Plan 019: the stored pearl save (`{ pearls, upgrades, arms, arm }`), re-read and re-validated on every call. Plan 020: of the active slot, or of `slot` |
+| `dungeonTest.setMeta(meta, slot?)` | Plan 019: writes a pearl save through the real storage path. Fixture setup only; see [The pearl save](#the-pearl-save). Plan 020: into the active slot, or into `slot` without choosing it |
 
 `dungeonTest.runLog()` is how a balance question stops being a memory: `copy(JSON.stringify(window.dungeonTest.runLog()))`
 gives every finished run since the log was capped, each one `{ at, floor, won, cause, seconds, rank, xp, kills, boons, seed, arm, upgrades, pearls }`,
@@ -142,7 +142,7 @@ burned the knight during its current flare.
 Start a run from the console with `window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'start' }))`.
 Other useful details: `attack`, `dash`, `special` (a tap), `hold-special`/`release-special` (the touch button's
 hold, which a charged special needs), `map`, `pause`, `move:up|down|left|right`, `stop:…`, `stick:<x>,<y>`,
-`stick:off`, `boon:<id>`, `restart`, `restart:<seed>`.
+`stick:off`, `boon:<id>`, `restart`, `restart:<seed>`, and (plan 020) `slot:<n>` and `erase:<n>` for n in 1..3.
 
 `render_game_to_text().player.special` is the held arm's special (plan 016), or null for an arm without one:
 `{ id, ready, cooldown, charging, charge, held, live, buffered, harpoon, bare, vault }` - `cooldown` is the sim's own
@@ -160,8 +160,10 @@ planted thumb holding still. `stick:off` releases it, as does any value that doe
 outranks `move:`, and only for as long as it is live — releasing it hands steering straight back to whatever
 `move:` keys are still held, and neither path ever clears the other's state.
 
-`start` is ENTER THE KEEP: pressed before floor 1 exists it is held behind the loading bar and answered
-the frame the keep is drawn. `start:<seed>` is the menu's LAST KEEP, entering the floor 1 a previous
+`start` is the press that enters the keep (plan 020: ENTER THE KEEP on the title only opens the slot picker; a slot's card sends `slot:<n>` and then `start`, and `Game.enter(slot = 1)` in
+`tests/browser/helpers.ts` does both with real clicks, so the 138 callers did not change). `slot:<n>` makes slot n the one every read and write of progress speaks for and remembers it as the
+slot last played; `erase:<n>` empties one. Neither is answered while a run is live or a build is pending. `render_game_to_text().slot` is the active slot, read off the game's closure. Pressed before
+floor 1 exists, `start` is held behind the loading bar and answered the frame the keep is drawn. `start:<seed>` is the menu's LAST KEEP, entering the floor 1 a previous
 visit left.
 
 `restart` resets the whole run in place — health, rank, boons, XP, kills, input — and rebuilds floor 1
@@ -198,9 +200,10 @@ purchases out of the next.
   `offered` the arm the swap prompt is naming. `dungeonTest.actorStats()` reports the racks' meshes as `racks` for the teardown
   checks.
 
-The Tide Altar and the result card's TO THE GATE button are driven with real clicks and keys (`tests/browser/meta.spec.ts`);
-`tests/browser/armoury.spec.ts` walks into a rack's ring and uses the swap key. The rules live in node:
-`tests/dungeon-meta.test.ts`.
+The result card's TO THE GATE button is driven with real clicks and keys (`tests/browser/meta.spec.ts`); the Tide Altar's panel left the title in plan 020 Stage B, so meta.spec stages a
+purchase with `setMeta` and the pure rules until the hall brings the shop back. `tests/browser/armoury.spec.ts` walks into a rack's ring and uses the swap key. The rules live in node:
+`tests/dungeon-meta.test.ts`. The slot picker is driven with real clicks and keys in `tests/browser/slots.spec.ts`; the rules behind it (keys, summary, migration, erase) are in
+`tests/dungeon-save.test.ts`.
 
 ### The arena
 
