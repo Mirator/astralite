@@ -499,6 +499,7 @@ button:hover { filter: brightness(1.2); }button:focus-visible { outline: 2px sol
 .slot-choose strong { font: 650 12px/1.3 var(--font-geist-mono); letter-spacing: .14em; text-transform: uppercase; }
 .slot-choose small { color: var(--goal); font: 600 9px/1.3 var(--font-geist-mono); letter-spacing: .12em; text-transform: uppercase; }
 .slot-choose span { grid-column: 1 / -1; color: var(--bone-mute); font-size: 12px; line-height: 1.45; }
+.slot-card.empty .slot-choose { grid-column: 1 / -1; }
 .slot-card.empty .slot-choose span { font-style: italic; }
 .slot-choose:hover, .slot-choose:focus-visible { border-color: var(--edge-warm); background: #10222acc; }
 .slot-erase { width: 84px; padding: 0 8px; border: 1px solid #96b1ab2e; background: transparent; color: #a9bfbb; font: 600 10px/1.3 var(--font-geist-mono); letter-spacing: .1em; text-transform: uppercase; cursor: pointer; transition: border-color .15s, background .15s, color .15s; }

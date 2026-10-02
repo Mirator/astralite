@@ -109,7 +109,7 @@ test('slots are separate: a purchase in slot 2 leaves slot 1\'s card alone, and 
   expect(await game.meta(1), 'a run in slot 2 touched slot 1\'s save').toEqual(slot1);
 });
 
-test('Erase asks twice, another press disarms it, and the picker comes back closed after a reset', async ({ game, page }) => {
+test('Erase asks twice, arming another card disarms it, and the picker comes back closed and disarmed after a reset', async ({ game, page }) => {
   await game.setMeta({ ...NOTHING, pearls: 11 }, 1);
   await game.setMeta({ ...NOTHING, pearls: 77 }, 2);
   await openSlots(page);
@@ -127,7 +127,7 @@ test('Erase asks twice, another press disarms it, and the picker comes back clos
   expect((await game.meta(2)).pearls, 'the first press erased the slot').toBe(77);
   await expect(stats(page, 2), 'the first press changed the card').toHaveText('77 pearls · no floor reached · 0 runs logged · 1 arm');
 
-  // A different action in between (Erase on another card) disarms it: the next press on slot 2 arms again rather than erasing.
+  // A different action in between (Erase on another card) disarms it - one card is armed at a time: the next press on slot 2 arms again rather than erasing.
   await erase(1).click();
   await expect(armed, 'one card is armed at a time').toHaveCount(1);
   await expect(page.locator('.slot-card[data-slot="1"]')).toHaveClass(/armed/);
@@ -147,16 +147,21 @@ test('Erase asks twice, another press disarms it, and the picker comes back clos
   await expect(stats(page, 1)).toHaveText('11 pearls · no floor reached · 0 runs logged · 1 arm');
   await expect(card(page, 2), 'focus was lost with the Erase button that held it').toBeFocused();
 
-  // The pooled reset leaves the picker as a boot does: closed, nothing armed, slot 1. Armed first, so there is something to leave behind.
+  // Leaving the picker disarms: Back and ENTER again, and the armed card is not armed.
+  await erase(1).click();
+  await expect(armed, 'precondition: Erase is armed before leaving').toHaveCount(1);
+  await back(page).click();
+  await openSlots(page);
+  await expect(armed, 'leaving the picker and coming back did not disarm Erase').toHaveCount(0);
+  await expect(page.locator('.slot-note'), 'the picker\'s note outlived leaving it').toHaveText('');
+
+  // The pooled reset leaves the picker as a boot does: closed, on the title's list, in slot 1. Open and armed first, so there is something to leave behind.
   await erase(1).click();
   await expect(armed).toHaveCount(1);
   await game.reset(DEFAULT_SEEDS);
   await expect(page.locator('.slot-picker'), 'the reset left the picker open').toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Main menu' }), 'the reset did not bring back the title\'s list').toBeVisible();
   expect((await game.state()).slot, 'the reset did not put the slot back to what a boot reads').toBe(1);
-  await openSlots(page);
-  await expect(armed, 'the reset left an Erase armed').toHaveCount(0);
-  await expect(page.locator('.slot-note'), 'the reset left the picker\'s note behind').toHaveText('');
 });
 
 test.describe('on a phone', () => {
