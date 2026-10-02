@@ -4233,3 +4233,132 @@ Each plant was one edit to one file, run against its own test only (`-g`), watch
 
 - Nothing of the hall. The Altar's purchase UI has no browser scenario until Stage C. The picker has been seen once on SwiftShader at 360 x 740 and not on a GPU. `tests/README.md` still describes the legacy key names in
   its Persistence section (Stage F). The boot-cost numbers of Stage 0 are unchanged (ENTER now costs a click before the press; nothing builds on it).
+
+## 2026-10-02 - Plan 020 Stages C, D, E and F: the Tide Altar's hall, death and return, the restaged suite and the documents
+
+Stages C to F of `plans/020-save-slots-and-the-altar-hall.md`, in one pass. The decisions are the plan's (D4 to D11); the interpretations I had to make are under "Interpretations".
+Nothing here changes the generator, the sim, `dungeon-meta.ts` or `scripts/balance`, so `balance:check` was not run (the new test that the generator's output carries no `hall`
+key, not even a false one, is what stands in for it). The full PR-gate browser run is CI's, on draft PR #86; locally only the specs below were run, two workers.
+
+### What changed
+
+- `app/dungeon-floor.ts`: `export type Floor` = `ReturnType<typeof generateFloor> & { hall?: true }`, the marker the plan's Stage A trap (b) asked for. `altarHall()` returns `hall: true`; `generateFloor`
+  is untouched (a generated floor has no `hall` key at all). The hall's door keeps the generator's `to: 1`, which names no room of a one-room floor (trap a), so nothing may look it up: see `doorSignOf`.
+- `app/dungeon-floor-scene.ts`: `DoorSign` gains `'down'`; `doorSignOf(floor, door)` signs the hall's door "down" and every other from its room; `FloorStage.altar` is a shrine's disc and crystal
+  (`Feature`, built by the sanctuary shrine's own code at the hall's heart; the Tide Gate of a generated floor, itself a sanctuary, has never been given one) and is kept off `features`; the stair is built
+  unless `floor.hall` (and a floor without one nulls the previous floor's stair parts, which the stage would otherwise have kept pointing at disposed meshes).
+- `app/dungeon-decor-layout.ts`, `app/dungeon-paving-layout.ts`: use the shared `Floor`; the rack slots are reserved when `floor.hall`, not when `level === 1` (floor one's gate reserves none now).
+- `app/dungeon-game.tsx` (edited in place, not reformatted): closure `hall` (read off `floor.hall` of the floor that was built), `wantHall` (the ask, set by `veiled`'s plan, `boot` and the hooks),
+  `altarOpen`, `overAltar`, `skipHall`/`startsInHall`. `chart` takes the hall branch first and draws its seed only below it, so a hall build draws nothing from the random stream. `armLocked` is
+  `!hall && !arena` on every build. `layGateRacks` keys off `hall`; `takeDoor` no longer locks; `requestSwap` opens the shop at the altar and `goDown` (`lockArm` then `restart`) at the way down;
+  `openAltar`/`closeAltar` hold the world by `run.choosing`; `toAltar` (a finished run, `restart(.., toHall)`), `toTitle` (the hall's pause menu); `openMap` is inert in the hall; the knight arrives at the
+  hall's `entry`, not on the altar; `writeSeed`/`firstSeed` are skipped for the hall (LAST KEEP must never offer HALL_SEED). `atGate`, `toGate`, `runSeed` and the `gate` command are gone. The altar rides the
+  shrine loop (`feature !== stage.altar` guards the heal). Snapshot: `hall`, `altarOpen`, `hallProps` (`altar`, `racks`, `wayDown`, `stair`, all read off the groups they were attached to), `roomName`
+  "The Tide Altar", `boonOffer` not true while the shop is open. `dungeonTest.buildHall()` (sync) beside `buildFloor` (which now always builds an ordinary floor); `reset` returns a page to the mode it booted in.
+  React: the shop overlay (`AltarPanel`, `buy` back from the title), the header, no vitality/rank in the hall, no map button, LEAVE TO TITLE, the cards, the veil's second line.
+- `app/dungeon-input.ts`: `gate` is replaced by `altar`, `shop-close`, `title`. `app/dungeon-altar-panel.tsx`: the line now says arms are chosen on the racks of this hall. `app/globals.css`: the dead
+  `.gate-return`/`.seed-retry` rules are gone. `app/dungeon-test-hooks.ts`: `buildHall`. `scripts/build/leaks.ts`: `?hall=skip` reaching the production bundle fails `build:check`.
+- Tests: `hall.spec.ts`, `death.spec.ts` (new); `helpers.ts` (the `hall` option, `?hall=skip` by default, `Game.buildHall/takeWayDown/openAltar`, `walkUntil`, `watchVeil`, `pinnedDraws`); node:
+  `dungeon-decor-layout`, `dungeon-paving-layout`, `dungeon-floor` (the marker), `dungeon-input`, `build-leaks`.
+
+### The hall and the cards, as they look
+
+- **The hall.** The 13 x 11 crypt of seed 2063, lit by its two braziers, the knight arriving at its south way in. The altar is a mint-green disc with the shrine's crystal turning over it at the room's heart;
+  six rings of gold light are the racks (an owned arm on each, none for an arm in hand or not owned); the way down is the generator's arch on the west wall with its sigil, signed "down". The top-left
+  header reads **The Tide Altar** over *Spend, choose an arm, take the way down*. No vitality, no rank bar and no map button; the three ability icons and the pause button stay.
+- **Prompts** (the usual button at the foot of the screen): at the altar `PRESS E TO OPEN THE ALTAR` / `300 pearls to spend`; on a rack `switch to Bell Maul` and its detail; at the door `PRESS E TO TAKE THE WAY DOWN` /
+  `Into the keep, the Tideblade in hand`.
+- **The shop** is the title card's old Altar page as an overlay: kicker `THE TIDE ALTAR · SLOT 1`, the heading *Spend what the tide gave.*, a `← BACK TO THE HALL` button, `N pearls held`, the line
+  "Arms are chosen on the racks of this hall, not here. The Tideblade is always yours; anything bought here is only unlocked.", the six arms and four upgrades as rows, and the note under them. The world is held
+  behind it; Escape or Back puts it away.
+- **The cards.** Death: kicker `FLOOR 2 · FAILED`, *The dark takes you.*, "The tide carries you back to the altar.", the XP summary with the cause, the time and boons, `+N pearls · M held`, and one red button,
+  **RETURN TO THE ALTAR**. Win: `THE KEEP IS BEHIND YOU`, *You climb into the dawn.*, the same single button. The card is focused first; the button takes focus 700 ms later (see Interpretations).
+- **Pause menu.** Mid-run: RESUME, Floor map, Controls & journey, Settings. In the hall: RESUME, **LEAVE TO TITLE**, Controls & journey, Settings (no map); LEAVE TO TITLE opens the slot picker.
+
+### Frame budget (SwiftShader, 2026-10-02, the stand `frame-budget.spec.ts` uses, counts are deterministic and identical on repeat)
+
+| | calls | triangles | shadow calls |
+| --- | --- | --- | --- |
+| old Tide Gate, six racks (plan 019) | 298 | 203,164 | 87 |
+| Stage 0 hall, six racks, stair's heart standing in for the altar | 294 | 120,197 | 100 |
+| **the real hall, bare** | **218** | **114,629** | **69** |
+| **the real hall, six racks** | **289** | **119,695** | **100** |
+
+Six racks add +71 calls, +5,066 triangles, +31 shadow calls. Against the gate's 298 that is -3.0% on calls (the Stage 0 stop rule, +10%, did not trip) and -41% on triangles; 13 more shadow calls than the
+gate. The new scenario bounds both sides: each figure is the ceiling and 95% of it the floor, so a rack that stopped being drawn or a part added to one moves a number. The boot-cost model of Stage 0 is
+unchanged and still a model (SwiftShader has no GPU); Stage G measures it.
+
+### Restaged scenarios, and how
+
+- `armoury.spec.ts`: the gate scenario is rewritten as the hall's loop on a hall page: which arms stand on `gateRacks(altarHall())`'s slots, the swap by walking into a ring (real keys), nothing written until the way
+  down, the way down writes the arm and deals the run, the run record carries it, the death card's RETURN TO THE ALTAR shows the other arms (the old "after the lock the key does nothing" step has no rack to
+  stand on any more), and the next way down starts with it. The floor-2 "no chamber pays an arm" scenario is unchanged.
+- `meta.spec.ts`: "TO THE GATE" becomes the death card's RETURN TO THE ALTAR, and the shop is back (Tab order over every row, keyboard purchase, pointer purchase, the refusal note, the dealt run), now of the
+  overlay, on a hall page; "an unlock is recorded and not equipped" buys the maul in the shop and sees it appear on its rack when the shop closes; the phone scenario is the Altar's 360 x 740 rows (opened by tapping
+  the prompt) plus Keen Eye, as it was before Stage B had to drop the rows.
+- `a11y.spec.ts`: a hall scenario (the shop is a named dialog that takes focus, answers Escape, the hamburger is gone behind it; the hall's pause list is RESUME, LEAVE TO TITLE, Controls & journey, Settings). The title and
+  mid-run pause lists are unchanged.
+- `loading.spec.ts`: the plain-URL scenarios now run the hall path (a press builds the hall, a restart leaves it) without change; the sliced-against-synchronous floor-one comparison now expects no rack, and a
+  hall twin compares the sliced `reset` with `buildHall()` (racks, altar, way down). `frame-clock.spec.ts`: the restart scenario is the hall-to-floor-one path, and a new one counts the cold press into the hall: at
+  most its two warm-up frames while it builds. `frame-budget.spec.ts`: the armoury scenario is the hall's, re-bounded (above).
+- Scenarios that need an armoury but are about something else stay on the pooled page and rebuild it as the hall by hook after `game.enter()` (`Game.buildHall`; the reset puts the page back and the leak guard holds it):
+  `controls.spec.ts` (the pad's X, after the map and the dodges), `weapon.spec.ts`, `special.spec.ts` (the two swap scenarios), `models.spec.ts` (actorStats: floor one's bodies, then the hall's racks; the teardown),
+  `shots.spec.ts` (`models-drop-*`, `@capture`). `armoury.spec`'s floor-two scenario, `arena.spec` (an arena keeps its own rack) and every other spec are untouched.
+- Node: the decor test now says the hall reserves every slot and no generated floor does; the paving test sweeps 300 halls against a control (the same room without the marker, which reserves nothing and does get
+  patches on the slots: 8 over the sweep, so the hall's zero proves something). The gate-rack tests on generated floors are `gateRacks`' and stay.
+- CI at 23231c8 failed exactly ten scenarios (armoury, controls, frame-budget, meta, models x2, weapon, loading, special x2); all ten are in the list above and pass here.
+
+### Plants (each one edit, run against its own test only, watched failing on its own message, restored; `git status` clean of them after each)
+
+`hall.spec.ts`: boot builds floor 1 -> "the veil is raising something other than the hall" (it read `Floor 1 of 3 · toward The Sunken Stair`); the hall draws a seed -> "building the hall drew a floor seed" (0 expected,
+1 received); the knight arrives on the altar -> "the knight arrives on the altar" (> 3 expected, 0); the hall shows the vitality bar -> "the hall shows the vitality bar"; the shop does not set `run.choosing` -> "the
+world went on under the shop: the swing ran down" (0.348 expected, 0 received); the chain skips the altar -> "the prompt does not name the altar"; Escape pauses instead of closing the shop -> "Escape did not close
+the shop"; the hall lays no racks -> "the hall shows no racks for the arms owned"; floor one keeps the racks (`layGateRacks` keyed on `level === 1` again) -> "the Tide Gate of floor one still holds racks"; `lockArm`
+not called at the way down -> "the run did not start with the arm taken in the hall" (`maul` expected, `tideblade`); a stair built in the hall -> "the hall built a stair".
+`death.spec.ts`: the button runs the old `toGate` -> "the button raised no veil: it did not build anything"; the button restarts floor 1 -> "the veil did not say the tide was carrying him back to the hall" (it said
+`A new keep rises`); SAME KEEP kept on the lost card -> "the death card does not offer exactly one way off"; NEW DESCENT kept on the win card -> "the win card does not offer exactly one way off"; LEAVE TO TITLE
+offered mid-run -> "a run's pause menu offers a way out of the run"; the button never focused -> "the card's one button never took focus".
+Restaged: the racks not drawn (`visible = false`) -> "full hall draws far fewer calls than it was measured at" (>= 274.55, 215); a stair in the hall -> "empty hall draws more often than measured" (<= 218, 223);
+the in-hand arm not filtered from the racks -> "the hall does not show exactly the arms owned besides the one in hand"; the run record's arm fixed to the Tideblade -> "the run record does not carry the arm that was
+chosen" (`maul` expected, `tideblade`); the shop's old line -> "the shop still says arms are chosen at the Tide Gate"; closing the shop without re-laying -> "the arm bought did not appear on its rack when the shop closed";
+the staged chart of the hall drifting under the driver's clock -> "the hall the staged build raised is not the hall the synchronous hook builds"; an extra frame drawn by the press -> "frames other than the two warm-up
+draws were drawn while the hall was being raised"; the shop without focus -> "the shop took no focus when it opened"; `buildHall` building floor one (every pooled restaged scenario at once) -> six failures by name:
+"the hall shows the two arms owned besides the sword in hand" (models), "the hall shows the one arm owned besides the one in hand" (controls), "the hall shows the other two arms" (special), "the fixture needs a rack on
+the floor being torn down" (models), "the hall lays one rack out for the one arm owned besides the sword in hand" (weapon), "the hall has a rack" (special).
+Node: the decor rule keyed on `level === 1` -> "level 1 seed 6151: a generated floor reserved a slot that nothing stands on" (and the paving control: "no patch landed on a slot even in a hall that reserves nothing");
+the hall reserving nothing -> "hall 6151: the tideblade slot is not reserved, so decor could land on its rack" and "hall 80 ... a paving patch at 1,2 sits on the cleaver rack's slot"; the generator returning `hall: false` ->
+"seed 1 level 1: a generated floor carries a hall key"; `altar` unparsed -> `every dungeon-action detail parses to the command the game answers`; the leak pattern for `?hall=skip` removed -> "a bundle carrying a
+development-only hook or the eager-boot switch is reported". Two plants did not discriminate the first time and were redone: the staged-chart drift (my first version also changed the boot's hall, so the page failed to
+boot, not the comparison) and the extra frame (drawn in the same synchronous block as the hooks going up, where the sampler cannot see it; it is now drawn in the build's own stage).
+
+### Interpretations and things to know
+
+- **Dying "on floor 1".** The plan's death scenario dies on floor one; a death there with nothing felled pays 0 pearls, which would let a bank that adds nothing pass. The scenario builds floor 2 by hook first (as
+  `meta.spec` always did) and dies there to a real blow; the second death, after `restart:<seed>`, is on floor one.
+- **"RETURN TO THE ALTAR focused".** The card (a dialog) takes focus first, as every card does, because the dodge key, Space, is the likeliest key still held when a run ends and a button focused that instant would be
+  answered by it; the button takes focus 700 ms later (an effect), and the scenario holds that. Say if the operator wants it focused at once.
+- **The plan's scenario 3 plant** ("`layGateRacks` keys off `level === 1` again, so the hall has no racks") cannot be as written: the hall is level 1, so it would still have racks, and floor one would gain them. It
+  is two plants (no racks in the hall; racks kept on floor one) and both are above. **Scenario 5's plant** (a stair in the hall, whose prompt names the stair before the altar) fails earlier, at "the hall built a stair"
+  (`objective.stairOpen`, `hallProps.stair`), which is the same bug seen sooner; the prompt order is still stair before altar in the chain.
+- **`armLocked`** is true on every build but the hall's (and the dev arena's), so floor one under `?hall=skip` starts locked where it used to start open; with no rack on floor one that is unobservable except in the
+  snapshot, and the arm is settled by the deal. **LAST KEEP** still enters floor one directly with the remembered seed (a title shortcut, not a card), skipping the hall and its arm choice; the run is dealt from the save.
+- **An arena** (`?arena=` or the dev page) is a chosen fight: its boot and its resets skip the hall, its cards still say RETURN TO THE ALTAR, and the hall it returns to lays no rack (the arena owns the one rack).
+  The win scenario is staged with the arena's open stair on floor 3 and a real win through the success card.
+- **The altar** heals nobody, prompts inside 1.5 (the shrine's own radius) and is a disc and a crystal; a hall page's `hasStarted` stays true across the hall, floor one and back, so the title is only reached by LEAVE TO TITLE.
+  Choosing a slot from there re-deals the run if the save differs, and re-lays the racks.
+- Not seen on a GPU, and the hall has been looked at on SwiftShader only (screenshots at 1000 x 700 during development). The boot-cost stop rule remains the Stage 0 model.
+
+### Gates
+
+typecheck clean; lint clean; `npm test` 392 of 392 (was 391: the marker test; the input and leak assertions sit inside existing tests); `npm run build` and `build:check` ("11 files, 11 development-only hooks, none
+shipped", with `?hall=skip` now among the things it looks for). Browser, local, two workers, SwiftShader: `hall.spec.ts` 2/2 and `death.spec.ts` 2/2, also under `GAME_TEST_ISOLATE=1` (4/4); hall, death, armoury and
+a11y together under `--repeat-each=2` 18/18; the restaged `armoury`, `meta`, `a11y`, `weapon`, `models` (with its `@nightly` cast and facing checks), `loading` and `frame-clock` 30 of 31 on the first run (the
+a11y hall scenario had asserted the hamburger disabled where the shop's CSS removes it; fixed, then passed); `controls`, `special` (the two swap scenarios), `shots` (`models-drop-*`, `@capture`, which write nothing
+without `GAME_TEST_CAPTURE`) 9 of 10 and `frame-budget`'s hall scenario, which only failed because its bounds were still placeholders until measured, then 1/1. `balance:check` was not run (nothing it reads changed).
+The full PR-gate browser run is CI's on draft PR #86; CI at 23231c8 (Stage C alone) failed exactly the ten scenarios restaged here and nothing else.
+
+### Not done / not verified
+
+- Stage G (the operator's playtest on a real GPU, a fresh profile and a legacy save) is open; the boot-cost stop rule is still Stage 0's model, not a GPU measurement.
+- The hall has only been looked at on SwiftShader; whether it reads as a place, and whether the altar and the way down are obvious, is the operator's to judge.
+- `scripts/shards/durations.json` has no row for `slots`, `hall` or `death`; each weighs the median until a green run's logs refresh it.

@@ -2,7 +2,8 @@
 
 An isometric browser dungeon crawler. Every run generates a fresh drowned
 fortress: three floors, each 10–25 freely-branching rooms of six footprint
-types, joined by bent corridors and wooden bridges, populated with guards,
+types, each its own island joined to the next by a door that opens once the
+chamber is clear (there are no corridors or bridges), populated with guards,
 stalkers and wardens to cut down.
 
 Built with React 19 RSC on [vinext](https://www.npmjs.com/package/vinext)
@@ -10,7 +11,12 @@ Built with React 19 RSC on [vinext](https://www.npmjs.com/package/vinext)
 
 ## Play
 
-Each floor is generated from its own seed, so a reload gives a new keep.
+ENTER THE KEEP opens three save slots (each keeps its own pearls, arms and run
+log; a save from before slots arrives in slot 1). Choosing one wakes you in the
+Tide Altar's hall: the altar spends pearls, a rack for every unlocked arm lets
+you choose one (walk into its ring and press the swap key), and the door in the
+far wall, the way down, settles the arm and starts the descent. Each floor is
+generated from its own seed, so every descent is a new keep.
 
 Every key below is a default and can be rebound in the pause menu; `Esc` always
 opens that menu whatever else it is set to, so a rebind cannot lock you out.
@@ -30,17 +36,17 @@ hit-stop, which is timing the fight depends on. All of it is remembered locally.
 
 Clearing every guard in a room cleanses it and restores health. Each guard is
 worth 25 XP, awarded exactly once; XP is per-run and resets on retry. Floor
-one's seed is kept, so a lost run can be taken again from the death screen,
-and the deepest descent survives a reload.
+one's seed is kept in the run log, and the deepest descent survives a reload.
 
 A run that ends, won or lost, banks pearls (a pearl a kill, 15 a floor behind
-you, 25 for escaping). The result card's TO THE GATE button returns to the
-title menu, whose **Tide Altar** spends them: it unlocks the six arms beyond
-the Tideblade and sells four small upgrades. Pearls and purchases are kept in
-the browser. The arm is chosen in the Tide Gate, the first room of floor one,
-where every unlocked arm stands on a rack (walk into a rack's ring and press the
-swap key); the first door you take locks the choice for that descent. No other
-chamber holds an arm. Everything the Altar sells costs 900 pearls in all.
+you, 25 for escaping). The result card, won or lost, has one button, RETURN TO
+THE ALTAR, which takes you back to the hall; the **Tide Altar** there spends the
+pearls: it unlocks the six arms beyond the Tideblade and sells four small
+upgrades. Pearls and purchases are kept in the browser, per slot. The arm is
+chosen on the racks of the hall, where every unlocked arm stands on a rack, and
+the way down locks the choice for that descent. No chamber holds an arm.
+Everything the Altar sells costs 900 pearls in all. The hall's pause menu has
+LEAVE TO TITLE, which returns to the slot picker.
 
 ## Layout
 

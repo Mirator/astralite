@@ -421,3 +421,21 @@ Full detail, with every plant and its failure message, is in `game/progress.md` 
   Two plants survived once (a redundant disarm handler, since deleted; a CSS rule overridden by its own later declaration, redone).
 - **Gates**: typecheck, lint, `npm test` 391/391, `build` and `build:check`; `balance:check` 72 of 72 equal to `bands.json` (467 s); local `slots.spec.ts` 4/4 pooled and 4/4 isolated, restaged specs 26/26;
   the full PR-gate browser run is CI on draft PR #86 at f24e1d6 (green on all three shards; 140 scenarios), not a local run.
+
+### Stages C, D, E and F (2026-10-02)
+
+Full detail, with every plant and its failure message, is in `game/progress.md` ("Plan 020 Stages C, D, E and F").
+
+- **C, the hall.** `altarHall()` carries `hall: true` (a field on `Floor`; `generateFloor` is untouched and a node test holds that it has no `hall` key); `chart()` raises it on request and draws no seed;
+  the altar is the shrine's disc and crystal at the heart (`stage.altar`, heals nobody) with `AltarPanel` as a shop overlay that holds the world by `run.choosing`; the racks and `decorReservations` moved from floor
+  one to the hall; the way down is signed by `doorSignOf` (trap a) and runs `lockArm` then a veiled `restart`; the stair is not built in the hall. `?hall=skip` is the harness default, `test.use({ hall: true })` opts out.
+  Snapshot: `hall`, `altarOpen`, `hallProps`. Scenarios: `hall.spec.ts` (2). Eleven plants, each failing on its own message; two of the plan's plants could not be done as written (scenario 3's, scenario 5's), see progress.md.
+- **Frame budget** (SwiftShader, 2026-10-02): the hall bare 218 calls / 114,629 triangles / 69 shadow calls, with six racks 289 / 119,695 / 100, against the old gate's 298 / 203,164 / 87 (-3.0% on calls); bounded on both sides
+  in `frame-budget.spec.ts`. Stage 0's boot-cost model is unchanged and unmeasured on a GPU.
+- **D, death and return.** Both cards have one button, RETURN TO THE ALTAR (a veiled build of the hall; NEW DESCENT, SAME KEEP and TO THE GATE are gone, `restart:<seed>` is a command only); LEAVE TO TITLE is in the hall's
+  pause menu only. `death.spec.ts` (2): a death on floor 2 by a real blow, the card, the hook retry, the return, the pearls in the shop, LEAVE TO TITLE; a win staged with the arena's open stair. Six plants.
+- **E, restaging.** Every item of Stage 0's exposure list: `armoury`, `meta` (the shop's Tab order, purchases, refusal and phone rows are back), `a11y`, `loading`, `frame-clock` (the cold press into the hall at its two warm-up
+  frames), `frame-budget`, the node reservation tests; and the pooled scenarios that need an armoury rebuild the page as the hall by hook (`controls`, `weapon`, `special` x2, `models` x2, `shots`). No skip, no widened `DRIFTS`.
+- **F, documents.** `GAME_OVERVIEW.md`, `README.md` (also the stale corridors and bridges), `game/tests/README.md`, `plans/README.md`, `game/progress.md`.
+- **Gates.** typecheck, lint, `npm test` 392/392, `build` and `build:check`; local browser specs as listed in progress.md (hall and death also under `GAME_TEST_ISOLATE=1`, and 18/18 over `--repeat-each=2`);
+  `balance:check` not run (no rule, sim or generator change). The full PR gate is CI's on #86. Stage G is open.
