@@ -85,8 +85,19 @@ export const bindKey = (binds: Binds, action: Action, code: string): Binds | nul
   return next;
 };
 
-const BEST_KEY = 'drowned-keep:best', SEED_KEY = 'drowned-keep:seed', RUNS_KEY = 'drowned-keep:runs', SETTINGS_KEY = 'drowned-keep:settings';
-export const META_KEY = 'drowned-keep:meta';
+const SETTINGS_KEY = 'drowned-keep:settings';
+// Plan 020: progress belongs to a save slot, the machine's own choices do not. A slot holds four cells (the pearls and
+// arms, the deepest run, the last keep's seed and the run log) under `drowned-keep:<slot>:<cell>`; the settings and the
+// bindings stay one per device, and so does `drowned-keep:slot`, the slot last played. The pre-slot build wrote the same
+// four cells without the slot, and they are only ever read by `migrateLegacy`.
+export type Slot = 1 | 2 | 3;
+export const SLOTS: readonly Slot[] = [1, 2, 3];
+export const SLOT_CELLS = ['meta', 'best', 'seed', 'runs'] as const;
+export type SlotCell = typeof SLOT_CELLS[number];
+export type SlotCells = Record<SlotCell, string | null>;
+export const slotKey = (slot: Slot, name: SlotCell) => `drowned-keep:${slot}:${name}`;
+export const legacyKey = (name: SlotCell) => `drowned-keep:${name}`;
+const LAST_SLOT_KEY = 'drowned-keep:slot';
 const CAUSES: readonly string[] = [...ENEMY_KINDS, 'hazard'];
 
 // An entry is ~150 bytes of JSON, so the whole log is ~15 KB — a few hundred times under the smallest
@@ -237,15 +248,60 @@ export const parseMeta = (raw: string | null): Meta => {
 const read = (key: string) => { try { return localStorage.getItem(key); } catch { return null; /* storage blocked */ } };
 const write = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* storage blocked: this run simply is not remembered */ } };
 
-export const readBest = () => parseBest(read(BEST_KEY));
-export const writeBest = (run: BestRun) => write(BEST_KEY, JSON.stringify(run));
-export const readSeed = () => parseSeed(read(SEED_KEY));
-export const writeSeed = (seed: number) => write(SEED_KEY, String(seed >>> 0));
-export const readRuns = () => parseRuns(read(RUNS_KEY));
+const remove = (key: string) => { try { localStorage.removeItem(key); } catch { /* storage blocked: nothing was kept to erase */ } };
+
+// Every reader and writer of progress names the slot it speaks for. (Stage A of plan 020: the game still passes slot 1
+// everywhere, until the slot picker of Stage B chooses one.)
+export const readBest = (slot: Slot) => parseBest(read(slotKey(slot, 'best')));
+export const writeBest = (slot: Slot, run: BestRun) => write(slotKey(slot, 'best'), JSON.stringify(run));
+export const readSeed = (slot: Slot) => parseSeed(read(slotKey(slot, 'seed')));
+export const writeSeed = (slot: Slot, seed: number) => write(slotKey(slot, 'seed'), String(seed >>> 0));
+export const readRuns = (slot: Slot) => parseRuns(read(slotKey(slot, 'runs')));
 // Trimmed again here rather than trusting the caller: `write` swallows a quota error, and a silently
 // dropped write is exactly how a log would stop growing without anyone noticing.
-export const writeRuns = (log: RunEnd[]) => write(RUNS_KEY, JSON.stringify(log.slice(-RUN_LOG_CAP)));
+export const writeRuns = (slot: Slot, log: RunEnd[]) => write(slotKey(slot, 'runs'), JSON.stringify(log.slice(-RUN_LOG_CAP)));
+export const readMeta = (slot: Slot) => parseMeta(read(slotKey(slot, 'meta')));
+export const writeMeta = (slot: Slot, meta: Meta) => write(slotKey(slot, 'meta'), JSON.stringify(meta));
 export const readSettings = () => parseSettings(read(SETTINGS_KEY));
 export const writeSettings = (settings: Settings) => write(SETTINGS_KEY, JSON.stringify(settings));
-export const readMeta = () => parseMeta(read(META_KEY));
-export const writeMeta = (meta: Meta) => write(META_KEY, JSON.stringify(meta));
+
+// The slot last played, a device's choice like the volume. Anything but 1, 2 or 3 is no choice at all.
+export const parseSlot = (raw: string | null): Slot | null => { const slot = raw === null ? NaN : Number(raw); return slot === 1 || slot === 2 || slot === 3 ? slot : null; };
+export const readSlot = () => parseSlot(read(LAST_SLOT_KEY));
+export const writeSlot = (slot: Slot) => write(LAST_SLOT_KEY, String(slot));
+
+/** A slot's four cells exactly as stored, unparsed: what the picker summarises and what migration copies. */
+export const readCells = (slot: Slot): SlotCells => ({ meta: read(slotKey(slot, 'meta')), best: read(slotKey(slot, 'best')), seed: read(slotKey(slot, 'seed')), runs: read(slotKey(slot, 'runs')) });
+export const readLegacyCells = (): SlotCells => ({ meta: read(legacyKey('meta')), best: read(legacyKey('best')), seed: read(legacyKey('seed')), runs: read(legacyKey('runs')) });
+
+/** A slot is empty when none of its cells has ever been written. A cell that is there but unreadable still counts as a slot somebody played, so it is never copied over or shown as new. */
+export const cellsEmpty = (cells: SlotCells) => SLOT_CELLS.every(name => cells[name] === null);
+
+/**
+ * What the picker shows for one slot, read off its four cells: the pearls and arms of the meta, the deepest floor of the
+ * best run (0 before any), and the runs in the log. Each field is re-validated like any other read, so a damaged cell
+ * shows as the zero it reads as.
+ */
+export const summariseSlot = (cells: SlotCells) => {
+  const meta = parseMeta(cells.meta);
+  return { empty: cellsEmpty(cells), pearls: meta.pearls, best: parseBest(cells.best)?.floor ?? 0, runs: parseRuns(cells.runs).length, arms: meta.arms.length };
+};
+export const slotSummary = (slot: Slot) => summariseSlot(readCells(slot));
+
+/** Forget one slot: its four cells and nothing else, so the other slots, the settings and the slot last played stay. The legacy cells are left alone as well. */
+export const eraseSlot = (slot: Slot) => { for (const name of SLOT_CELLS) remove(slotKey(slot, name)); };
+
+/**
+ * The writes that bring a pre-slot save into slot 1 (plan 020, D2): each legacy cell that exists, copied verbatim under
+ * its slot-1 key, and none at all when slot 1 holds anything - a slot somebody has already played is never overwritten,
+ * so running this on every boot is safe. It deletes nothing; the legacy cells stay, which is what makes a rollback safe.
+ * Pure: the game reads the cells, calls this, and applies what comes back (`migrateStored`).
+ */
+export const migrateLegacy = (legacy: SlotCells, slot1: SlotCells): { key: string; value: string }[] => {
+  const writes: { key: string; value: string }[] = [];
+  if (!cellsEmpty(slot1)) return writes;
+  for (const name of SLOT_CELLS) { const value = legacy[name]; if (value !== null) writes.push({ key: slotKey(1, name), value }); }
+  return writes;
+};
+/** `migrateLegacy` against the real store; returns how many cells it wrote. */
+export const migrateStored = () => { const writes = migrateLegacy(readLegacyCells(), readCells(1)); for (const { key, value } of writes) write(key, value); return writes.length; };

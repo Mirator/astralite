@@ -36,7 +36,7 @@ import { createSparks } from './dungeon-sparks';
 import { nearestFirst } from './dungeon-nearest';
 import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
-import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readMeta, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings } from './dungeon-save';
+import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, readBest, readMeta, readRuns, readSeed, readSettings, RESERVED, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
 import { bank, buyArm, buyUpgrade, chooseArm, freshMeta, pearlsFor, runStart as metaRunStart, UPGRADES, type Meta } from './dungeon-meta';
 import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
@@ -51,6 +51,9 @@ import { applyCombatFixture } from './dungeon-fixture';
 import { actorStat, countDisposals, drainGpu, lightDiagnostics, pointLightCount, textureHash, type GameToolContext, type HookedWindow, type TestHooks } from './dungeon-test-hooks';
 
 const FLOORS = 3;
+// Plan 020 Stage A: every read and write of progress now names a save slot, and until the picker of Stage B lets the player choose one
+// the game plays slot 1. (A pre-slot save is not carried over yet: `migrateStored` is called at mount in Stage B.)
+const SLOT: Slot = 1;
 /** Short in-world lines, crossfaded one at a time under the bar (CSS only). */
 // What the prompt at the foot of the screen says a door leads to (plan 017).
 const DOOR_WORDS: Record<DoorSign, string> = { mend: 'a mending', cache: 'a purse of experience', rest: 'a quiet shrine', stair: 'the stair down', fight: 'a fight' };
@@ -184,16 +187,16 @@ export default function DungeonGame() {
   // Selected once when the box appears or its text changes; an inline callback ref would re-select on every render and undo a hand selection.
   const exportBox = useRef<HTMLTextAreaElement>(null);
   useEffect(() => { exportBox.current?.select(); }, [exportText, paused]);
-  const copyRuns = () => { const runs = readRuns(); if (!runs.length) { setExportText(''); setExportNote('No runs recorded yet'); return; } const text = serialiseRunExport(runs, new Date()); const count = `${runs.length} ${runs.length === 1 ? 'run' : 'runs'}`; const fallback = () => { setExportText(text); setExportNote(`Copy the ${count} below`); }; if (!navigator.clipboard?.writeText) { fallback(); return; } navigator.clipboard.writeText(text).then(() => { setExportText(''); setExportNote(`Copied ${count}`); }, fallback); };
+  const copyRuns = () => { const runs = readRuns(SLOT); if (!runs.length) { setExportText(''); setExportNote('No runs recorded yet'); return; } const text = serialiseRunExport(runs, new Date()); const count = `${runs.length} ${runs.length === 1 ? 'run' : 'runs'}`; const fallback = () => { setExportText(text); setExportNote(`Copy the ${count} below`); }; if (!navigator.clipboard?.writeText) { fallback(); return; } navigator.clipboard.writeText(text).then(() => { setExportText(''); setExportNote(`Copied ${count}`); }, fallback); };
   const [ended, setEnded] = useState<RunEnd | null>(null);
   // Plan 019: the pearl balance, what is bought and which arms are unlocked, as the title menu, the Tide Altar and the
   // result card show them. A mirror of the save, never the source: the world closure re-reads the save at every run
   // start and at every bank, and `buy` below re-reads it before it spends (D11).
   const [meta, setMeta] = useState<Meta>(freshMeta), [altarNote, setAltarNote] = useState('');
   const buy = (kind: AltarKind, id: string, refusal: string) => {
-    const stored = readMeta(), next = kind === 'arm' ? buyArm(stored, id) : buyUpgrade(stored, id);
+    const stored = readMeta(SLOT), next = kind === 'arm' ? buyArm(stored, id) : buyUpgrade(stored, id);
     if (!next) { setMeta(stored); setAltarNote(refusal); return; }
-    writeMeta(next); const kept = readMeta(); setMeta(kept);
+    writeMeta(SLOT, next); const kept = readMeta(SLOT); setMeta(kept);
     const label = kind === 'arm' ? weaponById(id as WeaponId).name : UPGRADES.find(upgrade => upgrade.id === id)?.name ?? id;
     setAltarNote(JSON.stringify(kept) === JSON.stringify(next) ? `${label} ${kind === 'arm' ? 'unlocked' : 'bought'}.` : `${label} could not be saved: this browser is not keeping the keep’s memory.`);
   };
@@ -259,7 +262,7 @@ export default function DungeonGame() {
     if (status !== 'won' && status !== 'lost') return;
     // An arena is a chosen fight, not a descent: it sets no record.
     if (arenaOn) return;
-    const record = (run: BestRun) => { setBest(run); writeBest(run); };
+    const record = (run: BestRun) => { setBest(run); writeBest(SLOT, run); };
     const next = betterRun(best, { floor: floorLevel, xp: experience, kills: defeated, won: status === 'won' });
     if (next && next !== best) record(next);
   }, [status, floorLevel, experience, defeated, best, arenaOn]);
@@ -475,11 +478,11 @@ export default function DungeonGame() {
         arm: runArm, upgrades: { ...runUpgrades }, pearls: arena ? 0 : pearlsFor({ floor: level, won: !cause, kills: run.kills }) };
       setEnded(end);
       if (arena) return;
-      const log = appendRun(readRuns(), end);
-      writeRuns(log); setRunLog(log);
+      const log = appendRun(readRuns(SLOT), end);
+      writeRuns(SLOT, log); setRunLog(log);
       // Banked after the arena return and after the log, win or lose (D2). The save is re-read first, for the same
       // second-tab reason as the log; `endRun` refuses a second entry for one run, so a run can only be paid once.
-      const banked = bank(readMeta(), end); writeMeta(banked); setMeta(banked);
+      const banked = bank(readMeta(SLOT), end); writeMeta(SLOT, banked); setMeta(banked);
     };
     // Second Tide (plan 019): `hurt` has already stood the knight up at 40% and spent the revive; this is the moment
     // it deserves on screen. The flag is the sim's, and it is cleared here so each revive is shown once.
@@ -814,7 +817,7 @@ export default function DungeonGame() {
     // door out is taken; an arena keeps the one rack `build` laid (D14). Left as it is when the racks already stand as they should (the first ENTER asks again).
     const layGateRacks = () => {
       if (arena) return;
-      const owned = level === 1 && !armLocked ? readMeta().arms : [];
+      const owned = level === 1 && !armLocked ? readMeta(SLOT).arms : [];
       const want = gateRacks(floor).filter(slot => owned.includes(slot.arm) && slot.arm !== pc.weapon.id);
       if (want.length === racks.length && want.every((slot, at) => racks[at].kind === slot.arm)) return;
       clearRacks(); showOffer(null);
@@ -824,8 +827,8 @@ export default function DungeonGame() {
     // written to the save here and not at run end, so a run lost on floor one still remembers the choice.
     const lockArm = () => {
       armLocked = true; runArm = pc.weapon.id;
-      const chosen = chooseArm(readMeta(), pc.weapon.id);
-      if (chosen) { writeMeta(chosen); setMeta(chosen); }
+      const chosen = chooseArm(readMeta(SLOT), pc.weapon.id);
+      if (chosen) { writeMeta(SLOT, chosen); setMeta(chosen); }
       clearRacks();
     };
     // What a floor build borrows from the world: the shared telegraph art, the scene root and the cutaway
@@ -1073,7 +1076,7 @@ export default function DungeonGame() {
       phase('generate'); yield;
       // Floor 1 is the run's fingerprint: keeping its seed is what lets a lost run be taken again, and it
       // is what a logged entry carries, so the log is held here rather than read off the current floor.
-      if (level === 1) { firstSeed = floor.seed; runStart = elapsed; setRunSeed(floor.seed); if (!arena) writeSeed(floor.seed); }
+      if (level === 1) { firstSeed = floor.seed; runStart = elapsed; setRunSeed(floor.seed); if (!arena) writeSeed(SLOT, floor.seed); }
       floorGroup = new THREE.Group(); world.add(floorGroup);
       // endSpecial first: a spear in the air is one of the shots, and dropping it without it leaves the arm out of hand.
       swingHits.clear();slash.clear();endSpecial();clearShots();blood.clear();posePlayer(0);
@@ -1150,7 +1153,7 @@ export default function DungeonGame() {
     // An arena restarts on its own floor rather than on floor one.
     const restart = (seed?: number, then?: () => void, startLevel = arena?.level ?? 1) => veiled(seed === undefined ? 'A new keep rises' : 'The same keep, again', { level: startLevel, seed }, async (token) => {
       // D11: dealt from the save as it is now. The pooled reset clears storage just before it calls this.
-      const meta = readMeta(), start = metaRunStart(meta); setMeta(meta);
+      const meta = readMeta(SLOT), start = metaRunStart(meta); setMeta(meta);
       run = createRun(start); remember(meta); atGate = false; boonsTaken = [];
       endSpecial(); specialWasReady = true;
       resetControl(pc); hurtFlash = 0; shake = 0; clearShots();
@@ -1171,7 +1174,7 @@ export default function DungeonGame() {
       audio.pause(false);
     }, then);
     // Read before floor 1 overwrites the stored seed, so "Last keep" still offers the previous visit's.
-    const restoreSave = () => { setBest(readBest()); setPriorSeed(readSeed()); setRunLog(readRuns()); setMeta(readMeta()); };
+    const restoreSave = () => { setBest(readBest(SLOT)); setPriorSeed(readSeed(SLOT)); setRunLog(readRuns(SLOT)); setMeta(readMeta(SLOT)); };
     restoreSave();
     // Floor 1 is not built here. The menu is in the prerendered page and is what a visitor sees first, and
     // nothing below runs until ENTER THE KEEP asks for it (see `boot`, called on demand from the press
@@ -1411,7 +1414,7 @@ export default function DungeonGame() {
     const enter = () => { enterWhenBuilt = false; setEntering(false); if (hasStarted) return;
       // D11 again: the first descent never passes through `restart`, and a purchase may have been made since the keep
       // was built. A run `restart` has just dealt from this same save is left alone.
-      const meta = readMeta(); setMeta(meta);
+      const meta = readMeta(SLOT); setMeta(meta);
       if (JSON.stringify(meta) !== dealt) {
         const start = metaRunStart(meta); run = createRun(start); remember(meta);
         setHealth(run.hp); setMaxHealth(run.maxHp);
@@ -2266,11 +2269,11 @@ export default function DungeonGame() {
       },
       // Straight off the store, re-validated on the way out, so what comes back is what a later session
       // would also see — not whatever this session happens to be holding in React state.
-      runLog: () => readRuns(),
+      runLog: () => readRuns(SLOT),
       // Plan 019. Both go through the save, not through anything the closure holds: `meta` is what a later session
       // would read, and `setMeta` is fixture setup that takes effect at the next run start, as a purchase does.
-      meta: () => readMeta(),
-      setMeta: (value) => { writeMeta(value); setMeta(readMeta()); },
+      meta: () => readMeta(SLOT),
+      setMeta: (value) => { writeMeta(SLOT, value); setMeta(readMeta(SLOT)); },
     };
     // Development only. A guard one blow from death while another attacker's windup expires in the very
     // same update is not a state real play reaches, and the freeze-on-rank-up regression needs exactly that
@@ -2477,7 +2480,7 @@ export default function DungeonGame() {
   // during render rather than in an effect, so a reopened card never paints the stale page for a frame.
   const [menuWasOpen, setMenuWasOpen] = useState(menuOpen);
   if (menuWasOpen !== menuOpen) { setMenuWasOpen(menuOpen); setMenuView('main'); }
-  const openView = (view: 'controls' | 'settings' | 'arena' | 'altar') => { returnTo.current = view; if (view === 'altar') { setMeta(readMeta()); setAltarNote(''); } setMenuView(view); };
+  const openView = (view: 'controls' | 'settings' | 'arena' | 'altar') => { returnTo.current = view; if (view === 'altar') { setMeta(readMeta(SLOT)); setAltarNote(''); } setMenuView(view); };
   const closeView = () => { setCapturing(null); setBindNote(''); setMenuView('main'); };
   // Focus goes back to the item that opened the page, so a keyboard player lands where they left. A stable
   // callback ref runs once, when the menu list mounts again, which is exactly the moment to do it.

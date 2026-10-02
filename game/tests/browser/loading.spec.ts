@@ -352,7 +352,7 @@ test.describe('with a keep remembered from a previous visit', () => {
       origins: [
         {
           origin: `http://127.0.0.1:${process.env.GAME_TEST_PORT ?? 3000}`,
-          localStorage: [{ name: 'drowned-keep:seed', value: String(remembered) }],
+          localStorage: [{ name: 'drowned-keep:1:seed', value: String(remembered) }],
         },
       ],
     },

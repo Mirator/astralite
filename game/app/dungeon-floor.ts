@@ -317,6 +317,8 @@ export type GateRack = { arm: WeaponId; x: number; z: number };
 export const GATE_ARMS: readonly WeaponId[] = [STARTING_WEAPON, ...FOUND_WEAPONS];
 /** Slots stand at least this far apart, so standing in one rack's ring can never also be standing in another's. */
 export const GATE_SPACING = 2 * PICKUP_RADIUS;
+/** World units kept clear round a gate's heart: the weapon drop's own rule, and room for the altar the hall (plan 020) stands there. */
+export const HEART_CLEAR = 1.9;
 
 /**
  * The armoury of the floor-one Tide Gate (plan 019, D8): one slot for each arm in `GATE_ARMS`, a fixed layout
@@ -340,7 +342,7 @@ export function gateRacks(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors'>): Gate
   const free = floor.tiles
     .filter(t => t.room === gate.id && own(t.x, t.z) && shut.every(way => Math.hypot(way.x - t.x, way.z - t.z) >= 2))
     .map(t => ({ x: t.x * TILE, z: t.z * TILE }))
-    .filter(spot => Math.hypot(spot.x - heart.x, spot.z - heart.z) > 1.9);
+    .filter(spot => Math.hypot(spot.x - heart.x, spot.z - heart.z) > HEART_CLEAR);
   const apart = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z) >= GATE_SPACING - 1e-9;
   const away = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
   const reach = { x: Math.min(gate.halfX - 1, 4) * TILE, z: Math.min(gate.halfZ - 1, 3) * TILE };
@@ -361,6 +363,29 @@ export function gateRacks(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors'>): Gate
     picked = seat(0, []) ?? picked;
   }
   return picked.map((spot, i) => ({ arm: GATE_ARMS[i], x: spot.x, z: spot.z }));
+}
+
+/** The seed of the hall's room, fixed for good: the hall is this room on every visit. */
+export const HALL_SEED = 2063;
+
+/**
+ * The Tide Altar's hall (plan 020, D4): the Tide Gate of `generateFloor(HALL_SEED, 1)` and nothing else. Room 0 with its
+ * floor and props, the first door the generator cut from it (in `doors` order) and not the alcove of any other, no
+ * spawns, no edges; `goal` is the room itself, so the floor is well formed, but the game builds no stair there. It
+ * makes no draw of its own and the seed is a constant, so it is the same room on every call and in every process, and it
+ * leaves the stream of every other seed alone. `seed` exists for the test sweep; the game never passes it.
+ */
+export function altarHall(seed = HALL_SEED): Floor {
+  const floor = generateFloor(seed, 1), gate = floor.rooms[0];
+  const own = (x: number, z: number) => Math.abs(x - gate.x) <= gate.halfX && Math.abs(z - gate.z) <= gate.halfZ && carves(gate, x - gate.x, z - gate.z);
+  const doors = floor.doors.filter(door => door.from === gate.id), kept = doors[0];
+  // A door was cut back into the wall, a tile at a time, until masonry stood on both sides: those tiles are the ones going back from the door that the gate's own floor does not hold.
+  const alcoves = new Set<string>();
+  for (const door of doors.slice(1)) for (let at = { x: door.x, z: door.z }, back = 0; back < 4 && !own(at.x, at.z); back++, at = { x: at.x - door.face.x, z: at.z - door.face.z }) alcoves.add(cellKey(at.x, at.z));
+  const tiles = floor.tiles.filter(t => t.room === gate.id && !alcoves.has(cellKey(t.x, t.z)));
+  const cells = new Set(tiles.map(t => cellKey(t.x, t.z)));
+  const bounds = { minX: Math.min(...tiles.map(t => t.x)), maxX: Math.max(...tiles.map(t => t.x)), minZ: Math.min(...tiles.map(t => t.z)), maxZ: Math.max(...tiles.map(t => t.z)) };
+  return { seed, level: 1, rooms: [gate], edges: [], doors: [kept], cells, tiles, roomByCell: new Map(tiles.map(t => [cellKey(t.x, t.z), t.room])), bounds, props: floor.props.filter(p => p.room === gate.id), spawns: [], weaponDrop: floor.weaponDrop, start: 0, goal: gate.id, spine: [gate.id], guardCount: 0 };
 }
 
 export function canStand(cells: Set<string>, x: number, z: number, radius = 0.32) {

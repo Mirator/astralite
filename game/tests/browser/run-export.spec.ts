@@ -13,7 +13,7 @@ const STORED: RunEnd[] = [
 
 // A stored blob is read on mount, so this scenario gets its own page (helpers.ts `needsOwnPage`).
 test.use({
-  storageState: { cookies: [], origins: [{ origin: ORIGIN, localStorage: [{ name: 'drowned-keep:runs', value: JSON.stringify(STORED) }] }] },
+  storageState: { cookies: [], origins: [{ origin: ORIGIN, localStorage: [{ name: 'drowned-keep:1:runs', value: JSON.stringify(STORED) }] }] },
 });
 
 test('Copy run log puts the stored runs on the clipboard, and falls back to a read-only box when the clipboard refuses', async ({ game, page }) => {
