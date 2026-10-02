@@ -1084,6 +1084,47 @@ export class Game {
   }
 
   /**
+   * Plan 020: rebuilds the page as the Tide Altar's hall by hook, synchronously, the way `buildFloor` builds a deeper floor. For a scenario that needs the
+   * armoury (it only stands there) but is about something else: the run in hand, its arm and its clocks, carry over. The pooled reset returns the page to floor
+   * one, and `hall.spec.ts` is what walks in through the real flow.
+   */
+  async buildHall() {
+    await this.page.evaluate(() => {
+      const hook = (window as GameWindow).dungeonTest;
+      if (!hook) throw new Error('dungeonTest is gone');
+      hook.buildHall();
+    });
+    await this.step(0);
+  }
+
+  /**
+   * Plan 020: from the hall, stands the knight at the way down (a teleport, as a door was teleported to before) and takes it with the real swap key, then
+   * waits out the veiled build of floor one. The prompt is asserted on the way, so a way down that did not offer itself fails here by name.
+   */
+  async takeWayDown() {
+    const hall = await this.state();
+    expect(hall.hall, 'takeWayDown starts in the hall').toBe(true);
+    const down = hall.hallProps!.wayDown!;
+    await this.teleport(down.x, down.z);
+    await this.step(200);
+    await expect(this.page.locator('.swap-prompt'), 'the way down does not offer itself').toContainText('take the way down');
+    await press(this.page, 'swap');
+    await this.built();
+    await this.step(16);
+    expect((await this.state()).hall, 'the way down led back to the hall').toBe(false);
+  }
+
+  /** Plan 020: from the hall, stands the knight at the altar (a teleport) and opens its shop with the real swap key. */
+  async openAltar() {
+    const altar = (await this.state()).hallProps!.altar!;
+    await this.teleport(altar.x, altar.z);
+    await this.step(64);
+    await press(this.page, 'swap');
+    await this.step(16);
+    expect((await this.state()).altarOpen, 'the swap key at the altar did not open the shop').toBe(true);
+  }
+
+  /**
    * Waits out a floor build deferred behind the loading veil. The veil is raised
    * in the same breath as the action that asks for the build, so `building` is
    * already true by the time a click resolves; what this waits for is the frames
