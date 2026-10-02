@@ -91,14 +91,14 @@ What the operator asked for, 2026-10-02:
 | # | Decision | Chosen | Why |
 | --- | --- | --- | --- |
 | D1 | What a slot holds | **Per slot: meta, best, the last-keep seed and the run log. Per device: settings and key bindings, plus a new `drowned-keep:slot`, the slot last played.** Keys become `drowned-keep:<n>:meta` and so on, for n in 1..3. | Progress is a player's; volume and bindings are the machine's. The run log is per slot so a playtester's log describes one progression, not three mixed (plan 019 D12 again). |
-| D2 | Existing saves **(operator)** | **The first boot of this build copies the five legacy per-player keys into slot 1, only if slot 1 is empty, and leaves the legacy keys in place.** It is a pure function from the old cells to the new ones, plus one write. | Nobody loses plan 019 progress. Leaving the old keys costs nothing and makes a rollback safe. |
+| D2 | Existing saves (operator, agreed 2026-10-02) | **The first boot of this build copies the five legacy per-player keys into slot 1, only if slot 1 is empty, and leaves the legacy keys in place.** It is a pure function from the old cells to the new ones, plus one write. | Nobody loses plan 019 progress. Leaving the old keys costs nothing and makes a rollback safe. |
 | D3 | The title screen | **ENTER THE KEEP opens the slot picker:** three cards, each showing pearls, deepest floor, runs logged and arms owned, or "Empty". Choosing a card enters that slot. Each card has **Erase**, which needs a second confirming press. Settings, Controls & journey and Copy run log stay on the title. **The title's Tide Altar panel is removed**: the shop lives in the room. | Three is the operator's number. Erasing is the only destructive act, so it costs two presses. Copy run log exports the slot last played and names it. |
 | D4 | The hall | **A new pure `altarHall()` in `dungeon-floor.ts`: room 0 of `generateFloor(HALL_SEED, 1)`, its tiles and props, and exactly one of its doors.** `HALL_SEED` is a fixed constant, so the hall is the same room every time and draws nothing from `crypto.getRandomValues`, which keeps pinned test seeds aligned. `goal` is 0, but the stair is not built in the hall. The hall is lit by the room's own braziers. | Reusing the generator gives a lit, walkable, decor-dressed room for free, and the Tide Gate is a crypt that Stage 0 of plan 019 found always seats seven rack slots. A fixed seed means one layout to test and one to judge by eye. |
 | D5 | The hall's mode | **A closure flag `hall`, modelled on `arena`.** It is set by `chart()`. While it is set, `hasStarted` is true and `gameStatus` is `'playing'`, so movement, the prompt and the swap key all work. There are no enemies, no XP and no HUD vitality or rank bar (minimal HUD: the knight is not at risk). `writeSeed`, `endRun`, the best run and the map are off. The snapshot gains `hall: boolean` and `slot: 1 \| 2 \| 3 \| null`. | The arena already proves this shape. A separate mode keeps every floor rule (rooms, doors, `settleRoom`) untouched. |
 | D6 | What stands in the hall | **Three things.** (1) **The altar**: the sanctuary shrine's mesh at the room's heart, so no new figure. Standing at it, the swap key opens the shop: plan 019's `AltarPanel`, as an overlay that holds the world the way a boon draft does (`run.choosing`). (2) **The armoury**: plan 019's racks, laid by `gateRacks(hall)` for every owned arm except the one in hand. (3) **The way down**: the hall's one kept door, signed "The way down". | Hades' House is a place you walk through to what you want. Each of the three is one existing mechanism moved, not a new one. |
 | D7 | Where the arm is chosen | **In the hall, not on floor 1.** The racks leave the Tide Gate. Floor 1's Tide Gate goes back to an empty starting chamber, and the decor reservation moves from `floor.level === 1` to the hall. `lockArm` moves from "the first door out of the Tide Gate" to "the way down out of the hall". Its rule is unchanged: the arm in hand is written to `meta.arm`, and racks cannot be used again until the next visit to the hall. | The operator's plan 019 D9 ("chosen in the starting room, no changing in game") still holds, and the starting room is now the hall. The generator's floor 1 does not change, so the balance sim, `spawns-017.json` and `rewards-019.json` stay valid. |
 | D8 | Starting a run | **Taking the way down** (swap key at the door) locks the arm, then runs a veiled build of floor 1 with a fresh run on a new seed, through the same `restart` path NEW DESCENT uses today. | One path into a run, so the meta, the arm and the seed are dealt in one place. |
-| D9 | The death card **(operator)** | **"The dark takes you."** It shows its existing contents (cause, time, boons, pearls earned) and two buttons: **RETURN TO THE ALTAR** (primary, focused), which runs a veiled build of the hall; and **SAME KEEP** (lost runs only), which still restarts the same seed directly, for playtesting. NEW DESCENT and TO THE GATE are removed. A won run ("You climb into the dawn") offers only RETURN TO THE ALTAR. | Hades has no instant retry; every attempt leaves from the House. SAME KEEP stays because a reproducible seed is how a playtest report becomes a fix (`restart:<seed>`). Removing it as well is one line if the operator prefers the pure loop. |
+| D9 | The death card (operator, 2026-10-02: "same as Hades") | **"The dark takes you."** It shows its existing contents (cause, time, boons, pearls earned) and **one button, RETURN TO THE ALTAR**, focused. It runs a veiled build of the hall. NEW DESCENT, SAME KEEP and TO THE GATE are all removed. A won run ("You climb into the dawn") offers the same single button. Retrying a seed stays possible for playtesting only through the existing `restart:<seed>` command (console and test hooks), never from the card. | Hades has no instant retry; every attempt leaves from the House. The seed is still in the run log, so a playtest report can still be reproduced. |
 | D10 | Leaving the hall | **The pause menu, opened in the hall, gains LEAVE TO TITLE**, which returns to the slot picker. Mid-run, the pause menu does not offer it. | Switching slots needs a way out, but a run must not be abandoned without the death card. Abandoning a run is out of scope. |
 | D11 | Tests: entering a run | **A dev-only `?hall=skip` URL parameter, set by the harness by default (as it sets `?boot=eager`), keeps today's flow for tests:** ENTER chooses slot 1 and enters floor 1 directly. Specs about slots, the hall, the death card or loading opt out with `test.use({ hall: true })`. | 138 `game.enter()` calls stay valid and the suite pays no second build per scenario. The product path is still covered, by the specs that opt out. |
 | D12 | No balance change | The generator, the sim, `bands.json` and `dungeon-meta.ts` are untouched. | This plan is flow and place, not tuning. |
@@ -297,9 +297,11 @@ Browser scenarios (`hall.spec.ts` or `death.spec.ts`, opted out of
    Press it: the veil, then the hall, with the pearls banked and visible in
    the shop.
    - Plant: the button calls the old `toGate`.
-2. **SAME KEEP retries the seed directly.** It goes straight to floor 1 on
-   the same seed, without the hall.
-   - Plant: route it through the hall.
+2. **The card has one way out.** Neither the death card nor the win card
+   has NEW DESCENT, SAME KEEP or TO THE GATE; the only button is RETURN TO THE
+   ALTAR. `restart:<seed>` from the hook still retries a seed directly
+   (playtest path).
+   - Plant: leave SAME KEEP on the lost card.
 3. **A win returns to the hall** with only RETURN TO THE ALTAR. Stage it with
    hooks; the win itself is covered by `progression.spec.ts`.
    - Plant: the win card keeps NEW DESCENT.
@@ -312,6 +314,9 @@ Restage every scenario on the Stage 0 step 4 list:
 - the `a11y.spec.ts` button lists;
 - `armoury.spec.ts`, rewritten against the hall;
 - `meta.spec.ts`, where TO THE GATE becomes the death card's return;
+- every scenario that presses NEW DESCENT or SAME KEEP: use the hook's
+  `restart`/`restart:<seed>`, or the death card's return where the scenario
+  is about the loop;
 - `loading.spec.ts` and `frame-clock.spec.ts` on the hall path (a cold press
   now builds the hall; count the frames that path draws);
 - the specs that read legacy keys.
