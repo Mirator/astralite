@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { freshMeta, runStart, type Meta } from '../app/dungeon-meta.ts';
+import { freshMeta, runStart, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
 import { BOONS, chamberReward, createRun, DRAFT_SIZE, draftBoons, grantXp, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, MEND, TOP_UP, XP_CACHE, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
 
 // A run with the draft already open, since every boon needs that gate held down.
@@ -241,8 +241,8 @@ test('each rank of Deep Lungs raises the maximum and starts the knight on a full
 });
 
 test('Whetted Start, Keen Eye and Second Tide each reach the run, and nothing else moves', () => {
-  const run = createRun(runStart(bought({ whet: 2, eye: 1, tide: 1 })));
-  assert.deepEqual([run.strike, run.draftSize, run.defiance], [2 * STRIKE_BONUS, 4, 1]);
+  const run = createRun(runStart(bought({ whet: 1, eye: 1, tide: 1 })));
+  assert.deepEqual([run.strike, run.draftSize, run.defiance], [WHET_STRIKE, 4, 1]);
   assert.deepEqual({ ...run, strike: 0, draftSize: 3, defiance: 0 }, createRun(), 'a purchase changed a number it was not for');
 });
 

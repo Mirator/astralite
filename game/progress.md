@@ -3949,3 +3949,25 @@ the browser run could not see them).
 **Not done / not verified.** Stage E. The prices (the stop rule). No test pins a price total. The "one upgrade is most of it"
 ablation is a 150-run bot measurement, not a claim about people. The documents' statement that Second Tide restores 40% and that
 the Altar sells "four small upgrades" is read from the code, not played.
+
+## 2026-10-02 - Plan 019 Stage D finished: prices, and Whetted Start brought back to the plan
+
+The operator chose to price the shop despite Stage D's stop rule, and to cut Whetted Start to one rank. Doing it found a
+Stage A bug: `runStart` dealt `STRIKE_BONUS` (4, a whole blade, the Whetted Edge boon's size) per Whetted Start rank, two
+ranks, where plan 019 D4 says +1 per rank in the quarter-hit grain. Whetted Start is now one rank of `WHET_STRIKE` = 1.
+Stage D's single-upgrade ablation ("Whetted Start alone escapes 150 of 150") measured the oversized version.
+
+Prices (`dungeon-meta.ts`, `PRICE_TOTAL` 900 = twenty runs at Stage 0's guess of 45 pearls): Deep Lungs 30/50/70, Whetted
+Start 140, Keen Eye 70, Second Tide 90; Twin Fangs 50, Salt Spear 60, Cleaver 70, Bell Maul 80, Crossbow 90, Tideflask
+100. Two typical runs (90) buy the fangs and Deep Lungs' first rank.
+
+Tests: `tests/dungeon-meta.test.ts` "everything costs PRICE_TOTAL, and two typical runs buy an arm and a rank". Planted:
+flask 110 ("the table sums to 450 + 460, not the 900 its comment explains"); Whetted Start 40 ("the table sums to 350 +
+450"); `WHET_STRIKE` 4 ("Whetted Start must add less than a Whetted Edge boon"). Seven node tests and `meta.spec.ts`
+that pinned the old two-rank, +4 Whetted Start or the placeholder prices were restaged; `meta.spec.ts` now reads the
+prices off the table and asserts Keen Eye is out of reach before it asserts the refusal.
+
+Balance (30 runs, seed 1): meta-max 100% escape in 145.7 s (was 115.7 s); weak-meta-max 100% escape, median HP left 89.7 /
+85.2 / 78.7 (was 100 / 100 / 100), 123.8 s (was 97.5 s). The first `balance:check` failed on weak-meta-max floor-3 HP
+(78.7 below 80); its HP bands now take the weak policy's widths, with the reason in the `bands.json` note. Every other
+policy printed its previous values. Gates: typecheck, lint, `npm test` 384/384, `meta.spec.ts` + `armoury.spec.ts` 7/7.

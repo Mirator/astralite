@@ -42,7 +42,7 @@ test('a policy that says meta "max" starts every run on everything bought, and o
   assert.equal(plain.meta, undefined, 'a policy that never named a meta was dealt one');
   const maxed = buildPolicy({ dodge: 0, reaction: 0.6, meta: 'max' });
   assert.ok(maxed.meta, 'the meta flag never reached the policy');
-  assert.deepEqual(runStart(maxed.meta), { maxHp: 130, strike: 8, draftSize: 4, defiance: 1, arm: 'tideblade' });
+  assert.deepEqual(runStart(maxed.meta), { maxHp: 130, strike: 1, draftSize: 4, defiance: 1, arm: 'tideblade' });
   // The flag adds a meta and nothing else: the knight is as weak as the plain one, and holds the arm the policy names.
   assert.deepEqual({ ...maxed, meta: undefined }, { ...plain, meta: undefined });
   assert.equal(buildPolicy({ special: true, weapon: 'maul', meta: 'max' }).weapon.id, 'maul');

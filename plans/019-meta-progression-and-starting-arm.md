@@ -586,3 +586,14 @@ storage key, the pad Y line; the snapshot's `drop` was already gone from that fi
 `docs/art-direction.md` (the gate's rack slots in the reserved list), `plans/README.md` (this row). **Open: Stage E, the operator's
 human playtest, and the Stage D decision above.**
 
+
+**Stage D, completed by the operator's call (2026-10-02).** With the stop rule's finding in hand, the operator chose to
+price the shop and cut Whetted Start to one rank. Reading the code to do it turned up a Stage A deviation from D4:
+`runStart` gave `STRIKE_BONUS` (4, a whole blade) per Whetted Start rank, two ranks, where D4 asked for +1 per rank. It
+is now one rank of `WHET_STRIKE` = 1, so Stage D's ablation measured an upgrade eight times the one that ships. Prices:
+Deep Lungs 30/50/70, Whetted Start 140, Keen Eye 70, Second Tide 90; arms 50/60/70/80/90/100; `PRICE_TOTAL` 900. A node
+test pins the sum, the two-runs-buy-something rule and the one-rank, less-than-a-boon Whetted Start (plants: flask
+110, "the table sums to 450 + 460, not the 900 its comment explains"; Whetted Start 40, "350 + 450"; `WHET_STRIKE` 4,
+"Whetted Start must add less than a Whetted Edge boon"). Re-measured: meta-max 100% in 145.7 s; weak-meta-max still 100%
+but with median HP left 89.7 / 85.2 / 78.7 in 123.8 s, so its HP bands take the weak policy's widths. Escape stays
+above 98%: the difficulty pass is still owed.

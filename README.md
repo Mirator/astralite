@@ -40,7 +40,7 @@ the Tideblade and sells four small upgrades. Pearls and purchases are kept in
 the browser. The arm is chosen in the Tide Gate, the first room of floor one,
 where every unlocked arm stands on a rack (walk into a rack's ring and press the
 swap key); the first door you take locks the choice for that descent. No other
-chamber holds an arm. Prices are provisional.
+chamber holds an arm. Everything the Altar sells costs 900 pearls in all.
 
 ## Layout
 

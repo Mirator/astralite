@@ -9,7 +9,7 @@ const FIELDS = ['arm', 'at', 'boons', 'cause', 'floor', 'kills', 'pearls', 'rank
 const log = (): RunEnd[] => [
   { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 31 },
   { at: 1_700_000_500_000, floor: 1, won: false, cause: 'guard', seconds: 31, rank: 1, xp: 20, kills: 2, boons: [], seed: 7, arm: 'spear', upgrades: { lungs: 1 }, pearls: 2 },
-  { at: 1_700_001_000_000, floor: 3, won: true, cause: null, seconds: 402, rank: 6, xp: 1290, kills: 44, boons: ['edge', 'ward', 'swift'], seed: 0xffffffff, arm: 'maul', upgrades: { lungs: 3, whet: 2, eye: 1, tide: 1 }, pearls: 119 },
+  { at: 1_700_001_000_000, floor: 3, won: true, cause: null, seconds: 402, rank: 6, xp: 1290, kills: 44, boons: ['edge', 'ward', 'swift'], seed: 0xffffffff, arm: 'maul', upgrades: { lungs: 3, whet: 1, eye: 1, tide: 1 }, pearls: 119 },
 ];
 
 test('a realistic log survives the export and the parse-back unchanged', () => {
@@ -97,5 +97,5 @@ test('the new fields are held as strictly as the old ones once they are present'
 test('the arm, the upgrades and the pearls survive the export', () => {
   const back = parseRunExport(serialiseRunExport(log(), NOW))?.runs;
   assert.deepEqual(back?.map(run => [run.arm, run.pearls]), [['tideblade', 31], ['spear', 2], ['maul', 119]]);
-  assert.deepEqual(back?.[2].upgrades, { lungs: 3, whet: 2, eye: 1, tide: 1 });
+  assert.deepEqual(back?.[2].upgrades, { lungs: 3, whet: 1, eye: 1, tide: 1 });
 });

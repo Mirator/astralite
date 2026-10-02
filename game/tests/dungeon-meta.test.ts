@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { ARM_ORDER, ARM_PRICES, bank, buyArm, buyUpgrade, chooseArm, FLOORS, freshMeta, maxedMeta, pearlsFor, PEARL_CAP, rankOf, runStart, UPGRADES, type Meta } from '../app/dungeon-meta.ts';
+import { ARM_ORDER, ARM_PRICES, bank, buyArm, buyUpgrade, chooseArm, FLOORS, freshMeta, maxedMeta, pearlsFor, PEARL_CAP, PRICE_TOTAL, rankOf, runStart, UPGRADES, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
 import { FLOORS as SIM_FLOORS } from '../scripts/balance/sim.ts';
 import { STRIKE_BONUS } from '../app/dungeon-sim.ts';
 import { FOUND_WEAPONS } from '../app/dungeon-weapon.ts';
@@ -110,8 +110,8 @@ test('only an owned arm can be chosen', () => {
 
 test('a run starts with exactly what the ranks held add up to', () => {
   assert.deepEqual(runStart(freshMeta()), { maxHp: 100, strike: 0, draftSize: 3, defiance: 0, arm: 'tideblade' });
-  assert.deepEqual(runStart(rich({ upgrades: { lungs: 3, whet: 2, eye: 1, tide: 1 }, arms: ['tideblade', 'spear'], arm: 'spear' })),
-    { maxHp: 130, strike: 2 * STRIKE_BONUS, draftSize: 4, defiance: 1, arm: 'spear' });
+  assert.deepEqual(runStart(rich({ upgrades: { lungs: 3, whet: 1, eye: 1, tide: 1 }, arms: ['tideblade', 'spear'], arm: 'spear' })),
+    { maxHp: 130, strike: WHET_STRIKE, draftSize: 4, defiance: 1, arm: 'spear' });
   assert.equal(runStart(rich({ upgrades: { lungs: 1 } })).maxHp, 110);
   // A rank past the table's maximum, or an arm not owned, cannot arrive through a hand-built meta either.
   assert.equal(runStart(rich({ upgrades: { lungs: 40 } })).maxHp, 130);
@@ -128,9 +128,23 @@ test('the maxed meta has bought everything there is: nothing is left to buy and 
   for (const { id } of UPGRADES) assert.equal(buyUpgrade(rich, id), null, `${id} still had a rank to buy`);
   for (const arm of FOUND_WEAPONS) assert.equal(buyArm(rich, arm), null, `${arm} was not owned`);
   assert.equal(all.arms.length, 1 + FOUND_WEAPONS.length, 'precondition: the Tideblade and every other arm');
-  assert.deepEqual(runStart(all), { maxHp: 130, strike: 2 * STRIKE_BONUS, draftSize: 4, defiance: 1, arm: 'tideblade' });
+  assert.deepEqual(runStart(all), { maxHp: 130, strike: WHET_STRIKE, draftSize: 4, defiance: 1, arm: 'tideblade' });
   assert.equal(all.pearls, 0, 'a maxed knight carries no pearls');
   // Two calls share nothing.
   maxedMeta().arms.pop();
   assert.equal(maxedMeta().arms.length, all.arms.length);
+});
+
+// Plan 019 Stage D (2026-10-02): the whole set is priced against about twenty human runs at the Stage 0 guess of 45
+// pearls a run. The arithmetic is written beside the table in dungeon-meta.ts; a price changed here without the
+// comment and PRICE_TOTAL changing with it fails.
+test('everything costs PRICE_TOTAL, and two typical runs buy an arm and a rank', () => {
+  const upgrades = UPGRADES.reduce((sum, upgrade) => sum + Array.from({ length: upgrade.ranks }, (_, held) => upgrade.price(held)).reduce((a, b) => a + b, 0), 0);
+  const arms = Object.values(ARM_PRICES).reduce((a, b) => a + b, 0);
+  assert.equal(upgrades + arms, PRICE_TOTAL, `the table sums to ${upgrades} + ${arms}, not the ${PRICE_TOTAL} its comment explains`);
+  assert.equal(PRICE_TOTAL, 900, 'PRICE_TOTAL moved; update the arithmetic beside the table');
+  const twoRuns = 2 * 45, cheapestArm = Math.min(...Object.values(ARM_PRICES)), cheapestRank = Math.min(...UPGRADES.map(upgrade => upgrade.price(0)));
+  assert.ok(cheapestArm + cheapestRank <= twoRuns, `two typical runs (${twoRuns}) no longer buy the cheapest arm (${cheapestArm}) and rank (${cheapestRank})`);
+  assert.equal(UPGRADES.find(upgrade => upgrade.id === 'whet')?.ranks, 1, 'Whetted Start was cut to one rank (operator, 2026-10-02)');
+  assert.ok(WHET_STRIKE < STRIKE_BONUS, 'Whetted Start must add less than a Whetted Edge boon');
 });

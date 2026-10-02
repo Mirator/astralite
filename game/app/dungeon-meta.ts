@@ -6,7 +6,7 @@
 // Kept free of React, the DOM and three.js so node can execute it directly.
 import type { RunEnd } from './dungeon-save.ts';
 import { FOUND_WEAPONS, STARTING_WEAPON, type WeaponId } from './dungeon-weapon.ts';
-import { DRAFT_SIZE, START_HP, STRIKE_BONUS } from './dungeon-sim.ts';
+import { DRAFT_SIZE, START_HP } from './dungeon-sim.ts';
 
 /**
  * How many floors a descent has. The game and the balance sim each keep their own constant; a node test holds
@@ -31,22 +31,26 @@ export type Upgrade = {
 /** Vitality one rank of Deep Lungs adds. */
 export const LUNGS_HP = 10;
 
-// PRICES ARE STILL PLACEHOLDERS (plan 019). Stage D was to set them from measured earnings against D6's target of
-// about twenty human runs and write the sum and the earning assumption beside this table; it stopped first. The
-// plan's stop rule tripped (2026-10-02): the weak bot with everything bought escapes 300 of 300 runs, so the
-// upgrades take away the little tension that bot still has, and that is a finding for the operator, not a
-// price to tune around. These numbers total 1820 pearls (upgrades 920, arms 900), about 40 runs at the Stage 0
-// guess of 45 pearls a run, twice D6's target, and no test pins them. Do not read them as decided.
+/** Strike Whetted Start adds, in the quarter-hit grain: a quarter of the blade's worth `STRIKE_BONUS` (a Whetted Edge boon) adds. */
+export const WHET_STRIKE = 1;
+
+// Prices (plan 019, operator, 2026-10-02). The whole set costs PRICE_TOTAL = 900 pearls: upgrades 450 (Deep Lungs
+// 30 + 50 + 70, Whetted Start 140, Keen Eye 70, Second Tide 90) and arms 450 (50 + 60 + 70 + 80 + 90 + 100). D6 asks
+// for about twenty human runs; at the Stage 0 guess of about 45 pearls a run (no human run log existed, so it is a
+// guess from the formula and the bots' kills per floor) twenty runs earn 900. Two typical runs (90) buy the Twin
+// Fangs and Deep Lungs' first rank together, so an early death always buys something. Whetted Start is one rank and
+// the dearest single upgrade on purpose: Stage D's single-upgrade ablation found damage does the most to a bot that
+// never dodges (measured on an oversized +4 version; it is +1 now). Re-decide these once a playtest log exists.
+export const PRICE_TOTAL = 900;
 export const UPGRADES: readonly Upgrade[] = [
-  { id: 'lungs', name: 'Deep Lungs', detail: `+${LUNGS_HP} max vitality`, ranks: 3, price: held => 60 + held * 40 },
-  { id: 'whet', name: 'Whetted Start', detail: 'Begin with one more blade’s worth of bite on every strike', ranks: 2, price: held => 80 + held * 60 },
-  { id: 'eye', name: 'Keen Eye', detail: 'Boon offers show four cards instead of three', ranks: 1, price: () => 150 },
-  { id: 'tide', name: 'Second Tide', detail: 'Once a descent, a blow that would kill leaves you on your feet', ranks: 1, price: () => 250 },
+  { id: 'lungs', name: 'Deep Lungs', detail: `+${LUNGS_HP} max vitality`, ranks: 3, price: held => 30 + held * 20 },
+  { id: 'whet', name: 'Whetted Start', detail: 'Begin with a quarter blade more bite on every strike', ranks: 1, price: () => 140 },
+  { id: 'eye', name: 'Keen Eye', detail: 'Boon offers show four cards instead of three', ranks: 1, price: () => 70 },
+  { id: 'tide', name: 'Second Tide', detail: 'Once a descent, a blow that would kill leaves you on your feet', ranks: 1, price: () => 90 },
 ];
 
 export type BoughtArm = Exclude<WeaponId, 'tideblade'>;
-// Placeholder, like the upgrade prices above.
-export const ARM_PRICES: Record<BoughtArm, number> = { fangs: 100, spear: 100, cleaver: 150, maul: 150, crossbow: 200, flask: 200 };
+export const ARM_PRICES: Record<BoughtArm, number> = { fangs: 50, spear: 60, cleaver: 70, maul: 80, crossbow: 90, flask: 100 };
 
 /** Every arm in one fixed order, the Tideblade first: the order `Meta.arms` is always kept in. */
 export const ARM_ORDER: readonly WeaponId[] = [STARTING_WEAPON, ...FOUND_WEAPONS];
@@ -106,7 +110,7 @@ export type RunStart = { maxHp: number; strike: number; draftSize: number; defia
 
 export const runStart = (meta: Meta): RunStart => ({
   maxHp: START_HP + LUNGS_HP * rankOf(meta.upgrades, 'lungs'),
-  strike: STRIKE_BONUS * rankOf(meta.upgrades, 'whet'),
+  strike: WHET_STRIKE * rankOf(meta.upgrades, 'whet'),
   draftSize: DRAFT_SIZE + rankOf(meta.upgrades, 'eye'),
   defiance: rankOf(meta.upgrades, 'tide'),
   arm: meta.arms.includes(meta.arm) ? meta.arm : STARTING_WEAPON,

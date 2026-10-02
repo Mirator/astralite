@@ -202,7 +202,7 @@ test('a meta field that is wrong costs that field and leaves the rest', () => {
   assert.equal(pearls(1e12), PEARL_CAP);
   assert.deepEqual(parseMeta(stored({ ...BOUGHT, pearls: -30 })).upgrades, BOUGHT.upgrades);
   // A rank over its maximum is held to it; an unknown id is dropped; a stray number is not a rank.
-  assert.deepEqual(parseMeta(stored({ ...BOUGHT, upgrades: { lungs: 9, whet: 2, ghost: 4, eye: -1 } })).upgrades, { lungs: 3, whet: 2 });
+  assert.deepEqual(parseMeta(stored({ ...BOUGHT, upgrades: { lungs: 9, whet: 2, ghost: 4, eye: -1 } })).upgrades, { lungs: 3, whet: 1 });
   // An unknown arm is dropped and the known ones stay, in the table's order, once each.
   assert.deepEqual(parseMeta(stored({ ...BOUGHT, arms: ['maul', 'lance', 'spear', 'maul', 7, 'tideblade'] })).arms, ['tideblade', 'spear', 'maul'], 'unknown or repeated arms were not cleaned');
   // The Tideblade is owned whatever the cell says, including a cell that lists nothing.

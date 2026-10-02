@@ -1,4 +1,4 @@
-import { ARM_ORDER, freshMeta, pearlsFor, UPGRADES } from '../../app/dungeon-meta.ts';
+import { ARM_ORDER, ARM_PRICES, freshMeta, pearlsFor, UPGRADES, WHET_STRIKE, type UpgradeId } from '../../app/dungeon-meta.ts';
 import { DEFAULT_SEEDS, expect, stageBlow, test } from './helpers.ts';
 
 // Plan 019 Stage B: the running game is wired to the pure rules in dungeon-meta.ts (proved in tests/). These
@@ -7,6 +7,8 @@ import { DEFAULT_SEEDS, expect, stageBlow, test } from './helpers.ts';
 
 const NOTHING = freshMeta();
 const DEFAULT_START = { arm: 'tideblade', maxHp: 100, strike: 0, draftSize: 3, defiance: 0 };
+// What the first rank of an upgrade costs, read off the table so a price change restages nothing here.
+const firstRank = (id: UpgradeId) => UPGRADES.find(upgrade => upgrade.id === id)!.price(0);
 
 test('death pays, the pearls survive it, TO THE GATE leads to a spent Altar and the next descent is a fresh run on what was bought', async ({
   game,
@@ -64,11 +66,12 @@ test('death pays, the pearls survive it, TO THE GATE leads to a spent Altar and 
   await expect(page.locator('.altar-note')).toHaveText('Whetted Start bought.');
   const spent = await game.meta();
   expect(spent.upgrades).toEqual({ lungs: 1, whet: 1 });
-  expect(spent.pearls, 'the purchases were not charged at the placeholder prices').toBe(160 + earned - 60 - 80);
+  expect(spent.pearls, 'the purchases were not charged at the Altar\'s prices').toBe(160 + earned - firstRank('lungs') - firstRank('whet'));
+  expect(spent.pearls, 'precondition: Keen Eye must be out of reach, or the refusal below cannot happen').toBeLessThan(firstRank('eye'));
   // A purchase that cannot be made says why and charges nothing. The row is aria-disabled, which Playwright
   // counts as not enabled, so the click is forced: a player's click on it lands all the same.
   await page.locator('[data-item="eye"]').click({ force: true });
-  await expect(page.locator('.altar-note')).toContainText('costs 150 pearls');
+  await expect(page.locator('.altar-note')).toContainText(`costs ${firstRank('eye')} pearls`);
   expect(await game.meta(), 'a refused purchase changed the save').toEqual(spent);
 
   // Back, and ENTER THE KEEP: a fresh run, on floor 1, dealt from what was just bought.
@@ -79,11 +82,11 @@ test('death pays, the pearls survive it, TO THE GATE leads to a spent Altar and 
   expect(fresh.mode, 'the ended run was resumed instead of a new one begun').toBe('playing');
   expect(fresh.floor.level).toBe(1);
   expect(fresh.experience.total).toBe(0);
-  expect(fresh.run.start, 'the new run was not dealt from what the Altar sold').toEqual({ ...DEFAULT_START, maxHp: 110, strike: 4 });
+  expect(fresh.run.start, 'the new run was not dealt from what the Altar sold').toEqual({ ...DEFAULT_START, maxHp: 110, strike: WHET_STRIKE });
   expect(fresh.maxHealth, 'the run does not hold the vitality it was dealt').toBe(110);
   expect(fresh.health, 'the new run did not begin at full vitality').toBe(110);
   await expect(page.getByRole('progressbar', { name: 'Vitality' })).toHaveAttribute('aria-valuemax', '110');
-  expect(fresh.weapon.strikeDamage, 'Whetted Start did not reach the blade').toBe(fresh.weapon.damage + 4);
+  expect(fresh.weapon.strikeDamage, 'Whetted Start did not reach the blade').toBe(fresh.weapon.damage + WHET_STRIKE);
 });
 
 test('an unlock is recorded and not equipped: the next run still starts with the arm that was chosen before', async ({
@@ -93,14 +96,14 @@ test('an unlock is recorded and not equipped: the next run still starts with the
   // The arm held going in is the spear, not the Tideblade, so "unchanged" cannot be the default by accident.
   await game.setMeta({ ...NOTHING, pearls: 400, arms: ['tideblade', 'spear'], arm: 'spear', upgrades: { lungs: 1 } });
   await page.getByRole('button', { name: /^Tide Altar/ }).click();
-  await expect(page.locator('[data-item="maul"]')).toContainText('150 pearls');
+  await expect(page.locator('[data-item="maul"]')).toContainText(`${ARM_PRICES.maul} pearls`);
   expect((await game.meta()).arms, 'precondition: the maul is not owned yet').not.toContain('maul');
   await page.locator('[data-item="maul"]').click();
   await expect(page.locator('[data-item="maul"]')).toContainText('Unlocked');
   const bought = await game.meta();
   expect(bought.arms, 'the unlock was not recorded').toContain('maul');
   expect(bought.arms, 'buying one arm took another').toEqual(expect.arrayContaining(['tideblade', 'spear']));
-  expect(bought.pearls).toBe(250);
+  expect(bought.pearls).toBe(400 - ARM_PRICES.maul);
   expect(bought.arm, 'buying an arm equipped it').toBe('spear');
 
   await page.getByRole('button', { name: /Back/ }).click();
@@ -157,13 +160,13 @@ test('Second Tide: the blow that would kill leaves the knight at 40% vitality, s
 test('nothing bought survives a reset: a rich save deals a rich run, and the reset page is a freshly booted one', async ({ game }) => {
   await game.setMeta({
     pearls: 500,
-    upgrades: { lungs: 3, whet: 2, eye: 1, tide: 1 },
+    upgrades: { lungs: 3, whet: 1, eye: 1, tide: 1 },
     arms: ['tideblade', 'maul'],
     arm: 'maul',
   });
   await game.enter();
   expect((await game.state()).run.start, 'precondition: the run was dealt everything that was bought').toEqual({
-    arm: 'maul', maxHp: 130, strike: 8, draftSize: 4, defiance: 1,
+    arm: 'maul', maxHp: 130, strike: WHET_STRIKE, draftSize: 4, defiance: 1,
   });
 
   // What the pool does after every scenario, done here as well so the failure names this test: storage is
