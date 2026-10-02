@@ -1431,7 +1431,8 @@ export default function DungeonGame() {
     // applyRef — one path, whether it was the M key, the menu button or a `mute` event that asked.
     const toggleMute = () => updateSettings({ muted: !settingsRef.current.muted });
     // The map is a pause with the floor on it, so it opens through the pause and closes the same way.
-    const openMap = () => { if (!hasStarted || run.choosing || gameStatus !== 'playing') return; if (!isPaused) togglePause(); setMapOpen(true); mapShown = true; };
+    // The hall is one room with nothing to chart (and no map button), so the map key and the pad's VIEW are inert there.
+    const openMap = () => { if (!hasStarted || run.choosing || gameStatus !== 'playing' || hall) return; if (!isPaused) togglePause(); setMapOpen(true); mapShown = true; };
     const toggleMap = () => { if (mapShown) togglePause(); else openMap(); };
     const fullscreen = () => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); else void mount.parentElement?.requestFullscreen?.().catch(() => undefined); };
     const keyDown = (e: KeyboardEvent) => {

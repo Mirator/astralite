@@ -1,6 +1,6 @@
 // What must never reach the production bundle: every hook dungeon-game.tsx hangs on `testHooks` inside its
-// `NODE_ENV !== 'production'` block, and the `?boot=eager` switch beside it (matched as the minified
-// `get(`boot`)` read, since the literal `boot=eager` appears nowhere in the source). The bundler drops that block
+// `NODE_ENV !== 'production'` block, and the `?boot=eager` and `?hall=skip` switches beside it (each matched as the minified
+// `get(`boot`)` / `get(`hall`)` read, since the literal `boot=eager` appears nowhere in the source). The bundler drops that block
 // because NODE_ENV is inlined; nothing else checked that it still does. Pure, so the node suite runs it.
 import { fileURLToPath } from 'node:url';
 
@@ -28,10 +28,12 @@ export type LeakReport = { leaked: string[]; missingPublic: string[] };
 
 /** The eager-boot switch as the minifier writes it: `get(\`boot\`)`, whichever quote it picks. */
 const EAGER_BOOT = /\bget\(\s*[`'"]boot[`'"]\s*\)/;
+/** Plan 020: the harness's `?hall=skip`, read the same way. Nothing else in the game reads a `hall` query parameter. */
+const HALL_SKIP = /\bget\(\s*[`'"]hall[`'"]\s*\)/;
 
 export function findLeaks(bundle: string, devOnly: string[]): LeakReport {
   return {
-    leaked: [...devOnly.filter((name) => bundle.includes(name)), ...DEV_MARKERS.filter((marker) => bundle.includes(marker)), ...(EAGER_BOOT.test(bundle) ? ['?boot=eager'] : [])],
+    leaked: [...devOnly.filter((name) => bundle.includes(name)), ...DEV_MARKERS.filter((marker) => bundle.includes(marker)), ...(EAGER_BOOT.test(bundle) ? ['?boot=eager'] : []), ...(HALL_SKIP.test(bundle) ? ['?hall=skip'] : [])],
     missingPublic: PUBLIC_HOOKS.filter((name) => !bundle.includes(name)),
   };
 }
