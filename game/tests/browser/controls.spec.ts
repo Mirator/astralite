@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { freshMeta } from '../../app/dungeon-meta.ts';
 import { expect, fakePad, type Game, keyFor, press, test, type Snapshot } from './helpers.ts';
 
 // Plan 016 Stage A: the control layout that has room for a special. Mouse buttons are bind codes in the
@@ -75,6 +76,9 @@ test('Tab opens and closes the floor map while playing, and moves focus everywhe
 });
 
 test('a pad opens and closes the map on View, dodges on B and RB, and answers X with the special', async ({ game, page }) => {
+  // Plan 019 Stage C: the X check below needs a rack under the knight, and the floor-one rack it used is gone; the Tide Gate's
+  // armoury stands there once an arm besides the Tideblade is owned.
+  await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'maul'], arm: 'tideblade' });
   await game.enter();
   await game.step(120);
   const pad = await fakePad(page);
@@ -108,13 +112,18 @@ test('a pad opens and closes the map on View, dodges on B and RB, and answers X 
 
     // X is the special now, and no longer takes an arm off a rack.
     await game.equip('cleaver');
-    const rack = (await game.state()).drop;
+    const rack = (await game.state()).racks[0];
+    expect(rack?.kind, 'the Tide Gate shows the one arm owned besides the one at the gate').toBe('maul');
+    // The knight stands in the rack's ring, where the swap key would take the maul; the precondition that makes "X took nothing" mean something.
+    await game.teleport(rack.x, rack.z);
+    await game.step(32);
+    expect((await game.state()).racks[0].over, 'the knight is in the rack\'s ring').toBe(true);
     await setButton(2, true);
     await game.step(16);
     const whirled = await game.state();
     expect((whirled.player as Snapshot['player'] & { special: { live: boolean } }).special.live, 'X is the Whirl').toBe(true);
     expect(whirled.weapon.id, 'and did not swap anything').toBe('cleaver');
-    expect(whirled.drop?.kind).toBe(rack?.kind);
+    expect(whirled.racks.map((r) => r.kind), 'and the maul is still on its rack').toEqual(['maul']);
     await setButton(2, false);
     await game.step(1000);
   } finally {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BOONS, chamberReward, createRun, draftBoons, grantXp, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, MEND, TOP_UP, XP_CACHE, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
+import { freshMeta, runStart, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
+import { BOONS, chamberReward, createRun, DRAFT_SIZE, draftBoons, grantXp, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, MEND, TOP_UP, XP_CACHE, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
 
 // A run with the draft already open, since every boon needs that gate held down.
 const drafting = (patch: Partial<Run> = {}): Run => Object.assign(createRun(), { choosing: true, pendingRanks: 1 }, patch);
@@ -193,12 +194,10 @@ test('a chamber pays what its door showed, and every clear tops the knight up', 
   assert.deepEqual(chamberReward(mend, 'mend'), { xp: 0, ranks: 0, healed: MEND });
   assert.deepEqual([mend.totalXp, mend.hp], [0, 70]);
 
-  // An arm's chamber, a shrine and the stair hall pay the top-up alone.
-  for (const reward of ['arm', null] as const) {
-    const plain = createRun();
-    plain.hp = 40;
-    assert.deepEqual(chamberReward(plain, reward), { xp: 0, ranks: 0, healed: TOP_UP }, String(reward));
-  }
+  // A shrine, the gate and the stair hall (no reward) pay the top-up alone. (Plan 019: no chamber pays an arm any more.)
+  const plain = createRun();
+  plain.hp = 40;
+  assert.deepEqual(chamberReward(plain, null), { xp: 0, ranks: 0, healed: TOP_UP });
 
   // Nothing overfills: the heal reported is what was actually restored, up to the cap and no further.
   const nearly = createRun();
@@ -213,4 +212,90 @@ test('a chamber pays what its door showed, and every clear tops the knight up', 
   grantXp(brink, 150);
   assert.equal(chamberReward(brink, 'cache').ranks, 1);
   assert.deepEqual([brink.rankLevel, brink.pendingRanks], [2, 1]);
+});
+
+// --- Plan 019: a run that starts with what was bought -----------------------------------------------------
+const bought = (upgrades: Meta['upgrades']): Meta => ({ ...freshMeta(), upgrades });
+
+test('createRun() with no argument is exactly the run the game always started', () => {
+  // A literal on purpose: `createRun(runStart(freshMeta()))` would agree with itself whatever it dealt.
+  const today = {
+    hp: 100, maxHp: 100, kills: 0, totalXp: 0,
+    rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
+    strike: 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
+    invuln: 0, taken: [], specialCooldown: 0,
+    draftSize: 3, defiance: 0, defied: false,
+  };
+  assert.deepEqual(createRun(), today, 'createRun() with no argument no longer deals the run the game always started');
+  // A fresh save buys nothing, so it must start the same run.
+  assert.deepEqual(createRun(runStart(freshMeta())), today, 'a fresh save no longer starts the same run');
+  assert.equal(DRAFT_SIZE, 3);
+});
+
+test('each rank of Deep Lungs raises the maximum and starts the knight on a full bar', () => {
+  for (const [rank, maxHp] of [[1, 110], [2, 120], [3, 130]] as const) {
+    const run = createRun(runStart(bought({ lungs: rank })));
+    assert.equal(run.maxHp, maxHp, `rank ${rank}`);
+    assert.equal(run.hp, maxHp, `rank ${rank} began wounded`);
+  }
+});
+
+test('Whetted Start, Keen Eye and Second Tide each reach the run, and nothing else moves', () => {
+  const run = createRun(runStart(bought({ whet: 1, eye: 1, tide: 1 })));
+  assert.deepEqual([run.strike, run.draftSize, run.defiance], [WHET_STRIKE, 4, 1]);
+  assert.deepEqual({ ...run, strike: 0, draftSize: 3, defiance: 0 }, createRun(), 'a purchase changed a number it was not for');
+});
+
+test('Second Tide turns the one blow that would kill into a stand at 40% of the bar, once', () => {
+  const run = createRun(runStart(bought({ lungs: 1, tide: 1 })));
+  run.hp = 30;
+  assert.equal(run.maxHp, 110);
+  // Precondition: the blow really is lethal, or "the knight lived" proves nothing about Second Tide.
+  assert.ok(40 >= run.hp, 'the blow must be enough to kill');
+  assert.equal(hurt(run, 40), 40, 'the blow still reports what it dealt');
+  assert.equal(run.hp, 44);
+  assert.equal(run.defied, true);
+  assert.equal(run.defiance, 0, 'the revive was not spent');
+  // The same blow again, with the window lapsed: nothing is left to catch him.
+  lapse(run);
+  run.hp = 30;
+  assert.ok(40 >= run.hp, 'the second blow must be lethal too');
+  hurt(run, 40);
+  assert.equal(run.hp, 0);
+});
+
+test('a blow that does not kill is not defied, and the revive is kept', () => {
+  const run = createRun(runStart(bought({ tide: 1 })));
+  hurt(run, 20);
+  assert.deepEqual([run.hp, run.defied, run.defiance], [80, false, 1]);
+  // Exactly lethal counts as lethal.
+  lapse(run);
+  run.hp = 20;
+  hurt(run, 20);
+  assert.deepEqual([run.hp, run.defied, run.defiance], [40, true, 0]);
+});
+
+test('the window after a defied blow is the ordinary one', () => {
+  const run = createRun(runStart(bought({ tide: 1 })));
+  run.hp = 5;
+  hurt(run, 50);
+  assert.equal(run.defied, true, 'precondition: Second Tide fired');
+  assert.equal(run.invuln, INVULN);
+  // And inside it a second blow is refused, as for any other hit.
+  assert.equal(hurt(run, 50), 0);
+  assert.equal(run.hp, 40);
+});
+
+test('Keen Eye offers four distinct cards while fewer than four boons are held', () => {
+  const run = createRun(runStart(bought({ eye: 1 })));
+  assert.equal(run.draftSize, 4, 'precondition: Keen Eye reached the run');
+  run.taken = ['edge'];
+  assert.ok(run.taken.length < 4);
+  for (let trial = 0; trial < 200; trial++) {
+    const offer = draftBoons(run, lcg(trial), run.draftSize);
+    assert.equal(offer.length, 4);
+    assert.equal(new Set(offer.map(b => b.id)).size, 4, 'a card appeared twice in one offer');
+  }
+  // The default stays three.
+  assert.equal(draftBoons(createRun(), lcg(1), createRun().draftSize).length, 3);
 });

@@ -20,6 +20,7 @@ import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../a
 import { arenaFloor, type Floor } from '../../app/dungeon-arena.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
+import { pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
 import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
@@ -82,6 +83,12 @@ export type Policy = {
    * watch the rattlers stand up and be cut down again, which a knight that goes straight for the caller cuts short.
    */
   callerFirst?: boolean;
+  /**
+   * Plan 019: what the knight bought between runs, applied through `createRun(runStart(meta))`. Absent means
+   * a fresh save, and `createRun()` deals exactly what it always did. Only the numbers apply: the arm is
+   * still `weapon`, because a policy names the arm it measures.
+   */
+  meta?: Meta;
   /** Which card to take from a draft. Defaults to the first offered. */
   pickBoon?: (offer: Boon[], run: Run) => string;
 };
@@ -178,6 +185,8 @@ export type RunReport = {
   totalXp: number;
   rank: number;
   boons: string[];
+  /** Plan 019: what banking this run would pay (`pearlsFor`), so earnings can be measured without game code. */
+  pearls: number;
   floors: FloorReport[];
 };
 
@@ -234,6 +243,8 @@ const rng = (seed: number) => {
 
 const unit = (x: number, z: number) => { const length = Math.hypot(x, z) || 1; return { x: x / length, z: z / length }; };
 
+const startRun = (policy: Policy) => createRun(policy.meta && runStart(policy.meta));
+
 /** One descent, start to stair or to death. */
 export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunReport {
   // Two streams, deliberately. The knight's dodge rolls are consumed per frame, so a change of skill
@@ -242,7 +253,7 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
   // here before the streams were split: the clumsier knight was simply being handed better cards.
   const nerve = rng(seed ^ 0x9e3779b9);
   const draft = rng(seed ^ 0x85ebca6b);
-  const run = createRun();
+  const run = startRun(policy);
   const floors: FloorReport[] = [];
   let elapsed = 0, cause: Cause | null = null;
 
@@ -254,12 +265,12 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
       // Whatever took the last of the vitality is what the run log would record.
       const damage = report.damage;
       cause = (Object.keys(damage) as Cause[]).filter(k => damage[k] > 0).sort((a, b) => damage[b] - damage[a])[0] ?? null;
-      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], floors };
+      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills }), floors };
     }
     // Descending restores a quarter of the bar, as the results card promises.
     if (level < FLOORS) heal(run, Math.round(run.maxHp * 0.25));
   }
-  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], floors };
+  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills }), floors };
 }
 
 /**
@@ -268,12 +279,12 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
  * gate or down the stair, which is open from the start - so what a test reads is the fight.
  */
 export function simulateArena(seed: number, level: number, roster: readonly EnemyKind[], policy: Policy = DEFAULT_POLICY): FloorReport {
-  return simulateFloor(seed, level, createRun(), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), arenaFloor(seed, level, roster), true);
+  return simulateFloor(seed, level, startRun(policy), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), arenaFloor(seed, level, roster), true);
 }
 
 /** One generated floor fought by a fresh knight: no earlier floors, no boons, full vitality. For a test that needs a floor and not a descent. */
 export function simulateLevel(seed: number, level: number, policy: Policy = DEFAULT_POLICY): FloorReport {
-  return simulateFloor(seed, level, createRun(), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b));
+  return simulateFloor(seed, level, startRun(policy), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b));
 }
 
 function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number, built?: Floor, arena = false): FloorReport {
@@ -371,7 +382,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const chooseDoor = (room: number) => {
     const ways = floor.doors.filter(d => d.from === room);
     if (!policy.explore) return ways[0];
-    const pays = (d: typeof ways[number]) => ({ cache: 0, mend: 1, arm: 2 } as Record<string, number>)[floor.rooms[d.to].reward ?? ''] ?? 3;
+    const pays = (d: typeof ways[number]) => ({ cache: 0, mend: 1 } as Record<string, number>)[floor.rooms[d.to].reward ?? ''] ?? 3;
     return [...ways].sort((a, b) => pays(a) - pays(b))[0];
   };
   let chamber = 0;
@@ -860,7 +871,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     // --- shrines, boons, the stair ---------------------------------------------------------------
     if (run.pendingRanks > 0) {
       run.choosing = true;
-      const offer = draftBoons(run, draft);
+      const offer = draftBoons(run, draft, run.draftSize);
       takeBoon(run, policy.pickBoon ? policy.pickBoon(offer, run) : offer[0].id);
     }
 

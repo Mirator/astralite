@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { ARRIVAL_CLEAR, buryReserves, canStand, drawKind, generateFloor, cellKey, moveOnFloor, oneCaller, PACK_MIX, TILE, type Spawn } from '../app/dungeon-floor.ts';
+import { ARRIVAL_CLEAR, buryReserves, canStand, carves, drawKind, GATE_ARMS, GATE_SPACING, gateRacks, generateFloor, cellKey, moveOnFloor, oneCaller, PACK_MIX, TILE, type Spawn } from '../app/dungeon-floor.ts';
 import { arenaFloor } from '../app/dungeon-arena.ts';
 import { BESTIARY, type EnemyKind } from '../app/dungeon-bestiary.ts';
 import { HOSTILE_POOL_RINGS } from '../app/dungeon-projectile.ts';
-import { FOUND_WEAPONS } from '../app/dungeon-weapon.ts';
+import { PICKUP_RADIUS } from '../app/dungeon-sim.ts';
+import { FOUND_WEAPONS, STARTING_WEAPON } from '../app/dungeon-weapon.ts';
 import { sweepSeeds, takeCensus } from '../scripts/balance/census.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
@@ -114,7 +115,8 @@ test('the knight arrives on open floor, clear of every body and every prop', () 
 test('a door shows what the chamber behind it pays, and neighbours in a layer differ where they can', () => {
   for (const level of [1, 2, 3]) for (const floor of floors(level)) {
     for (const room of floor.rooms) {
-      if (room.role !== 'path' || room.encounter === 'sanctuary') assert.equal(room.reward, room.id === floor.weaponDrop.room && level > 1 ? 'arm' : null, `seed ${floor.seed} room ${room.id} pays without a fight`);
+      // Plan 019 (D7): the former arm chamber pays a mend or a purse like its neighbours, so only the quiet rooms pay nothing.
+      if (room.role !== 'path' || room.encounter === 'sanctuary') assert.equal(room.reward, null, `seed ${floor.seed} room ${room.id} pays without a fight`);
       else assert.ok(room.reward !== null, `seed ${floor.seed} room ${room.id} is a fight that pays nothing`);
     }
     for (let layer = 1; layer < floor.rooms[floor.goal].layer; layer++) {
@@ -258,27 +260,29 @@ test('the first two halls past the gate are always a straight fight, never an am
   }
 });
 
-test('every floor lays out one arm, and never the one already in hand', () => {
+// Plan 019 (D7): `weaponDrop` is a reserved spot now, not an arm anyone is offered. The campaign never places a rack on it
+// (the Tide Gate's armoury is `gateRacks`; the dev arena keeps this spot for its own rack), but the generator still draws the
+// pick, the kind and the spot, so these hold exactly as they did and the floors, spawns and props stay where they were.
+test('every floor still reserves a spot for one arm, never the one already in hand', () => {
   for (const level of [1, 2, 3]) for (const seed of [0x1, 0x7, 0xc, 0x51ed, 0xbeef]) {
     const floor = generateFloor(seed, level);
     const drop = floor.weaponDrop;
-    assert.ok(drop, `floor ${level} seed ${seed} laid no weapon out`);
+    assert.ok(drop, `floor ${level} seed ${seed} reserved no spot`);
     assert.notEqual(drop.kind, 'tideblade', 'the drop is never the sword the knight walks in with');
     assert.ok(FOUND_WEAPONS.includes(drop.kind));
     // It has to be somewhere the knight can actually stand.
-    assert.ok(floor.cells.has(cellKey(Math.round(drop.x / TILE), Math.round(drop.z / TILE))), 'the rack is off the floor');
+    assert.ok(floor.cells.has(cellKey(Math.round(drop.x / TILE), Math.round(drop.z / TILE))), 'the reserved spot is off the floor');
     const room = floor.rooms[drop.room];
     // Clear of the room's heart, which is where the knight arrives and where a stair would sit.
-    assert.ok(Math.hypot(drop.x - room.x * TILE, drop.z - room.z * TILE) > 1.5, 'the rack is underfoot on arrival');
-    // Clear of anything standing in the same chamber, so it is never taken mid-fight by accident.
+    assert.ok(Math.hypot(drop.x - room.x * TILE, drop.z - room.z * TILE) > 1.5, 'the reserved spot is underfoot on arrival');
+    // Clear of anything standing in the same chamber, so the dev arena's rack is never taken mid-fight by accident.
     for (const spawn of floor.spawns.filter(s => s.room === drop.room)) {
-      assert.ok(Math.hypot(spawn.x * TILE - drop.x, spawn.z * TILE - drop.z) > 1.2, 'a body is standing on the rack');
+      assert.ok(Math.hypot(spawn.x * TILE - drop.x, spawn.z * TILE - drop.z) > 1.2, 'a body is standing on the reserved spot');
     }
   }
 });
 
-test('the first floor lays its arm out in the safety of the Tide Gate', () => {
-  // The first real decision of a run is made before anything is at stake.
+test('the first floor reserves its spot in the safety of the Tide Gate, which holds nobody', () => {
   for (const seed of [0x1, 0x7, 0xc, 0x51ed]) {
     const floor = generateFloor(seed, 1);
     assert.equal(floor.weaponDrop.room, 0);
@@ -286,13 +290,13 @@ test('the first floor lays its arm out in the safety of the Tide Gate', () => {
   }
 });
 
-test('the same keep hands back the same arm', () => {
+test('the same keep reserves the same spot', () => {
   for (const seed of [0x1, 0x7, 0xc]) {
     assert.deepEqual(generateFloor(seed, 1).weaponDrop, generateFloor(seed, 1).weaponDrop);
   }
-  // And different keeps do not all offer the same one.
+  // And different keeps do not all reserve the same kind.
   const kinds = new Set([0x1, 0x7, 0xc, 0x51ed, 0xbeef, 0xfeed, 0x2222].map(s => generateFloor(s, 1).weaponDrop.kind));
-  assert.ok(kinds.size > 1, 'every seed offered the same weapon');
+  assert.ok(kinds.size > 1, 'every seed reserved the same weapon');
 });
 
 test('a pack mix deals each kind its share in draw order, and guards whatever is left', () => {
@@ -334,6 +338,8 @@ test('the reaper never appears on a generated floor, and a rattler only as a bur
 
 type Recorded = { level: number; seed: number; spawns: { kind: EnemyKind; x: number; z: number; room: number; ambush: boolean }[]; layout: string };
 const recorded = JSON.parse(readFileSync(new URL('./fixtures/spawns-017.json', import.meta.url), 'utf8')).floors as Recorded[];
+// Plan 019 (D7): the campaign no longer places `weaponDrop`, but the generator still draws it, so it stays in the hash. Keeping it
+// compared is the stronger check: a draw removed anywhere between the props and the drop moves it, whatever the game does with it.
 const layoutHash = (floor: Floor) => createHash('sha256').update(JSON.stringify({ props: floor.props, weaponDrop: floor.weaponDrop })).digest('hex').slice(0, 16);
 /** The fixture was laid from `362db84`, before plan 018. Rolls are unchanged, so any difference is the promoted kinds and nothing else. */
 test('dealing the new kinds moves no room, prop, weapon or body: floor one is identical and deeper floors change only guards', () => {
@@ -448,4 +454,93 @@ test('no chamber stands more pyres than the game has fire rings to draw', () => 
   const most = Math.max(...[2, 3].map(level => takeCensus(level).maxPyres));
   assert.ok(most >= 1, 'precondition: the sweep deals a pyre');
   assert.ok(most <= HOSTILE_POOL_RINGS, `${most} pyres in one chamber, ${HOSTILE_POOL_RINGS} rings: a fire beyond the last is neither drawn nor biting`);
+});
+
+// --- Plan 019 Stage C: no arm in the keep, an armoury in the Tide Gate ------------------------------------------------
+
+type Rewards = { level: number; seed: number; rewards: (string | null)[]; armRoom: number };
+const dealtBefore = JSON.parse(readFileSync(new URL('./fixtures/rewards-019.json', import.meta.url), 'utf8')).floors as Rewards[];
+
+test('no chamber pays an arm: the former arm chamber keeps its mend or purse and every other reward is where it was', () => {
+  assert.equal(dealtBefore.length, 90);
+  // Precondition: the fixture holds the arm chambers this is about, one on each recorded floor below the first.
+  const formerArm = dealtBefore.filter(rec => rec.rewards.includes('arm'));
+  assert.equal(formerArm.length, 60, 'the recording lost its arm chambers');
+  for (const rec of dealtBefore) {
+    const floor = generateFloor(rec.seed, rec.level);
+    assert.equal(floor.weaponDrop.room, rec.armRoom, `level ${rec.level} seed ${rec.seed}: the arm chamber's pick moved, so its draw was removed`);
+    floor.rooms.forEach((room, id) => {
+      if (rec.rewards[id] === 'arm') assert.ok(room.reward === 'mend' || room.reward === 'cache', `level ${rec.level} seed ${rec.seed}: the former arm chamber pays ${room.reward}`);
+      else assert.equal(room.reward, rec.rewards[id], `level ${rec.level} seed ${rec.seed}: room ${id} pays something else than it was dealt`);
+    });
+  }
+});
+
+test('no room on any sweep floor has the reward arm', () => {
+  let paying = 0;
+  for (const level of [1, 2, 3]) for (const floor of floors(level)) for (const room of floor.rooms) {
+    assert.ok(room.reward === null || room.reward === 'mend' || room.reward === 'cache', `level ${level} seed ${floor.seed} room ${room.id} pays ${room.reward}`);
+    if (room.reward) paying++;
+  }
+  assert.ok(paying > 500, `only ${paying} paying rooms across the sweep, so this checked little`);
+});
+
+// A sweep wide enough to hold the smallest gate (a 9 x 7 crypt) many times over, plus the seeds the browser suite and the balance sim pin.
+const GATE_SEEDS = [...Array.from({ length: 400 }, (_, i) => i + 1), ...sweepSeeds(1), 0x4, 0x60, 0x11, 0x8000, 0x26aad, 0x2899c, 0x36225, 158381, 166300, 221733, 15841, 4242];
+const gates = GATE_SEEDS.map(seed => generateFloor(seed, 1));
+/** Whether a tile is the gate's own floor: inside its rectangle and not cut away by its shape, which a door's alcove (cut after) is not. */
+const ownFloor = (gate: Floor['rooms'][number], x: number, z: number) => Math.abs(x - gate.x) <= gate.halfX && Math.abs(z - gate.z) <= gate.halfZ && carves(gate, x - gate.x, z - gate.z);
+/** The tile the door's alcove opens from: the first of the gate's own floor going back from the door. */
+const doorMouth = (gate: Floor['rooms'][number], door: Floor['doors'][number]) => {
+  let at = { x: door.x, z: door.z };
+  for (let back = 0; back < 4 && !ownFloor(gate, at.x, at.z); back++) at = { x: at.x - door.face.x, z: at.z - door.face.z };
+  assert.ok(ownFloor(gate, at.x, at.z), `door ${door.id} has no mouth within three tiles`);
+  return at;
+};
+
+test('gateRacks seats seven, one per arm, on the gate\'s own floor and clear of the heart, the entry, every doorway and every prop', () => {
+  assert.equal(GATE_ARMS.length, 7);
+  assert.deepEqual([...GATE_ARMS], [STARTING_WEAPON, ...FOUND_WEAPONS], 'one slot per arm, the Tideblade first');
+  assert.ok(gates.filter(floor => floor.rooms[0].halfX === 4 && floor.rooms[0].halfZ === 3).length >= 20, 'the sweep holds too few of the smallest gate');
+  for (const floor of gates) {
+    const gate = floor.rooms[0], slots = gateRacks(floor), at = `seed ${floor.seed}`;
+    assert.deepEqual(slots.map(slot => slot.arm), [...GATE_ARMS], `${at}: the slots are not one per arm`);
+    for (const slot of slots) {
+      const tile = { x: Math.round(slot.x / TILE), z: Math.round(slot.z / TILE) };
+      assert.ok(Math.abs(slot.x - tile.x * TILE) < 1e-9 && Math.abs(slot.z - tile.z * TILE) < 1e-9, `${at} ${slot.arm}: the slot is not on a tile`);
+      assert.equal(floor.roomByCell.get(cellKey(tile.x, tile.z)), gate.id, `${at} ${slot.arm}: the slot is off the gate's floor`);
+      assert.ok(ownFloor(gate, tile.x, tile.z), `${at} ${slot.arm}: the slot stands in a door's alcove, not in the gate`);
+      assert.ok(Math.hypot(slot.x - gate.x * TILE, slot.z - gate.z * TILE) > 1.9, `${at} ${slot.arm}: the slot is underfoot at the heart`);
+      assert.ok(Math.hypot(tile.x - gate.entry.x, tile.z - gate.entry.z) >= 2, `${at} ${slot.arm}: the slot is at the knight's arrival`);
+      for (const door of floor.doors.filter(d => d.from === gate.id)) {
+        assert.ok(Math.hypot(tile.x - door.x, tile.z - door.z) >= 2, `${at} ${slot.arm}: the slot is in door ${door.id}'s way`);
+        // The doorway the generator keeps clear is the gate's last tile on the way to the door, which the alcove was cut back from.
+        const mouth = doorMouth(gate, door);
+        assert.ok(Math.hypot(tile.x - mouth.x, tile.z - mouth.z) >= 2, `${at} ${slot.arm}: the slot stands in the mouth of door ${door.id}`);
+      }
+      for (const prop of floor.props.filter(p => p.room === gate.id)) assert.ok(Math.hypot(tile.x - prop.x, tile.z - prop.z) >= 1, `${at} ${slot.arm}: the slot stands in a ${prop.kind}`);
+    }
+    for (let a = 0; a < slots.length; a++) for (let b = a + 1; b < slots.length; b++) {
+      assert.ok(Math.hypot(slots[a].x - slots[b].x, slots[a].z - slots[b].z) >= 2 * PICKUP_RADIUS - 1e-9, `${at}: ${slots[a].arm} and ${slots[b].arm} are closer than two pickup radii, so one ring could hold both`);
+    }
+  }
+  assert.equal(GATE_SPACING, 2 * PICKUP_RADIUS);
+});
+
+test('gateRacks is the same for the same floor and draws nothing: not from the generator, and not from Math.random', () => {
+  const real = Math.random;
+  try {
+    Math.random = () => { throw new Error('gateRacks drew a random number'); };
+    for (const seed of [0x1, 0x4, 0x60, 7919]) {
+      const floor = generateFloor(seed, 1), before = JSON.stringify({ rooms: floor.rooms, tiles: floor.tiles, doors: floor.doors, props: floor.props, spawns: floor.spawns, weaponDrop: floor.weaponDrop });
+      const first = gateRacks(floor);
+      assert.deepEqual(gateRacks(floor), first, `seed ${seed}: two calls disagree`);
+      assert.deepEqual(gateRacks(generateFloor(seed, 1)), first, `seed ${seed}: a fresh floor of the same seed lays the slots elsewhere`);
+      assert.equal(JSON.stringify({ rooms: floor.rooms, tiles: floor.tiles, doors: floor.doors, props: floor.props, spawns: floor.spawns, weaponDrop: floor.weaponDrop }), before, `seed ${seed}: gateRacks changed the floor it read`);
+      // A floor generated after a call is the floor a fresh process would lay: the call took nothing from the stream.
+      const second = generateFloor(seed + 1, 1);
+      gateRacks(second);
+      assert.equal(JSON.stringify(generateFloor(seed + 1, 1).spawns), JSON.stringify(second.spawns), `seed ${seed + 1}: the floor after a call differs from a fresh one`);
+    }
+  } finally { Math.random = real; }
 });

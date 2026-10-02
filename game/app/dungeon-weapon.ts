@@ -460,6 +460,9 @@ export const FOUND_WEAPONS: WeaponId[] = ['fangs', 'spear', 'cleaver', 'maul', '
 /** What the knight starts a descent holding. */
 export const STARTING_WEAPON: WeaponId = 'tideblade';
 
+/** How close the knight stands to a rack to be offered the arm on it (see dungeon-sim.ts, which re-exports it). */
+export const PICKUP_RADIUS = 1.4;
+
 /** Falls back to the Tideblade, so a stale saved id or a bad test fixture cannot leave the knight unarmed. */
 export const weaponById = (id: string): Weapon => WEAPONS[id as WeaponId] ?? TIDEBLADE;
 

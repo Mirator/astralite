@@ -4,12 +4,12 @@ import { buildRunExport, parseRunExport, RUN_EXPORT_FORMAT, RUN_EXPORT_VERSION, 
 import { RUN_LOG_CAP, type RunEnd } from '../app/dungeon-save.ts';
 
 const NOW = new Date('2026-09-29T10:15:30.000Z');
-const FIELDS = ['at', 'boons', 'cause', 'floor', 'kills', 'rank', 'seconds', 'seed', 'won', 'xp'];
+const FIELDS = ['arm', 'at', 'boons', 'cause', 'floor', 'kills', 'pearls', 'rank', 'seconds', 'seed', 'upgrades', 'won', 'xp'];
 // A varied log: deaths to different causes on different floors, a win, empty and full boon lists.
 const log = (): RunEnd[] => [
-  { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee },
-  { at: 1_700_000_500_000, floor: 1, won: false, cause: 'guard', seconds: 31, rank: 1, xp: 20, kills: 2, boons: [], seed: 7 },
-  { at: 1_700_001_000_000, floor: 3, won: true, cause: null, seconds: 402, rank: 6, xp: 1290, kills: 44, boons: ['edge', 'ward', 'swift'], seed: 0xffffffff },
+  { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 31 },
+  { at: 1_700_000_500_000, floor: 1, won: false, cause: 'guard', seconds: 31, rank: 1, xp: 20, kills: 2, boons: [], seed: 7, arm: 'spear', upgrades: { lungs: 1 }, pearls: 2 },
+  { at: 1_700_001_000_000, floor: 3, won: true, cause: null, seconds: 402, rank: 6, xp: 1290, kills: 44, boons: ['edge', 'ward', 'swift'], seed: 0xffffffff, arm: 'maul', upgrades: { lungs: 3, whet: 1, eye: 1, tide: 1 }, pearls: 119 },
 ];
 
 test('a realistic log survives the export and the parse-back unchanged', () => {
@@ -63,4 +63,39 @@ test('an empty log exports as an empty, valid list', () => {
   assert.notEqual(doc, null);
   assert.deepEqual(doc?.runs, []);
   assert.equal(doc?.exported, NOW.toISOString());
+});
+
+// An export copied before plan 019 has no `arm`, `upgrades` or `pearls` on its records. It is still a good
+// export, and it reads as Tideblade runs on no upgrades that paid nothing.
+const pre019 = () => log().map(({ arm: _arm, upgrades: _upgrades, pearls: _pearls, ...old }) => old);
+const envelope = (runs: unknown[]) => JSON.stringify({ format: RUN_EXPORT_FORMAT, version: RUN_EXPORT_VERSION, exported: NOW.toISOString(), runs });
+
+test('an export from before the meta save still parses, and its records read as Tideblade runs on no upgrades', () => {
+  const old = pre019();
+  assert.ok(old.length === 3 && old.every(record => !('arm' in record) && !('upgrades' in record) && !('pearls' in record)), 'precondition: the fixture lacks the new fields');
+  const doc = parseRunExport(envelope(old));
+  assert.notEqual(doc, null, 'a pre-019 export was rejected');
+  assert.deepEqual(doc?.runs, old.map(record => ({ ...record, arm: 'tideblade', upgrades: {}, pearls: 0 })), 'old records did not read as Tideblade runs on no upgrades');
+  // And the version stays 1: the fields only add.
+  assert.equal(RUN_EXPORT_VERSION, 1);
+});
+
+test('the new fields are held as strictly as the old ones once they are present', () => {
+  const doc = () => JSON.parse(serialiseRunExport(log(), NOW)) as { runs: Record<string, unknown>[] };
+  const accepted = doc();
+  assert.notEqual(parseRunExport(JSON.stringify(accepted)), null, 'the undamaged export must parse, or every rejection below is vacuous');
+  const cases: [string, (d: ReturnType<typeof doc>) => void][] = [
+    ['an arm this build does not know', (d) => { d.runs[0].arm = 'lance'; }],
+    ['an upgrade rank over its maximum', (d) => { d.runs[2].upgrades = { lungs: 9 }; }],
+    ['an upgrade this build does not know', (d) => { d.runs[2].upgrades = { ghost: 1 }; }],
+    ['a fractional pearl count', (d) => { d.runs[0].pearls = 3.5; }],
+    ['a record with only some of the new fields', (d) => { delete d.runs[0].arm; }],
+  ];
+  for (const [name, damage] of cases) { const d = doc(); damage(d); assert.equal(parseRunExport(JSON.stringify(d)), null, name); }
+});
+
+test('the arm, the upgrades and the pearls survive the export', () => {
+  const back = parseRunExport(serialiseRunExport(log(), NOW))?.runs;
+  assert.deepEqual(back?.map(run => [run.arm, run.pearls]), [['tideblade', 31], ['spear', 2], ['maul', 119]]);
+  assert.deepEqual(back?.[2].upgrades, { lungs: 3, whet: 1, eye: 1, tide: 1 });
 });

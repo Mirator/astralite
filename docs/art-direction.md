@@ -267,7 +267,7 @@ foundation, every groove/dish damage variant elsewhere, and every existing weath
 Coverage is bounded rather than decorative noise: at most 35% of a room's own stone cells may be
 claimed by a pair, and every candidate cell is checked against `dungeon-decor-layout.ts`'s
 `decorReservations` (with a conservative margin) before it is ever offered to the planner, so a
-motif's bed, a shrine's clear centre, the weapon drop and a gauntlet's whole floor are never touched
+motif's bed, a shrine's clear centre, the weapon drop, the Tide Gate's seven rack slots (plan 019) and a gauntlet's whole floor are never touched
 — a gauntlet's entire footprint is one such reservation, which is why it never receives a patch. Nor
 does a settled single ever share a cell with the per-tile `dish`/`groove`/`settled` damage roll
 `dungeon-art.ts` already made: a cell the planner claims is forced to an ordinary top and the new,

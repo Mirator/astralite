@@ -10,7 +10,7 @@ import type { RunCause, RunEnd } from '../app/dungeon-save.ts';
 import { formatReport, median, readRuns, summariseReport } from '../scripts/runs/report.ts';
 
 const NOW = new Date('2026-09-30T08:00:00.000Z');
-const run = (over: Partial<RunEnd> & { floor: number; seed: number }): RunEnd => ({ at: 1_700_000_000_000 + over.seed, won: false, cause: 'guard', seconds: 60, rank: 2, xp: 100, kills: 5, boons: [], ...over });
+const run = (over: Partial<RunEnd> & { floor: number; seed: number }): RunEnd => ({ at: 1_700_000_000_000 + over.seed, won: false, cause: 'guard', seconds: 60, rank: 2, xp: 100, kills: 5, boons: [], arm: 'tideblade', upgrades: {}, pearls: 0, ...over });
 const lost = (floor: number, seed: number, cause: RunCause, seconds: number, boons: string[] = []) => run({ floor, seed, cause, seconds, boons });
 // Six deaths (seconds 30, 60, 90, 100, 200, 250: an even count, so the median is the mean of 90 and 100 and an
 // off-by-one lands on 90 or 100), two escapes (400 and 520, median 460), a bare win, one boon id the build does not know.
@@ -99,4 +99,45 @@ test('the command prints the report for a good file and exits non-zero, naming t
   assert.equal(refused.status, 1);
   assert.match(refused.stderr, /bad\.json is not an astralite run log/);
   assert.equal(refused.stdout, '');
+});
+
+test('escapes and deaths are counted per arm carried, and the arms nobody carried get no row', () => {
+  // Three arms, uneven, and the wins and losses fall differently on each, so a grouping by anything else cannot match.
+  const log: RunEnd[] = [
+    run({ floor: 2, seed: 1, arm: 'maul' }), run({ floor: 3, seed: 2, arm: 'maul', won: true, cause: null }), run({ floor: 1, seed: 3, arm: 'maul' }),
+    run({ floor: 2, seed: 4, arm: 'tideblade' }), run({ floor: 3, seed: 5, arm: 'tideblade', won: true, cause: null }),
+    run({ floor: 3, seed: 6, arm: 'crossbow', won: true, cause: null }),
+  ];
+  assert.equal(new Set(log.map(r => r.boons[0])).size, 1, 'precondition: boons cannot tell the runs apart, so only the arm can');
+  const rows = summariseReport(log).byArm;
+  // Fixed arm order (the Tideblade first), not the order the arms arrived in.
+  assert.deepEqual(rows, [
+    { arm: 'tideblade', runs: 2, escapes: 1, deaths: 1 },
+    { arm: 'maul', runs: 3, escapes: 1, deaths: 2 },
+    { arm: 'crossbow', runs: 1, escapes: 1, deaths: 0 },
+  ], 'escapes and deaths were not grouped by the arm carried');
+  assert.match(formatReport(summariseReport(log)), /maul +3 runs +escapes +1 +deaths +2/);
+  assert.deepEqual(summariseReport([]).byArm, []);
+});
+
+test('escapes and deaths are counted per total of upgrade ranks held at the start', () => {
+  const log: RunEnd[] = [
+    run({ floor: 1, seed: 1 }), run({ floor: 2, seed: 2 }), run({ floor: 3, seed: 3, won: true, cause: null }),
+    run({ floor: 2, seed: 4, upgrades: { lungs: 1 } }), run({ floor: 3, seed: 5, upgrades: { lungs: 1 }, won: true, cause: null }),
+    run({ floor: 3, seed: 6, upgrades: { lungs: 3, whet: 2, tide: 1 }, won: true, cause: null }),
+  ];
+  assert.deepEqual(summariseReport(log).byUpgrades, [
+    { ranks: 0, runs: 3, escapes: 1, deaths: 2 },
+    { ranks: 1, runs: 2, escapes: 1, deaths: 1 },
+    { ranks: 6, runs: 1, escapes: 1, deaths: 0 },
+  ], 'escapes and deaths were not grouped by total upgrade ranks');
+  assert.match(formatReport(summariseReport(log)), / 6 ranks +1 runs +escapes +1 +deaths +0/);
+});
+
+test('a log from before the meta save reports as Tideblade runs on no upgrades', () => {
+  const old = LOG.map(({ arm: _arm, upgrades: _upgrades, pearls: _pearls, ...record }) => record);
+  const read = readRuns(JSON.stringify(old));
+  assert.equal(read?.length, LOG.length, 'precondition: every old record was read');
+  assert.deepEqual(summariseReport(read!).byArm, [{ arm: 'tideblade', runs: 8, escapes: 2, deaths: 6 }], 'old records were not all filed under the Tideblade');
+  assert.deepEqual(summariseReport(read!).byUpgrades, [{ ranks: 0, runs: 8, escapes: 2, deaths: 6 }], 'old records were not all filed under zero ranks');
 });

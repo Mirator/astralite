@@ -109,6 +109,8 @@ test('every dungeon-action detail parses to the command the game answers', () =>
   assert.deepEqual(parseCommand('restart:-1'), { kind: 'restart', seed: 4294967295 }, 'seeds are unsigned');
   assert.deepEqual(parseCommand('restart:junk'), { kind: 'restart', seed: undefined });
   assert.deepEqual(parseCommand('start:7'), { kind: 'start', seed: 7 });
+  assert.deepEqual(parseCommand('gate'), { kind: 'gate' });
+  assert.equal(parseCommand('gates'), null);
   assert.deepEqual(parseCommand('boon:edge'), { kind: 'boon', id: 'edge' });
   assert.deepEqual(parseCommand('stick:0.5,-1'), { kind: 'stick', stick: { x: 0.5, z: -1 } });
   assert.deepEqual(parseCommand('stick:junk'), { kind: 'stick', stick: null }, 'junk is a release');

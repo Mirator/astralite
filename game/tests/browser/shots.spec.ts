@@ -16,6 +16,7 @@ import {
   type Point,
 } from './helpers.ts';
 import { type WeaponId } from '../../app/dungeon-weapon.ts';
+import { ARM_ORDER, freshMeta } from '../../app/dungeon-meta.ts';
 
 /**
  * Eight reference frames of the keep, one per scene the art has to keep working.
@@ -410,10 +411,10 @@ test.describe('dash sequence', { tag: '@capture' }, () => {
  * later plan extends it rather than starting a second one. Captures, not assertions: what they check is
  * only that the staging landed.
  *
- * The room is the Tide Gate of seed 0x86's second floor. Floor 1's gate carries that floor's weapon rack
- * two units off its centre, which would stand behind every knight frame, and every other empty room is a
- * sanctuary with a shrine at its heart; from floor 2 on, the rack moves down a branch and the gate is
- * left holding nothing but its two braziers. 0x86 was picked, by a search over the pure generator, as
+ * The room is the Tide Gate of seed 0x86's second floor. Floor 1's gate carries the armoury (plan 019: a rack for
+ * every owned arm, none on a fresh save), which would stand behind every knight frame once anything is owned, and
+ * every other empty room is a sanctuary with a shrine at its heart; from floor 2 on, no floor holds a rack and the
+ * gate is left holding nothing but its two braziers. 0x86 was picked, by a search over the pure generator, as
  * the seed whose nearest spawn on that floor sits furthest from the gate (18 tiles, past the 10-tile
  * cutoff at which a body in another room starts walking), with a wide gate (6 x 5 tiles) and all three
  * kinds standing in the open somewhere on the floor for the cast to borrow. Both pinned words are 0x86:
@@ -429,10 +430,7 @@ test.describe('models', { tag: '@capture' }, () => {
     const floor = await game.floor();
     expect(floor.level, 'the gate scenes are staged on floor 2').toBe(2);
     const centre = roomCentre(floor, 0);
-    expect(
-      Math.hypot(floor.weaponDrop.x - centre.x, floor.weaponDrop.z - centre.z),
-      'seed 0x86 floor 2 laid its rack in the gate',
-    ).toBeGreaterThan(20);
+    expect((await game.state()).racks, 'floor 2 laid a rack in the gate').toEqual([]);
     return { floor, mark: openSpot(floor, centre, { radius: 3 }) };
   };
 
@@ -503,27 +501,28 @@ test.describe('models', { tag: '@capture' }, () => {
   });
 
   /**
-   * Each found arm as the floor itself lays it out, on a seed (found by a search over the pure
-   * generator's `floor.weaponDrop.kind`, level 1) that hands it out. The knight stands 2.6 units to its
-   * left on screen, outside the ring, so the rack sits right of centre and the prompt stays down.
-   * The kind is one draw after every spawn is placed, so any change to the dealing moves it: re-picked after plan 018
-   * (fangs, spear, cleaver, maul); a seed that stops handing its arm out fails "pick another seed", it does not skip.
+   * Each found arm as the Tide Gate lays it out (plan 019): a save that owns the Tideblade and that one arm, so the gate
+   * shows exactly that rack on its slot. The knight stands 2.6 units to its left on screen, outside the ring, so the rack
+   * sits right of centre and the prompt stays down (a slot may stand against a wall, so the spot is searched for in a wider circle than the old rack's open floor needed). One seed serves all six: a slot depends on the floor alone, and what
+   * the old six seeds were for (the generator handing each arm out) is gone with the floor-one rack.
    */
-  const DROPS: [WeaponId, number][] = [['fangs', 0x8], ['spear', 0x4], ['cleaver', 0x6], ['maul', 0x1], ['crossbow', 0x10], ['flask', 0x3]];
-  for (const [kind, seed] of DROPS) {
+  const DROPS: WeaponId[] = ['fangs', 'spear', 'cleaver', 'maul', 'crossbow', 'flask'];
+  for (const kind of DROPS) {
     test.describe(`the ${kind} on its rack`, () => {
-      test.use({ seeds: [seed] });
+      test.use({ seeds: [0x1] });
       test(`models-drop-${kind}`, async ({ game }) => {
+        await game.setMeta({ ...freshMeta(), arms: ARM_ORDER.filter((arm) => arm === 'tideblade' || arm === kind), arm: 'tideblade' });
         await game.enter();
         const floor = await game.floor();
-        expect(floor.weaponDrop.kind, `seed 0x${seed.toString(16)} no longer lays out the ${kind}`).toBe(kind);
-        const drop = floor.weaponDrop, right = SCREEN_DIRECTIONS.right;
-        const stand = openSpot(floor, { x: drop.x - right.x * 2.6, z: drop.z - right.z * 2.6 }, { radius: 1.6, avoid: [drop], clearance: 2.2 });
+        const racks = (await game.state()).racks;
+        expect(racks.map((rack) => rack.kind), `the gate does not show exactly the ${kind}`).toEqual([kind]);
+        const drop = racks[0], right = SCREEN_DIRECTIONS.right;
+        const stand = openSpot(floor, { x: drop.x - right.x * 2.6, z: drop.z - right.z * 2.6 }, { radius: 3.4, avoid: [drop], clearance: 2.2 });
         await game.teleport(stand.x, stand.z);
         await game.step(SETTLE);
         const state = await game.state();
-        expect(state.drop!.kind).toBe(kind);
-        expect(state.drop!.over, 'the knight is standing in the ring').toBe(false);
+        expect(state.racks[0].kind).toBe(kind);
+        expect(state.racks[0].over, 'the knight is standing in the ring').toBe(false);
         await shot(game, `models-drop-${kind}`);
       });
     });

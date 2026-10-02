@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ACTIONS, appendRun, betterRun, bindKey, DEFAULT_BINDS, defaultSettings, parseBest, parseRun, parseRuns, parseSeed, parseSettings, readRuns, readSettings, RESERVED, RUN_LOG_CAP, summariseRuns, writeRuns, writeSettings, type Action, type BestRun, type RunEnd, type Settings } from '../app/dungeon-save.ts';
+import { ACTIONS, appendRun, betterRun, bindKey, DEFAULT_BINDS, defaultSettings, META_KEY, parseBest, parseMeta, parseRun, parseRuns, parseSeed, parseSettings, readMeta, readRuns, readSettings, RESERVED, RUN_LOG_CAP, summariseRuns, writeMeta, writeRuns, writeSettings, type Action, type BestRun, type RunEnd, type Settings } from '../app/dungeon-save.ts';
+import { freshMeta, PEARL_CAP, type Meta } from '../app/dungeon-meta.ts';
 
 const run = (floor: number, xp: number): BestRun => ({ floor, xp, kills: 0, won: false });
 // A plausible death on floor 2, which every history test varies one field of.
-const end = (over: Partial<RunEnd> = {}): RunEnd => ({ at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee, ...over });
+const end = (over: Partial<RunEnd> = {}): RunEnd => ({ at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 0, ...over });
 const won = (over: Partial<RunEnd> = {}): RunEnd => end({ floor: 3, won: true, cause: null, ...over });
 
 test('the best run is the deepest, with XP only breaking a tie on the same floor', () => {
@@ -81,7 +82,7 @@ test('an entry is kept only if it still says where and how the run ended', () =>
   assert.equal(parseRun({ ...end(), won: true }), null);
   assert.equal(parseRun({ ...won(), won: false }), null);
   // Fields that only colour an entry degrade to a floor rather than sinking it.
-  assert.deepEqual(parseRun({ at: 9, floor: 2, won: false, cause: 'warden', seed: 3 }), { at: 9, floor: 2, won: false, cause: 'warden', seconds: 0, rank: 1, xp: 0, kills: 0, boons: [], seed: 3 });
+  assert.deepEqual(parseRun({ at: 9, floor: 2, won: false, cause: 'warden', seed: 3 }), { at: 9, floor: 2, won: false, cause: 'warden', seconds: 0, rank: 1, xp: 0, kills: 0, boons: [], seed: 3, arm: 'tideblade', upgrades: {}, pearls: 0 });
   assert.deepEqual(parseRun({ ...end(), boons: ['edge', 7, null, 'ward'] })?.boons, ['edge', 'ward']);
   assert.deepEqual(parseRun({ ...end(), boons: 'edge' })?.boons, []);
   assert.deepEqual(parseRun({ ...end(), boons: Array(30).fill('edge') })?.boons.length, 12);
@@ -145,6 +146,92 @@ test('a history that is missing, hostile or unwritable costs the log and nothing
     const stored = JSON.parse(cell.get('drowned-keep:runs') ?? '[]') as RunEnd[];
     assert.equal(stored.length, RUN_LOG_CAP);
     assert.equal(stored[0].at, 6);
+  } finally {
+    if (original) Object.defineProperty(owner, 'localStorage', original); else delete owner.localStorage;
+  }
+});
+
+// --- Plan 019: what a run leaves behind (the record) and what it buys (the meta save) --------------------
+// A record written before the meta existed has no `arm`, `upgrades` or `pearls`. It is a good record: it reads
+// as a Tideblade run on no upgrades that paid nothing, and is not dropped.
+const PRE_019 = { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee };
+
+test('a record from before the meta save parses, with the Tideblade, no upgrades and no pearls', () => {
+  assert.ok(!('arm' in PRE_019) && !('upgrades' in PRE_019) && !('pearls' in PRE_019), 'precondition: the fixture really lacks the new fields');
+  assert.deepEqual(parseRun(PRE_019), { ...PRE_019, arm: 'tideblade', upgrades: {}, pearls: 0 }, 'a pre-019 record was not read as a Tideblade run on no upgrades');
+  // And a whole old log keeps every entry, rather than dropping the lot for the missing fields.
+  assert.deepEqual(parseRuns(JSON.stringify([PRE_019, { ...PRE_019, at: 2 }])).map(run => run.at), [1_700_000_000_000, 2]);
+});
+
+test('the new record fields are kept when sane and defaulted one by one when not', () => {
+  const full = parseRun({ ...PRE_019, arm: 'maul', upgrades: { lungs: 2, tide: 1 }, pearls: 77 });
+  assert.deepEqual([full?.arm, full?.upgrades, full?.pearls], ['maul', { lungs: 2, tide: 1 }, 77]);
+  // An arm this build has not heard of is the Tideblade, not a reason to lose the run.
+  assert.equal(parseRun({ ...PRE_019, arm: 'lance' })?.arm, 'tideblade');
+  assert.equal(parseRun({ ...PRE_019, arm: 7 })?.arm, 'tideblade');
+  assert.equal(parseRun({ ...PRE_019, arm: 'toString' })?.arm, 'tideblade');
+  // Ranks are held to the table: unknown ids go, a rank over its maximum is clamped, zero is absent.
+  assert.deepEqual(parseRun({ ...PRE_019, upgrades: { lungs: 99, ghost: 1, eye: 0, whet: -1, toString: 2 } })?.upgrades, { lungs: 3 });
+  assert.deepEqual(parseRun({ ...PRE_019, upgrades: 'lungs' })?.upgrades, {});
+  assert.equal(parseRun({ ...PRE_019, pearls: -5 })?.pearls, 0);
+  assert.equal(parseRun({ ...PRE_019, pearls: 12.9 })?.pearls, 12);
+  assert.equal(parseRun({ ...PRE_019, pearls: 1e12 })?.pearls, PEARL_CAP);
+});
+
+// --- The meta save -------------------------------------------------------------------------------
+const stored = (meta: unknown) => JSON.stringify(meta);
+const BOUGHT: Meta = { pearls: 140, upgrades: { lungs: 2, tide: 1 }, arms: ['tideblade', 'spear', 'maul'], arm: 'maul' };
+
+test('a sane meta survives a write and a read unchanged', () => {
+  assert.deepEqual(parseMeta(stored(BOUGHT)), BOUGHT);
+  assert.deepEqual(parseMeta(stored(freshMeta())), freshMeta());
+});
+
+test('anything unreadable is a fresh meta, and nothing is shared between two of them', () => {
+  for (const raw of [null, '', '   ', '{', 'null', '7', '"x"', '[]', '[{"pearls":50}]']) assert.deepEqual(parseMeta(raw), freshMeta(), String(raw));
+  const a = parseMeta(null), b = parseMeta(null);
+  a.arms.push('maul'); a.upgrades.lungs = 3;
+  assert.deepEqual(b, freshMeta(), 'a fresh meta aliased another one\'s arrays');
+});
+
+test('a meta field that is wrong costs that field and leaves the rest', () => {
+  const pearls = (value: unknown) => parseMeta(stored({ ...BOUGHT, pearls: value })).pearls;
+  assert.equal(pearls(-30), 0);
+  assert.equal(pearls('lots'), 0);
+  assert.equal(pearls(40.7), 40);
+  assert.equal(pearls(1e12), PEARL_CAP);
+  assert.deepEqual(parseMeta(stored({ ...BOUGHT, pearls: -30 })).upgrades, BOUGHT.upgrades);
+  // A rank over its maximum is held to it; an unknown id is dropped; a stray number is not a rank.
+  assert.deepEqual(parseMeta(stored({ ...BOUGHT, upgrades: { lungs: 9, whet: 2, ghost: 4, eye: -1 } })).upgrades, { lungs: 3, whet: 1 });
+  // An unknown arm is dropped and the known ones stay, in the table's order, once each.
+  assert.deepEqual(parseMeta(stored({ ...BOUGHT, arms: ['maul', 'lance', 'spear', 'maul', 7, 'tideblade'] })).arms, ['tideblade', 'spear', 'maul'], 'unknown or repeated arms were not cleaned');
+  // The Tideblade is owned whatever the cell says, including a cell that lists nothing.
+  assert.deepEqual(parseMeta(stored({ ...BOUGHT, arms: ['maul'], arm: 'maul' })).arms, ['tideblade', 'maul'], 'the Tideblade must always be owned (missing from a list)');
+  assert.deepEqual(parseMeta(stored({ ...BOUGHT, arms: [], arm: 'tideblade' })).arms, ['tideblade'], 'the Tideblade must always be owned (empty list)');
+  assert.deepEqual(parseMeta(stored({ ...BOUGHT, arms: 'maul' })).arms, ['tideblade'], 'the Tideblade must always be owned (list is not a list)');
+  // An arm in hand that is not owned, or not an arm, falls back to the Tideblade.
+  assert.equal(parseMeta(stored({ ...BOUGHT, arm: 'crossbow' })).arm, 'tideblade');
+  assert.equal(parseMeta(stored({ ...BOUGHT, arm: 'lance' })).arm, 'tideblade');
+  assert.equal(parseMeta(stored({ ...BOUGHT, arm: 3 })).arm, 'tideblade');
+  assert.equal(parseMeta(stored({ ...BOUGHT, arm: 'spear' })).arm, 'spear');
+});
+
+test('the meta save is read and written through storage that may be absent, hostile or full', () => {
+  const owner = globalThis as { localStorage?: unknown };
+  const original = Object.getOwnPropertyDescriptor(owner, 'localStorage');
+  try {
+    delete owner.localStorage;
+    assert.deepEqual(readMeta(), freshMeta());
+    writeMeta(BOUGHT);
+    owner.localStorage = { getItem() { throw new Error('SecurityError'); }, setItem() { throw new Error('QuotaExceededError'); } };
+    assert.deepEqual(readMeta(), freshMeta());
+    writeMeta(BOUGHT);
+    const cell = new Map<string, string>();
+    owner.localStorage = { getItem: (k: string) => cell.get(k) ?? null, setItem: (k: string, v: string) => { cell.set(k, v); } };
+    writeMeta(BOUGHT);
+    assert.equal(META_KEY, 'drowned-keep:meta');
+    assert.ok(cell.has(META_KEY), 'precondition: the meta was written under its own key');
+    assert.deepEqual(readMeta(), BOUGHT);
   } finally {
     if (original) Object.defineProperty(owner, 'localStorage', original); else delete owner.localStorage;
   }

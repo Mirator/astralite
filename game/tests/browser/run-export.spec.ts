@@ -6,9 +6,9 @@ const ORIGIN = `http://127.0.0.1:${process.env.GAME_TEST_PORT ?? 3000}`;
 // The run log is stored under the game's real key; three runs, one of them a win, so the count is not a
 // constant a wrong implementation could hit by accident.
 const STORED: RunEnd[] = [
-  { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee },
-  { at: 1_700_000_500_000, floor: 1, won: false, cause: 'guard', seconds: 31, rank: 1, xp: 20, kills: 2, boons: [], seed: 7 },
-  { at: 1_700_001_000_000, floor: 3, won: true, cause: null, seconds: 402, rank: 6, xp: 1290, kills: 44, boons: ['edge', 'ward', 'swift'], seed: 12345 },
+  { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 0 },
+  { at: 1_700_000_500_000, floor: 1, won: false, cause: 'guard', seconds: 31, rank: 1, xp: 20, kills: 2, boons: [], seed: 7, arm: 'tideblade', upgrades: {}, pearls: 0 },
+  { at: 1_700_001_000_000, floor: 3, won: true, cause: null, seconds: 402, rank: 6, xp: 1290, kills: 44, boons: ['edge', 'ward', 'swift'], seed: 12345, arm: 'maul', upgrades: { lungs: 2, tide: 1 }, pearls: 118 },
 ];
 
 // A stored blob is read on mount, so this scenario gets its own page (helpers.ts `needsOwnPage`).

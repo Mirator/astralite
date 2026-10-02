@@ -27,6 +27,8 @@ modules:
   alongside the generator in `dungeon-floor.test.ts`: sliding, diagonal gaps, tunnelling and body
   radius.
 - **Persistence** (`dungeon-save.ts`), described under Persistence below.
+- **Meta progression** (`dungeon-meta.ts`, plan 019): what a run pays in pearls, buying upgrades and arms, what a run starts with,
+  and the stored blob's parsing. `tests/dungeon-meta.test.ts` also holds the sim's and the game's floor count together.
 - **Specials** (`tests/dungeon-special.test.ts`, plan 016): each special's timing, travel, reach and damage, the
   gate that keeps one off a live strike, the cooldown that starts at contact, and the balance batch's `special`
   policy.
@@ -119,9 +121,11 @@ automated drivers; nothing in the game itself calls them.
 | `dungeonTest.buildArena(roster, level = 1)` | Development only: rebuilds as an arena, `roster` awake in the gate (see [The arena](#the-arena)) |
 | `dungeonTest.grantXp(amount)` | Awards XP, so the boon draft can be reached in one line |
 | `dungeonTest.runLog()` | The stored history of finished runs, oldest first — re-read and re-validated on every call |
+| `dungeonTest.meta()` | Plan 019: the stored pearl save (`{ pearls, upgrades, arms, arm }`), re-read and re-validated on every call |
+| `dungeonTest.setMeta(meta)` | Plan 019: writes a pearl save through the real storage path. Fixture setup only; see [The pearl save](#the-pearl-save) |
 
 `dungeonTest.runLog()` is how a balance question stops being a memory: `copy(JSON.stringify(window.dungeonTest.runLog()))`
-gives every finished run since the log was capped, each one `{ at, floor, won, cause, seconds, rank, xp, kills, boons, seed }`,
+gives every finished run since the log was capped, each one `{ at, floor, won, cause, seconds, rank, xp, kills, boons, seed, arm, upgrades, pearls }`,
 so deaths can be counted per floor and per `cause` (any enemy kind in `ENEMY_KINDS`, or `hazard`; null on a win)
 and any run worth seeing again replayed with `restart:<seed>`.
 
@@ -170,6 +174,34 @@ const seed = JSON.parse(window.render_game_to_text()).floor.seed;
 window.dispatchEvent(new CustomEvent('dungeon-action', { detail: `restart:${seed}` }));
 ```
 
+### The pearl save
+
+Plan 019's save is one more `localStorage` key, `drowned-keep:meta` (see Persistence), which the game reads at **every run
+start** (`restart`, and the first `enter`), never once at mount. That is what lets a test stage it and what keeps one scenario's
+purchases out of the next.
+
+- `dungeonTest.meta()` reads the stored blob. `dungeonTest.setMeta(meta)` writes one; it goes through `writeMeta`, so the same
+  validation a stored blob gets applies, and it **takes effect at the next run start**, as a real purchase does. Call it, then
+  `game.enter()` (or `restart`), not the other way round. Build a `Meta` from `freshMeta()` in `app/dungeon-meta.ts`:
+  `setMeta({ ...freshMeta(), arms: ['tideblade', 'maul'], arm: 'tideblade' })` puts the maul on a rack in the Tide Gate.
+- **The pooled reset clears it.** `Game.reset` empties `localStorage` before it rebuilds, so every scenario starts from
+  `freshMeta()` (no pearls, only the Tideblade). The reset-and-prove step at the end of a scenario holds the whole snapshot
+  against a boot, and `run.start` is in that snapshot, so a scenario that bought something and leaked it fails by name.
+- `render_game_to_text().run.start` is `{ arm, maxHp, strike, draftSize, defiance }`: what the live run was dealt, read off the run
+  and the arm in hand when it began, not recomputed from the meta. It stays what the run began with while boons move `maxHp` and
+  `strike`, and `defiance` is the revive dealt, not the revive left.
+- `render_game_to_text().run.armLocked` is true once the first door out of the floor-1 Tide Gate has been taken (D9): the racks are
+  gone and the swap key can no longer equip an arm.
+- `render_game_to_text().racks` is the list of racks on the floor, read off the scene (it replaces the single `drop` the snapshot
+  once had): `{ x, z, kind, radius, over, inScene, offered }`. The Tide Gate of floor one holds one for every owned arm but the one
+  in hand, up to six; the dev arena has its own; no other floor has any. `over` is the knight standing in that ring,
+  `offered` the arm the swap prompt is naming. `dungeonTest.actorStats()` reports the racks' meshes as `racks` for the teardown
+  checks.
+
+The Tide Altar and the result card's TO THE GATE button are driven with real clicks and keys (`tests/browser/meta.spec.ts`);
+`tests/browser/armoury.spec.ts` walks into a rack's ring and uses the swap key. The rules live in node:
+`tests/dungeon-meta.test.ts`.
+
 ### The arena
 
 `?arena=guard:2,archer:1&level=2` (counts optional, `level` 1-3, default 1) works in every build, the published
@@ -210,9 +242,10 @@ asserts it is present rather than skipping when it is not.
 
 ### Persistence
 
-Four `localStorage` keys, `drowned-keep:best`, `drowned-keep:seed`, `drowned-keep:runs` and
-`drowned-keep:settings`, hold the deepest run (XP breaks a tie on the same floor), the current run's
-floor-1 seed, the last 100 finished runs, and what the player asked the game to be. Nothing leaves the
+Five `localStorage` keys, `drowned-keep:best`, `drowned-keep:seed`, `drowned-keep:runs`,
+`drowned-keep:settings` and `drowned-keep:meta`, hold the deepest run (XP breaks a tie on the same floor), the current run's
+floor-1 seed, the last 100 finished runs, what the player asked the game to be, and (plan 019) the pearls, upgrades and unlocked
+arms. The meta blob is re-validated field by field like the settings (`parseMeta`), and a run abandoned by reloading banks nothing. Nothing leaves the
 browser. Every read and write is wrapped, and a missing, blocked or corrupt value reads as absent — the
 game plays identically with storage disabled, and a single malformed entry is dropped without costing
 the rest of the history. `tests/dungeon-save.test.ts` covers the comparison, the parsing, the cap, the
@@ -341,7 +374,7 @@ What to check for plan 016:
   dodge. A dodge with the cursor parked to one side keeps the next strike aimed at the cursor. `Tab`
   opens and closes the map; in the menus it still moves focus.
 - **Keyboard only:** `J` strike, `K` special, `L` dodge; aim snaps onto the body in front.
-- **Pad:** A strike, X special, B or RB dodge (hold A and tap RB), Y takes an arm or the open stair,
+- **Pad:** A strike, X special, B or RB dodge (hold A and tap RB), Y (the swap binding) uses the rack the knight stands in, a door, or the open stair,
   View opens the map, Start pauses.
 - **The stair:** once its wardens fall, standing on it only shows the prompt; the swap binding (`E`,
   pad Y, or a tap on the prompt) takes it down. Standing there does nothing on its own.

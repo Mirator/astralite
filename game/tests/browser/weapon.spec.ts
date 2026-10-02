@@ -1,35 +1,40 @@
+import { freshMeta } from '../../app/dungeon-meta.ts';
 import { expect, press, test } from './helpers.ts';
 
-// The pickup is the only way an arm other than the Tideblade ever reaches the knight's hand, so what this
+// A rack is the only way an arm other than the one he started with ever reaches the knight's hand, so what this
 // covers is the swap itself: that the rack only ever offers, that the swap key is what takes it, that what
 // was held is left behind rather than destroyed, that the swing runs on the new arm, and that a restart
 // hands back the sword. One story on one page; it used to be four tests paying four resets.
+// Plan 019 Stage C: the floor-one rack this was written against is gone. The only racks in the campaign are the Tide Gate's
+// armoury, an owned arm each, so the story is staged by owning the maul and walking into its slot (`armoury.spec.ts` covers
+// the armoury as a whole: which arms stand, the choice, the lock at the first door).
 
 test('standing on a rack offers the arm and takes nothing; the swap key is what takes it', async ({ game, page }) => {
+  await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'maul'], arm: 'tideblade' });
   await game.enter();
   const opening = await game.state();
-  expect(opening.drop, 'every floor lays one arm out').not.toBeNull();
+  expect(opening.racks, 'the Tide Gate lays one rack out for the one arm owned besides the sword in hand').toHaveLength(1);
   expect(opening.weapon.id).toBe('tideblade');
-  const offered = opening.drop!.kind;
-  expect(offered).not.toBe('tideblade');
+  const rack = opening.racks[0], offered = rack.kind;
+  expect(offered).toBe('maul');
 
   // Standing just outside the ring offers nothing, however long the knight waits there, and the key
   // pressed out there is inert rather than a swap at a distance.
-  await game.teleport(opening.drop!.x + opening.drop!.radius + 0.6, opening.drop!.z);
+  await game.teleport(rack.x + rack.radius + 0.6, rack.z);
   await game.step(900);
   const waiting = await game.state();
-  expect(waiting.drop!.over).toBe(false);
-  expect(waiting.drop!.offered).toBeNull();
+  expect(waiting.racks[0].over).toBe(false);
+  expect(waiting.racks[0].offered).toBeNull();
   await page.keyboard.press('KeyE');
   await game.step(32);
   expect((await game.state()).weapon.id).toBe('tideblade');
 
   // Inside the ring the arm is named — and still not taken, however long he stands there.
-  await game.teleport(opening.drop!.x, opening.drop!.z);
+  await game.teleport(rack.x, rack.z);
   await game.step(2000);
   const standing = await game.state();
-  expect(standing.drop!.over).toBe(true);
-  expect(standing.drop!.offered).toBe(offered);
+  expect(standing.racks[0].over).toBe(true);
+  expect(standing.racks[0].offered).toBe(offered);
   expect(standing.weapon.id, 'standing on the rack took the arm by itself').toBe('tideblade');
   await expect(page.locator('.swap-prompt')).toContainText('switch to', { ignoreCase: true });
 
@@ -39,9 +44,10 @@ test('standing on a rack offers the arm and takes nothing; the swap key is what 
   const armed = await game.state();
   expect(armed.weapon.id).toBe(offered);
   // What he set down is still there: a swap he regrets is a walk back, not a dead run.
-  expect(armed.drop!.kind).toBe('tideblade');
+  expect(armed.racks).toHaveLength(1);
+  expect(armed.racks[0].kind).toBe('tideblade');
   // And the prompt turns around with it, naming the sword he just put down.
-  expect(armed.drop!.offered).toBe('tideblade');
+  expect(armed.racks[0].offered).toBe('tideblade');
 
   // The swing runs on the new arm, read off a real swing rather than the weapon table.
   expect(armed.weapon.duration, 'the fixture needs an arm that swings at a different speed').not.toBe(opening.weapon.duration);
@@ -54,17 +60,18 @@ test('standing on a rack offers the arm and takes nothing; the swap key is what 
   await game.step(1200);
 
   // The prompt is gone the moment he walks off the rack.
-  await game.teleport(opening.drop!.x + opening.drop!.radius + 1.2, opening.drop!.z);
+  await game.teleport(rack.x + rack.radius + 1.2, rack.z);
   await game.step(64);
   await expect(page.locator('.swap-prompt')).toHaveCount(0);
-  expect((await game.state()).drop!.offered).toBeNull();
+  expect((await game.state()).racks[0].offered).toBeNull();
 
-  // And a new descent starts on the sword he walks in with, whatever he left the last one holding.
+  // And a new descent starts on the arm the save holds, whatever he left the last one holding (nothing was locked: he never
+  // took a door), with the gate laid out again.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'restart' })));
   await game.built();
   await game.step(600);
   const fresh = await game.state();
   expect(fresh.weapon.id).toBe('tideblade');
-  expect(fresh.drop).not.toBeNull();
-  expect(fresh.drop!.offered).toBeNull();
+  expect(fresh.racks.map((r) => r.kind)).toEqual(['maul']);
+  expect(fresh.racks[0].offered).toBeNull();
 });

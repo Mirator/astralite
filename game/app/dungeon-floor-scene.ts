@@ -10,7 +10,6 @@ import { pavingPatchGeometry } from './dungeon-paving-patches';
 import { litDisc, type Radiance } from './dungeon-radiance';
 import { buildSurfaceIndex, type CellSurface, type SurfaceIndex, type SurfaceTriangle } from './dungeon-surface';
 import { applyFloorDetail, applyStoneTextures, getFlagstoneTextures, getMasonryTextures } from './dungeon-textures';
-import type { WeaponId } from './dungeon-weapon';
 
 // Raising one floor of the keep out of its generated layout: the paving and the flood, the
 // parapets, the atmosphere pass, the walking-surface index, the hazards and shrines, the stair and every
@@ -62,9 +61,9 @@ export type DoorView = {
 };
 
 /** What a door promises, by the chamber behind it: its reward, or what kind of quiet it is. */
-export type DoorSign = 'arm' | 'mend' | 'cache' | 'rest' | 'stair' | 'fight';
+export type DoorSign = 'mend' | 'cache' | 'rest' | 'stair' | 'fight';
 export const doorSign = (room: Floor['rooms'][number]): DoorSign => room.reward ?? (room.role === 'goal' ? 'stair' : room.encounter === 'sanctuary' ? 'rest' : 'fight');
-export const DOOR_TINT: Record<DoorSign, number> = { arm: 0xc9dcef, mend: 0xff8a8a, cache: 0xfbc956, rest: 0x71f4c4, stair: 0xe0a150, fight: 0xb9a4ff };
+export const DOOR_TINT: Record<DoorSign, number> = { mend: 0xff8a8a, cache: 0xfbc956, rest: 0x71f4c4, stair: 0xe0a150, fight: 0xb9a4ff };
 
 export const createFloorStage = (): FloorStage => ({
   features: [], enemies: [], atmosphere: null, surfaceIndex: null, pavingSummary: { pairs: 0, settled: 0, surfaceCells: 0 },
@@ -78,8 +77,6 @@ export type FloorArt = EnemyArt & {
   world: THREE.Object3D;
   /** Registers a camera occluder with the cutaway controller. */
   register: (mesh: THREE.Mesh | THREE.InstancedMesh) => void;
-  /** Lays the floor's arm on its rack. The rack is drawn in the knight's own palette, so the world does it. */
-  placeDrop: (kind: WeaponId, x: number, z: number) => void;
 };
 
 // One scratch matrix for every instance the build places.
@@ -383,14 +380,13 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
     const bars = new THREE.Group(), iron = new THREE.MeshStandardMaterial({ color: 0x3a2e26, metalness: .8, roughness: .55 });
     for (let n = -2; n <= 2; n++) { const bar = new THREE.Mesh(new THREE.BoxGeometry(.07, 2.1, .07), iron); bar.position.set(wx + across.x * n * .36 - door.face.x * .12, 1.05, wz + across.z * n * .36 - door.face.z * .12); bars.add(bar); }
     floorGroup.add(bars);
-    const shape = sign === 'arm' ? new THREE.BoxGeometry(.1, .62, .1) : sign === 'mend' ? new THREE.SphereGeometry(.24, 16, 12) : sign === 'cache' ? new THREE.OctahedronGeometry(.3) : sign === 'rest' ? new THREE.TorusGeometry(.22, .07, 8, 24) : sign === 'stair' ? new THREE.ConeGeometry(.26, .5, 4) : new THREE.TetrahedronGeometry(.3);
+    const shape = sign === 'mend' ? new THREE.SphereGeometry(.24, 16, 12) : sign === 'cache' ? new THREE.OctahedronGeometry(.3) : sign === 'rest' ? new THREE.TorusGeometry(.22, .07, 8, 24) : sign === 'stair' ? new THREE.ConeGeometry(.26, .5, 4) : new THREE.TetrahedronGeometry(.3);
     const sigil = new THREE.Mesh(shape, new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .6, metalness: .3, roughness: .3 }));
     sigil.position.set(wx - door.face.x * .45, 1.25, wz - door.face.z * .45); floorGroup.add(sigil);
     const ring = new THREE.Mesh(new THREE.RingGeometry(.95, 1.15, 40), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .15, side: THREE.DoubleSide, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2; ring.position.set(spot.x, .09, spot.z); floorGroup.add(ring);
     return { door, spot, color, ring, veil, sigil, bars, lit: 0 };
   });
-  art.placeDrop(floor.weaponDrop.kind, floor.weaponDrop.x, floor.weaponDrop.z);
   yield 'atmosphere';
   stage.enemies = floor.spawns.map((spawn, index) => spawnEnemy(spawn, index, level, floorGroup, art, TILE));
   yield 'enemies';

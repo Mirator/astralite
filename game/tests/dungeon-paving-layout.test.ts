@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decorReservations } from '../app/dungeon-decor-layout.ts';
-import { generateFloor, TILE } from '../app/dungeon-floor.ts';
+import { gateRacks, generateFloor, TILE } from '../app/dungeon-floor.ts';
 import { planPavingPatches } from '../app/dungeon-paving-layout.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
@@ -99,5 +99,16 @@ test('a gauntlet room, whose entire footprint is reserved, never gets a pair or 
     const plan = planPavingPatches(floor);
     for (const pair of plan.pairs) assert.ok(!gauntlet.includes(pair.room), `seed ${floor.seed} a gauntlet room got a paving pair`);
     for (const single of plan.settled) assert.ok(!gauntlet.includes(single.room), `seed ${floor.seed} a gauntlet room got a settled single`);
+  }
+});
+
+test('no paving patch lands within a rack\'s reservation of any slot of the Tide Gate, whichever arms are owned', () => {
+  for (const floor of allFloors().filter((f) => f.level === 1)) {
+    const plan = planPavingPatches(floor), slots = gateRacks(floor);
+    assert.equal(slots.length, 7);
+    const cells = [...plan.pairs.flatMap((p) => [[p.ax, p.az], [p.bx, p.bz]]), ...plan.settled.map((s) => [s.x, s.z])];
+    for (const slot of slots) for (const [x, z] of cells) {
+      assert.ok(Math.max(Math.abs(x * TILE - slot.x), Math.abs(z * TILE - slot.z)) > 1.5, `seed ${floor.seed}: a paving patch at ${x},${z} sits on the ${slot.arm} rack's slot`);
+    }
   }
 });

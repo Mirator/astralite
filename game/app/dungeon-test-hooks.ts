@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { CombatFixture } from './dungeon-fixture';
 import type { Enemy, EnemyKind } from './dungeon-enemy-view';
+import type { Meta } from './dungeon-meta';
 import type { RunEnd } from './dungeon-save';
 import { getFlagstoneTextures, getMasonryTextures } from './dungeon-textures';
 import type { WeaponId } from './dungeon-weapon';
@@ -20,6 +21,9 @@ export type TestHooks = {
   grantXp: (amount: number) => void;
   reset: (seed?: number) => void;
   runLog: () => RunEnd[];
+  /** Plan 019: the stored meta, straight off the save and re-validated; `setMeta` writes one, for fixture setup. */
+  meta: () => Meta;
+  setMeta: (meta: Meta) => void;
   configureCombatFixture?: (fixture: CombatFixture) => void;
   cutawayDiagnostics?: () => unknown;
   setCutawayEnabled?: (enabled: boolean) => void;
@@ -27,7 +31,7 @@ export type TestHooks = {
   setFootstepsEnabled?: (enabled: boolean) => void;
   setEnemyRigVisible?: (index: number, visible: boolean) => void;
   buildArena?: (roster: EnemyKind[], level?: number) => void;
-  actorStats?: () => { knight: ActorStat & { disposedMaterials: number }; enemies: ({ kind: EnemyKind } & ActorStat)[]; drop: { kind: WeaponId; meshes: number; triangles: number } | null };
+  actorStats?: () => { knight: ActorStat & { disposedMaterials: number }; enemies: ({ kind: EnemyKind } & ActorStat)[]; racks: { kind: WeaponId; meshes: number; triangles: number }[] };
   lightDiagnostics?: (index: number, radius?: number) => unknown;
   drainGpu?: () => number;
   textureHash?: () => { flagstone: number; masonry: number };
