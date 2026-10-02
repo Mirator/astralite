@@ -554,3 +554,35 @@ Resumed from an interrupted WIP commit (`41d6769`), reviewed and finished; detai
 - **Gates.** typecheck, lint, node suite, `balance:check`, PR-gate browser run 136 of 136, `@capture`/`@nightly` restaged
   scenarios 18 of 18, `armoury.spec.ts` under `GAME_TEST_ISOLATE=1` 2 of 2.
 
+### Stage D (2026-10-02): stop rule tripped, prices not set
+
+Details, plants and messages are in `game/progress.md` ("Plan 019 Stage D and Stage F"). In brief:
+
+- **Policies added** to `bands.json`: `meta-max` (default bot) and `weak-meta-max` (weak bot), each with `"meta": "max"`,
+  resolved by `buildPolicy` through `maxedMeta()` in `dungeon-meta.ts` (Deep Lungs 3, Whetted Start 2, Keen Eye, Second Tide,
+  all seven arms owned; the policy's own `weapon` is still the arm measured). `check.ts` applies them.
+- **Measured** (30 runs, seed 1, the `balance:check` batch): meta-max escapes **100%** (floor deaths 0/0/0, HP left 100/100/100,
+  run 115.7 s; default 100%, 149.0 s). weak-meta-max escapes **100%** (0/0/0, 100/100/100, 97.5 s; weak 83.3%, floor-3 deaths
+  10.7%, 127.9 s).
+- **Stop rule: tripped.** 300 runs agree: weak-meta-max 300 of 300 (weak on the same 300 seeds 89.3%: 268 escaped, 30 died, 2
+  stuck; meta-max 299 of 300, default 298 of 300, the stuck runs being the sim's timeouts). Weak knight with one upgrade bought
+  (150 runs, same seeds): none 92.0%, Deep Lungs 97.3%, Second Tide 97.3%, Keen Eye 92.0% (the bot takes the first card, so a
+  fourth card changes nothing for it), **Whetted Start 100% in 98.8 s against 131.6 s**. One upgrade does most of it.
+  This is a design finding for the operator (the difficulty pass), not a band to widen and not a reason to tune D4 here.
+- **Prices: not set.** `UPGRADES` and `ARM_PRICES` are still Stage A's placeholders (they total 1820 pearls, 920 upgrades and
+  900 arms, about 40 runs at 45 a run, twice D6's target; the cheapest arm costs 100, more than two typical runs earn). No node
+  test pins the total, since there is no arithmetic to pin yet. If the operator wants D6's twenty runs at the Stage 0 guess of 45
+  pearls a run (total 900), one table that meets it and the "an arm and an upgrade after two runs" rule is in the progress entry,
+  **proposed, not applied**.
+- **Tests:** node suite 383 (was 381): `maxedMeta` and `buildPolicy`, each planted. `balance:check` 424 s, every metric of all
+  nine policies in band.
+
+### Stage F (2026-10-02)
+
+Documents written, with prices called provisional throughout: `GAME_OVERVIEW.md` (core loop, Tide Gate paragraph, Progression,
+Current form; no arm on a rack, no "each floor also holds one arm"), `README.md` (Play, layout), `AGENTS.md` (`dungeon-meta.ts` in
+the pure-module list), `game/tests/README.md` (`meta`/`setMeta`, `run.start`, `racks`, `run.armLocked`, the pooled reset, the fifth
+storage key, the pad Y line; the snapshot's `drop` was already gone from that file, so there was no stale mention to fix),
+`docs/art-direction.md` (the gate's rack slots in the reserved list), `plans/README.md` (this row). **Open: Stage E, the operator's
+human playtest, and the Stage D decision above.**
+

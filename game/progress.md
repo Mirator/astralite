@@ -3865,3 +3865,87 @@ and `@nightly` scenarios (`shots.spec.ts` all 16, `models.spec.ts` the two `@nig
 accepted that, and nothing here judges how it reads). `AGENTS.md`, `GAME_OVERVIEW.md`, `README.md`, `tests/README.md` (the
 snapshot's `racks` replaces `drop`; "Y takes an arm") are Stage F and are untouched. The Altar's sentence "arms are chosen at
 the Tide Gate" is now true.
+
+## 2026-10-02 - Plan 019 Stage D and Stage F: the stop rule trips, prices stay provisional, the documents
+
+**Headline for the operator.** Stage D stopped at its own stop rule. With everything bought, the weak bot escapes **every**
+run (30 of 30 in the `balance:check` batch, 300 of 300 in a larger one), against 83.3% (30 runs) and 89.3% (300 runs) without
+the upgrades. The plan says that is a design finding (do the difficulty pass first), not a band to widen, so **no price was set
+and D4's upgrades were not touched.** Stage F is done, with the prices called provisional. Stage E (the human playtest) is not
+attempted.
+
+**Policies.** `scripts/balance/bands.json` gains `meta-max` (default bot) and `weak-meta-max` (weak bot). A policy says
+`"meta": "max"`; `buildPolicy` in `scripts/balance/bands.ts` (new, used by `check.ts`, which no longer builds policies itself)
+resolves it through `maxedMeta()` in `app/dungeon-meta.ts`, so the upgrade table and the arm list are the only places that say
+what "everything" is. Maxed means Deep Lungs 3, Whetted Start 2, Keen Eye, Second Tide and all seven arms owned. The meta only
+applies numbers (`createRun(runStart(meta))`); the policy's own `weapon` is still the arm it measures (the Tideblade).
+
+| `balance:check`, 30 runs, seed 1 | escape | deaths on floor 1 / 2 / 3 | median HP left 1 / 2 / 3 | run seconds |
+| --- | --- | --- | --- | --- |
+| default | 100.0 | 0 / 0 / 0 | 100 / 100 / 100 | 149.0 |
+| meta-max | 100.0 | 0 / 0 / 0 | 100 / 100 / 100 | 115.7 |
+| weak | 83.3 | 0 / 3.3 / 10.7 | 86.4 / 82.0 / 73.6 | 127.9 |
+| weak-meta-max | 100.0 | 0 / 0 / 0 | 100 / 100 / 100 | 97.5 |
+
+Larger batches (a throwaway driver kept outside the repo, seeds 1 + i x 7919, the same as `check.ts`'s, not committed):
+- 300 runs: default 298 escaped (2 stuck), meta-max 299 (1 stuck), weak 268 escaped / 30 died / 2 stuck (89.3%; floor-3 deaths
+  9.5%), **weak-meta-max 300 of 300**.
+- Which upgrade does it (weak bot, one upgrade at a time, 150 runs, the first half of the seeds above): none 92.0% escape and
+  floor-3 deaths 6.1%, Deep Lungs 97.3%, Second Tide 97.3%, Keen Eye 92.0% (identical to none: the bot takes the first card of
+  a draft, so a fourth card cannot change it), **Whetted Start 100.0% with run time 98.8 s against 131.6 s** (a quarter faster:
+  +8 on every strike). So one upgrade is most of the effect, and Keen Eye is invisible to this bot. These are findings, not
+  tuning.
+
+**Bands.** Each new policy carries the same band widths as the default policy (escape min 85, deaths 0-10, HP left 80-100) and a
+run-time band around its measurement (meta-max 80-170, weak-meta-max 65-140), `measured` as above, and a note in `bands.json`
+saying why they exist and that they record where the bot sits rather than accept it. No existing policy moved: the first seven
+reprint Stage C's values exactly (checked against the table above and the Stage C entry). `balance:check` 424 s, every metric of
+all nine policies in band.
+
+**Prices: not set (the stop rule).** `UPGRADES` and `ARM_PRICES` in `app/dungeon-meta.ts` are Stage A's placeholders, with a
+comment beside them saying so and why. Their arithmetic, since nothing else says it: upgrades 300 (Deep Lungs 60 + 100 + 140) +
+220 (Whetted Start 80 + 140) + 150 (Keen Eye) + 250 (Second Tide) = 920; arms 100 + 100 + 150 + 150 + 200 + 200 = 900; total
+**1820**, about 40 runs at Stage 0's guess of 45 pearls a run, twice D6's target of 20. They also fail the plan's ordering rule
+(the cheapest arm, 100, is more than two typical runs, 90, earn). No node test pins this total: there is no decided arithmetic
+to pin, and a test that pinned the placeholders would make them look decided.
+**Proposed, not applied, if the operator decides the prices should go ahead anyway** (Stage 0's assumption: about 45 pearls a
+run, a guess; the repo holds no human run log; D6's 20 runs, so 900): Deep Lungs 30 / 50 / 70 (`30 + 20 x held`) = 150; Whetted
+Start 50 / 90 (`50 + 40 x held`) = 140; Keen Eye 70; Second Tide 90; upgrades 450. Arms: Twin Fangs 50, Salt Spear 60, Warden's
+Cleaver 70, Bell Maul 80, Keep Crossbow 90, Tideflask 100 = 450. Total 900 = 20 x 45. After two typical runs (90 pearls) a
+knight can afford the Twin Fangs and Deep Lungs rank one together (80). Whetted Start is the upgrade the table above says
+matters, so pricing it as the second-cheapest rank is the decision for the operator to make deliberately. Applying it means
+editing the two tables, pinning the 900 in a node test, and restaging `meta.spec.ts` (its prices are literal: 60 + 80 and "costs
+150 pearls", and the maul at 150 / the balance of 250 in the unlock story); I did not do any of that.
+
+**New tests, each planted for real, watched failing on its own message, restored.**
+- `dungeon-meta.test.ts` "the maxed meta has bought everything there is": `maxedMeta` forgets Second Tide -> "tide still had a
+  rank to buy"; forgets the flask -> "flask was not owned".
+- `balance-bands.test.ts` "a policy that says meta "max" ...": `buildPolicy` ignores the flag -> "the meta flag never reached the
+  policy"; always applies the meta -> "a policy that never named a meta was dealt one".
+Node suite 383 of 383 (was 381). No browser test changed.
+
+**Stage F, the documents.**
+- `GAME_OVERVIEW.md`: core loop (choose the arm at the Tide Gate, locked by the first door, pearls on every ending; no "an arm on a
+  rack" among the door rewards); the Keep paragraph loses "each floor also holds one arm"; the combat paragraph says arms are
+  chosen, not found; Progression gains the pearls paragraph (earning, the Altar, upgrades, unlocks not equipping, prices
+  provisional and why); Current form names the pearl economy and the Altar.
+- `README.md`: the Play section (pearls, TO THE GATE, the Altar, the Tide Gate racks and the lock) and the layout list
+  (`dungeon-meta.ts`, `dungeon-save.ts`'s new key). Not fixed, because this plan did not make it untrue: the intro still says
+  "freely-branching rooms ... joined by bent corridors and wooden bridges", which has been wrong since plan 017.
+- `AGENTS.md`: `dungeon-meta.ts` in the pure-module list.
+- `game/tests/README.md`: `meta()` and `setMeta()` (in the hook table and a new "The pearl save" section, including that the effect
+  is at the next run start and that the pooled reset clears the stored meta), `run.start`, `run.armLocked`, `racks`, `runLog`'s
+  new fields, the fifth storage key, a node-suite bullet for `dungeon-meta`, and the pad line ("Y takes an arm" became "Y (the
+  swap binding) uses the rack the knight stands in, a door, or the open stair"). The snapshot's `drop` appears nowhere in that
+  file (grepped for `drop`, `weaponDrop`, `.drop`, `rack`): there was no stale mention left to fix.
+- `docs/art-direction.md`: the reserved-cell list names the gate's seven rack slots.
+- `plans/README.md`: the 019 row (done, stopped, open); the plan's Evidence for Stage D and Stage F.
+
+**Gates.** typecheck clean; lint clean; node suite 383 of 383; `balance:check` every metric of nine policies in band (424 s);
+PR-gate browser run (`--grep-invert "@capture|@nightly"`, SwiftShader, 1 worker, the installed Chromium through a shim that is not
+committed) **136 of 136 passed in 18.6 min**, run after the code commit and before the documents (the documents are Markdown, so
+the browser run could not see them).
+
+**Not done / not verified.** Stage E. The prices (the stop rule). No test pins a price total. The "one upgrade is most of it"
+ablation is a 150-run bot measurement, not a claim about people. The documents' statement that Second Tide restores 40% and that
+the Altar sells "four small upgrades" is read from the code, not played.

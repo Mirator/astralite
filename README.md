@@ -33,6 +33,15 @@ worth 25 XP, awarded exactly once; XP is per-run and resets on retry. Floor
 one's seed is kept, so a lost run can be taken again from the death screen,
 and the deepest descent survives a reload.
 
+A run that ends, won or lost, banks pearls (a pearl a kill, 15 a floor behind
+you, 25 for escaping). The result card's TO THE GATE button returns to the
+title menu, whose **Tide Altar** spends them: it unlocks the six arms beyond
+the Tideblade and sells four small upgrades. Pearls and purchases are kept in
+the browser. The arm is chosen in the Tide Gate, the first room of floor one,
+where every unlocked arm stands on a rack (walk into a rack's ring and press the
+swap key); the first door you take locks the choice for that descent. No other
+chamber holds an arm. Prices are provisional.
+
 ## Layout
 
 ```
@@ -47,7 +56,8 @@ game/                    the application
     dungeon-combat.ts    pure sword-contact and damage-rounding rules
     dungeon-floor.ts     seeded procedural floor generator
     dungeon-sim.ts       vitality, XP, ranks, boons, damage rules
-    dungeon-save.ts      best run, seed, run log and settings in localStorage
+    dungeon-save.ts      best run, seed, run log, settings and the pearl save in localStorage
+    dungeon-meta.ts      pearls, upgrades and unlocked arms: earning, buying, what a run starts with
     dungeon-atmosphere.ts  lighting, particles, props
     dungeon-motion.ts    water and stone shaders, cloth motion
     dungeon-audio.ts     ambient drone and combat sounds
