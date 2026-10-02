@@ -382,3 +382,26 @@ profile, answer:
 Fill in per stage: gates, Stage 0's seed, frame and boot numbers, the exposure
 list and how each item was restaged, and the planted bug for each new test
 with the message it failed with.
+
+### Stage 0 and Stage A (2026-10-02)
+
+Full detail, with every plant and its failure message, is in `game/progress.md` ("Plan 020 Stage 0 and Stage A").
+
+- **`HALL_SEED` = 2063**: a 13 x 11 crypt, two braziers and two other props, seven slots with the closest pair 4.19 apart (rule 2.8), the
+  nearest slot 4.44 from the heart (rule 1.9). Every one of 5000 seeds seats seven, so the Stage A plant "a `HALL_SEED` whose room fits
+  six" does not exist; it was done as a hall cut to a 2.4-tile radius (seats 6) and as a different `HALL_SEED`.
+- **Frame cost** (SwiftShader, hall staged with the stair's heart meshes standing in for the altar): hall with six racks 294 calls /
+  120,197 triangles / 100 shadow calls against the seed 0x1 gate's 298 / 203,164 / 87 (reproduced exactly); -1.3% on calls, so the
+  10% stop rule did not trip.
+- **Boot cost**: SwiftShader has no GPU, so this is a model from measured frame counts (press to the hall 34 warm frames, hall to floor 1
+  22, floor 1 press 39) and measured compute (`buildFloor(1)`: hall 28 ms, floor 1 365 ms); it reproduces plan 019's 0.95 s for the floor 1
+  press (1.0 s). The hall adds about 0.3-0.4 s to a warm press-to-floor-1, under the 1 s stop rule. To be confirmed on a GPU in Stage G.
+- **Exposure list**: in the progress entry, with the restaging note for each item (11 direct ENTER clicks, the title and pause button lists, two
+  TO THE GATE uses, no spec that clicks NEW DESCENT or SAME KEEP, three legacy-key readers which Stage A already moved, the gate-rack specs).
+- **Found for Stage C**: the hall's kept door still has `to: 1` in a one-room floor, which crashes the door-sign loop in `raiseFloor` and the
+  snapshot's `doors`; and `decorReservations` has no way to tell the hall from floor 1 (both `level: 1`).
+- **Stage A**: slot keys and the slot-taking readers and writers, `slotSummary`, `eraseSlot`, `migrateLegacy`/`migrateStored`, `HALL_SEED`,
+  `altarHall()`; the game plays slot 1 (`const SLOT`) and does not migrate until Stage B. Seven node tests, each planted. D2 reads "five legacy
+  keys" but copies the four per-player cells (settings never moved).
+- **Gates**: typecheck, lint, `npm test` 391/391, `balance:check` 72 of 72 values equal to `bands.json`'s `measured` and inside their bands (462 s),
+  PR-gate browser run 136 of 136 (20.2 min, SwiftShader).
