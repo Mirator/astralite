@@ -106,8 +106,9 @@ enemy silhouettes, the arm-swap leak): trim those only together with a unit test
 
 ## Browser hooks
 
-The game installs these on `window` once floor 1 has been built, which happens behind the menu a couple of
-frames after the page mounts (every hook reads the floor, so none is up before it exists). Wait for
+The game installs these on `window` once its first floor has been built, which happens behind the menu a couple of
+frames after the page mounts (every hook reads the floor, so none is up before it exists). That first floor is the
+Tide Altar's hall unless the URL says `?hall=skip` (see [The hall](#the-hall)). Wait for
 `render_game_to_text` to be a function before using any of them. They are meant for the console and for
 automated drivers; nothing in the game itself calls them.
 
@@ -117,12 +118,13 @@ automated drivers; nothing in the game itself calls them.
 | `advanceTime(ms, draw = true)` | Steps the simulation deterministically. **The normal rAF loop stops after the first call** — reload to get it back |
 | `dungeonTest.teleport(x, z)` | Moves the knight in world units (`tileX * TILE`) |
 | `dungeonTest.descend()` | Takes the stair without fighting, capped at the last floor |
-| `dungeonTest.buildFloor(level)` | Rebuilds the floor at any level, including past the last one |
+| `dungeonTest.buildFloor(level)` | Rebuilds the floor at any level, including past the last one. Always an ordinary floor, whatever the last build was (plan 020) |
+| `dungeonTest.buildHall()` | Plan 020: rebuilds as the Tide Altar's hall, synchronously. The run in hand carries over, so a scenario that needs the armoury (it only stands there) can rebuild the page as the hall after `game.enter()` (`Game.buildHall`) |
 | `dungeonTest.buildArena(roster, level = 1)` | Development only: rebuilds as an arena, `roster` awake in the gate (see [The arena](#the-arena)) |
 | `dungeonTest.grantXp(amount)` | Awards XP, so the boon draft can be reached in one line |
 | `dungeonTest.runLog()` | The stored history of finished runs, oldest first — re-read and re-validated on every call |
-| `dungeonTest.meta()` | Plan 019: the stored pearl save (`{ pearls, upgrades, arms, arm }`), re-read and re-validated on every call |
-| `dungeonTest.setMeta(meta)` | Plan 019: writes a pearl save through the real storage path. Fixture setup only; see [The pearl save](#the-pearl-save) |
+| `dungeonTest.meta(slot?)` | Plan 019: the stored pearl save (`{ pearls, upgrades, arms, arm }`), re-read and re-validated on every call. Plan 020: of the active slot, or of `slot` |
+| `dungeonTest.setMeta(meta, slot?)` | Plan 019: writes a pearl save through the real storage path. Fixture setup only; see [The pearl save](#the-pearl-save). Plan 020: into the active slot, or into `slot` without choosing it |
 
 `dungeonTest.runLog()` is how a balance question stops being a memory: `copy(JSON.stringify(window.dungeonTest.runLog()))`
 gives every finished run since the log was capped, each one `{ at, floor, won, cause, seconds, rank, xp, kills, boons, seed, arm, upgrades, pearls }`,
@@ -142,7 +144,9 @@ burned the knight during its current flare.
 Start a run from the console with `window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'start' }))`.
 Other useful details: `attack`, `dash`, `special` (a tap), `hold-special`/`release-special` (the touch button's
 hold, which a charged special needs), `map`, `pause`, `move:up|down|left|right`, `stop:…`, `stick:<x>,<y>`,
-`stick:off`, `boon:<id>`, `restart`, `restart:<seed>`.
+`stick:off`, `boon:<id>`, `restart`, `restart:<seed>`, and (plan 020) `slot:<n>` and `erase:<n>` for n in 1..3, `altar` (the result card's
+RETURN TO THE ALTAR: a finished run goes back to the hall), `shop-close` (the hall's shop put away) and `title` (the hall's LEAVE TO TITLE). `restart:<seed>` is the only way left to
+retry a seed from a finished run: neither card offers it.
 
 `render_game_to_text().player.special` is the held arm's special (plan 016), or null for an arm without one:
 `{ id, ready, cooldown, charging, charge, held, live, buffered, harpoon, bare, vault }` - `cooldown` is the sim's own
@@ -160,8 +164,10 @@ planted thumb holding still. `stick:off` releases it, as does any value that doe
 outranks `move:`, and only for as long as it is live — releasing it hands steering straight back to whatever
 `move:` keys are still held, and neither path ever clears the other's state.
 
-`start` is ENTER THE KEEP: pressed before floor 1 exists it is held behind the loading bar and answered
-the frame the keep is drawn. `start:<seed>` is the menu's LAST KEEP, entering the floor 1 a previous
+`start` is the press that enters the keep (plan 020: ENTER THE KEEP on the title only opens the slot picker; a slot's card sends `slot:<n>` and then `start`, and `Game.enter(slot = 1)` in
+`tests/browser/helpers.ts` does both with real clicks, so the 138 callers did not change). `slot:<n>` makes slot n the one every read and write of progress speaks for and remembers it as the
+slot last played; `erase:<n>` empties one. Neither is answered while a run is live or a build is pending. `render_game_to_text().slot` is the active slot, read off the game's closure. Pressed before
+floor 1 exists, `start` is held behind the loading bar and answered the frame the keep is drawn. `start:<seed>` (no menu item sends it since plan 020 removed LAST KEEP) enters the floor 1 a previous
 visit left.
 
 `restart` resets the whole run in place — health, rank, boons, XP, kills, input — and rebuilds floor 1
@@ -176,31 +182,54 @@ window.dispatchEvent(new CustomEvent('dungeon-action', { detail: `restart:${seed
 
 ### The pearl save
 
-Plan 019's save is one more `localStorage` key, `drowned-keep:meta` (see Persistence), which the game reads at **every run
+Plan 019's save is one more `localStorage` key per slot, `drowned-keep:<slot>:meta` (see Persistence), which the game reads at **every run
 start** (`restart`, and the first `enter`), never once at mount. That is what lets a test stage it and what keeps one scenario's
 purchases out of the next.
 
 - `dungeonTest.meta()` reads the stored blob. `dungeonTest.setMeta(meta)` writes one; it goes through `writeMeta`, so the same
   validation a stored blob gets applies, and it **takes effect at the next run start**, as a real purchase does. Call it, then
   `game.enter()` (or `restart`), not the other way round. Build a `Meta` from `freshMeta()` in `app/dungeon-meta.ts`:
-  `setMeta({ ...freshMeta(), arms: ['tideblade', 'maul'], arm: 'tideblade' })` puts the maul on a rack in the Tide Gate.
+  `setMeta({ ...freshMeta(), arms: ['tideblade', 'maul'], arm: 'tideblade' })` puts the maul on a rack in the Tide Altar's hall.
 - **The pooled reset clears it.** `Game.reset` empties `localStorage` before it rebuilds, so every scenario starts from
   `freshMeta()` (no pearls, only the Tideblade). The reset-and-prove step at the end of a scenario holds the whole snapshot
   against a boot, and `run.start` is in that snapshot, so a scenario that bought something and leaked it fails by name.
 - `render_game_to_text().run.start` is `{ arm, maxHp, strike, draftSize, defiance }`: what the live run was dealt, read off the run
   and the arm in hand when it began, not recomputed from the meta. It stays what the run began with while boons move `maxHp` and
   `strike`, and `defiance` is the revive dealt, not the revive left.
-- `render_game_to_text().run.armLocked` is true once the first door out of the floor-1 Tide Gate has been taken (D9): the racks are
-  gone and the swap key can no longer equip an arm.
+- `render_game_to_text().run.armLocked` is true once the way down out of the hall has been taken (plan 019 D9, moved by plan 020 D7): the racks are
+  gone and the swap key can no longer equip an arm. It is true on every floor but the hall (and the dev arena, which keeps its one rack); each build sets it.
 - `render_game_to_text().racks` is the list of racks on the floor, read off the scene (it replaces the single `drop` the snapshot
-  once had): `{ x, z, kind, radius, over, inScene, offered }`. The Tide Gate of floor one holds one for every owned arm but the one
+  once had): `{ x, z, kind, radius, over, inScene, offered }`. The Tide Altar's hall (plan 020; floor one's Tide Gate holds none) holds one for every owned arm but the one
   in hand, up to six; the dev arena has its own; no other floor has any. `over` is the knight standing in that ring,
   `offered` the arm the swap prompt is naming. `dungeonTest.actorStats()` reports the racks' meshes as `racks` for the teardown
   checks.
 
-The Tide Altar and the result card's TO THE GATE button are driven with real clicks and keys (`tests/browser/meta.spec.ts`);
-`tests/browser/armoury.spec.ts` walks into a rack's ring and uses the swap key. The rules live in node:
-`tests/dungeon-meta.test.ts`.
+The result card's one button, RETURN TO THE ALTAR, and the shop it leads to are driven with real clicks and keys (`tests/browser/meta.spec.ts`, `death.spec.ts`); the Tide Altar's panel
+left the title for the hall's shop overlay in plan 020. `tests/browser/armoury.spec.ts` walks into a rack's ring and uses the swap key. The rules live in node:
+`tests/dungeon-meta.test.ts`. The slot picker is driven with real clicks and keys in `tests/browser/slots.spec.ts`; the rules behind it (keys, summary, migration, erase) are in
+`tests/dungeon-save.test.ts`.
+
+### The hall
+
+Plan 020: the Tide Altar is a room (`altarHall()` in `app/dungeon-floor.ts`: room 0 of `generateFloor(HALL_SEED, 1)`, one door, nobody in it), and the product's own flow runs through it:
+
+```
+title -> slot picker -> the hall -> the way down -> floor 1 ... -> the card -> RETURN TO THE ALTAR -> the hall
+```
+
+In the hall the swap key opens the altar's shop at the altar (an overlay that holds the world, like a boon draft), swaps the arm on a rack the knight stands in, and takes the way down (`lockArm`, then a veiled
+`restart` into floor 1 on a fresh seed). The hall has no enemies, no stair, no XP and no record, and its HUD shows neither vitality nor rank.
+
+- **`?hall=skip`** (development only, ignored by a production build) keeps the flow that existed before the hall: the boot builds floor 1 and ENTER enters it. **The harness passes it on every `goto` it makes**
+  (as it passes `boot=eager`), so the 138 callers of `game.enter()` and the pooled page are unaffected, and a reset returns a page to the mode it booted in. Floor one has no racks under it.
+- **`test.use({ hall: true })`** opts a scenario out: the page boots the way a player's does, into the hall, and (like an isolated or a phone scenario) gets a page of its own. The hall, slot, loading and death
+  scenarios are the only coverage of that default flow, so they are on the PR gate and not `@nightly`. `Game.takeWayDown()` stands the knight at the way down (a teleport) and takes it with the real swap key;
+  `Game.openAltar()` does the same for the shop; `walkUntil` walks with real arrow keys.
+- **`dungeonTest.buildHall()`** (`Game.buildHall()`) is the cheap way into the hall for a pooled scenario that is about something else but needs an armoury (the swap itself, a special that must be put away, the actor
+  stats of a rack): `game.enter()` as usual, then `await game.buildHall()`. The run in hand carries over, and the reset puts the page back on floor 1, which the leak guard holds.
+- `render_game_to_text().hall` is read off the floor that was built; `altarOpen` is the shop; `hallProps` is what the scene actually placed, read off the groups it was attached to - `{ altar: { x, z, radius, over, inScene },
+  racks: [kind], wayDown: { x, z, radius, open, over, inScene, sign: 'down' }, stair }` or null off the hall (`stair` must be false: the hall builds none). `boonOffer` is not true while the shop is open.
+- The hall draws nothing from `crypto.getRandomValues`, so a pinned seed queue is where it was after a hall build (`pinnedDraws` in `helpers.ts` reads the cursor).
 
 ### The arena
 
@@ -213,7 +242,7 @@ start, since no warden bars it, and taking it brings the same roster a floor dee
 The menu page's **Ordinary keep**, or `dungeonTest.reset`, leaves it. `render_game_to_text().arena` reports
 `{ roster, level }` or null, which is also how the pooled suite notices a scenario that forgot to leave it.
 A link that names an unknown kind or a bad count is ignored whole rather than half-obeyed. An arena run is never
-recorded: no run log entry, no best run, and its seed does not become LAST KEEP.
+recorded: no run log entry, no best run, and its seed does not become the slot's stored seed.
 
 Two kinds exist only here - `reaper` and `rattler` - with `firstFloor: Infinity` and no share in `PACK_MIX`,
 so the floor generator never deals them standing. The other three arena kinds were promoted into the descent by
@@ -242,10 +271,9 @@ asserts it is present rather than skipping when it is not.
 
 ### Persistence
 
-Five `localStorage` keys, `drowned-keep:best`, `drowned-keep:seed`, `drowned-keep:runs`,
-`drowned-keep:settings` and `drowned-keep:meta`, hold the deepest run (XP breaks a tie on the same floor), the current run's
-floor-1 seed, the last 100 finished runs, what the player asked the game to be, and (plan 019) the pearls, upgrades and unlocked
-arms. The meta blob is re-validated field by field like the settings (`parseMeta`), and a run abandoned by reloading banks nothing. Nothing leaves the
+Plan 020 keeps three save slots. Per slot, four `localStorage` keys, `drowned-keep:<slot>:best`, `drowned-keep:<slot>:seed`, `drowned-keep:<slot>:runs` and `drowned-keep:<slot>:meta` (slot 1, 2 or 3),
+hold the deepest run (XP breaks a tie on the same floor), the current run's floor-1 seed, the last 100 finished runs and (plan 019) the pearls, upgrades and unlocked arms. Per device, `drowned-keep:settings` holds what the
+player asked the game to be, and `drowned-keep:slot` the slot last played. The first mount of a build with slots copies the four pre-slot keys (`drowned-keep:best` and so on, which are left in place) into slot 1 if slot 1 is empty. The meta blob is re-validated field by field like the settings (`parseMeta`), and a run abandoned by reloading banks nothing. Nothing leaves the
 browser. Every read and write is wrapped, and a missing, blocked or corrupt value reads as absent — the
 game plays identically with storage disabled, and a single malformed entry is dropped without costing
 the rest of the history. `tests/dungeon-save.test.ts` covers the comparison, the parsing, the cap, the
@@ -350,7 +378,7 @@ npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
 
 Then open one of these in Chrome and press ENTER. `?arm=` is dev-only and ignored by a production
-build; every descent, including NEW DESCENT and SAME KEEP, starts holding that arm. A missing or unknown
+build; every descent, including one begun by `restart` and `restart:<seed>`, starts holding that arm. A missing or unknown
 id means the Tideblade.
 
 | Arm | Special | URL |

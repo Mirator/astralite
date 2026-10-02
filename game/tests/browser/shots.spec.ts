@@ -16,6 +16,7 @@ import {
   type Point,
 } from './helpers.ts';
 import { type WeaponId } from '../../app/dungeon-weapon.ts';
+import { altarHall } from '../../app/dungeon-floor.ts';
 import { ARM_ORDER, freshMeta } from '../../app/dungeon-meta.ts';
 
 /**
@@ -501,8 +502,8 @@ test.describe('models', { tag: '@capture' }, () => {
   });
 
   /**
-   * Each found arm as the Tide Gate lays it out (plan 019): a save that owns the Tideblade and that one arm, so the gate
-   * shows exactly that rack on its slot. The knight stands 2.6 units to its left on screen, outside the ring, so the rack
+   * Each found arm as the armoury lays it out (plan 019; plan 020 moved it from floor one's Tide Gate to the Tide Altar's hall, which the page
+   * is rebuilt as by hook): a save that owns the Tideblade and that one arm, so the hall shows exactly that rack on its slot. The knight stands 2.6 units to its left on screen, outside the ring, so the rack
    * sits right of centre and the prompt stays down (a slot may stand against a wall, so the spot is searched for in a wider circle than the old rack's open floor needed). One seed serves all six: a slot depends on the floor alone, and what
    * the old six seeds were for (the generator handing each arm out) is gone with the floor-one rack.
    */
@@ -513,9 +514,10 @@ test.describe('models', { tag: '@capture' }, () => {
       test(`models-drop-${kind}`, async ({ game }) => {
         await game.setMeta({ ...freshMeta(), arms: ARM_ORDER.filter((arm) => arm === 'tideblade' || arm === kind), arm: 'tideblade' });
         await game.enter();
-        const floor = await game.floor();
+        await game.buildHall();
+        const floor = altarHall();
         const racks = (await game.state()).racks;
-        expect(racks.map((rack) => rack.kind), `the gate does not show exactly the ${kind}`).toEqual([kind]);
+        expect(racks.map((rack) => rack.kind), `the hall does not show exactly the ${kind}`).toEqual([kind]);
         const drop = racks[0], right = SCREEN_DIRECTIONS.right;
         const stand = openSpot(floor, { x: drop.x - right.x * 2.6, z: drop.z - right.z * 2.6 }, { radius: 3.4, avoid: [drop], clearance: 2.2 });
         await game.teleport(stand.x, stand.z);

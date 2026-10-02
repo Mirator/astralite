@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decorReservations } from '../app/dungeon-decor-layout.ts';
-import { gateRacks, generateFloor, TILE } from '../app/dungeon-floor.ts';
+import { altarHall, gateRacks, generateFloor, TILE, type Floor } from '../app/dungeon-floor.ts';
 import { planPavingPatches } from '../app/dungeon-paving-layout.ts';
-
-type Floor = ReturnType<typeof generateFloor>;
 
 const SEEDS = Array.from({ length: 100 }, (_, i) => i + 1);
 const LEVELS = [1, 2, 3];
@@ -102,13 +100,23 @@ test('a gauntlet room, whose entire footprint is reserved, never gets a pair or 
   }
 });
 
-test('no paving patch lands within a rack\'s reservation of any slot of the Tide Gate, whichever arms are owned', () => {
-  for (const floor of allFloors().filter((f) => f.level === 1)) {
-    const plan = planPavingPatches(floor), slots = gateRacks(floor);
-    assert.equal(slots.length, 7);
+test('no paving patch lands within a rack\'s reservation of any slot of the Tide Altar\'s hall, whichever arms are owned', () => {
+  // Plan 020 (D7): the armoury is the hall's now, and floor one's Tide Gate reserves nothing (tests/dungeon-decor-layout.test.ts holds that half).
+  // A hall's slots are reserved wholesale, so a hall is rarely paved at all; the control is the same room without the `hall` marker, which reserves no slots
+  // and does get patches on them - without it this would pass for a hall that reserved nothing.
+  const halls = Array.from({ length: 300 }, (_, i) => altarHall(i + 1));
+  const onSlots = (floor: Floor, slots: ReturnType<typeof gateRacks>) => {
+    const plan = planPavingPatches(floor), found: string[] = [];
     const cells = [...plan.pairs.flatMap((p) => [[p.ax, p.az], [p.bx, p.bz]]), ...plan.settled.map((s) => [s.x, s.z])];
-    for (const slot of slots) for (const [x, z] of cells) {
-      assert.ok(Math.max(Math.abs(x * TILE - slot.x), Math.abs(z * TILE - slot.z)) > 1.5, `seed ${floor.seed}: a paving patch at ${x},${z} sits on the ${slot.arm} rack's slot`);
-    }
+    for (const slot of slots) for (const [x, z] of cells) if (Math.max(Math.abs(x * TILE - slot.x), Math.abs(z * TILE - slot.z)) <= 1.5) found.push(`a paving patch at ${x},${z} sits on the ${slot.arm} rack's slot`);
+    return found;
+  };
+  let control = 0;
+  for (const hall of halls) {
+    const slots = gateRacks(hall);
+    assert.equal(slots.length, 7);
+    control += onSlots({ ...hall, hall: undefined }, slots).length;
+    assert.deepEqual(onSlots(hall, slots), [], `hall ${hall.seed}`);
   }
+  assert.ok(control > 0, 'no patch landed on a slot even in a hall that reserves nothing, so the hall passing proves nothing');
 });

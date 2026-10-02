@@ -5,15 +5,17 @@ import { expect, press, test } from './helpers.ts';
 // covers is the swap itself: that the rack only ever offers, that the swap key is what takes it, that what
 // was held is left behind rather than destroyed, that the swing runs on the new arm, and that a restart
 // hands back the sword. One story on one page; it used to be four tests paying four resets.
-// Plan 019 Stage C: the floor-one rack this was written against is gone. The only racks in the campaign are the Tide Gate's
-// armoury, an owned arm each, so the story is staged by owning the maul and walking into its slot (`armoury.spec.ts` covers
-// the armoury as a whole: which arms stand, the choice, the lock at the first door).
+// Plan 019 Stage C: the floor-one rack this was written against is gone. The only racks in the campaign are the armoury's, an owned
+// arm each, so the story is staged by owning the maul and walking into its slot. Plan 020 moved the armoury from floor one's Tide Gate
+// to the Tide Altar's hall: the page is rebuilt as the hall by hook after ENTER (`buildHall`), because the swap itself is what is
+// under test and the walk there is hall.spec.ts's (which also covers the armoury as a whole: which arms stand, the choice, the lock at the way down).
 
 test('standing on a rack offers the arm and takes nothing; the swap key is what takes it', async ({ game, page }) => {
   await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'maul'], arm: 'tideblade' });
   await game.enter();
+  await game.buildHall();
   const opening = await game.state();
-  expect(opening.racks, 'the Tide Gate lays one rack out for the one arm owned besides the sword in hand').toHaveLength(1);
+  expect(opening.racks, 'the hall lays one rack out for the one arm owned besides the sword in hand').toHaveLength(1);
   expect(opening.weapon.id).toBe('tideblade');
   const rack = opening.racks[0], offered = rack.kind;
   expect(offered).toBe('maul');
@@ -66,12 +68,15 @@ test('standing on a rack offers the arm and takes nothing; the swap key is what 
   expect((await game.state()).racks[0].offered).toBeNull();
 
   // And a new descent starts on the arm the save holds, whatever he left the last one holding (nothing was locked: he never
-  // took a door), with the gate laid out again.
+  // took the way down). Floor one's gate has no racks; the hall, laid out again, holds the maul as it did.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('dungeon-action', { detail: 'restart' })));
   await game.built();
   await game.step(600);
   const fresh = await game.state();
   expect(fresh.weapon.id).toBe('tideblade');
-  expect(fresh.racks.map((r) => r.kind)).toEqual(['maul']);
-  expect(fresh.racks[0].offered).toBeNull();
+  expect(fresh.racks, 'floor one\'s gate laid a rack').toEqual([]);
+  await game.buildHall();
+  const again = await game.state();
+  expect(again.racks.map((r) => r.kind)).toEqual(['maul']);
+  expect(again.racks[0].offered).toBeNull();
 });

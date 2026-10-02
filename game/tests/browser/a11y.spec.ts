@@ -62,7 +62,8 @@ test('cards are dialogs that take focus, and the background stays out of reach w
  */
 test('the menu opens its pages in place and always comes back to the list', async ({ game, page }) => {
   const menu = page.getByRole('navigation', { name: 'Main menu' });
-  await expect(menu.getByRole('button')).toHaveText([/^ENTER THE KEEP/, /^Tide Altar/, /^Controls & journey/, /^Settings/]);
+  // Plan 020: the Tide Altar left the title (the shop moves into the hall in Stage C); ENTER THE KEEP opens the slot picker instead.
+  await expect(menu.getByRole('button')).toHaveText([/^ENTER THE KEEP/, /^Controls & journey/, /^Settings/]);
 
   await menu.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(menu).toHaveCount(0);
@@ -73,12 +74,15 @@ test('the menu opens its pages in place and always comes back to the list', asyn
   await back.click();
   await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeFocused();
 
-  // Plan 019: the Tide Altar is a page of the same card (title menu only; the pause menu below has none).
-  await menu.getByRole('button', { name: /^Tide Altar/ }).click();
-  await expect(page.getByRole('heading', { name: 'The Tide Altar' })).toBeVisible();
+  // Plan 020: the slot picker is a page of the same card (title menu only; the pause menu below has none), opened by ENTER THE KEEP, and
+  // the way back returns focus to the button that opened it.
+  await menu.getByRole('button', { name: /^ENTER THE KEEP/ }).click();
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Choose a slot' })).toBeVisible();
   await expect(back).toBeFocused();
+  await expect(page.locator('.slot-choose')).toHaveText([/^Slot 1/, /^Slot 2/, /^Slot 3/]);
   await back.click();
-  await expect(page.getByRole('button', { name: /^Tide Altar/ })).toBeFocused();
+  await expect(page.getByRole('button', { name: /^ENTER THE KEEP/ })).toBeFocused();
 
   await page.getByRole('button', { name: 'Controls & journey' }).click();
   await expect(page.getByRole('heading', { name: 'Controls & journey' })).toBeVisible();
@@ -102,6 +106,48 @@ test('the menu opens its pages in place and always comes back to the list', asyn
   await expect(pauseMenu).toBeVisible();
   await page.keyboard.press('Escape');
   await game.step(16);
+});
+
+/**
+ * Plan 020: the hall's two cards are dialogs like every other. The shop is named, takes focus the moment it opens (the card, not its Back button, for the
+ * reason every card here does: the key that opened it may be a Space still held), and Escape puts it away, not the world to sleep. The hall's pause menu is
+ * the one place LEAVE TO TITLE is offered (a run's has none, which is `death.spec.ts`'s and the first scenario's).
+ */
+test.describe('in the hall', () => {
+  test.use({ hall: true });
+
+  test('the shop is a dialog that takes focus and answers Escape, and the hall\'s pause menu has LEAVE TO TITLE', async ({ game, page }) => {
+    await game.enter();
+    const altar = (await game.state()).hallProps!.altar!;
+    await game.teleport(altar.x, altar.z);
+    await game.step(64);
+    await press(page, 'swap');
+    await game.step(16);
+    const shop = page.getByRole('dialog', { name: /Spend what/ });
+    await expect(shop).toBeVisible();
+    await expect(shop, 'the shop took no focus when it opened').toBeFocused();
+    // The hamburger is taken off the screen under the shop, as it is under the title's pages, so there is no pause button to reach.
+    await expect(page.getByRole('button', { name: 'Pause game' }), 'the hamburger is reachable behind the shop').toHaveCount(0);
+    // The dodge key on the focused card is not a click, and Tab reaches the card's own first control.
+    await press(page, 'dash');
+    await game.step(16);
+    expect((await game.state()).altarOpen, 'Space closed the shop').toBe(true);
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: /Back to the hall/ })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await game.step(16);
+    await expect(shop).toHaveCount(0);
+    const open = await game.state();
+    expect([open.altarOpen, open.mode], 'Escape did not put the shop away and leave the world running').toEqual([false, 'playing']);
+
+    await page.keyboard.press('Escape');
+    await game.step(16);
+    const pauseMenu = page.getByRole('navigation', { name: 'Pause menu' });
+    await expect(pauseMenu.getByRole('button')).toHaveText([/^RESUME/, 'LEAVE TO TITLE', /^Controls & journey/, /^Settings/]);
+    await page.keyboard.press('Escape');
+    await game.step(16);
+    expect((await game.state()).mode).toBe('playing');
+  });
 });
 
 // The touch controls going inert under a card is checked at the end of polish.spec.ts's phone scenario, which

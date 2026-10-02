@@ -158,14 +158,16 @@ test('the Harpoon flies the aim, drags the first guard in, comes home, and the k
 });
 
 test('swapping arms with the spear in flight lays the spear on the rack and leaves nothing flying', async ({ game, page }) => {
-  // Plan 019 Stage C: the floor-one rack is gone, so the gate is staged: the knight owns the spear and the maul and starts
-  // holding the spear, which leaves the Tideblade and the maul on their racks. He swaps at the maul's.
+  // Plan 019 Stage C: the floor-one rack is gone, so the armoury is staged: the knight owns the spear and the maul and starts
+  // holding the spear, which leaves the Tideblade and the maul on their racks. He swaps at the maul's. Plan 020 moved the armoury to the
+  // Tide Altar's hall, so the page is rebuilt as the hall by hook after ENTER (hall.spec.ts walks there and back down).
   await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'spear', 'maul'], arm: 'spear' });
   await game.enter();
+  await game.buildHall();
   await game.step(120);
   const opening = await game.state();
   expect(opening.weapon.id, 'the spear is in hand').toBe('spear');
-  expect(opening.racks.map((r) => r.kind), 'the gate shows the other two arms').toEqual(['tideblade', 'maul']);
+  expect(opening.racks.map((r) => r.kind), 'the hall shows the other two arms').toEqual(['tideblade', 'maul']);
   const rack = opening.racks.find((r) => r.kind === 'maul')!;
   await game.teleport(rack.x, rack.z);
   await game.step(32);
@@ -195,12 +197,14 @@ test('swapping arms with the spear in flight lays the spear on the rack and leav
 });
 
 test('swap, swap back: the lunge is still cooling and the Heavy Bolt quiver is still spent', async ({ game, page }) => {
-  // Plan 019 Stage C: staged on the gate's one rack (the maul), since the floor-one rack this used is gone.
+  // Plan 019 Stage C: staged on the armoury's one rack (the maul), since the floor-one rack this used is gone; plan 020 put the armoury in the hall,
+  // which the page is rebuilt as by hook after ENTER.
   await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'maul'], arm: 'tideblade' });
   await game.enter();
+  await game.buildHall();
   await game.step(120);
   const rack = (await game.state()).racks[0];
-  expect(rack?.kind, 'the gate has a rack').toBe('maul');
+  expect(rack?.kind, 'the hall has a rack').toBe('maul');
   const over = async () => { await game.teleport(rack.x, rack.z); await game.step(32); expect((await game.state()).racks[0].over).toBe(true); };
   const swapBack = async (arm: string) => {
     await over();

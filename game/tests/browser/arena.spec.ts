@@ -44,7 +44,7 @@ test('the arena page puts a chosen roster, awake, in the gate of the chosen floo
 // The published game takes `?arena=` too, so an arena run must not pass for a descent: a floor-three arena
 // would otherwise read as the deepest run ever made, and its seed would become LAST KEEP.
 test('an arena names itself on the menu, and dying in one records nothing', async ({ game, page }) => {
-  const stored = () => page.evaluate(() => ({ best: localStorage.getItem('drowned-keep:best'), runs: localStorage.getItem('drowned-keep:runs'), seed: localStorage.getItem('drowned-keep:seed') }));
+  const stored = () => page.evaluate(() => ({ best: localStorage.getItem('drowned-keep:1:best'), runs: localStorage.getItem('drowned-keep:1:runs'), seed: localStorage.getItem('drowned-keep:1:seed') }));
   const before = await stored();
   await page.evaluate(() => (window as unknown as { dungeonTest: { buildArena: (roster: string[], level: number) => void } }).dungeonTest.buildArena(['guard', 'guard'], 1));
   await expect(page.locator('.intro-card .end-kicker')).toHaveText('ARENA · 2 FOES · FLOOR 1');

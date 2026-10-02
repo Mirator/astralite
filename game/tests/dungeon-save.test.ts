@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ACTIONS, appendRun, betterRun, bindKey, DEFAULT_BINDS, defaultSettings, META_KEY, parseBest, parseMeta, parseRun, parseRuns, parseSeed, parseSettings, readMeta, readRuns, readSettings, RESERVED, RUN_LOG_CAP, summariseRuns, writeMeta, writeRuns, writeSettings, type Action, type BestRun, type RunEnd, type Settings } from '../app/dungeon-save.ts';
+import { ACTIONS, appendRun, betterRun, bindKey, DEFAULT_BINDS, defaultSettings, eraseSlot, legacyKey, migrateLegacy, migrateStored, parseBest, parseMeta, parseRun, parseRuns, parseSeed, parseSettings, parseSlot, readBest, readCells, readLegacyCells, readMeta, readRuns, readSeed, readSettings, readSlot, RESERVED, RUN_LOG_CAP, slotKey, slotSummary, SLOT_CELLS, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunEnd, type Settings, type Slot, type SlotCells } from '../app/dungeon-save.ts';
 import { freshMeta, PEARL_CAP, type Meta } from '../app/dungeon-meta.ts';
 
 const run = (floor: number, xp: number): BestRun => ({ floor, xp, kills: 0, won: false });
@@ -117,33 +117,33 @@ test('a history that is missing, hostile or unwritable costs the log and nothing
   const original = Object.getOwnPropertyDescriptor(owner, 'localStorage');
   try {
     delete owner.localStorage;
-    assert.deepEqual(readRuns(), []);
-    writeRuns([end()]);
+    assert.deepEqual(readRuns(1), []);
+    writeRuns(1, [end()]);
     owner.localStorage = { getItem() { throw new Error('SecurityError'); }, setItem() { throw new Error('QuotaExceededError'); } };
-    assert.deepEqual(readRuns(), []);
-    writeRuns([end()]);
+    assert.deepEqual(readRuns(1), []);
+    writeRuns(1, [end()]);
     // A working store is the reload: what one session wrote is what the next session reads back.
     const cell = new Map<string, string>();
     const store = { getItem: (k: string) => cell.get(k) ?? null, setItem: (k: string, v: string) => { cell.set(k, v); } };
     owner.localStorage = store;
-    writeRuns([end({ at: 1 }), won({ at: 2 })]);
-    assert.deepEqual(readRuns(), [end({ at: 1 }), won({ at: 2 })]);
+    writeRuns(1, [end({ at: 1 }), won({ at: 2 })]);
+    assert.deepEqual(readRuns(1), [end({ at: 1 }), won({ at: 2 })]);
     // A write refused for quota leaves the last good history readable instead of emptying it.
     owner.localStorage = { getItem: store.getItem, setItem() { throw new Error('QuotaExceededError'); } };
-    writeRuns([end({ at: 3 })]);
-    assert.deepEqual(readRuns(), [end({ at: 1 }), won({ at: 2 })]);
+    writeRuns(1, [end({ at: 3 })]);
+    assert.deepEqual(readRuns(1), [end({ at: 1 }), won({ at: 2 })]);
     owner.localStorage = store;
     // Junk in the cell reads as no history, and the next run written over it starts the log clean.
-    cell.set('drowned-keep:runs', '[{"at":1,');
-    assert.deepEqual(readRuns(), []);
-    cell.set('drowned-keep:runs', '{"floor":2}');
-    assert.deepEqual(readRuns(), []);
-    writeRuns(appendRun(readRuns(), end({ at: 4 })));
-    assert.deepEqual(readRuns(), [end({ at: 4 })]);
+    cell.set(slotKey(1, 'runs'), '[{"at":1,');
+    assert.deepEqual(readRuns(1), []);
+    cell.set(slotKey(1, 'runs'), '{"floor":2}');
+    assert.deepEqual(readRuns(1), []);
+    writeRuns(1, appendRun(readRuns(1), end({ at: 4 })));
+    assert.deepEqual(readRuns(1), [end({ at: 4 })]);
     // The cap holds in the cell itself, not only on the way back in: an oversized log handed straight to
     // the writer is trimmed before it is stored, so storage cannot quietly grow past the bound.
-    writeRuns(Array.from({ length: RUN_LOG_CAP + 5 }, (_, i) => end({ at: i + 1 })));
-    const stored = JSON.parse(cell.get('drowned-keep:runs') ?? '[]') as RunEnd[];
+    writeRuns(1, Array.from({ length: RUN_LOG_CAP + 5 }, (_, i) => end({ at: i + 1 })));
+    const stored = JSON.parse(cell.get(slotKey(1, 'runs')) ?? '[]') as RunEnd[];
     assert.equal(stored.length, RUN_LOG_CAP);
     assert.equal(stored[0].at, 6);
   } finally {
@@ -221,17 +221,17 @@ test('the meta save is read and written through storage that may be absent, host
   const original = Object.getOwnPropertyDescriptor(owner, 'localStorage');
   try {
     delete owner.localStorage;
-    assert.deepEqual(readMeta(), freshMeta());
-    writeMeta(BOUGHT);
+    assert.deepEqual(readMeta(1), freshMeta());
+    writeMeta(1, BOUGHT);
     owner.localStorage = { getItem() { throw new Error('SecurityError'); }, setItem() { throw new Error('QuotaExceededError'); } };
-    assert.deepEqual(readMeta(), freshMeta());
-    writeMeta(BOUGHT);
+    assert.deepEqual(readMeta(1), freshMeta());
+    writeMeta(1, BOUGHT);
     const cell = new Map<string, string>();
     owner.localStorage = { getItem: (k: string) => cell.get(k) ?? null, setItem: (k: string, v: string) => { cell.set(k, v); } };
-    writeMeta(BOUGHT);
-    assert.equal(META_KEY, 'drowned-keep:meta');
-    assert.ok(cell.has(META_KEY), 'precondition: the meta was written under its own key');
-    assert.deepEqual(readMeta(), BOUGHT);
+    writeMeta(1, BOUGHT);
+    assert.equal(slotKey(1, 'meta'), 'drowned-keep:1:meta');
+    assert.ok(cell.has(slotKey(1, 'meta')), 'precondition: the meta was written under its own key');
+    assert.deepEqual(readMeta(1), BOUGHT);
   } finally {
     if (original) Object.defineProperty(owner, 'localStorage', original); else delete owner.localStorage;
   }
@@ -463,12 +463,153 @@ test('settings survive a reload, and a store that will not have them costs only 
     assert.deepEqual(readSettings(), chosen);
     // Settings live in their own cell, so remembering them cannot cost the run history or the record.
     assert.equal(cell.has('drowned-keep:settings'), true);
-    assert.equal(cell.has('drowned-keep:runs'), false);
+    assert.equal(cell.has(slotKey(1, 'runs')), false);
     // Junk in the cell reads as the shipped game rather than crashing the only screen that could fix it.
     cell.set('drowned-keep:settings', '{"volume":');
     assert.deepEqual(readSettings(), shipped());
     cell.set('drowned-keep:settings', '{"volume":0.2,"binds":{"up":"KeyW"}}');
     assert.deepEqual(readSettings(), { ...shipped(), volume: 0.2 });
+  } finally {
+    if (original) Object.defineProperty(owner, 'localStorage', original); else delete owner.localStorage;
+  }
+});
+
+// --- Plan 020 Stage A: three save slots --------------------------------------------------------------------
+// A working store with removal, and the whole of it visible to the test: what a slot does to its neighbours is
+// read off the cells themselves. The store is put back whatever happens.
+const withStore = (body: (cell: Map<string, string>) => void) => {
+  const owner = globalThis as { localStorage?: unknown };
+  const original = Object.getOwnPropertyDescriptor(owner, 'localStorage');
+  const cell = new Map<string, string>();
+  try {
+    owner.localStorage = { getItem: (k: string) => cell.get(k) ?? null, setItem: (k: string, v: string) => { cell.set(k, v); }, removeItem: (k: string) => { cell.delete(k); }, get length() { return cell.size; }, key: (i: number) => [...cell.keys()][i] ?? null };
+    body(cell);
+  } finally {
+    if (original) Object.defineProperty(owner, 'localStorage', original); else delete owner.localStorage;
+  }
+};
+/** Slot `n`'s progress, each slot with a meta, a best run, a seed and a log of its own, so a read that lands in the wrong slot returns the wrong thing. */
+const play = (slot: Slot) => {
+  writeMeta(slot, { ...freshMeta(), pearls: slot * 100, arms: slot === 1 ? ['tideblade'] : ['tideblade', 'spear'], arm: 'tideblade' });
+  writeBest(slot, run(slot, slot * 10));
+  writeSeed(slot, slot * 1000);
+  writeRuns(slot, Array.from({ length: slot }, (_, i) => end({ at: slot * 100 + i })));
+};
+const keysOf = (slot: Slot) => SLOT_CELLS.map(name => slotKey(slot, name));
+
+test('a slot reads only its own cells, and writing slot 2 leaves slots 1 and 3 as they were', () => {
+  withStore(cell => {
+    assert.deepEqual(SLOTS, [1, 2, 3]);
+    assert.equal(slotKey(2, 'meta'), 'drowned-keep:2:meta', 'slot 2\'s meta is not stored under slot 2\'s own key');
+    assert.equal(new Set(SLOTS.flatMap(slot => SLOT_CELLS.map(name => slotKey(slot, name)))).size, 12, 'two slots\' cells share a key');
+    play(1); play(3);
+    const before = new Map(cell);
+    assert.equal(before.size, 8, 'slots 1 and 3 did not each keep their own four cells');
+    assert.equal(readMeta(2).pearls, 0, 'an unplayed slot 2 read another slot\'s pearls');
+    assert.equal(readBest(2), null, 'an unplayed slot 2 read another slot\'s best run');
+    assert.equal(readSeed(2), null, 'an unplayed slot 2 read another slot\'s seed');
+    assert.deepEqual(readRuns(2), [], 'an unplayed slot 2 read another slot\'s log');
+    play(2);
+    // Slot 2's four cells arrived, and the other eight are byte for byte what they were.
+    assert.equal(cell.size, 12);
+    for (const [key, value] of before) assert.equal(cell.get(key), value, `writing slot 2 changed ${key}`);
+    for (const slot of SLOTS) {
+      assert.equal(readMeta(slot).pearls, slot * 100, `slot ${slot} read another slot's pearls`);
+      assert.equal(readBest(slot)?.floor, slot, `slot ${slot} read another slot's best run`);
+      assert.equal(readSeed(slot), slot * 1000, `slot ${slot} read another slot's seed`);
+      assert.deepEqual(readRuns(slot).map(r => r.at), Array.from({ length: slot }, (_, i) => slot * 100 + i), `slot ${slot} read another slot's log`);
+    }
+    // The slot last played is the device's, not a slot's: one cell whatever the slot.
+    assert.equal(readSlot(), null);
+    writeSlot(3);
+    assert.equal(readSlot(), 3);
+    assert.equal(cell.get('drowned-keep:slot'), '3');
+    for (const raw of [null, '', '0', '4', '1.5', 'x', '[1]', ' ']) assert.equal(parseSlot(raw), null, String(raw));
+    assert.deepEqual(['1', '2', '3'].map(parseSlot), [1, 2, 3]);
+  });
+});
+
+test('migrating a pre-slot save copies its cells into an empty slot 1, writes nothing when slot 1 has anything, and deletes no legacy key', () => {
+  const cells = (over: Partial<SlotCells>): SlotCells => ({ meta: null, best: null, seed: null, runs: null, ...over });
+  const legacy = cells({ meta: '{"pearls":210}', best: '{"floor":2,"xp":50,"kills":3,"won":false}', seed: '4242', runs: '[]' });
+  // Pure: the writes are exactly the four legacy cells, verbatim, under slot 1's keys.
+  assert.deepEqual(migrateLegacy(legacy, cells({})), [
+    { key: 'drowned-keep:1:meta', value: '{"pearls":210}' }, { key: 'drowned-keep:1:best', value: '{"floor":2,"xp":50,"kills":3,"won":false}' },
+    { key: 'drowned-keep:1:seed', value: '4242' }, { key: 'drowned-keep:1:runs', value: '[]' },
+  ]);
+  // A cell the old build never wrote is not invented; nothing legacy means nothing to write.
+  assert.deepEqual(migrateLegacy(cells({ seed: '7' }), cells({})), [{ key: 'drowned-keep:1:seed', value: '7' }]);
+  assert.deepEqual(migrateLegacy(cells({}), cells({})), []);
+  // Slot 1 holding any one cell - even a seed, even a cell that will not parse - is a slot somebody played.
+  for (const name of SLOT_CELLS) assert.deepEqual(migrateLegacy(legacy, cells({ [name]: name === 'meta' ? '{"pearls":5}' : '{' })), [], `slot 1 held a ${name} and was migrated over`);
+  withStore(cell => {
+    for (const name of SLOT_CELLS) if (legacy[name] !== null) cell.set(legacyKey(name), legacy[name]!);
+    cell.set('drowned-keep:settings', '{"volume":0.2}');
+    assert.deepEqual(readLegacyCells(), legacy, 'precondition: the legacy cells are there to be read');
+    assert.equal(readCells(1).meta, null, 'precondition: slot 1 is empty');
+    assert.equal(migrateStored(), 4);
+    assert.deepEqual(readCells(1), legacy);
+    assert.equal(readMeta(1).pearls, 210, 'the migrated save does not read as the legacy one');
+    assert.equal(readBest(1)?.floor, 2);
+    assert.equal(readSeed(1), 4242);
+    // Nothing legacy was deleted, so rolling back to the old build finds its save; the settings were never in play.
+    assert.deepEqual(readLegacyCells(), legacy, 'a legacy cell was removed or rewritten');
+    assert.equal(cell.get('drowned-keep:settings'), '{"volume":0.2}');
+    assert.equal(cell.size, 9);
+    // Once slot 1 has been migrated (or played), a later boot copies nothing, even over a changed legacy cell.
+    writeMeta(1, { ...freshMeta(), pearls: 999 });
+    cell.set(legacyKey('meta'), '{"pearls":1}');
+    assert.equal(migrateStored(), 0);
+    assert.equal(readMeta(1).pearls, 999, 'a second boot overwrote slot 1 with the legacy save');
+  });
+});
+
+test('a slot summary reads pearls, the deepest floor, the runs in the log and the arms owned; an empty slot says so', () => {
+  withStore(cell => {
+    // Pearls, floor, runs and arms are told apart on purpose (140, 3, 2, 3), so a field read from the wrong cell is a different number.
+    writeMeta(2, BOUGHT);
+    writeBest(2, run(3, 400));
+    writeRuns(2, [end({ at: 1 }), won({ at: 2 })]);
+    writeSeed(2, 77);
+    assert.equal(BOUGHT.arms.length, 3);
+    assert.deepEqual(slotSummary(2), { empty: false, pearls: 140, best: 3, runs: 2, arms: 3 }, 'a played slot\'s summary does not read its pearls, deepest floor, logged runs and arms');
+    assert.deepEqual(slotSummary(1), { empty: true, pearls: 0, best: 0, runs: 0, arms: 1 }, 'a slot never played should read empty, with the Tideblade its only arm (slot 2 showed through in slot 1)');
+    // A slot with only a log is played, not empty, and its other fields read as the zeroes they are.
+    writeRuns(3, [end({ at: 9 })]);
+    assert.deepEqual(slotSummary(3), { empty: false, pearls: 0, best: 0, runs: 1, arms: 1 });
+    // A cell that will not parse reads as nothing recorded but does not make the slot new.
+    cell.set(slotKey(1, 'meta'), '{');
+    assert.deepEqual(slotSummary(1), { empty: false, pearls: 0, best: 0, runs: 0, arms: 1 });
+  });
+});
+
+test('erasing a slot removes its four cells and nothing else: not the other slots, the legacy cells, the settings or the slot last played', () => {
+  withStore(cell => {
+    for (const slot of SLOTS) play(slot);
+    writeSettings({ ...defaultSettings(), volume: 0.3 });
+    writeSlot(2);
+    for (const name of SLOT_CELLS) cell.set(legacyKey(name), `legacy ${name}`);
+    const before = new Map(cell);
+    assert.equal(before.size, 12 + 1 + 1 + 4, 'precondition: three slots, the settings, the slot last played and four legacy cells');
+    assert.ok(keysOf(2).every(key => cell.has(key)), 'precondition: slot 2 holds its four cells');
+    eraseSlot(2);
+    assert.deepEqual(keysOf(2).filter(key => cell.has(key)), [], 'a cell of the erased slot is still there');
+    assert.deepEqual([...cell.keys()].sort(), [...before.keys()].filter(key => !keysOf(2).includes(key)).sort(), 'erasing slot 2 removed or added something besides its four cells');
+    for (const [key, value] of cell) assert.equal(value, before.get(key), `${key} changed`);
+    assert.deepEqual(slotSummary(2), { empty: true, pearls: 0, best: 0, runs: 0, arms: 1 });
+    assert.equal(slotSummary(1).pearls, 100);
+    assert.equal(slotSummary(3).pearls, 300);
+    // Erasing a slot that was never played, or twice, is not an error.
+    eraseSlot(2);
+    assert.equal(cell.size, before.size - 4);
+  });
+  // And a store that refuses to answer is no reason for the card to throw.
+  const owner = globalThis as { localStorage?: unknown };
+  const original = Object.getOwnPropertyDescriptor(owner, 'localStorage');
+  try {
+    owner.localStorage = { getItem() { throw new Error('SecurityError'); }, setItem() { throw new Error('QuotaExceededError'); }, removeItem() { throw new Error('SecurityError'); } };
+    eraseSlot(1);
+    assert.deepEqual(slotSummary(1), { empty: true, pearls: 0, best: 0, runs: 0, arms: 1 });
   } finally {
     if (original) Object.defineProperty(owner, 'localStorage', original); else delete owner.localStorage;
   }

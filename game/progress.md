@@ -3971,3 +3971,408 @@ Balance (30 runs, seed 1): meta-max 100% escape in 145.7 s (was 115.7 s); weak-m
 85.2 / 78.7 (was 100 / 100 / 100), 123.8 s (was 97.5 s). The first `balance:check` failed on weak-meta-max floor-3 HP
 (78.7 below 80); its HP bands now take the weak policy's widths, with the reason in the `bands.json` note. Every other
 policy printed its previous values. Gates: typecheck, lint, `npm test` 384/384, `meta.spec.ts` + `armoury.spec.ts` 7/7.
+
+## 2026-10-02 - Plan 020 Stage 0 and Stage A: the baseline, save slots in the pure layer, and the hall's room
+
+Stage 0 and Stage A of `plans/020-save-slots-and-the-altar-hall.md`. Neither stop rule tripped. Nothing of Stage B or later was started, and
+the game's wiring is unchanged beyond what Stage A's signatures force (below).
+
+### Stage 0
+
+**1. `HALL_SEED` = 2063.** Search: `altarHall(seed)` for seeds 0..4999 (the hall reduction applied to each, then `gateRacks`).
+- All 5000 seat seven slots. The plan's "pick one whose room fits six" has no candidate: the Tide Gate is always a crypt of at least
+  9 x 7 tiles and Stage C of plan 019 already found the closest pair of any gate is 2.96 apart against a rule of 2.8. So the choice is
+  made on the other two criteria and on how the room reads, and the plan's "Pick a `HALL_SEED` whose room fits six" plant is replaced
+  (see the plants).
+- 2565 of 5000 have at least two braziers (the generator places the first two props of every room as braziers when it places two at all;
+  it never places a third, so "at least two" is exactly two). Of those, 524 are the largest crypt, 13 x 11 tiles.
+- Picked 2063 among the 13 x 11 rooms with seven slots on the ideal ring (closest pair 4.19 against 2.96 for rooms where a prop nudges a
+  slot): **a crypt of 13 x 11 tiles (halfX 6, halfZ 5), 124 tiles after the second door's alcove is cut away (125 on the generated
+  floor), 4 props (braziers at -3,2 and 3,2; a pillar at 3,-4; a barrel at -3,-4), the kept door on the west wall at -7,0 facing -x, the
+  arrival at 0,4, seven slots at tideblade 0,-3, fangs 3,-2, spear 4,1, cleaver 2,3, maul -2,3, crossbow -4,1, flask -3,-2 (tiles).**
+  Slot spacing: the rule is `GATE_SPACING` = 2.8; the closest pair is 4.19, the nearest slot to the heart 4.44 (the rule is 1.9), the
+  nearest to the kept door 4.68. The two braziers stand either side of the heart, two tiles to one side of its row, and the lane from the door to the heart is
+  clear of props. The same `gateRacks` result comes from the full generated floor and from the hall, so the hall's removal of one door
+  does not move a slot.
+- Judged from a text grid only (`/tmp` scratch driver); nobody has looked at it on screen. The staged hall was drawn in the frame test below
+  but no screenshot was taken.
+
+**2. Frame cost** (SwiftShader, 2026-10-02, a fixed stand at the room's heart as `frame-budget.spec.ts` stands it, `render` counters
+read after `step(640)` and a drawn frame; a throwaway spec and a temporary one-line edit of `chart()` in `dungeon-game.tsx` returning
+`altarHall()` for level 1 when `window.__hallstage` is set, with the doors' `to` patched to 0 because a one-room floor's door has no
+room to point at; both reverted before the commit, `git status` clean of them). The staging draws the *stair's* pit, rim and seal at
+the hall's heart where the real hall will have the altar's disc, so the hall figures are an upper bound for the heart.
+
+| | calls | triangles | shadow calls |
+| --- | --- | --- | --- |
+| seed 0x1 Tide Gate, bare | 224 | 198,092 | 56 |
+| seed 0x1 Tide Gate, six racks (plan 019's 298) | 298 | 203,164 | 87 |
+| hall (2063), bare | 221 | 115,129 | 69 |
+| hall (2063), six racks | **294** | 120,197 | 100 |
+
+The first two rows reproduce plan 019's figures exactly, so the staging path measures what that did. Six racks add +73 calls, +5,068
+triangles and +31 shadow calls in the hall (+74 / +5,072 / +31 in the gate). The hall with six racks is **-1.3% on calls against the
+298**: the stop rule (more than 10% over) did not trip. The hall draws fewer triangles because it is one room; it draws 13 more shadow
+calls bare, which the stand-in stair seal and the two braziers account for.
+
+**3. Boot cost.** SwiftShader only (this machine has no GPU), so wall times are a rasteriser's and are not the plan's 0.95 s / 3.8-4.2 s.
+Measured in-page, from the press (or the dispatched `restart`) to the loading veil leaving the DOM, in a fresh Chromium per kind:
+
+| | press, cold | press, warm | frames (cold / warm) | pure compute of `buildFloor(1)` |
+| --- | --- | --- | --- | --- |
+| floor 1 | 4.3 s | 4.9-5.2 s | 49 / 39 | median 365 ms (305-480) |
+| hall | 4.0 s | 4.8-5.0 s | 42 / 34-35 | median 28 ms (20-47) |
+
+Frames are distinct `requestAnimationFrame` timestamps between the two events. (An earlier run of the same script gave floor 1
+4.7 / 5.4 / 5.1 s and the hall 3.6 / 4.0 / 4.5 s: the hall's press is the shorter in both, by 0.2-1.0 s, and the spread between runs is as large as that.) Restarts: floor 1 to floor 1 21-23 frames, hall to floor 1
+21-24, floor 1 to hall 18; their wall time on SwiftShader is 15-26 s and says nothing (each frame draws the live scene in software; the
+press draws almost nothing behind the veil). So the stop rule is answered by a model, not a measurement: wall = frames x 16.7 ms + the
+build's compute. For floor 1's warm press that gives 39 x 16.7 + 365 = 1.0 s against plan 019's measured 0.95 s on a real GPU, which is
+the check that the model is the right shape. Then, warm, on a 60 Hz GPU:
+- press to the hall: 34 x 16.7 + 28 = **0.6 s** (floor 1: 0.95 s);
+- hall to floor 1 (a veiled restart): 22 x 16.7 + 365 = **0.73 s**;
+- so press to the hall to floor 1 is about 1.3 s against 0.95 s: **the hall adds about 0.3-0.4 s**, and death to the next run is about
+  1.06 s (hall 0.33 s, then floor 1 0.73 s) against 0.73 s today.
+
+The stop rule (more than 1 s) did not trip on this estimate. It is an estimate: the frame counts and compute are measured, the 16.7 ms and
+the "no GPU cost on top" are assumed. Stage G on a real GPU settles it.
+
+**4. Exposure list** and how Stage E (or C) restages each. Found by search over `tests/`; the figures are as of this commit.
+- Specs that click ENTER directly (11): `footsteps.spec.ts:448`, `frame-budget.spec.ts:354`, `frame-clock.spec.ts:22` and `:71`,
+  `gameplay.spec.ts:214` and `:235`, `loading.spec.ts:102`, `:177` and `:391`, `robustness.spec.ts:39`; plus `loading.spec.ts:364`
+  (LAST KEEP) and `:24` (the prerendered HTML contains ENTER THE KEEP). Under `?hall=skip` (D11) ENTER still chooses slot 1 and enters
+  floor 1, so the scenarios keep their clicks; `loading.spec.ts` and `frame-clock.spec.ts` are the ones that measure the boot and the sliced
+  restart and must opt out (`test.use({ hall: true })`) and count the frames of the hall path instead (Stage E).
+- Title button lists: `a11y.spec.ts:65` (`ENTER THE KEEP`, `Tide Altar`, `Controls & journey`, `Settings`) loses `Tide Altar` and
+  gains the slot picker's cards; `:76-81` (the Altar page and focus return) moves to the shop overlay in the hall (Escape/Back returns
+  focus); `:94` (the pause list) is unchanged mid-run and gains LEAVE TO TITLE in the hall.
+- TO THE GATE: `armoury.spec.ts:115` and `meta.spec.ts:41`. Both become the death card's RETURN TO THE ALTAR.
+- NEW DESCENT and SAME KEEP: no spec clicks either by name. Every restart in the suite goes through `game.act('restart')` or
+  `restart:<seed>` (`loading.spec.ts:268,306,330`, `frame-clock.spec.ts:84`, `robustness.spec.ts:64`, `special.spec.ts:362`,
+  `weapon.spec.ts:70`), which D9 keeps. Result-card readers (`combat.spec.ts:630`, `meta.spec.ts:38`) read the summary, which stays.
+- Legacy keys: `arena.spec.ts:47`, `run-export.spec.ts:16`, `loading.spec.ts:355` read `drowned-keep:best/runs/seed`; **already moved to
+  the slot-1 keys in this commit** (forced: with the old keys `arena.spec`'s "records nothing" comparison would have been two nulls
+  and passed with the recording left in). `gameplay.spec.ts:537` reads `drowned-keep:settings`, which does not change.
+  `tests/README.md:179,245-246,369` describe the five keys: Stage F.
+- Everything about the Tide Gate's racks on floor 1 (Stage C moves them): `armoury.spec.ts` as a whole (rewritten against the hall),
+  `controls.spec.ts` (pad X), `weapon.spec.ts`, `special.spec.ts` (two swap tests), `models.spec.ts` (teardown), `loading.spec.ts` (sliced
+  against sync, two arms), `shots.spec.ts` (`models-drop-*`), `frame-budget.spec.ts` (the armoury test, which becomes the hall with
+  six racks bounded at 294 / 120,197 / 100 from the table above, with renderer and date). `arena.spec.ts`'s "the arena kept its rack"
+  is unchanged (an arena lays its own on `weaponDrop`).
+- Node: `dungeon-floor.test.ts:285-289` (floor 1's reserved spot is in the Tide Gate) is unchanged, the generator is. The gate-rack
+  tests at `:459-542` run on generated floors and stay (they hold `gateRacks`, which the hall reuses). `dungeon-decor-layout.test.ts:100-122`
+  and `dungeon-paving-layout.test.ts:105-107` assert that floor 1's gate slots are reserved and no deeper floor's; they become "the hall
+  reserves them and floor 1 does not", and that needs a way to tell a hall from floor 1 in `decorReservations` (see "Found" below).
+- `GAME_OVERVIEW.md`, `README.md` and the tests README: Stage F.
+
+### Stage A
+
+- `app/dungeon-save.ts`: `Slot`, `SLOTS`, `SLOT_CELLS`, `slotKey(slot, name)` (`drowned-keep:<slot>:<cell>`), `legacyKey`. `readMeta`,
+  `readBest`, `readSeed`, `readRuns` and `writeMeta`, `writeBest`, `writeSeed`, `writeRuns` take the slot first. `readSlot`/`writeSlot`/`parseSlot`
+  for the device key `drowned-keep:slot`; the settings key is unchanged. `readCells`/`readLegacyCells` (raw strings), `cellsEmpty`,
+  `summariseSlot` (pure) and `slotSummary(slot)` -> `{ empty, pearls, best, runs, arms }` (`best` is the deepest floor, 0 before any;
+  `runs` the log's length; `arms` the count owned, 1 for an empty slot), `eraseSlot(slot)` (four `removeItem`s, swallowed), `migrateLegacy`
+  (pure: returns `{ key, value }[]`, none unless slot 1 has no cell at all, never a delete) and `migrateStored` (reads, calls, writes,
+  returns the count). `META_KEY` is gone (its one reader was a test).
+- `app/dungeon-floor.ts`: `HEART_CLEAR` (the 1.9 `gateRacks` already hard-coded, now named; same value), `HALL_SEED` = 2063, `altarHall(seed = HALL_SEED)`:
+  room 0 of `generateFloor(seed, 1)` with its tiles, cells, `roomByCell`, bounds and props, the first door cut from it, every other door's
+  alcove tiles removed (found going back from the cut door through tiles the room's own floor does not hold), no edges, no spawns,
+  `goal` 0, `start` 0, `guardCount` 0, the generator's `weaponDrop`. The `seed` argument exists for the test sweep.
+- `app/dungeon-game.tsx`: `const SLOT: Slot = 1` and every read and write passes it (every call site, no other change; the comment says
+  why). **Nothing calls `migrateStored` yet.** Until Stage B does, a build of this commit reads slot 1 and a pre-slot save sits unread in
+  the legacy keys, which are untouched.
+- Tests: `tests/dungeon-save.test.ts` (existing tests pass slot 1; four new tests), `tests/dungeon-floor.test.ts` (three new), and the
+  three browser specs' keys above. Node suite 384 -> 391.
+
+**Interpretations.**
+- D2 says "the five legacy per-player keys"; D1 lists four per-player cells (meta, best, seed, runs) and calls the fifth, settings, per device.
+  Migration copies the four. The settings key never changed.
+- The slot argument is required, not defaulted, so a forgotten call site is a compile error. The game's `SLOT` is the stand-in.
+- "Empty" is "none of the four cells exists", the same test `migrateLegacy` uses for "slot 1 has anything". A cell that is there but will
+  not parse therefore makes the slot non-empty (shown with zeroes) and blocks migration over it: the safe way round.
+- The plan's seven-row table has one plant that cannot be done as written (a seed whose room fits six does not exist). Replaced by
+  two real ones: a hall cut to a 2.4-tile radius, which seats 6, and a different `HALL_SEED`.
+- The hall's `rooms`/`tiles`/`cells`/`props` etc. are the generator's objects for room 0 (shared references to the room and props), not
+  deep copies; nothing mutates them (`gateRacks` and the scene read only).
+
+**Found, for Stage C.**
+- The hall's kept door still has `to: 1` and the floor has one room. `raiseFloor` (`dungeon-floor-scene.ts`, the door signs) and
+  `renderText` (the snapshot's `doors`) read `floor.rooms[door.to].reward`, so a one-room floor crashes the build with
+  `Cannot read properties of undefined (reading 'reward')`. Found staging the frame test. The plan allows doors to exist and edges to be
+  empty, and Stage C's "the door signs except the way down" will have to give the way down its own sign (or the hall its own `to`).
+  `altarHall` is left as the plan describes it, with the generator's door; a test pins that door.
+- `decorReservations` reserves the gate's slots on `floor.level === 1`, and `altarHall()` is `level: 1`, so today the hall *does* reserve them (good)
+  and floor 1 does too (to be removed in Stage C). Telling the two apart needs a marker the floor does not have: one room is a reliable
+  one (`floor.rooms.length === 1`), a field on `Floor` is the clean one and costs a change to `generateFloor`'s return type.
+- `HALL_SEED` is a regular seed: `generateFloor(2063, 1)` is a normal floor a player could roll. Nothing breaks (the hall is not a floor
+  anyone plays) but `restart:2063` would play the full floor 1 of that room.
+
+**New tests, each planted for real, watched failing on its own message, restored** (a plant script kept outside the repo; every file diffed
+against its backup after each plant).
+`dungeon-save.test.ts`:
+- "a slot reads only its own cells, and writing slot 2 leaves slots 1 and 3 as they were".
+  `slotKey` ignores the slot -> "slot 2's meta is not stored under slot 2's own key" ('drowned-keep:1:meta' vs 'drowned-keep:2:meta').
+  `writeMeta` ignores the slot -> "slots 1 and 3 did not each keep their own four cells" (7 !== 8).
+  `readSeed` ignores the slot -> "an unplayed slot 2 read another slot's seed" (1000 !== null).
+- "migrating a pre-slot save ...". `migrateLegacy` without the empty-slot check -> "slot 1 held a meta and was migrated over". `migrateStored`
+  deleting the legacy cells after copying -> "a legacy cell was removed or rewritten".
+- "a slot summary reads pearls, the deepest floor, the runs in the log and the arms owned; an empty slot says so". `runs: meta.arms.length`
+  -> "a played slot's summary does not read its pearls, deepest floor, logged runs and arms" (runs 3, expected 2).
+- "erasing a slot removes its four cells and nothing else ...". Erase by the `drowned-keep:` prefix -> "erasing slot 2 removed or added something
+  besides its four cells" (the other slots, the settings, the legacy cells and the slot last played all gone).
+`dungeon-floor.test.ts`:
+- "the hall is the Tide Gate alone: one room, nobody in it, one door, ...". Keep every door -> "the hall keeps 2 doors" (2 !== 1). Keep every
+  door's alcove -> "the other door's alcove tile 0,-6 is still floor" (true !== false). A random kept door -> "seed 1: the hall's door" (the sweep).
+- "the hall is the same room on every call and takes nothing from any random stream". Random kept door -> "call 3 disagrees with the first".
+  A `Math.random()` drawn and thrown away -> "altarHall drew a random number" (the trap; the 20 equal calls would not have seen it).
+- "the hall seats seven racks, clear of the altar at its heart, and is the room that was judged by eye". A hall cut to a 2.4-tile radius ->
+  "the hall seats 6 racks" (6 !== 7). `HEART_CLEAR` 1.0 -> "the heart keeps 1 clear, less than the altar's 1.9" (and the existing gate-racks test:
+  "seed 2 tideblade: the slot is underfoot at the heart"). The heart filter removed and the ring shrunk -> "tideblade: the slot is inside the
+  altar's 1.9". `HALL_SEED` 31 -> "the hall is not the room that was judged". The test pins the room (a 13 x 11 crypt, props, closest pair
+  between 4.1 and 4.3, nearest slot to the heart above 4.4): a generator change that moves it fails there on purpose.
+- Not plantable: nothing for "the hall's kept door's alcove tiles are walkable" beyond the alcove assertion above, which the "cut to 2.4 tiles"
+  plant also trips ("the kept door's alcove was cut away").
+
+**Gates.** typecheck clean; lint clean; `npm test` 391 of 391 (was 384).
+`balance:check` (462 s, 30 runs per policy, seed 1): every metric of every policy inside its band, and all 72 printed values equal the
+`measured` block of `scripts/balance/bands.json` (compared by script). No before-and-after pair was run: the sim imports
+`dungeon-floor.ts` and `dungeon-save.ts` is not on its path, and the generator is untouched, so the evidence is the recorded block.
+PR-gate browser run (`npm run test:browser -- --grep-invert "@capture|@nightly"`, SwiftShader, 1 worker, the installed Chromium through a
+shim that is not committed): **136 of 136 passed in 20.2 min** (the same 136 as before: Stage A adds node tests only; the run is the proof
+that the slot-1 keys and the three moved specs hold). Run once, on the code commit's tree (the documents were added after and are Markdown).
+
+**Not done / not verified.** Stage B onward. The hall has not been seen on screen. The boot-cost stop rule is a model on SwiftShader
+counts, not a GPU measurement. `tests/README.md` still describes the five legacy keys (Stage F). No browser scenario covers the
+slot keys beyond the three specs that moved to them: the picker is Stage B.
+
+## 2026-10-02 - Plan 020 Stage B: the slot picker on the title
+
+Stage B of `plans/020-save-slots-and-the-altar-hall.md`. The game still enters floor 1 directly after a slot is chosen; the hall is Stage C.
+
+### What changed
+
+- `app/dungeon-game.tsx`: `const SLOT` is gone. The world closure holds `activeSlot` (initially `readSlot() ?? 1`), and every read and write of progress passes it; the
+  React side mirrors it as `slotOn` (the best-run write, `copyRuns`, the picker). `migrateStored()` runs once at mount, before `restoreSave()`. Two new commands, `slot:<n>`
+  (sets `activeSlot`, `writeSlot`, `setSlotOn`, `restoreSave`) and `erase:<n>` (`eraseSlot`, and `restoreSave` when it was the active slot), both ignored while a run is live or a
+  build is pending. `enter()` records the keep it enters under the chosen slot (`writeSeed`), because a test boot builds floor 1 before any slot is chosen. `dungeonTest.reset`
+  restores `activeSlot` from storage, calls `restoreSave()` and sets the menu back to `main`. `dungeonTest.runLog/meta/setMeta` take an optional slot. The snapshot gains `slot`,
+  read from the closure. The title: ENTER THE KEEP opens the picker (`menuView === 'slots'`); the Tide Altar button, its `altar` view, `buy` and the pearl-balance line are gone;
+  the best-run and run-log lines are prefixed `Slot N ·`; Copy run log says `Copied 3 runs from slot 2`.
+- `app/dungeon-slot-picker.tsx` (new): the picker's page. `app/globals.css`: its rules; the dead `.pearl-balance` rule removed, the `.altar-*` rules kept for Stage C.
+- `app/dungeon-input.ts`: `slot:<n>` and `erase:<n>` parse (1, 2 or 3 and nothing else). `app/dungeon-test-hooks.ts`: the hook types.
+- `app/dungeon-altar-panel.tsx` is kept, with a header note; nothing mounts it until Stage C.
+- Tests: `tests/browser/slots.spec.ts` (new, four scenarios), `helpers.ts`, the restaged specs below, `tests/dungeon-input.test.ts` (inside the existing parse test), `tests/README.md`.
+
+**The UI.** Title: ENTER THE KEEP, Controls & journey, Settings (and Last keep when a seed is remembered), as before minus Tide Altar. ENTER THE KEEP replaces the list with a page of
+the same card: `← BACK`, the heading "Choose a slot", one line ("Each slot keeps its own pearls, arms and run log. Settings are shared."), then three cards. Each card is a wide button:
+`SLOT 1` (and `LAST PLAYED` in gold when it is the slot last played and not empty) over `137 pearls · deepest floor 2 · 2 runs logged · 2 arms`, or `Empty` in italics; beside it, for a
+slot that holds anything, an `ERASE` button. Erase armed: the button reads `PRESS AGAIN TO ERASE` with a red border, the card's border reddens and the line under the cards says
+`Slot 2 will be erased for good. Press Erase again to confirm.`; after the second press the card says `Empty`, the line says `Slot 2 erased.` and focus moves to the card. Back returns focus to
+ENTER THE KEEP. At 360 x 740 the three cards fit under the title with no scrolling of the card and no sideways scroll (looked at once in a SwiftShader screenshot, and held by the phone scenario).
+
+**Decisions and interpretations.**
+- The picker is a sub-view of the title card (`menuView`), not a screen of its own: it gets Back, focus return and the dialog for free. The plan's risk (the card resets `menuView` when
+  `menuOpen` flips) is the right behaviour here, since choosing a card starts a run and closes the card. What it does not cover is a card that never closes: a scenario ending with the
+  picker open. `reset` therefore sets the view back to `main` (plant C3).
+- Choosing a card is two dispatches, `slot:<n>` then `start`, so the slot is set before anything is dealt or built. `start` with no `slot:` before it (Last keep, the console) plays the active slot.
+- "Empty" is Stage A's: none of the four cells exists. A slot entered once has its seed written by the first build and is no longer Empty (it reads `0 pearls · no floor reached · 0 runs logged · 1 arm`).
+  Under the harness slot 1 is never Empty, since the eager boot writes its seed before any test looks; scenarios that need an empty slot use slot 3, and Erase on slot 1 is real.
+- An empty slot has no Erase (nothing to erase), so "every card and its Erase" is five tab stops with slot 3 empty.
+- One card is armed at a time (state is "which slot", not "armed"). I first also wrote a capture-phase "any other press disarms" and the planted no-op of it survived; it was redundant with the single
+  state, so it is deleted. Leaving the picker disarms through `openView`.
+- D2 is "once at mount, only into an empty slot 1", which is `migrateStored`; it runs before the eager boot writes a slot-1 seed, so a legacy seed is not overwritten before it is read.
+- The title keeps the best-run and run-log lines, for the slot last played and named, rather than dropping them: `run-export.spec.ts` reads the log line and Copy run log needs the slot named beside it.
+- Dead CSS on purpose: `.altar-*` and the `:has(.altar-view)` rules wait for the hall's overlay.
+
+### Restaged scenarios
+
+- `Game.enter(slot = 1)`: clicks ENTER THE KEEP, waits for the picker, clicks that slot's card, waits for the card to go. The 138 callers are unchanged. New exports `openSlots`, `chooseSlot`,
+  `enterKeep`, for specs that drive a page without a `Game`.
+- Direct ENTER clicks, now `enterKeep(page)`: `frame-clock.spec.ts` (two), `robustness.spec.ts` (one), `loading.spec.ts` (three: the held-rAF press, the reset during the boot, the loading bar), `frame-budget.spec.ts`
+  (one, isolated). In the held-rAF scenario ENTER now opens the picker, so it also asserts that opening it raises no veil and builds nothing, and the card is the press that does.
+- The Stage 0 list counted `footsteps.spec.ts:448` and `gameplay.spec.ts:214` and `:235` as direct ENTER clicks; they are the pause menu's RESUME (also `.primary-action`), so they are unchanged.
+  Real direct ENTER clicks: 7, not 11. `loading.spec.ts` LAST KEEP and the prerendered-HTML check are unchanged and pass.
+- `a11y.spec.ts`: the title list is ENTER THE KEEP, Controls & journey, Settings; the Altar page and its focus-return step became the picker's (heading "Choose a slot", Back focused, three
+  cards, Back returns focus to ENTER THE KEEP). The pause list is unchanged mid-run.
+- `meta.spec.ts`: the three scenarios that bought through the title panel buy through the pure rules (`buyUpgrade`, `buyArm`) and `dungeonTest.setMeta`, with a comment that the purchase UI moves
+  to the hall in Stage C. They keep their assertions about the run being dealt from the save (`run.start`, the vitality bar, the strike, the arm in hand, the arm not equipped by an unlock),
+  and the title's pearl-balance line became the slot card's text. **Lost until Stage C:** the Altar's Tab order, its notes, the refused-purchase note and the 360 x 740 layout of its rows; the
+  phone scenario keeps its Keen Eye half and is renamed.
+- `run-export.spec.ts`: the three runs sit in slot 2 and the device remembers slot 2; slot 1 holds one other run. The note must say `Copied 3 runs from slot 2` and the clipboard must hold slot 2's log.
+- `arena.spec.ts` (reads slot-1 keys since Stage A) and `loading.spec.ts` LAST KEEP pass unchanged.
+
+### The four scenarios, each planted for real
+
+Each plant was one edit to one file, run against its own test only (`-g`), watched failing on its own message, and reverted (`git checkout` of that file; `git status` clean after each).
+`slots.spec.ts` (1) a save from before slots, (2) slots are separate, (3) Erase, (4) on a phone.
+- (1) `migrateLegacy` writes slot 2's keys instead of slot 1's -> "slot 1's card does not show the legacy save's pearls, floor, runs and arms" (expected `137 pearls · deepest floor 2 · 2 runs logged · 2 arms`, received `0 pearls · no floor reached · 0 runs logged · 1 arm`).
+- (2) `enter()` reads `readMeta(1)` -> "slot 2's run was not dealt from slot 2 (the maul, Second Tide, Whetted Start)" (the run came out as the Tideblade with no revive). This is the plan's plant, and it only fails because the
+  scenario reaches slot 2 after a reset has built the keep under slot 1; choosing slot 1 first would have passed it.
+  `slot` command ignored (the slot is not set) and the snapshot's `slot` pinned to 1 -> both "choosing slot 2 did not make it the active slot, as the snapshot reads it" (2 expected, 1 received); they are one observation and
+  the test cannot tell them apart. `enter()` not recording the keep under its slot -> "the keep was not recorded under slot 2".
+  `reset` not restoring the slot -> the leak guard, "this scenario left state behind that a reset did not clear ..." with `"slot": 2` against `"slot": 1`.
+- (3) Erase confirms on the first press (the early `return` removed) -> "the first press did not arm Erase". Armed kept as a boolean (any second press confirms whichever card it is on) -> "one card is armed at a time" (1 expected, 0
+  received: the press on slot 1 erased it). `reset` not closing the picker -> "the reset left the picker open". Opening the picker not clearing an armed Erase -> "leaving the picker and coming back did not disarm Erase".
+  Survived: a capture-phase "disarm on any press" made a no-op; it was redundant and is deleted.
+- (4) Erase buttons `tabIndex={-1}` -> "Tab did not walk every card and its Erase, in order". `.slot-choose` `min-width: 420px` -> "at rest: something in the card overflows it sideways" (<= 304 expected, 420 received).
+  Survived once: my first CSS plant added a `min-width` that the rule's own later `min-width: 0` overrode, a no-op; the plant was redone on the existing declaration.
+- Not in the plan, added: Copy run log reads slot 1 -> `run-export.spec.ts`, "Copy run log did not say how many runs of which slot it copied" (`Copied 1 run from slot 2` against `Copied 3 runs from slot 2`). The node
+  parse test for `slot:`/`erase:` (inside "every dungeon-action detail parses ..."): `slot:4` accepted -> "slot:4 is not a slot".
+
+### Gates
+
+- typecheck clean; lint clean; `npm test` 391 of 391 (the parse assertions are inside an existing test, so the count did not move).
+- `npm run build` and `npm run build:check` ("11 development-only hooks, none shipped").
+- `balance:check`: run before the operator dropped it from this stage; 467.4 s, every metric inside its band, all 72 printed values equal to `bands.json`'s `measured` (compared by script). Stage B changes no rule, sim or generator.
+- Browser, local, restaged and new specs only, SwiftShader, one worker: `slots.spec.ts` 4 of 4 pooled and 4 of 4 under `GAME_TEST_ISOLATE=1`; a11y, meta, run-export, loading, frame-clock, robustness and arena
+  26 of 26. `frame-budget.spec.ts` (isolated, restaged) and `gameplay.spec.ts`'s pause scenario (RESUME) ran inside the full-suite attempt below and passed.
+- The full PR-gate browser run was started locally (1 worker) and stopped by instruction at 119 passed, 0 failed, when CI on draft PR #86 turned green at f24e1d6 on all three shards. **That CI run is Stage B's full gate**;
+  the suite is 140 scenarios now (136 and the four of `slots.spec.ts`).
+
+### Not done / not verified
+
+- Nothing of the hall. The Altar's purchase UI has no browser scenario until Stage C. The picker has been seen once on SwiftShader at 360 x 740 and not on a GPU. `tests/README.md` still describes the legacy key names in
+  its Persistence section (Stage F). The boot-cost numbers of Stage 0 are unchanged (ENTER now costs a click before the press; nothing builds on it).
+
+## 2026-10-02 - Plan 020 Stages C, D, E and F: the Tide Altar's hall, death and return, the restaged suite and the documents
+
+Stages C to F of `plans/020-save-slots-and-the-altar-hall.md`, in one pass. The decisions are the plan's (D4 to D11); the interpretations I had to make are under "Interpretations".
+Nothing here changes the generator, the sim, `dungeon-meta.ts` or `scripts/balance`, so `balance:check` was not run (the new test that the generator's output carries no `hall`
+key, not even a false one, is what stands in for it). The full PR-gate browser run is CI's, on draft PR #86; locally only the specs below were run, two workers.
+
+### What changed
+
+- `app/dungeon-floor.ts`: `export type Floor` = `ReturnType<typeof generateFloor> & { hall?: true }`, the marker the plan's Stage A trap (b) asked for. `altarHall()` returns `hall: true`; `generateFloor`
+  is untouched (a generated floor has no `hall` key at all). The hall's door keeps the generator's `to: 1`, which names no room of a one-room floor (trap a), so nothing may look it up: see `doorSignOf`.
+- `app/dungeon-floor-scene.ts`: `DoorSign` gains `'down'`; `doorSignOf(floor, door)` signs the hall's door "down" and every other from its room; `FloorStage.altar` is a shrine's disc and crystal
+  (`Feature`, built by the sanctuary shrine's own code at the hall's heart; the Tide Gate of a generated floor, itself a sanctuary, has never been given one) and is kept off `features`; the stair is built
+  unless `floor.hall` (and a floor without one nulls the previous floor's stair parts, which the stage would otherwise have kept pointing at disposed meshes).
+- `app/dungeon-decor-layout.ts`, `app/dungeon-paving-layout.ts`: use the shared `Floor`; the rack slots are reserved when `floor.hall`, not when `level === 1` (floor one's gate reserves none now).
+- `app/dungeon-game.tsx` (edited in place, not reformatted): closure `hall` (read off `floor.hall` of the floor that was built), `wantHall` (the ask, set by `veiled`'s plan, `boot` and the hooks),
+  `altarOpen`, `overAltar`, `skipHall`/`startsInHall`. `chart` takes the hall branch first and draws its seed only below it, so a hall build draws nothing from the random stream. `armLocked` is
+  `!hall && !arena` on every build. `layGateRacks` keys off `hall`; `takeDoor` no longer locks; `requestSwap` opens the shop at the altar and `goDown` (`lockArm` then `restart`) at the way down;
+  `openAltar`/`closeAltar` hold the world by `run.choosing`; `toAltar` (a finished run, `restart(.., toHall)`), `toTitle` (the hall's pause menu); `openMap` is inert in the hall; the knight arrives at the
+  hall's `entry`, not on the altar; `writeSeed`/`firstSeed` are skipped for the hall (LAST KEEP must never offer HALL_SEED). `atGate`, `toGate`, `runSeed` and the `gate` command are gone. The altar rides the
+  shrine loop (`feature !== stage.altar` guards the heal). Snapshot: `hall`, `altarOpen`, `hallProps` (`altar`, `racks`, `wayDown`, `stair`, all read off the groups they were attached to), `roomName`
+  "The Tide Altar", `boonOffer` not true while the shop is open. `dungeonTest.buildHall()` (sync) beside `buildFloor` (which now always builds an ordinary floor); `reset` returns a page to the mode it booted in.
+  React: the shop overlay (`AltarPanel`, `buy` back from the title), the header, no vitality/rank in the hall, no map button, LEAVE TO TITLE, the cards, the veil's second line.
+- `app/dungeon-input.ts`: `gate` is replaced by `altar`, `shop-close`, `title`. `app/dungeon-altar-panel.tsx`: the line now says arms are chosen on the racks of this hall. `app/globals.css`: the dead
+  `.gate-return`/`.seed-retry` rules are gone. `app/dungeon-test-hooks.ts`: `buildHall`. `scripts/build/leaks.ts`: `?hall=skip` reaching the production bundle fails `build:check`.
+- Tests: `hall.spec.ts`, `death.spec.ts` (new); `helpers.ts` (the `hall` option, `?hall=skip` by default, `Game.buildHall/takeWayDown/openAltar`, `walkUntil`, `watchVeil`, `pinnedDraws`); node:
+  `dungeon-decor-layout`, `dungeon-paving-layout`, `dungeon-floor` (the marker), `dungeon-input`, `build-leaks`.
+
+### The hall and the cards, as they look
+
+- **The hall.** The 13 x 11 crypt of seed 2063, lit by its two braziers, the knight arriving at its south way in. The altar is a mint-green disc with the shrine's crystal turning over it at the room's heart;
+  six rings of gold light are the racks (an owned arm on each, none for an arm in hand or not owned); the way down is the generator's arch on the west wall with its sigil, signed "down". The top-left
+  header reads **The Tide Altar** over *Spend, choose an arm, take the way down*. No vitality, no rank bar and no map button; the three ability icons and the pause button stay.
+- **Prompts** (the usual button at the foot of the screen): at the altar `PRESS E TO OPEN THE ALTAR` / `300 pearls to spend`; on a rack `switch to Bell Maul` and its detail; at the door `PRESS E TO TAKE THE WAY DOWN` /
+  `Into the keep, the Tideblade in hand`.
+- **The shop** is the title card's old Altar page as an overlay: kicker `THE TIDE ALTAR · SLOT 1`, the heading *Spend what the tide gave.*, a `← BACK TO THE HALL` button, `N pearls held`, the line
+  "Arms are chosen on the racks of this hall, not here. The Tideblade is always yours; anything bought here is only unlocked.", the six arms and four upgrades as rows, and the note under them. The world is held
+  behind it; Escape or Back puts it away.
+- **The cards.** Death: kicker `FLOOR 2 · FAILED`, *The dark takes you.*, "The tide carries you back to the altar.", the XP summary with the cause, the time and boons, `+N pearls · M held`, and one red button,
+  **RETURN TO THE ALTAR**. Win: `THE KEEP IS BEHIND YOU`, *You climb into the dawn.*, the same single button. The card is focused first; the button takes focus 700 ms later (see Interpretations).
+- **Pause menu.** Mid-run: RESUME, Floor map, Controls & journey, Settings. In the hall: RESUME, **LEAVE TO TITLE**, Controls & journey, Settings (no map); LEAVE TO TITLE opens the slot picker.
+
+### Frame budget (SwiftShader, 2026-10-02, the stand `frame-budget.spec.ts` uses, counts are deterministic and identical on repeat)
+
+| | calls | triangles | shadow calls |
+| --- | --- | --- | --- |
+| old Tide Gate, six racks (plan 019) | 298 | 203,164 | 87 |
+| Stage 0 hall, six racks, stair's heart standing in for the altar | 294 | 120,197 | 100 |
+| **the real hall, bare** | **218** | **114,629** | **69** |
+| **the real hall, six racks** | **289** | **119,695** | **100** |
+
+Six racks add +71 calls, +5,066 triangles, +31 shadow calls. Against the gate's 298 that is -3.0% on calls (the Stage 0 stop rule, +10%, did not trip) and -41% on triangles; 13 more shadow calls than the
+gate. The new scenario bounds both sides: each figure is the ceiling and 95% of it the floor, so a rack that stopped being drawn or a part added to one moves a number. The boot-cost model of Stage 0 is
+unchanged and still a model (SwiftShader has no GPU); Stage G measures it.
+
+### Restaged scenarios, and how
+
+- `armoury.spec.ts`: the gate scenario is rewritten as the hall's loop on a hall page: which arms stand on `gateRacks(altarHall())`'s slots, the swap by walking into a ring (real keys), nothing written until the way
+  down, the way down writes the arm and deals the run, the run record carries it, the death card's RETURN TO THE ALTAR shows the other arms (the old "after the lock the key does nothing" step has no rack to
+  stand on any more), and the next way down starts with it. The floor-2 "no chamber pays an arm" scenario is unchanged.
+- `meta.spec.ts`: "TO THE GATE" becomes the death card's RETURN TO THE ALTAR, and the shop is back (Tab order over every row, keyboard purchase, pointer purchase, the refusal note, the dealt run), now of the
+  overlay, on a hall page; "an unlock is recorded and not equipped" buys the maul in the shop and sees it appear on its rack when the shop closes; the phone scenario is the Altar's 360 x 740 rows (opened by tapping
+  the prompt) plus Keen Eye, as it was before Stage B had to drop the rows.
+- `a11y.spec.ts`: a hall scenario (the shop is a named dialog that takes focus, answers Escape, the hamburger is gone behind it; the hall's pause list is RESUME, LEAVE TO TITLE, Controls & journey, Settings). The title and
+  mid-run pause lists are unchanged.
+- `loading.spec.ts`: the plain-URL scenarios now run the hall path (a press builds the hall, a restart leaves it) without change; the sliced-against-synchronous floor-one comparison now expects no rack, and a
+  hall twin compares the sliced `reset` with `buildHall()` (racks, altar, way down). `frame-clock.spec.ts`: the restart scenario is the hall-to-floor-one path, and a new one counts the cold press into the hall: at
+  most its two warm-up frames while it builds. `frame-budget.spec.ts`: the armoury scenario is the hall's, re-bounded (above).
+- Scenarios that need an armoury but are about something else stay on the pooled page and rebuild it as the hall by hook after `game.enter()` (`Game.buildHall`; the reset puts the page back and the leak guard holds it):
+  `controls.spec.ts` (the pad's X, after the map and the dodges), `weapon.spec.ts`, `special.spec.ts` (the two swap scenarios), `models.spec.ts` (actorStats: floor one's bodies, then the hall's racks; the teardown),
+  `shots.spec.ts` (`models-drop-*`, `@capture`). `armoury.spec`'s floor-two scenario, `arena.spec` (an arena keeps its own rack) and every other spec are untouched.
+- Node: the decor test now says the hall reserves every slot and no generated floor does; the paving test sweeps 300 halls against a control (the same room without the marker, which reserves nothing and does get
+  patches on the slots: 8 over the sweep, so the hall's zero proves something). The gate-rack tests on generated floors are `gateRacks`' and stay.
+- CI at 23231c8 failed exactly ten scenarios (armoury, controls, frame-budget, meta, models x2, weapon, loading, special x2); all ten are in the list above and pass here.
+
+### Plants (each one edit, run against its own test only, watched failing on its own message, restored; `git status` clean of them after each)
+
+`hall.spec.ts`: boot builds floor 1 -> "the veil is raising something other than the hall" (it read `Floor 1 of 3 · toward The Sunken Stair`); the hall draws a seed -> "building the hall drew a floor seed" (0 expected,
+1 received); the knight arrives on the altar -> "the knight arrives on the altar" (> 3 expected, 0); the hall shows the vitality bar -> "the hall shows the vitality bar"; the shop does not set `run.choosing` -> "the
+world went on under the shop: the swing ran down" (0.348 expected, 0 received); the chain skips the altar -> "the prompt does not name the altar"; Escape pauses instead of closing the shop -> "Escape did not close
+the shop"; the hall lays no racks -> "the hall shows no racks for the arms owned"; floor one keeps the racks (`layGateRacks` keyed on `level === 1` again) -> "the Tide Gate of floor one still holds racks"; `lockArm`
+not called at the way down -> "the run did not start with the arm taken in the hall" (`maul` expected, `tideblade`); a stair built in the hall -> "the hall built a stair".
+`death.spec.ts`: the button runs the old `toGate` -> "the button raised no veil: it did not build anything"; the button restarts floor 1 -> "the veil did not say the tide was carrying him back to the hall" (it said
+`A new keep rises`); SAME KEEP kept on the lost card -> "the death card does not offer exactly one way off"; NEW DESCENT kept on the win card -> "the win card does not offer exactly one way off"; LEAVE TO TITLE
+offered mid-run -> "a run's pause menu offers a way out of the run"; the button never focused -> "the card's one button never took focus".
+Restaged: the racks not drawn (`visible = false`) -> "full hall draws far fewer calls than it was measured at" (>= 274.55, 215); a stair in the hall -> "empty hall draws more often than measured" (<= 218, 223);
+the in-hand arm not filtered from the racks -> "the hall does not show exactly the arms owned besides the one in hand"; the run record's arm fixed to the Tideblade -> "the run record does not carry the arm that was
+chosen" (`maul` expected, `tideblade`); the shop's old line -> "the shop still says arms are chosen at the Tide Gate"; closing the shop without re-laying -> "the arm bought did not appear on its rack when the shop closed";
+the staged chart of the hall drifting under the driver's clock -> "the hall the staged build raised is not the hall the synchronous hook builds"; an extra frame drawn by the press -> "frames other than the two warm-up
+draws were drawn while the hall was being raised"; the shop without focus -> "the shop took no focus when it opened"; `buildHall` building floor one (every pooled restaged scenario at once) -> six failures by name:
+"the hall shows the two arms owned besides the sword in hand" (models), "the hall shows the one arm owned besides the one in hand" (controls), "the hall shows the other two arms" (special), "the fixture needs a rack on
+the floor being torn down" (models), "the hall lays one rack out for the one arm owned besides the sword in hand" (weapon), "the hall has a rack" (special).
+Node: the decor rule keyed on `level === 1` -> "level 1 seed 6151: a generated floor reserved a slot that nothing stands on" (and the paving control: "no patch landed on a slot even in a hall that reserves nothing");
+the hall reserving nothing -> "hall 6151: the tideblade slot is not reserved, so decor could land on its rack" and "hall 80 ... a paving patch at 1,2 sits on the cleaver rack's slot"; the generator returning `hall: false` ->
+"seed 1 level 1: a generated floor carries a hall key"; `altar` unparsed -> `every dungeon-action detail parses to the command the game answers`; the leak pattern for `?hall=skip` removed -> "a bundle carrying a
+development-only hook or the eager-boot switch is reported". Two plants did not discriminate the first time and were redone: the staged-chart drift (my first version also changed the boot's hall, so the page failed to
+boot, not the comparison) and the extra frame (drawn in the same synchronous block as the hooks going up, where the sampler cannot see it; it is now drawn in the build's own stage).
+
+### Interpretations and things to know
+
+- **Dying "on floor 1".** The plan's death scenario dies on floor one; a death there with nothing felled pays 0 pearls, which would let a bank that adds nothing pass. The scenario builds floor 2 by hook first (as
+  `meta.spec` always did) and dies there to a real blow; the second death, after `restart:<seed>`, is on floor one.
+- **"RETURN TO THE ALTAR focused".** The card (a dialog) takes focus first, as every card does, because the dodge key, Space, is the likeliest key still held when a run ends and a button focused that instant would be
+  answered by it; the button takes focus 700 ms later (an effect), and the scenario holds that. Say if the operator wants it focused at once.
+- **The plan's scenario 3 plant** ("`layGateRacks` keys off `level === 1` again, so the hall has no racks") cannot be as written: the hall is level 1, so it would still have racks, and floor one would gain them. It
+  is two plants (no racks in the hall; racks kept on floor one) and both are above. **Scenario 5's plant** (a stair in the hall, whose prompt names the stair before the altar) fails earlier, at "the hall built a stair"
+  (`objective.stairOpen`, `hallProps.stair`), which is the same bug seen sooner; the prompt order is still stair before altar in the chain.
+- **`armLocked`** is true on every build but the hall's (and the dev arena's), so floor one under `?hall=skip` starts locked where it used to start open; with no rack on floor one that is unobservable except in the
+  snapshot, and the arm is settled by the deal. **LAST KEEP** still enters floor one directly with the remembered seed (a title shortcut, not a card), skipping the hall and its arm choice; the run is dealt from the save.
+- **An arena** (`?arena=` or the dev page) is a chosen fight: its boot and its resets skip the hall, its cards still say RETURN TO THE ALTAR, and the hall it returns to lays no rack (the arena owns the one rack).
+  The win scenario is staged with the arena's open stair on floor 3 and a real win through the success card.
+- **The altar** heals nobody, prompts inside 1.5 (the shrine's own radius) and is a disc and a crystal; a hall page's `hasStarted` stays true across the hall, floor one and back, so the title is only reached by LEAVE TO TITLE.
+  Choosing a slot from there re-deals the run if the save differs, and re-lays the racks.
+- Not seen on a GPU, and the hall has been looked at on SwiftShader only (screenshots at 1000 x 700 during development). The boot-cost stop rule remains the Stage 0 model.
+
+### Gates
+
+typecheck clean; lint clean; `npm test` 392 of 392 (was 391: the marker test; the input and leak assertions sit inside existing tests); `npm run build` and `build:check` ("11 files, 11 development-only hooks, none
+shipped", with `?hall=skip` now among the things it looks for). Browser, local, two workers, SwiftShader: `hall.spec.ts` 2/2 and `death.spec.ts` 2/2, also under `GAME_TEST_ISOLATE=1` (4/4); hall, death, armoury and
+a11y together under `--repeat-each=2` 18/18; the restaged `armoury`, `meta`, `a11y`, `weapon`, `models` (with its `@nightly` cast and facing checks), `loading` and `frame-clock` 30 of 31 on the first run (the
+a11y hall scenario had asserted the hamburger disabled where the shop's CSS removes it; fixed, then passed); `controls`, `special` (the two swap scenarios), `shots` (`models-drop-*`, `@capture`, which write nothing
+without `GAME_TEST_CAPTURE`) 9 of 10 and `frame-budget`'s hall scenario, which only failed because its bounds were still placeholders until measured, then 1/1. `balance:check` was not run (nothing it reads changed).
+The full PR-gate browser run is CI's on draft PR #86; CI at 23231c8 (Stage C alone) failed exactly the ten scenarios restaged here and nothing else.
+
+### Not done / not verified
+
+- Stage G (the operator's playtest on a real GPU, a fresh profile and a legacy save) is open; the boot-cost stop rule is still Stage 0's model, not a GPU measurement.
+- The hall has only been looked at on SwiftShader; whether it reads as a place, and whether the altar and the way down are obvious, is the operator's to judge.
+- `scripts/shards/durations.json` has no row for `slots`, `hall` or `death`; each weighs the median until a green run's logs refresh it.
+
+## 2026-10-02 - Plan 020: LAST KEEP removed from the title
+
+The operator extended D9 ("same as Hades") to the title: LAST KEEP, which entered the slot's remembered seed straight
+into floor 1, skipped the hall exactly as SAME KEEP did on the death card, and is gone. The slot still stores its last
+seed (the run log carries every run's seed, and `start:<seed>` / `restart:<seed>` remain commands and test hooks), so
+nothing about replaying a reported run is lost; only the menu item is. The unused `priorSeed` state and its `readSeed`
+import went with it.
+
+`loading.spec.ts`'s "LAST KEEP enters that keep in one press" became "the title offers no LAST KEEP, and ENTER leads
+through the slots to the hall": with a seed stored in slot 1 (asserted as the precondition) the title has no such
+button, and ENTER → slot 1 lands in the hall, not the remembered keep. Planted bug: a LAST KEEP button put back on the
+title, failing with "the title still offers LAST KEEP, a retry that skips the hall". Gates: typecheck, lint, `npm test`
+392/392; a11y, slots, arena and loading specs 20/20 (SwiftShader, 2 workers). Full suite on the PR's CI.

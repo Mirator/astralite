@@ -1,6 +1,6 @@
 import { freshMeta } from '../../app/dungeon-meta.ts';
 import { VEIL_STAGES, veilProgress } from '../../app/dungeon-veil.ts';
-import { DEFAULT_SEEDS, expect, type GameWindow, pinSeeds, test, WARM_UP } from './helpers.ts';
+import { DEFAULT_SEEDS, enterKeep, expect, type GameWindow, openSlots, chooseSlot, pinSeeds, test, WARM_UP } from './helpers.ts';
 
 // A boot is the thing under test here, so a page that is already booted has nothing to show. Every
 // scenario here needs its own load. Each fresh load also pays a cold shader warm-up behind the veil
@@ -107,7 +107,14 @@ test('the keep is built on the press, not before it', async ({
   ).toBe('undefined');
   await expect(page.locator('.loading-veil')).toHaveCount(0);
 
-  await enter.click();
+  // Plan 020: ENTER THE KEEP opens the slot picker, which builds nothing; the slot's card is the press that raises the veil.
+  await openSlots(page);
+  await expect(page.locator('.loading-veil'), 'opening the picker raised the loading veil').toHaveCount(0);
+  expect(
+    await page.evaluate(() => typeof (window as GameWindow).render_game_to_text),
+    'opening the picker built floor 1',
+  ).toBe('undefined');
+  await chooseSlot(page);
   const veil = page.locator('.loading-veil');
   await expect(veil).toBeVisible();
   await expect(veil).toContainText('Waking the keep');
@@ -174,8 +181,7 @@ test('a reset issued while the boot is still polling its programs does not corru
     { timeout: WARM_UP },
   );
   // And a real press afterward has to work - this is exactly what hung before `boot` claimed `building`.
-  const enter = page.locator('.intro-screen .primary-action');
-  await enter.click({ timeout: WARM_UP });
+  await enterKeep(page);
   await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
   const state = await page.evaluate(
     () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string },
@@ -204,8 +210,8 @@ test.describe('on an already booted page', () => {
     page,
   }) => {
     const seed = 0x51a7;
-    // Plan 019 Stage C: the racks are part of what a build decides, and a fresh save lays none, so the save owns three arms:
-    // both builds below read it, and each must stand the same two racks on the same slots.
+    // Plan 019 Stage C: the racks are part of what a build decides. Floor one's gate lays none any more (plan 020 moved the armoury to the hall, whose own
+    // sliced-against-synchronous build is the next scenario), so the save owns three arms to prove that: both builds below read it and stand no rack.
     await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'spear', 'maul'], arm: 'tideblade' });
     const capture = () =>
       page.evaluate(() => {
@@ -226,7 +232,7 @@ test.describe('on an already booted page', () => {
     await page.evaluate((s) => (window as GameWindow).dungeonTest!.reset(s), seed);
     await game.built();
     const sliced = await capture();
-    expect((sliced.racks as unknown[]).length, 'the fixture needs racks in the gate for the comparison to cover them').toBe(2);
+    expect(sliced.racks, 'floor one\'s gate laid a rack, owned arms or not').toEqual([]);
 
     // The synchronous reference: dungeonTest.buildFloor drains the identical generator in one call.
     await page.evaluate((s) => (window as GameWindow).dungeonTest!.buildFloor(1, s), seed);
@@ -334,15 +340,42 @@ test.describe('on an already booted page', () => {
 });
 
 /**
- * LAST KEEP is a menu item that enters the floor 1 a previous visit left, not a button that raises a
- * fresh floor 1 first and only then rebuilds with the remembered seed. The stored seed is read on mount,
- * before floor 1 overwrites it.
+ * Plan 020: the hall is built through the same sliced generator, and the product's first press and every return from a run go through it, so what the boot
+ * and a restart raise must be what the synchronous hook builds - the room, its dressing, its racks on their slots, its altar and its way down. Its own page: the
+ * pooled one was booted past the hall (`?hall=skip`), and `dungeonTest.reset` returns a page to the mode it booted in.
+ */
+test.describe('the hall', () => {
+  test.use({ hall: true, isolate: false });
+
+  test('the hall built through the sliced path is identical to the synchronous one, racks, altar and way down included', async ({ game, page }) => {
+    await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'spear', 'maul'], arm: 'tideblade' });
+    const capture = () =>
+      page.evaluate(() => {
+        const snapshot = JSON.parse((window as GameWindow).render_game_to_text!()) as Record<string, unknown>;
+        const { floor, graphics, enemies, features, stair, racks, remaining, hall, hallProps } = snapshot;
+        return { floor, graphics, enemies, features, stair, racks, remaining, hall, hallProps };
+      });
+    // The sliced path: `reset` rebuilds the mode the page booted in through `restart`, which in this mode is the hall.
+    await page.evaluate(() => (window as GameWindow).dungeonTest!.reset());
+    await game.built();
+    const sliced = await capture();
+    expect(sliced.hall, 'the reset did not rebuild the hall').toBe(true);
+    expect((sliced.racks as unknown[]).length, 'the fixture needs racks in the hall for the comparison to cover them').toBe(2);
+    // The synchronous reference.
+    await page.evaluate(() => (window as GameWindow).dungeonTest!.buildHall());
+    const unsliced = await capture();
+    expect(sliced, 'the hall the staged build raised is not the hall the synchronous hook builds').toEqual(unsliced);
+  });
+});
+
+/**
+ * Plan 020, operator 2026-10-02: there is no LAST KEEP. Like SAME KEEP on the death card (D9), it was an instant
+ * retry that skipped the hall, and as in Hades every attempt now leaves from the hall. A slot still remembers its last
+ * seed (the run log replays it with `restart:<seed>`, and `start:<seed>` stays a command), so the precondition here is
+ * that a seed really is stored: an empty slot would show no such button anyway, and the absence would prove nothing.
  *
- * This drives the plain URL directly rather than through the `game` fixture: `Game.open` passes
- * `boot=eager` on every `goto` so the rest of the suite gets a floor already built, and eager-booting
- * here would build a first floor from the pinned queue before LAST KEEP ever got to press anything -
- * exactly the spare build this test exists to rule out. `pinSeeds` is the same interception `Game.open`
- * installs, called directly for the same reason.
+ * This drives the plain URL rather than the `game` fixture, which passes `boot=eager` and `hall=skip`; the title
+ * under test is the one a player sees, and pressing ENTER from it must land in the hall, not in the remembered keep.
  */
 test.describe('with a keep remembered from a previous visit', () => {
   const remembered = 0x2468ace;
@@ -352,30 +385,26 @@ test.describe('with a keep remembered from a previous visit', () => {
       origins: [
         {
           origin: `http://127.0.0.1:${process.env.GAME_TEST_PORT ?? 3000}`,
-          localStorage: [{ name: 'drowned-keep:seed', value: String(remembered) }],
+          localStorage: [{ name: 'drowned-keep:1:seed', value: String(remembered) }],
         },
       ],
     },
   });
 
-  test('LAST KEEP enters that keep in one press, with no build before it', async ({ page }) => {
+  test('the title offers no LAST KEEP, and ENTER leads through the slots to the hall', async ({ page }) => {
     await pinSeeds(page, DEFAULT_SEEDS);
     await page.goto('/');
-    const lastKeep = page.getByRole('button', { name: 'Last keep' });
-    await expect(lastKeep).toBeEnabled();
-    await lastKeep.click();
+    const stored = await page.evaluate(() => localStorage.getItem('drowned-keep:1:seed'));
+    expect(stored, 'precondition: slot 1 remembers a keep, or a missing LAST KEEP proves nothing').toBe(String(remembered));
+    await expect(page.locator('.intro-screen .primary-action')).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Last keep' }), 'the title still offers LAST KEEP, a retry that skips the hall').toHaveCount(0);
+    await enterKeep(page, 1);
     await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
     const state = await page.evaluate(
-      () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string; floor: { seed: number } },
+      () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string; hall: boolean; floor: { seed: number } },
     );
-    expect(state.mode).toBe('playing');
-    expect(state.floor.seed).toBe(remembered);
-    // The lazy path takes `bootSeed` (the remembered seed) directly, so `generateFloor` never draws from
-    // the pinned queue at all - not for a spare first build, and not for the remembered one either.
-    const index = await page.evaluate(
-      () => (window as unknown as { __pinnedSeeds: { index: number } }).__pinnedSeeds.index,
-    );
-    expect(index, 'a build drew from the pinned seed queue before LAST KEEP\'s own').toBe(0);
+    expect(state.hall, 'ENTER did not lead to the hall').toBe(true);
+    expect(state.floor.seed, 'ENTER entered the remembered keep instead of the hall').not.toBe(remembered);
   });
 });
 
@@ -388,9 +417,8 @@ test.describe('with a keep remembered from a previous visit', () => {
  */
 test('the loading bar follows measured work, never runs backwards and ends full', async ({ page }) => {
   await page.goto('/');
-  const enter = page.locator('.intro-screen .primary-action');
-  await expect(enter).toBeEnabled();
-  await enter.click();
+  await expect(page.locator('.intro-screen .primary-action')).toBeEnabled();
+  await enterKeep(page);
   await expect(page.locator('.loading-veil')).toBeVisible();
   const samples = await page.evaluate(() => new Promise<{ stage: string; progress: number }[]>((done) => {
     const out: { stage: string; progress: number }[] = [];

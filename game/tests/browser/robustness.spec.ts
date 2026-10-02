@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { expect, type Game, type GameWindow, test, WARM_UP } from './helpers.ts';
+import { enterKeep, expect, type Game, type GameWindow, test, WARM_UP } from './helpers.ts';
 
 // What the running game does when the ground goes out from under it: a throw inside the frame loop,
 // and a GPU context taken away and handed back. Each scenario breaks its page on purpose, so each gets
@@ -36,9 +36,8 @@ test('a throw inside the real frame loop stops the world once and says so', asyn
     const hook = (window as GameWindow).render_game_to_text;
     return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
   }, undefined, { timeout: WARM_UP });
-  const enter = page.locator('.intro-screen .primary-action');
-  await expect(enter).toBeEnabled({ timeout: WARM_UP });
-  await enter.click({ timeout: WARM_UP });
+  await expect(page.locator('.intro-screen .primary-action')).toBeEnabled({ timeout: WARM_UP });
+  await enterKeep(page);
   await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
   await plantFault(page);
   const screen = page.locator('.fault-screen');

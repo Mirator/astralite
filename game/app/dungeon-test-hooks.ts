@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { CombatFixture } from './dungeon-fixture';
 import type { Enemy, EnemyKind } from './dungeon-enemy-view';
 import type { Meta } from './dungeon-meta';
-import type { RunEnd } from './dungeon-save';
+import type { RunEnd, Slot } from './dungeon-save';
 import { getFlagstoneTextures, getMasonryTextures } from './dungeon-textures';
 import type { WeaponId } from './dungeon-weapon';
 
@@ -18,12 +18,15 @@ export type TestHooks = {
   equip: (id: string) => void;
   descend: () => void;
   buildFloor: (level: number, seed?: number) => void;
+  /** Plan 020: rebuilds as the Tide Altar's hall, synchronously like `buildFloor` (which always builds an ordinary floor). */
+  buildHall: () => void;
   grantXp: (amount: number) => void;
   reset: (seed?: number) => void;
-  runLog: () => RunEnd[];
-  /** Plan 019: the stored meta, straight off the save and re-validated; `setMeta` writes one, for fixture setup. */
-  meta: () => Meta;
-  setMeta: (meta: Meta) => void;
+  /** The active slot's run log, or another slot's when one is named (plan 020). */
+  runLog: (slot?: Slot) => RunEnd[];
+  /** Plan 019: the stored meta, straight off the save and re-validated; `setMeta` writes one, for fixture setup. Plan 020: of the active slot, or of the slot named, which stages another slot without choosing it. */
+  meta: (slot?: Slot) => Meta;
+  setMeta: (meta: Meta, slot?: Slot) => void;
   configureCombatFixture?: (fixture: CombatFixture) => void;
   cutawayDiagnostics?: () => unknown;
   setCutawayEnabled?: (enabled: boolean) => void;

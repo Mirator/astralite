@@ -1,5 +1,6 @@
 import {
   CAPTURING,
+  enterKeep,
   expect,
   type Game,
   type GameWindow,
@@ -10,6 +11,7 @@ import {
   TILE,
   WARM_UP,
 } from './helpers.ts';
+import { altarHall } from '../../app/dungeon-floor.ts';
 import { ARM_ORDER, freshMeta } from '../../app/dungeon-meta.ts';
 
 /**
@@ -177,22 +179,28 @@ test.describe('the widest room', () => {
   });
 });
 
-// Plan 019 Stage C: floor one's Tide Gate holds a rack for every owned arm but the one in hand, so with the whole armoury
-// bought it stands six at once: seven slots, but one arm is always in the knight's hand. The operator accepted what that
-// costs on 2026-10-01, with no remedy (Stage 0's stop rule had tripped: seed 0x1's gate drew 236 calls with the old single
-// rack and 310 with seven racks staged by hand, shadow calls 61 to 92; the cost was chosen over merging or instancing the
-// rack parts). This replaces that stop rule with a bound from both sides: the gate bare and with all six racks, so a rack
-// that stopped being drawn, or a part added to one, moves a number and has to be argued for.
-// Measured 2026-10-01 on SwiftShader at the stand below in the gate of seed 0x1, identical on repeat:
-//   bare gate  224 calls, 198,092 triangles, 56 shadow calls;
-//   six racks  298 calls, 203,164 triangles, 87 shadow calls (+74 calls, +33%; +5,072 triangles, +2.6%; +31 shadow calls, +55%).
+// Plan 019 Stage C: the armoury holds a rack for every owned arm but the one in hand, so with the whole armoury bought it stands six
+// at once: seven slots, but one arm is always in the knight's hand. The operator accepted what that costs on 2026-10-01, with no remedy
+// (Stage 0's stop rule had tripped: seed 0x1's gate drew 236 calls with the old single rack and 310 with seven racks staged by hand,
+// shadow calls 61 to 92; the cost was chosen over merging or instancing the rack parts). This replaces that stop rule with a bound from
+// both sides: the room bare and with all six racks, so a rack that stopped being drawn, or a part added to one, moves a number and has
+// to be argued for.
+// Plan 020 moved the armoury from floor one's Tide Gate to the Tide Altar's hall, so the bound is the hall's: HALL_SEED's room with its
+// altar (the shrine's disc and crystal) at its heart, which is what the first screen of every attempt draws. Plan 020 Stage 0 had
+// measured the old gate at the same stand (seed 0x1: bare 224 calls, 198,092 triangles, 56 shadow calls; six racks 298, 203,164, 87) and
+// the hall with the stair's heart standing in for the altar (bare 221 / 115,129 / 69; six racks 294 / 120,197 / 100), the -1.3% on calls
+// that cleared the 10% stop rule.
+// Measured 2026-10-02 on SwiftShader at the stand below in the hall (HALL_SEED 2063), identical on repeat:
+//   bare hall  218 calls, 114,629 triangles, 69 shadow calls;
+//   six racks  289 calls, 119,695 triangles, 100 shadow calls (+71 calls, +33%; +5,066 triangles, +4.4%; +31 shadow calls, +45%).
+// Against the old gate's 298 / 203,164 / 87 that is -3.0% on calls and -41% on triangles (the hall is one room, the gate was one room of a
+// floor's many islands), and 13 more shadow calls than the gate: the altar's disc and crystal, and two braziers where the gate had none lit.
 // Each ceiling is the figure measured (counts are deterministic: three.js's own tally of a fixed scene); each floor is 95% of it.
-const ARMOURY = { empty: { calls: 224, triangles: 198_092, shadowCalls: 56 }, full: { calls: 298, triangles: 203_164, shadowCalls: 87 } };
-test.describe('the Tide Gate with the whole armoury bought', () => {
-  test.use({ seeds: [0x1, 0x1] });
-  test('six racks stand in the gate, and their cost stays where it was measured', async ({ game }) => {
+const ARMOURY = { empty: { calls: 218, triangles: 114_629, shadowCalls: 69 }, full: { calls: 289, triangles: 119_695, shadowCalls: 100 } };
+test.describe('the Tide Altar\'s hall with the whole armoury bought', () => {
+  test('six racks stand in the hall, and their cost stays where it was measured', async ({ game }) => {
     const drawn = async () => {
-      const floor = await game.floor();
+      const floor = altarHall();
       const racks = (await game.state()).racks;
       const stand = openSpot(floor, roomCentre(floor, 0), { radius: 4, avoid: racks, clearance: 1.6 });
       await game.teleport(stand.x, stand.z);
@@ -203,27 +211,29 @@ test.describe('the Tide Gate with the whole armoury bought', () => {
     };
     await game.setMeta({ ...freshMeta(), arms: [...ARM_ORDER], arm: 'tideblade' });
     await game.enter();
+    await game.buildHall();
+    expect((await game.state()).hall, 'precondition: the scene drawn is the hall').toBe(true);
     const full = await drawn();
-    // A bare gate on the same floor, from the same stand: the difference is the racks and nothing else.
+    // A bare hall from the same stand: the difference is the racks and nothing else.
     await game.setMeta(freshMeta());
-    await game.buildFloor(1);
+    await game.buildHall();
     await game.step(0);
     const empty = await drawn();
     console.log(`ARMOURY empty=${JSON.stringify(empty)} full=${JSON.stringify(full)}`);
-    expect(empty.racks, 'the bare gate stood a rack').toBe(0);
+    expect(empty.racks, 'the bare hall stood a rack').toBe(0);
     expect(full.racks, 'the armoury is not six racks: seven arms, one in hand').toBe(6);
     for (const [name, got, want] of [['empty', empty, ARMOURY.empty], ['full', full, ARMOURY.full]] as const) {
-      expect(got.calls, `${name} gate draws more often than measured; say what bought it and raise the number deliberately`).toBeLessThanOrEqual(want.calls);
-      expect(got.calls, `${name} gate draws far fewer calls than it was measured at`).toBeGreaterThanOrEqual(want.calls * 0.95);
-      expect(got.triangles, `${name} gate pushes more triangles than measured`).toBeLessThanOrEqual(want.triangles);
-      expect(got.triangles, `${name} gate pushes far fewer triangles than measured`).toBeGreaterThanOrEqual(want.triangles * 0.95);
-      expect(got.shadowCalls, `${name} gate casts more shadow draws than measured`).toBeLessThanOrEqual(want.shadowCalls);
-      expect(got.shadowCalls, `${name} gate casts far fewer shadow draws than measured`).toBeGreaterThanOrEqual(want.shadowCalls * 0.95);
+      expect(got.calls, `${name} hall draws more often than measured; say what bought it and raise the number deliberately`).toBeLessThanOrEqual(want.calls);
+      expect(got.calls, `${name} hall draws far fewer calls than it was measured at`).toBeGreaterThanOrEqual(want.calls * 0.95);
+      expect(got.triangles, `${name} hall pushes more triangles than measured`).toBeLessThanOrEqual(want.triangles);
+      expect(got.triangles, `${name} hall pushes far fewer triangles than measured`).toBeGreaterThanOrEqual(want.triangles * 0.95);
+      expect(got.shadowCalls, `${name} hall casts more shadow draws than measured`).toBeLessThanOrEqual(want.shadowCalls);
+      expect(got.shadowCalls, `${name} hall casts far fewer shadow draws than measured`).toBeGreaterThanOrEqual(want.shadowCalls * 0.95);
     }
-    // And the racks themselves are what was added: some draw calls and some triangles, and not the order of a second gate.
+    // And the racks themselves are what was added: some draw calls and some triangles, and not the order of a second hall.
     expect(full.calls - empty.calls, 'six racks added no draw calls, so they are not being drawn').toBeGreaterThan(20);
     expect(full.triangles - empty.triangles, 'six racks added no triangles').toBeGreaterThan(1000);
-    expect(full.calls, 'six racks cost more than half again the bare gate').toBeLessThan(empty.calls * 1.5);
+    expect(full.calls, 'six racks cost more than half again the bare hall').toBeLessThan(empty.calls * 1.5);
   });
 });
 
@@ -351,7 +361,7 @@ test.describe('the full post chain', () => {
       return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
     }, undefined, { timeout: WARM_UP });
     await page.evaluate(() => (window as GameWindow).advanceTime!(0, false));
-    await page.locator('.intro-screen .primary-action').click({ timeout: WARM_UP });
+    await enterKeep(page);
     await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
     const frame = await page.evaluate(() => {
       (window as GameWindow).advanceTime!(16, true);
