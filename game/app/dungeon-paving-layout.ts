@@ -1,7 +1,5 @@
 import { decorReservations, type Rect } from './dungeon-decor-layout.ts';
-import { cellKey, type Room, TILE, type generateFloor } from './dungeon-floor.ts';
-
-type Floor = ReturnType<typeof generateFloor>;
+import { cellKey, type Floor, type Room, TILE } from './dungeon-floor.ts';
 
 /**
  * A rectangular paving patch spanning two adjacent stone cells of the same room, replacing their

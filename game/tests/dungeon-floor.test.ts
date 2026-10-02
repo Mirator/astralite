@@ -657,3 +657,14 @@ test('the hall seats seven racks, clear of the altar at its heart, and is the ro
   // And the rule is not something this seed alone satisfies: every hall in the sweep seats seven.
   for (const seed of HALL_SWEEP) assert.equal(gateRacks(altarHall(seed)).length, 7, `seed ${seed}'s hall seats fewer than seven racks`);
 });
+
+test('only the hall carries the hall marker: no generated floor has the key at all, so the generator\'s output (and every recorded fixture of it) is what it was', () => {
+  // Plan 020: `decorReservations` and the scene tell the hall from floor one (both `level: 1`) by this field, and by nothing else.
+  assert.equal(altarHall().hall, true, 'the hall does not say it is the hall');
+  for (const seed of [0x1, 0x4, 0x60, 7919, HALL_SEED]) for (const level of [1, 2, 3]) {
+    const floor = generateFloor(seed, level);
+    assert.equal('hall' in floor, false, `seed ${seed} level ${level}: a generated floor carries a hall key (even a false one is a change to the generator's output)`);
+  }
+  // And the hall is not floor one of its own seed: the same seed's generated floor is a keep of many rooms, the hall a single one.
+  assert.ok(generateFloor(HALL_SEED, 1).rooms.length > 1 && altarHall().rooms.length === 1, 'HALL_SEED\'s generated floor is as small as the hall, so the marker is not what tells them apart');
+});

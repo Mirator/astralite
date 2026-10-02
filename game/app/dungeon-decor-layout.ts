@@ -1,6 +1,4 @@
-import { gateRacks, type Room, TILE, type generateFloor } from './dungeon-floor.ts';
-
-type Floor = ReturnType<typeof generateFloor>;
+import { gateRacks, type Floor, type Room, TILE } from './dungeon-floor.ts';
 
 /** A conservative world-space footprint another system (later macro paving) must not colour over. */
 export type Rect = { minX: number; maxX: number; minZ: number; maxZ: number };
@@ -31,7 +29,7 @@ const baseRadius = (room: Room) => (room.shape === 'round' ? 3.15 : 2.35);
 /**
  * Conservative world-space rectangles every later system must leave alone: the space a motif is
  * planned into (even one `planRoomMotif` goes on to skip), the goal room, every sanctuary's clear
- * centre, the weapon drop, every rack slot of floor one's Tide Gate, and a gauntlet's whole floor. This is the shared placement contract —
+ * centre, the weapon drop, every rack slot of the Tide Altar's hall, and a gauntlet's whole floor. This is the shared placement contract —
  * plan 006's macro paving reads it — so it is exported even for a room that ends up with no motif.
  *
  * This reserves space FOR a motif against later paving; it is not an exclusion `planRoomMotif`
@@ -53,9 +51,10 @@ export function decorReservations(floor: Floor): Rect[] {
   const drop = floor.weaponDrop;
   // `weaponDrop` is already in world units (generateFloor builds it as tile * TILE).
   rects.push(rectAt(drop.x, drop.z, 1.5));
-  // Plan 019: floor one's Tide Gate holds an armoury, a rack slot for every arm. Every slot is reserved whether or not
-  // the arm stands on it, so what has been bought never changes the decor (the slots read the floor alone).
-  if (floor.level === 1) for (const slot of gateRacks(floor)) rects.push(rectAt(slot.x, slot.z, 1.5));
+  // Plan 019 laid an armoury in floor one's Tide Gate; plan 020 moved it to the Tide Altar's hall, which is the floor that says `hall`
+  // (it is `level: 1` too, so the level cannot tell it from floor one). Every slot is reserved whether or not the arm stands on it,
+  // so what has been bought never changes the decor (the slots read the floor alone). Floor one's gate holds none.
+  if (floor.hall) for (const slot of gateRacks(floor)) rects.push(rectAt(slot.x, slot.z, 1.5));
   return rects;
 }
 

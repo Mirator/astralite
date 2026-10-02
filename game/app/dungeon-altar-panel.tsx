@@ -3,10 +3,10 @@
 import { ARM_ORDER, ARM_PRICES, rankOf, UPGRADES, type BoughtArm, type Meta } from './dungeon-meta';
 import { STARTING_WEAPON, weaponById } from './dungeon-weapon';
 
-// The Tide Altar (plan 019, D10): the page where pearls are spent. It was the title menu's; plan 020 Stage B took it off the title and nothing
-// mounts it until Stage C puts it in the hall as an overlay (the `buy` that answers it lives in the game, and goes back with it). Two lists - the arms to
+// The Tide Altar (plan 019, D10): where pearls are spent. It was the title menu's page; since plan 020 it is the shop overlay of the hall, opened with the swap key
+// at the altar (the `buy` that answers it lives in the game). Two lists - the arms to
 // unlock and the upgrades to buy the next rank of - and nothing else. It does not choose an arm: that is
-// done at the Tide Gate. Every row is a real button that stays in the tab order when it cannot be bought
+// done on the racks of the hall. Every row is a real button that stays in the tab order when it cannot be bought
 // (`aria-disabled`, not `disabled`), so a keyboard player can land on it and read why; pressing it then
 // says the same thing in the note under the lists, and the game's `buy` is what refuses.
 
@@ -18,7 +18,7 @@ const cost = (price: number, held: number) => price > held ? `${pearls(price)} Â
 export default function AltarPanel({ meta, buy, note }: { meta: Meta; buy: (kind: AltarKind, id: string, refusal: string) => void; note: string }) {
   return <div className="menu-details altar-panel">
     <p className="altar-purse"><b>{pearls(meta.pearls)}</b> held</p>
-    <p className="altar-lore">Arms are chosen at the Tide Gate, not here. The {weaponById(STARTING_WEAPON).name} is always yours; anything bought here is only unlocked.</p>
+    <p className="altar-lore">Arms are chosen on the racks of this hall, not here. The {weaponById(STARTING_WEAPON).name} is always yours; anything bought here is only unlocked.</p>
     <h3>Arms</h3>
     <div className="altar-list">
       {ARM_ORDER.filter((id): id is BoughtArm => id !== STARTING_WEAPON).map(id => {

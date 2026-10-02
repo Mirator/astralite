@@ -11,6 +11,7 @@ import {
   cellKey,
   generateFloor,
   hasClearPath,
+  HALL_SEED,
   TILE,
 } from '../../app/dungeon-floor.ts';
 import { BESTIARY, type EnemyKind } from '../../app/dungeon-bestiary.ts';
@@ -204,6 +205,19 @@ export type Snapshot = {
   fault: boolean;
   /** Plan 020: the save slot every read and write of progress speaks for, read off the game's closure. */
   slot: Slot;
+  /** Plan 020: whether the floor drawn is the Tide Altar's hall (read off the floor that was built), and whether its shop overlay is open. */
+  hall: boolean;
+  altarOpen: boolean;
+  /**
+   * Plan 020: what the scene actually placed in the hall, read off the groups it was attached to, or null on any other floor. `inScene` is true when the
+   * piece's meshes are children of the floor being drawn; `stair` is whether a stair was built (it must not be).
+   */
+  hallProps: {
+    altar: { x: number; z: number; radius: number; over: boolean; inScene: boolean } | null;
+    racks: string[];
+    wayDown: { x: number; z: number; radius: number; open: boolean; over: boolean; inScene: boolean; sign: string } | null;
+    stair: boolean;
+  } | null;
   boonOffer: boolean;
   muted: boolean;
   roomName: string;
@@ -225,7 +239,7 @@ export type Snapshot = {
     fires: number;
   };
   /** Plan 019: what the live run was dealt (arm, vitality, strike, boon cards, revives), read off the run itself. */
-  run: { start: { arm: string; maxHp: number; strike: number; draftSize: number; defiance: number }; /** Plan 019 (D9): the first door out of the Tide Gate has been taken, so the run's arm is settled. */ armLocked: boolean };
+  run: { start: { arm: string; maxHp: number; strike: number; draftSize: number; defiance: number }; /** Plan 019 (D9), plan 020 (D7): the run's arm is settled - true on every floor but the hall (and the dev arena). */ armLocked: boolean };
   /** The development arena this page is charting floors as, or null for an ordinary keep. */
   arena: { roster: EnemyKind[]; level: number } | null;
   /** Fire a pyre left where it fell, burning the knight. */
@@ -456,6 +470,8 @@ export type GameWindow = Window & {
     /** The optional seed (plan 015 Stage C.2) lets a test build the same floor synchronously and
      * compare it with one built through the sliced boot/restart path. */
     buildFloor: (level: number, seed?: number) => void;
+    /** Plan 020: rebuilds as the Tide Altar's hall, synchronously. */
+    buildHall: () => void;
     grantXp: (amount: number) => void;
     reset: (seed?: number) => void;
     /** Plan 019: the stored meta, re-validated; `setMeta` writes one and takes effect at the next run start. */
@@ -619,6 +635,8 @@ export class Game {
     readonly page: Page,
     readonly info: TestInfo,
     readonly seeds: number[],
+    /** Whether this page boots into the Tide Altar's hall (`test.use({ hall: true })`) and not into floor 1 (`?hall=skip`, the default). */
+    readonly hall = false,
   ) {}
 
   /**
@@ -628,8 +646,8 @@ export class Game {
    * so the listeners belong to the pool, which re-points them at each scenario in turn. Attaching
    * them here too would go on charging a page's whole life to a object nobody holds any more.
    */
-  static async open(page: Page, info: TestInfo, seeds: number[], watch = true) {
-    const game = new Game(page, info, seeds);
+  static async open(page: Page, info: TestInfo, seeds: number[], watch = true, hall = false) {
+    const game = new Game(page, info, seeds, hall);
     if (watch) {
       page.on('pageerror', (error) => game.pageErrors.push(String(error)));
       page.on('console', (message) => {
@@ -650,7 +668,9 @@ export class Game {
     // on a press first. It is passed on every `goto` this helper makes, pooled and isolated alike, so the
     // GAME_TEST_ISOLATE oracle still holds a reset against the same boot. A scenario that tests the boot
     // itself (loading.spec.ts) drives its own `page.goto` on the plain URL instead of going through `Game`.
-    await page.goto(`${CAPTURING ? '/?quality=full&' : '/?'}boot=eager`);
+    // Plan 020 (D11): `hall=skip` keeps today's flow - the boot builds floor 1 and ENTER enters it - for the 138 callers of `game.enter()`. A scenario that is
+    // about the hall opts out with `test.use({ hall: true })`, which boots the page the way a player's is: into the Tide Altar's hall.
+    await page.goto(`${CAPTURING ? '/?quality=full&' : '/?'}boot=eager${hall ? '' : '&hall=skip'}`);
     // The hooks go up as soon as floor 1 exists, before the cold compile - but a fresh page on CI
     // shares its cores with a sibling worker's software-rasterised frames, and the 25 s default has
     // timed out here on three isolated specs in one run. This is a boot, so it gets the boot's budget.
@@ -684,8 +704,9 @@ export class Game {
     const first = await game.state();
     expect(
       first.floor.seed,
-      'floor seed did not come from the pinned fixture; the generator entry point changed',
-    ).toBe(seeds[0] >>> 0);
+      hall ? 'the page did not boot into the hall' : 'floor seed did not come from the pinned fixture; the generator entry point changed',
+    ).toBe(hall ? HALL_SEED : seeds[0] >>> 0);
+    expect(first.hall, `the page ${hall ? 'did not boot into' : 'booted into'} the hall`).toBe(hall);
     return game;
   }
 
@@ -731,8 +752,8 @@ export class Game {
     const first = await this.state();
     expect(
       first.floor.seed,
-      'the reset floor did not come from the pinned fixture',
-    ).toBe(seeds[0] >>> 0);
+      this.hall ? 'the reset did not rebuild the hall' : 'the reset floor did not come from the pinned fixture',
+    ).toBe(this.hall ? HALL_SEED : seeds[0] >>> 0);
   }
 
   /**
@@ -1248,6 +1269,7 @@ class Pool {
  */
 const needsOwnPage = (options: {
   isolate: boolean;
+  hall: boolean;
   hasTouch: boolean;
   isMobile: boolean;
   storageState: unknown;
@@ -1255,6 +1277,7 @@ const needsOwnPage = (options: {
 }) =>
   ISOLATED ||
   options.isolate ||
+  options.hall ||
   options.hasTouch ||
   options.isMobile ||
   options.storageState !== undefined ||
@@ -1262,7 +1285,7 @@ const needsOwnPage = (options: {
   options.viewport?.height !== 700;
 
 export const test = base.extend<
-  { seeds: number[]; isolate: boolean; game: Game },
+  { seeds: number[]; isolate: boolean; hall: boolean; game: Game },
   { pool: Pool }
 >({
   seeds: [DEFAULT_SEEDS, { option: true }],
@@ -1271,6 +1294,12 @@ export const test = base.extend<
    * what a boot does, or break the page on purpose, so a page that is already booted will not do.
    */
   isolate: [false, { option: true }],
+  /**
+   * Plan 020 (D11): boots the page into the Tide Altar's hall, as a player's is, instead of past it (`?hall=skip`, which every other scenario gets). Such a
+   * scenario has its own page, since the pooled one was booted past the hall and a reset returns it there. The hall, slot, loading and death scenarios are the
+   * only coverage of the product's default flow, so they stay on the PR gate.
+   */
+  hall: [false, { option: true }],
   pool: [
     async ({ browser }, runWorker) => {
       const pool = new Pool(browser);
@@ -1283,12 +1312,12 @@ export const test = base.extend<
   // the two have to be the same object. A scenario that needs its own gets a context built here from
   // the options it asked for; the rest are handed the worker's.
   page: async (
-    { browser, pool, isolate, hasTouch, isMobile, storageState, viewport },
+    { browser, pool, isolate, hall, hasTouch, isMobile, storageState, viewport },
     runTest,
     info,
   ) => {
     if (
-      !needsOwnPage({ isolate, hasTouch, isMobile, storageState, viewport })
+      !needsOwnPage({ isolate, hall, hasTouch, isMobile, storageState, viewport })
     ) {
       const pooled = await pool.take(info);
       pool.adopted = false;
@@ -1311,19 +1340,20 @@ export const test = base.extend<
   },
   // Named `runTest`, not `use`: a bare `use` reads as a React hook to the linter.
   game: async (
-    { page, pool, seeds, isolate, hasTouch, isMobile, storageState, viewport },
+    { page, pool, seeds, isolate, hall, hasTouch, isMobile, storageState, viewport },
     runTest,
     info,
   ) => {
     const own = needsOwnPage({
       isolate,
+      hall,
       hasTouch,
       isMobile,
       storageState,
       viewport,
     });
     const game = own
-      ? await Game.open(page, info, seeds)
+      ? await Game.open(page, info, seeds, true, hall)
       : await Game.adopt(page, info, seeds, pool);
     await runTest(game);
     if (!own) await game.prove(pool);
@@ -1514,3 +1544,52 @@ export const stageBlow = async (game: Game, health: number) => {
   });
   return { kind: attacker!.kind, stance };
 };
+
+/**
+ * Plan 020: walks the knight with real arrow keys, a step of game time at a time, until `arrived` says he has. Each step holds the one key that
+ * pushes closest toward `target` (the screen basis is not the floor's), so the walk bends round a prop the way a hand would. The keys are let go at
+ * the end. It reports whether he arrived, and the caller asserts it, so a walk that never got there fails on the caller's own message.
+ */
+export const walkUntil = async (game: Game, page: Page, target: Point, arrived: (state: Snapshot) => boolean, steps = 160) => {
+  let held: string | null = null, done = false;
+  try {
+    for (let i = 0; i < steps && !done; i++) {
+      const state = await game.state();
+      if (arrived(state)) { done = true; break; }
+      const { key } = keyToward({ x: target.x - state.player.x, z: target.z - state.player.z });
+      if (key !== held) {
+        if (held) await page.keyboard.up(held);
+        await page.keyboard.down(key);
+        held = key;
+      }
+      await game.step(32);
+    }
+  } finally {
+    if (held) await page.keyboard.up(held);
+  }
+  await game.step(16);
+  return done || arrived(await game.state());
+};
+
+/**
+ * Plan 020: records whether the loading veil appeared, and what it said, from now until read. A veil is up for a handful of frames and a second
+ * round-trip to ask about it is a race a busy runner loses, so the page watches for it and the test asks afterwards.
+ */
+export const watchVeil = (page: Page) => page.evaluate(() => {
+  const watched = window as unknown as { veilSeen?: string | null; veilObserver?: MutationObserver };
+  watched.veilObserver?.disconnect();
+  watched.veilSeen = null;
+  watched.veilObserver = new MutationObserver(() => {
+    const veil = document.querySelector('.loading-veil');
+    if (veil && !watched.veilSeen) watched.veilSeen = veil.textContent;
+  });
+  watched.veilObserver.observe(document.body, { childList: true, subtree: true });
+});
+export const veilSeen = (page: Page) => page.evaluate(() => {
+  const watched = window as unknown as { veilSeen?: string | null; veilObserver?: MutationObserver };
+  watched.veilObserver?.disconnect();
+  return watched.veilSeen ?? null;
+});
+
+/** How many floor seeds the page has drawn from the pinned handle (`pinSeeds`): a build that took none left it where it was. */
+export const pinnedDraws = (page: Page) => page.evaluate(() => (window as unknown as { __pinnedSeeds: { index: number } }).__pinnedSeeds.index);

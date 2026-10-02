@@ -18,6 +18,8 @@ export type TestHooks = {
   equip: (id: string) => void;
   descend: () => void;
   buildFloor: (level: number, seed?: number) => void;
+  /** Plan 020: rebuilds as the Tide Altar's hall, synchronously like `buildFloor` (which always builds an ordinary floor). */
+  buildHall: () => void;
   grantXp: (amount: number) => void;
   reset: (seed?: number) => void;
   /** The active slot's run log, or another slot's when one is named (plan 020). */

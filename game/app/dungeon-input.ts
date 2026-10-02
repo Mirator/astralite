@@ -117,7 +117,7 @@ export const readKey = (code: string, repeat: boolean, binds: Binds, live: boole
 
 /** A `dungeon-action` event's detail, parsed. Unknown details parse to null and do nothing. */
 export type Command =
-  | { kind: 'continue' } | { kind: 'restart'; seed?: number } | { kind: 'start'; seed?: number } | { kind: 'gate' }
+  | { kind: 'continue' } | { kind: 'restart'; seed?: number } | { kind: 'start'; seed?: number } | { kind: 'altar' } | { kind: 'shop-close' } | { kind: 'title' }
   | { kind: 'slot'; slot: 1 | 2 | 3 } | { kind: 'erase'; slot: 1 | 2 | 3 }
   | { kind: 'map' } | { kind: 'pause' } | { kind: 'mute' } | { kind: 'fullscreen' }
   | { kind: 'boon'; id: string } | { kind: 'stick'; stick: Stick | null }
@@ -133,7 +133,8 @@ const slotAfter = (detail: string, prefix: number): 1 | 2 | 3 | null => { const 
 
 /**
  * `restart` opens a fresh keep and `restart:<seed>` takes the same one again; `start:<seed>` enters the
- * keep a previous visit left; `gate` (TO THE GATE, plan 019) leaves a finished run for the title menu. `slot:<n>` picks the save slot
+ * keep a previous visit left; `altar` (RETURN TO THE ALTAR, plan 020: the only button on the death and win cards) takes a finished run back
+ * to the Tide Altar's hall, `shop-close` puts the hall's shop away and `title` (LEAVE TO TITLE, the hall's pause menu only) goes back to the slot picker. `slot:<n>` picks the save slot
  * the next descent is played in and `erase:<n>` empties one (plan 020, the title's slot picker). `stick:<x>,<z>` plants the thumbstick and anything unparseable after it
  * is a release, so a lift always lands. `move:`/`stop:` press and release a touch d-pad direction.
  */
@@ -141,7 +142,7 @@ export const parseCommand = (detail: string): Command | null => {
   if (detail === 'continue') return { kind: 'continue' };
   if (detail === 'restart' || detail.startsWith('restart:')) return { kind: 'restart', seed: seedAfter(detail, 8) };
   if (detail === 'start' || detail.startsWith('start:')) return { kind: 'start', seed: seedAfter(detail, 6) };
-  if (detail === 'gate') return { kind: 'gate' };
+  if (detail === 'altar' || detail === 'shop-close' || detail === 'title') return { kind: detail };
   if (detail.startsWith('slot:')) { const slot = slotAfter(detail, 5); return slot ? { kind: 'slot', slot } : null; }
   if (detail.startsWith('erase:')) { const slot = slotAfter(detail, 6); return slot ? { kind: 'erase', slot } : null; }
   if (detail === 'map' || detail === 'pause' || detail === 'mute' || detail === 'fullscreen') return { kind: detail };

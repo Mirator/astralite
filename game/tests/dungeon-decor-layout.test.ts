@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { decorReservations, planRoomMotif } from '../app/dungeon-decor-layout.ts';
-import { gateRacks, generateFloor, TILE } from '../app/dungeon-floor.ts';
+import { altarHall, gateRacks, generateFloor, TILE } from '../app/dungeon-floor.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
 
@@ -103,15 +103,21 @@ test('a motif never overlaps the weapon drop it shares a room with', () => {
 const reservedAt = (floor: Floor, x: number, z: number, half = 1.5) =>
   decorReservations(floor).some((r) => Math.abs((r.minX + r.maxX) / 2 - x) < 1e-9 && Math.abs((r.minZ + r.maxZ) / 2 - z) < 1e-9 && Math.abs(r.maxX - r.minX - 2 * half) < 1e-9 && Math.abs(r.maxZ - r.minZ - 2 * half) < 1e-9);
 
-test('every rack slot of floor one\'s Tide Gate is reserved, and no deeper floor reserves one', () => {
+test('every rack slot of the Tide Altar\'s hall is reserved, and neither floor one\'s Tide Gate nor any deeper floor reserves one', () => {
+  // Plan 020 (D7): the armoury moved from floor one's Tide Gate to the hall. Both are `level: 1`, so the floor's `hall` marker is what tells them apart; a rule keyed
+  // on the level would reserve the gate's slots again (the Tide Gate has none now) and would be the one a hall built from any other level missed.
   let slots = 0;
-  for (const floor of floorsAt(1)) {
-    for (const slot of gateRacks(floor)) { slots++; assert.ok(reservedAt(floor, slot.x, slot.z), `seed ${floor.seed}: the ${slot.arm} slot is not reserved, so decor could land on its rack`); }
+  for (const seed of SEEDS) {
+    const hall = altarHall(seed);
+    assert.equal(hall.level, 1, 'precondition: the hall is level 1, as floor one is');
+    for (const slot of gateRacks(hall)) { slots++; assert.ok(reservedAt(hall, slot.x, slot.z), `hall ${seed}: the ${slot.arm} slot is not reserved, so decor could land on its rack`); }
   }
-  assert.equal(slots, 7 * SEEDS.length, 'the sweep did not seat seven slots on every gate');
-  for (const level of [2, 3]) for (const floor of floorsAt(level)) {
-    for (const slot of gateRacks(floor)) assert.ok(!reservedAt(floor, slot.x, slot.z), `level ${level} seed ${floor.seed}: a deeper floor reserved a slot that nothing stands on`);
+  assert.equal(slots, 7 * SEEDS.length, 'the sweep did not seat seven slots on every hall');
+  let gateSlots = 0;
+  for (const level of [1, 2, 3]) for (const floor of floorsAt(level)) {
+    for (const slot of gateRacks(floor)) { gateSlots++; assert.ok(!reservedAt(floor, slot.x, slot.z), `level ${level} seed ${floor.seed}: a generated floor reserved a slot that nothing stands on`); }
   }
+  assert.ok(gateSlots >= 7 * SEEDS.length * 3, 'the generated floors seated too few slots, so this checked little');
 });
 
 test('no floor-one motif reaches a rack slot (the gate is a keep sanctuary, which has none)', () => {

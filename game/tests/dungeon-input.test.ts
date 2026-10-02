@@ -109,8 +109,11 @@ test('every dungeon-action detail parses to the command the game answers', () =>
   assert.deepEqual(parseCommand('restart:-1'), { kind: 'restart', seed: 4294967295 }, 'seeds are unsigned');
   assert.deepEqual(parseCommand('restart:junk'), { kind: 'restart', seed: undefined });
   assert.deepEqual(parseCommand('start:7'), { kind: 'start', seed: 7 });
-  assert.deepEqual(parseCommand('gate'), { kind: 'gate' });
-  assert.equal(parseCommand('gates'), null);
+  // Plan 020: RETURN TO THE ALTAR, the hall's shop put away and LEAVE TO TITLE. TO THE GATE (`gate`) went with the old card.
+  assert.deepEqual(parseCommand('altar'), { kind: 'altar' });
+  assert.deepEqual(parseCommand('shop-close'), { kind: 'shop-close' });
+  assert.deepEqual(parseCommand('title'), { kind: 'title' });
+  for (const junk of ['gate', 'gates', 'altars', 'shop', 'titles']) assert.equal(parseCommand(junk), null, `${junk} is not a command`);
   assert.deepEqual(parseCommand('slot:2'), { kind: 'slot', slot: 2 });
   assert.deepEqual(parseCommand('erase:3'), { kind: 'erase', slot: 3 });
   for (const junk of ['slot', 'slot:', 'slot:0', 'slot:4', 'slot:1.5', 'slot:-1', 'slot:junk', 'erase:0', 'erase:12', 'erase:']) assert.equal(parseCommand(junk), null, `${junk} is not a slot`);

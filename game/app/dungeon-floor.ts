@@ -93,7 +93,11 @@ export const drawKind = (mix: PackMix, level: number, roll: number): EnemyKind =
 export type FloorProp = { x: number; z: number; kind: 'brazier' | 'pillar' | 'rubble' | 'barrel'; room: number };
 export type WeaponDrop = { x: number; z: number; kind: WeaponId; room: number };
 export const cellKey = (x: number, z: number) => `${x},${z}`;
-type Floor = ReturnType<typeof generateFloor>;
+/**
+ * A floor as `generateFloor` deals it, plus the one marker the Tide Altar's hall (plan 020) carries. `hall` is absent from every generated floor, so the
+ * generator's output is untouched; a rule that must tell the hall from floor 1 (both are `level: 1`) reads it instead of guessing from the room count.
+ */
+export type Floor = ReturnType<typeof generateFloor> & { hall?: true };
 /** Whether a chamber's shape keeps the tile `x`,`z` away from its heart (tiles). The one rule `carveRoom` cuts by, shared so a later pass can tell a chamber's own floor from the alcove a door is cut into. */
 export const carves = (r: Pick<Room, 'shape' | 'halfX' | 'halfZ'>, x: number, z: number) => {
   if (r.shape === 'round') return (x / (r.halfX + .4)) ** 2 + (z / (r.halfZ + .4)) ** 2 <= 1;
@@ -371,7 +375,10 @@ export const HALL_SEED = 2063;
 /**
  * The Tide Altar's hall (plan 020, D4): the Tide Gate of `generateFloor(HALL_SEED, 1)` and nothing else. Room 0 with its
  * floor and props, the first door the generator cut from it (in `doors` order) and not the alcove of any other, no
- * spawns, no edges; `goal` is the room itself, so the floor is well formed, but the game builds no stair there. It
+ * spawns, no edges; `goal` is the room itself, so the floor is well formed, but the game builds no stair there. It carries
+ * `hall: true`, and its one door keeps the generator's `to` (1), which names no room of a one-room floor: whatever draws or
+ * reads a door must go through `doorSignOf` (dungeon-floor-scene.ts), which signs the hall's door "the way down", and never
+ * look the room up. It
  * makes no draw of its own and the seed is a constant, so it is the same room on every call and in every process, and it
  * leaves the stream of every other seed alone. `seed` exists for the test sweep; the game never passes it.
  */
@@ -385,7 +392,7 @@ export function altarHall(seed = HALL_SEED): Floor {
   const tiles = floor.tiles.filter(t => t.room === gate.id && !alcoves.has(cellKey(t.x, t.z)));
   const cells = new Set(tiles.map(t => cellKey(t.x, t.z)));
   const bounds = { minX: Math.min(...tiles.map(t => t.x)), maxX: Math.max(...tiles.map(t => t.x)), minZ: Math.min(...tiles.map(t => t.z)), maxZ: Math.max(...tiles.map(t => t.z)) };
-  return { seed, level: 1, rooms: [gate], edges: [], doors: [kept], cells, tiles, roomByCell: new Map(tiles.map(t => [cellKey(t.x, t.z), t.room])), bounds, props: floor.props.filter(p => p.room === gate.id), spawns: [], weaponDrop: floor.weaponDrop, start: 0, goal: gate.id, spine: [gate.id], guardCount: 0 };
+  return { seed, level: 1, rooms: [gate], edges: [], doors: [kept], cells, tiles, roomByCell: new Map(tiles.map(t => [cellKey(t.x, t.z), t.room])), bounds, props: floor.props.filter(p => p.room === gate.id), spawns: [], weaponDrop: floor.weaponDrop, start: 0, goal: gate.id, spine: [gate.id], guardCount: 0, hall: true };
 }
 
 export function canStand(cells: Set<string>, x: number, z: number, radius = 0.32) {

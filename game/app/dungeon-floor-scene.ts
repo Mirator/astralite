@@ -3,7 +3,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { pavingGeometry, pavingKind, ROOM_MOOD, tileHash } from './dungeon-art';
 import { addAtmosphere } from './dungeon-atmosphere';
 import { spawnEnemy, type Enemy, type EnemyArt } from './dungeon-enemy-view';
-import { cellKey, TILE, type Door, type generateFloor } from './dungeon-floor';
+import { cellKey, TILE, type Door, type Floor } from './dungeon-floor';
 import { tidalMaterial, weatherStone } from './dungeon-motion';
 import type { planPavingPatches } from './dungeon-paving-layout';
 import { pavingPatchGeometry } from './dungeon-paving-patches';
@@ -16,8 +16,6 @@ import { applyFloorDetail, applyStoneTextures, getFlagstoneTextures, getMasonryT
 // skeleton. This was the middle of `buildFloorSteps` in dungeon-game.tsx, unchanged but for where its
 // results are kept: everything it makes that outlives the build goes into the one `FloorStage` the
 // world reads, rather than a dozen loose variables in the world closure.
-
-type Floor = ReturnType<typeof generateFloor>;
 
 /** A gauntlet grate or a sanctuary shrine, and its state through the floor. */
 export type Feature = { mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; glow: Radiance; room: number; shrine: boolean; used: boolean; phase: number; burned: boolean };
@@ -45,6 +43,8 @@ export type FloorStage = {
   stairLight: Radiance | null;
   /** Plan 017: every chamber's ways out, and what the world drives on each. */
   doors: DoorView[];
+  /** Plan 020: the Tide Altar, the sanctuary shrine's disc and crystal at the hall's heart. Null on every floor but the hall's. */
+  altar: Feature | null;
 };
 
 /**
@@ -61,14 +61,16 @@ export type DoorView = {
 };
 
 /** What a door promises, by the chamber behind it: its reward, or what kind of quiet it is. */
-export type DoorSign = 'mend' | 'cache' | 'rest' | 'stair' | 'fight';
+export type DoorSign = 'mend' | 'cache' | 'rest' | 'stair' | 'fight' | 'down';
 export const doorSign = (room: Floor['rooms'][number]): DoorSign => room.reward ?? (room.role === 'goal' ? 'stair' : room.encounter === 'sanctuary' ? 'rest' : 'fight');
-export const DOOR_TINT: Record<DoorSign, number> = { mend: 0xff8a8a, cache: 0xfbc956, rest: 0x71f4c4, stair: 0xe0a150, fight: 0xb9a4ff };
+/** Plan 020: the sign of a door on `floor`. The hall's one door leads out of the keep's gate into the keep, to a room its one-room floor does not hold, so it is signed by the floor and never by looking `to` up. */
+export const doorSignOf = (floor: Pick<Floor, 'hall' | 'rooms'>, door: Door): DoorSign => floor.hall ? 'down' : doorSign(floor.rooms[door.to]);
+export const DOOR_TINT: Record<DoorSign, number> = { mend: 0xff8a8a, cache: 0xfbc956, rest: 0x71f4c4, stair: 0xe0a150, fight: 0xb9a4ff, down: 0xe0a150 };
 
 export const createFloorStage = (): FloorStage => ({
   features: [], enemies: [], atmosphere: null, surfaceIndex: null, pavingSummary: { pairs: 0, settled: 0, surfaceCells: 0 },
   water: null, tide: null, parapetSkin: null,
-  stairSpot: new THREE.Vector3(), stairSeal: null, stairRing: null, stairGlow: null, stairLight: null, doors: [],
+  stairSpot: new THREE.Vector3(), stairSeal: null, stairRing: null, stairGlow: null, stairLight: null, doors: [], altar: null,
 });
 
 /** What the build borrows from the world it is raised in. */
@@ -303,9 +305,13 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
     stage.pavingSummary = { pairs: placedPairs, settled: placedSettled, surfaceCells: stage.surfaceIndex.cells.size };
   }
   yield 'surface';
+  // Plan 020: the hall's heart is a shrine's disc and crystal and nothing else of one: it heals nobody, and is kept off `features` (the hazards and
+  // shrines the world drives) in `stage.altar`. The Tide Gate of a generated floor is a sanctuary too, and has never been given a shrine.
+  stage.altar = null;
   for (const room of floor.rooms) {
-    if (room.id === 0 || !['sanctuary', 'gauntlet'].includes(room.encounter)) continue;
-    const shrine = room.encounter === 'sanctuary';
+    const altar = !!floor.hall && room.id === 0;
+    if (!altar && (room.id === 0 || !['sanctuary', 'gauntlet'].includes(room.encounter))) continue;
+    const shrine = altar || room.encounter === 'sanctuary';
     for (const offset of shrine ? [0] : [-2.5, 0, 2.5]) {
       // The disc is whole now rather than an annulus, and the ring is drawn
       // inside it by the fragment shader along with the light it throws on
@@ -334,7 +340,9 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
       // Clear of the grate bars, which top out at .10: the pool now reaches
       // across them where the old ring sat outside their radius entirely.
       mesh.rotation.x = -Math.PI / 2; mesh.position.set(room.x * TILE + offset, shrine ? .085 : .125, room.z * TILE); mesh.renderOrder = 2;
-      floorGroup.add(mesh); stage.features.push({mesh, glow, room: room.id, shrine, used: false, phase: 0, burned: false});
+      floorGroup.add(mesh);
+      const feature: Feature = {mesh, glow, room: room.id, shrine, used: false, phase: 0, burned: false};
+      if (altar) stage.altar = feature; else stage.features.push(feature);
       if (!shrine) {
         const grate = new THREE.Mesh(new THREE.CylinderGeometry(1.56,1.56,.035,32), new THREE.MeshStandardMaterial({color:0x241b17,metalness:.8,roughness:.65}));
         grate.position.copy(mesh.position); grate.position.y=.045; floorGroup.add(grate);
@@ -351,7 +359,8 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
   }
   // The way down: a sealed grate at the heart of the warden hall, ringed in stone over a dark shaft. The seal
   // lifts when the last warden falls; the gold ring is the same mark the map uses for the stair.
-  { const goal = floor.rooms[floor.goal]; stage.stairSpot.set(goal.x * TILE, 0, goal.z * TILE);
+  // Plan 020: the hall builds none. Its `goal` is its own room, where the altar stands, and a stair there would open on the first frame.
+  if (!floor.hall) { const goal = floor.rooms[floor.goal]; stage.stairSpot.set(goal.x * TILE, 0, goal.z * TILE);
     const pit = new THREE.Mesh(new THREE.CircleGeometry(1.15, 32), new THREE.MeshBasicMaterial({ color: 0x04070a })); pit.rotation.x = -Math.PI / 2; pit.position.set(stage.stairSpot.x, .07, stage.stairSpot.z); floorGroup.add(pit);
     const rim = new THREE.Mesh(new THREE.RingGeometry(1.15, 1.42, 32), new THREE.MeshStandardMaterial({ color: 0x55636a, roughness: .9 })); rim.rotation.x = -Math.PI / 2; rim.position.set(stage.stairSpot.x, .075, stage.stairSpot.z); floorGroup.add(rim);
     stage.stairSeal = new THREE.Mesh(new THREE.CylinderGeometry(1.16, 1.16, .05, 32), new THREE.MeshStandardMaterial({ color: 0x241b17, metalness: .8, roughness: .65 })); stage.stairSeal.position.set(stage.stairSpot.x, .1, stage.stairSpot.z); floorGroup.add(stage.stairSeal);
@@ -363,12 +372,13 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
     stage.stairLight = litDisc(shaftSkin, 'stair-shaft-v1', 2.2); stage.stairLight.band.value = 0;
     stage.stairGlow = new THREE.Mesh(new THREE.CircleGeometry(2.05, 32), shaftSkin); stage.stairGlow.rotation.x = -Math.PI / 2; stage.stairGlow.position.set(stage.stairSpot.x, .08, stage.stairSpot.z); stage.stairGlow.visible = false; stage.stairGlow.renderOrder = 4; floorGroup.add(stage.stairGlow);
     stage.stairRing = new THREE.Mesh(new THREE.RingGeometry(1.5, 1.85, 48), new THREE.MeshBasicMaterial({ color: 0xfbc956, transparent: true, opacity: .85, side: THREE.DoubleSide, depthWrite: false })); stage.stairRing.rotation.x = -Math.PI / 2; stage.stairRing.position.set(stage.stairSpot.x, .09, stage.stairSpot.z); stage.stairRing.visible = false; stage.stairRing.renderOrder = 5; floorGroup.add(stage.stairRing); }
+  else { stage.stairSeal = stage.stairRing = stage.stairGlow = stage.stairLight = null; stage.stairSpot.set(0, 0, 0); }
   // Plan 017: the ways out. One arch per door on the chamber's far wall, the side the camera looks away
   // from, so nothing ever stands between the player and the choice. Every part is always drawn and only
   // its colour, opacity and the bars' visibility change through the floor, so opening a door can never
   // be the first frame a material is seen.
   stage.doors = floor.doors.map((door) => {
-    const sign = doorSign(floor.rooms[door.to]), color = DOOR_TINT[sign];
+    const sign = doorSignOf(floor, door), color = DOOR_TINT[sign];
     const spot = new THREE.Vector3(door.x * TILE, 0, door.z * TILE);
     // The wall line sits half a tile out from the standing tile, along the door's face.
     const wx = spot.x + door.face.x * TILE * .5, wz = spot.z + door.face.z * TILE * .5, across = door.face.x !== 0 ? { x: 0, z: 1 } : { x: 1, z: 0 };
@@ -380,7 +390,7 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
     const bars = new THREE.Group(), iron = new THREE.MeshStandardMaterial({ color: 0x3a2e26, metalness: .8, roughness: .55 });
     for (let n = -2; n <= 2; n++) { const bar = new THREE.Mesh(new THREE.BoxGeometry(.07, 2.1, .07), iron); bar.position.set(wx + across.x * n * .36 - door.face.x * .12, 1.05, wz + across.z * n * .36 - door.face.z * .12); bars.add(bar); }
     floorGroup.add(bars);
-    const shape = sign === 'mend' ? new THREE.SphereGeometry(.24, 16, 12) : sign === 'cache' ? new THREE.OctahedronGeometry(.3) : sign === 'rest' ? new THREE.TorusGeometry(.22, .07, 8, 24) : sign === 'stair' ? new THREE.ConeGeometry(.26, .5, 4) : new THREE.TetrahedronGeometry(.3);
+    const shape = sign === 'mend' ? new THREE.SphereGeometry(.24, 16, 12) : sign === 'cache' ? new THREE.OctahedronGeometry(.3) : sign === 'rest' ? new THREE.TorusGeometry(.22, .07, 8, 24) : sign === 'stair' || sign === 'down' ? new THREE.ConeGeometry(.26, .5, 4) : new THREE.TetrahedronGeometry(.3);
     const sigil = new THREE.Mesh(shape, new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .6, metalness: .3, roughness: .3 }));
     sigil.position.set(wx - door.face.x * .45, 1.25, wz - door.face.z * .45); floorGroup.add(sigil);
     const ring = new THREE.Mesh(new THREE.RingGeometry(.95, 1.15, 40), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .15, side: THREE.DoubleSide, depthWrite: false }));
