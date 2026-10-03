@@ -169,6 +169,7 @@ test('it bars the stair on a generated floor: sealed while the Captain stands, o
   expect(state.boss, 'a real strike never felled the Captain').toBeNull();
   expect([state.objective.stairClear, state.objective.stairOpen], 'its fall did not open the stair').toEqual([true, true]);
   await expect(page.locator('.boss-bar'), 'the boss bar outlived the boss').toBeHidden();
+  expect(state.experience.perBoss, 'what a boss pays (D10)').toBe(100);
   expect(state.experience.total - xpBefore, 'the boss paid something other than its own reward').toBe(state.experience.perBoss);
   // The floor card counts the Captain as the one body of its hall, with the boss's XP.
   await game.teleport(state.stair.x, state.stair.z);

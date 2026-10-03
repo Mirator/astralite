@@ -98,6 +98,8 @@ test.describe('flooded hall', { tag: '@capture' }, () => {
 
 test.describe('warden chamber', { tag: '@capture' }, () => {
   test.use({ seeds: [0x1] });
+  // Plan 021: the sealed stair hall now holds the stair's boss alone (the Captain), where it held two wardens. The scene keeps its name, since the reference frame is filed under it;
+  // the frame itself is regenerated through the `captures` input on Verify and Deploy.
   test('the warden chamber with the stair still sealed', async ({ game }) => {
     await game.enter();
     const floor = await game.floor();
@@ -106,7 +108,7 @@ test.describe('warden chamber', { tag: '@capture' }, () => {
     await game.step(SETTLE);
     const state = await game.state();
     expect(state.objective.atStair).toBe(true);
-    expect(state.objective.stairClear, 'the wardens are already down').toBe(
+    expect(state.objective.stairClear, 'the stair boss is already down').toBe(
       false,
     );
     expect(state.objective.stairOpen, 'the seal already lifted').toBe(false);

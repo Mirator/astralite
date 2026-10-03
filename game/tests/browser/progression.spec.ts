@@ -1,6 +1,7 @@
 import {
   expect,
   Game,
+  settleBoss,
   strikeStance,
   test,
   TILE,
@@ -15,8 +16,9 @@ import type { Page } from '@playwright/test';
 /** Rank costs, mirrored from dungeon-game.tsx. */
 const rankCost = (rank: number) => 200 + (rank - 1) * 150;
 
+// Plan 021 (D5): the stair hall holds its boss alone (plus, on floor three, a reserve buried under it, which is not a body to fight and is never counted).
 const stairEnemies = (state: Snapshot) =>
-  state.enemies.filter((enemy) => enemy.room === state.floor.goal);
+  state.enemies.filter((enemy) => enemy.room === state.floor.goal && !enemy.buried);
 
 /** One real swing: arrow key to aim, the strike key to strike, then let it resolve. */
 const strikeOnce = async (
@@ -36,7 +38,7 @@ const strikeOnce = async (
   }
   if (!stance) {
     throw new Error(
-      `no legal stance against the warden at (${target.x.toFixed(2)}, ${target.z.toFixed(2)})`,
+      `no legal stance against the boss at (${target.x.toFixed(2)}, ${target.z.toFixed(2)})`,
     );
   }
   await game.teleport(stance.x, stance.z);
@@ -49,7 +51,7 @@ const strikeOnce = async (
 };
 
 /**
- * Clears the stair wardens with real strikes. The test hooks never take the
+ * Clears the stair boss with real strikes. The test hooks never take the
  * stair for the knight; only the kill can. With `autoBoon: false` the fight
  * stops the moment a draft opens, so a caller can inspect that boundary.
  */
@@ -61,9 +63,10 @@ const fightStair = async (
   const autoBoon = options.autoBoon ?? true;
   const floor = await game.floor();
   // Real strikes clear the stair, but the trade itself is not under test here: the floor ending, freezing
-  // and waiting for the click is. Wardens grow with the floor, so a knight standing in reach of three of
-  // them on floor three died before the results screen. The fixture leaves each warden one blow from death;
-  // spawn indices match the snapshot because nothing on a fresh floor has died yet.
+  // and waiting for the click is. The fixture leaves the boss one blow from death; spawn indices match the
+  // snapshot because nothing on a fresh floor has died yet. One blow from death is under every threshold it has,
+  // so it changes phase - unhittable for a second, and the knight pushed out of its reach - before a blow can
+  // land: the fixture waits that out (`settleBoss`) and the swings come after.
   const opening = await game.state();
   await game.configureCombat({
     enemies: stairEnemies(opening).map((enemy) => ({
@@ -71,6 +74,7 @@ const fightStair = async (
       hp: 1,
     })),
   });
+  await settleBoss(game);
   for (let swing = 0; swing < 90; swing++) {
     const state = await game.state();
     if (state.mode === 'lost') {
@@ -102,7 +106,7 @@ const world = (state: Snapshot) =>
     experience: state.experience,
   });
 
-test('killing the last warden ends a floor, freezes it, and waits for a real Continue click', async ({
+test('killing the stair boss ends a floor, freezes it, and waits for a real Continue click', async ({
   game,
   page,
 }) => {
@@ -121,11 +125,11 @@ test('killing the last warden ends a floor, freezes it, and waits for a real Con
     await game.step(60);
 
     const before = await game.state();
-    const wardens = stairEnemies(before).length;
-    expect(wardens).toBeGreaterThan(0);
+    const bosses = stairEnemies(before);
+    expect(bosses.map((enemy) => enemy.kind), 'the stair hall holds more than its boss').toEqual(['captain']);
     const xpBefore = before.experience.total;
 
-    // The last warden's fall opens the stair but ends nothing: the results wait for the knight to take it.
+    // The boss's fall opens the stair but ends nothing: the results wait for the knight to take it.
     const opened = await fightStair(game, page);
     expect(opened.mode).toBe('playing');
     expect(opened.objective.stairClear).toBe(true);
@@ -160,9 +164,9 @@ test('killing the last warden ends a floor, freezes it, and waits for a real Con
     const results = await page
       .locator('.floor-results strong')
       .allInnerTexts();
-    expect(Number(results[0])).toBe(wardens);
+    expect(Number(results[0])).toBe(bosses.length);
     expect(Number(results[1])).toBe(cleared.experience.total - xpBefore);
-    expect(cleared.experience.total - xpBefore).toBe(wardens * 25);
+    expect(cleared.experience.total - xpBefore, 'a boss pays 100, not a warden\'s 25').toBe(before.experience.perBoss * bosses.length);
 
     // Frozen: input and time both do nothing until the button is pressed.
     const frozen = world(cleared);
@@ -200,7 +204,7 @@ test('killing the last warden ends a floor, freezes it, and waits for a real Con
   }
 });
 
-test('a rank-up on the last warden opens its boon before the floor results, and queued ranks resolve one at a time', async ({
+test('a rank-up on the stair boss opens its boon before the floor results, and queued ranks resolve one at a time', async ({
   game,
   page,
 }) => {
@@ -229,22 +233,20 @@ test('a rank-up on the last warden opens its boon before the floor results, and 
   expect(resolved.mode).toBe('playing');
   expect(resolved.rank).toBe(3);
 
-  // Line the next rank up so the stair pack pays for it exactly: the rank can
+  // Line the next rank up so the stair boss pays for it exactly: the rank can
   // only tip over on the kill that empties the room, cleave or no cleave.
   const stair = resolved.floor.rooms[resolved.floor.goal];
   await game.teleport(stair.x * TILE, stair.z * TILE);
   await game.step(60);
   const primed = await game.state();
-  const wardens = stairEnemies(primed).length;
-  expect(wardens).toBeGreaterThan(0);
+  const reward = stairEnemies(primed).length * primed.experience.perBoss;
+  expect(reward, 'the stair hall holds its boss').toBe(primed.experience.perBoss);
   const gap = primed.experience.rankCost - primed.experience.intoRank;
-  expect(gap).toBeGreaterThan(wardens * 25);
-  await game.grantXp(gap - wardens * 25);
+  expect(gap).toBeGreaterThan(reward);
+  await game.grantXp(gap - reward);
   const ready = await game.state();
   expect(ready.boonOffer).toBe(false);
-  expect(ready.experience.rankCost - ready.experience.intoRank).toBe(
-    wardens * 25,
-  );
+  expect(ready.experience.rankCost - ready.experience.intoRank).toBe(reward);
   const rankBefore = ready.rank;
 
   const killed = await fightStair(game, page, { autoBoon: false });

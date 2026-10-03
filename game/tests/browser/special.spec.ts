@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { freshMeta } from '../../app/dungeon-meta.ts';
-import { ARROW_KEYS, canStand, expect, fakePad, type Floor, type Game, hasClearPath, hold, press, release, SCREEN_DIRECTIONS, type ScreenDirection, strikeStance, test, TILE, type Point, type Snapshot } from './helpers.ts';
+import { ARROW_KEYS, canStand, settleBoss, expect, fakePad, type Floor, type Game, hasClearPath, hold, press, release, SCREEN_DIRECTIONS, type ScreenDirection, strikeStance, test, TILE, type Point, type Snapshot } from './helpers.ts';
 
 // Plan 016 Stages B and C: a special for every arm. Real input only - K, the right button, pad X and the touch
 // SPECIAL button; the hooks put an arm in hand and stage a body, and read the state back.
@@ -561,7 +561,7 @@ const standAt = (floor: Floor, around: Point, radius: number, count: number) => 
   return spots;
 };
 
-test('a slam that fells the last warden opens its boon, then the stair, then the results', async ({ game, page }) => {
+test('a slam that fells the stair boss opens its boon, then the stair, then the results', async ({ game, page }) => {
   test.slow();
   await game.enter();
   await game.equip('maul');
@@ -571,14 +571,20 @@ test('a slam that fells the last warden opens its boon, then the stair, then the
   await game.teleport(centre.x, centre.z);
   await game.step(60);
   const floor = await game.floor(), primed = await game.state();
-  const wardens = primed.enemies.map((enemy, index) => ({ enemy, index })).filter(({ enemy }) => enemy.room === primed.floor.goal);
-  expect(wardens.length).toBeGreaterThan(0);
-  const ring = standAt(floor, centre, 1.4, wardens.length);
-  expect(ring.length).toBe(wardens.length);
-  await game.configureCombat({ enemies: wardens.map(({ index }, i) => ({ index, x: ring[i].x, z: ring[i].z, hp: 1, cooldown: 10, windup: 0 })) });
+  // Plan 021 (D5, D10): the stair hall holds its boss alone, which pays 100 XP, and which one blow from death is under both its thresholds: it changes phase (unhittable, and the knight pushed out of its reach)
+  // before anything can land, so the fixture waits that out and puts the knight back at the heart before the slam is held.
+  const bosses = primed.enemies.map((enemy, index) => ({ enemy, index })).filter(({ enemy }) => enemy.room === primed.floor.goal && !enemy.buried);
+  expect(bosses.map(({ enemy }) => enemy.kind), 'the stair hall holds more than its boss').toEqual(['captain']);
+  const ring = standAt(floor, centre, 1.4, bosses.length);
+  expect(ring.length).toBe(bosses.length);
+  const staged = bosses.map(({ index }, i) => ({ index, x: ring[i].x, z: ring[i].z, hp: 1, cooldown: 10, windup: 0 }));
+  await game.configureCombat({ enemies: staged });
+  await settleBoss(game);
+  await game.teleport(centre.x, centre.z);
+  await game.configureCombat({ enemies: staged.map((enemy) => ({ ...enemy, hp: 1 })) });
   // The kill that empties the stair room is the one that tips the rank.
   const gap = primed.experience.rankCost - primed.experience.intoRank;
-  await game.grantXp(gap - wardens.length * 25);
+  await game.grantXp(gap - primed.experience.perBoss);
   expect((await game.state()).boonOffer).toBe(false);
 
   await page.keyboard.down('KeyK');
@@ -809,6 +815,9 @@ test('the Whirl on the right button takes a body in front and one behind, once e
 });
 
 test('the Heavy Bolt on pad X: let go early it costs nothing; drawn, it spends the whole quiver as one bolt that goes through three bodies once each; dry, it cannot draw', async ({ game, page }) => {
+  // Plan 021 (D5): the second warden this line needs used to be the stair's. A floor-one hall now holds one warden outside the boss's chamber on the pinned seed, so the line is staged from the
+  // arena, which fields the two wardens and the guard awake, like every other scenario in this file stages a body: by kind, on a spot of its own.
+  await page.evaluate(() => (window as unknown as { dungeonTest: { buildArena: (roster: string[], level: number) => void } }).dungeonTest.buildArena(['warden', 'warden', 'guard'], 1));
   await game.enter();
   await game.step(120);
   await game.equip('crossbow');
