@@ -18,7 +18,7 @@ const { ENEMY_KINDS } = await import('../app/dungeon-bestiary.ts');
 type EnemyIntent = import('../app/dungeon-enemy.ts').EnemyIntent;
 
 const art = () => ({ telegraph: new THREE.Texture(), lane: new THREE.Texture(), alert: new THREE.SpriteMaterial() });
-const winding = (): EnemyIntent => ({ act: 'windup', x: 0, z: 0, cooldown: 0, hitFlash: 0, windup: .3, lunge: 0, aim: { x: 1, z: 0 }, notice: 0, face: null, hit: false, loose: null, raise: false, sound: null, distance: 1 });
+const winding = (): EnemyIntent => ({ act: 'windup', x: 0, z: 0, cooldown: 0, hitFlash: 0, windup: .3, lunge: 0, aim: { x: 1, z: 0 }, notice: 0, face: null, hit: false, loose: null, raise: false, scatter: false, move: 0, phase: 0, change: 0, phaseChange: false, sound: null, distance: 1 });
 /** Every lit part of the body as it draws: what the tell has to reach, from the rig's batches to the skull and the shield arm. */
 const litParts = (body: THREE.Object3D) => {
   const found: THREE.Mesh[] = [];

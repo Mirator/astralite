@@ -8,6 +8,7 @@ import { weaponById } from '../app/dungeon-weapon.ts';
 import { freshMeta, type Meta } from '../app/dungeon-meta.ts';
 import { hurledBlow } from '../app/dungeon-combat.ts';
 import { landBlow } from '../app/dungeon-hits.ts';
+import { asReaper, TEST_BOSS, TEST_SCATTERER } from './fixtures/test-boss.ts';
 
 // The harness is a measuring instrument, so what it owes the suite is not a balance assertion — those
 // are for a human reading a batch — but proof that it is measuring the same game twice. A sim that
@@ -212,4 +213,42 @@ test('a run report says what banking it would pay', () => {
     assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
     assert.equal(lost.pearls, lost.kills + (floor - 1) * 15, `a run lost on floor ${floor} does not report what a death pays`);
   }
+});
+
+// Plan 021 Stage A: the sim models a boss's moves and phases before anything deals one. A test archetype (tests/fixtures/test-boss.ts)
+// stands in for the reaper, the one kind nothing deals, and fights on `simulateArena`.
+test('a boss with two phases hurts the knight, changes phase once, and the report says what it did and how he stood when it fell', () => {
+  asReaper(TEST_BOSS, () => {
+    const reports = fight(['reaper'], { dodge: 0 });
+    for (const r of reports) {
+      assert.equal(r.bossKind, 'reaper', 'the report does not name the boss');
+      assert.ok(r.bossSeconds > 0, 'the boss never noticed the knight, so nothing was fought');
+      assert.ok(r.phaseChanges <= 1, `a boss with one threshold changed phase ${r.phaseChanges} times`);
+      assert.equal(r.bossDeaths, r.outcome === 'died' ? 1 : 0, 'the knight died to the only body on the floor and the report did not say so');
+    }
+    assert.ok(total(reports, r => r.bossDamage) > 0, 'the boss never hurt the knight: bossDamage is not read off its blows');
+    assert.ok(total(reports, r => r.phaseChanges) > 0, 'no boss ever changed phase: the sim never applies intent.phaseChange');
+    const fell = reports.filter(r => r.bossHpLeft !== null);
+    assert.ok(fell.length >= 3, `only ${fell.length} bosses fell, too few to check how the knight stood`);
+    for (const r of fell) {
+      // He took nothing but the boss's blows and gained nothing but the kill's, so at its fall he held what he started with less what it
+      // dealt. (The arena's gate is cleared from the start and pays no top-up, so this pins the value at the fall; that it is read before
+      // a goal chamber's top-up is for Stage B, which has a boss in one.)
+      assert.ok(r.bossDamage > 0, 'precondition: the boss took vitality, so a figure that ignored it would differ');
+      assert.ok(Math.abs(r.bossHpLeft! - (r.maxHpAfter - r.bossDamage) / r.maxHpAfter * 100) < 1e-6, `the knight stood at ${r.bossHpLeft}% when it fell, not ${((r.maxHpAfter - r.bossDamage) / r.maxHpAfter * 100).toFixed(2)}%`);
+    }
+  });
+});
+
+test('a scatter marks rings the knight can step out of, and each becomes fire that bills the boss that marked it', () => {
+  asReaper(TEST_SCATTERER, () => {
+    const standing = fight(['reaper'], { dodge: 0, avoidFire: false }), stepping = fight(['reaper'], { dodge: 0, avoidFire: true });
+    // The boss does nothing but scatter, so every point it took off the knight came off the ground.
+    assert.ok(total(standing, r => r.poolDamage.reaper) > 0, 'the rings a scatter marked never became fire that bit the knight');
+    for (const r of standing) assert.equal(r.damage.reaper, r.poolDamage.reaper, 'a scatterer dealt damage that was not fire');
+    assert.ok(total(standing, r => r.bossDamage) === total(standing, r => r.poolDamage.reaper), 'the fire was not billed to the boss');
+    // Stepping out takes him off the boss as well, so the fight runs longer: the comparison is fire taken for each second of it.
+    const rate = (reports: typeof standing) => total(reports, r => r.poolDamage.reaper) / total(reports, r => r.bossSeconds);
+    assert.ok(rate(stepping) < rate(standing) * 0.75, `a knight who steps out of marked rings took ${rate(stepping).toFixed(1)} fire a second, one who stands in them ${rate(standing).toFixed(1)}`);
+  });
 });

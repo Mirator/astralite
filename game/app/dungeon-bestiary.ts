@@ -27,15 +27,40 @@ export type EnemyStats = { hp: number; damage: number; tell: number; speed: numb
  * `pounce` turns the tell into a lunge that connects on contact; `volley` looses a bolt along the aim,
  * which then has to fly to him (dungeon-projectile.ts) and can be stepped out of or dashed through;
  * `sweep` is a swing with no aim - everything inside its reach, all the way round; `summon` hurts no one
- * and raises from its buried reserve instead.
+ * and raises from its buried reserve instead; `scatter` (plan 021, a boss's move only) hurts no one in the
+ * tell either: it marks rings on the ground where the knight has been, and when the tell runs out each
+ * becomes a fire pool.
  */
-export type Attack = 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon';
+export type Attack = 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon' | 'scatter';
 
 /**
  * Which body the pose drives: a cut across the body, a hammer over the crown, a crouch and leap, a bow
  * drawn, a full turn with a long blade, or both arms raised to call.
  */
 export type PoseStyle = 'cut' | 'overhead' | 'pounce' | 'draw' | 'spin' | 'channel';
+
+/** The telegraph on the floor: an arc that closes on the body, or a lane (length, width) along the line it attacks down. */
+export type Cue = { shape: 'arc' } | { shape: 'lane'; length: number; width: number } | { shape: 'ring'; radius: number };
+
+/**
+ * One thing a boss can do (plan 021). It carries what a single-attack kind keeps in its row and in `stats`: the
+ * attack, the seconds of tell, the damage of a floor-one blow (`strikeDamage` in dungeon-enemy.ts scales it with
+ * depth as `enemyStats` scales `stats.damage`), the reach it commits from and the reach it lands within, and the
+ * telegraph it draws. `bolt` is what a `volley` looses; `scatter` is how many rings a `scatter` marks and the fire
+ * each becomes; `summon` is how many of the reserve a `summon` raises.
+ */
+export type Move = {
+  attack: Attack;
+  tell: number;
+  damage: number;
+  strikeRange: number;
+  attackRange: number;
+  cue: Cue;
+  cueScale: number;
+  bolt?: { speed: number; flight: number };
+  scatter?: { rings: number; pool: { radius: number; life: number; damage: number; interval: number } };
+  summon?: { perTell: number };
+};
 
 export type Archetype = {
   stats: EnemyStats;
@@ -75,13 +100,28 @@ export type Archetype = {
    * the reserve crumbles with it (dungeon-enemy.ts `reassembles`).
    */
   summons?: { kind: EnemyKind; count: number; perTell: number };
+  /**
+   * A boss (plan 021): what it does, one list per phase, in the order it does it. Absent for every ordinary kind, which
+   * has the one `attack` above and takes exactly the path it always took. A list is a rotation: `decideEnemy` takes the
+   * next move that fits the knight's range and comes back round to the start. Each `Move` replaces `attack`, `stats.tell`,
+   * `stats.damage`, `strikeRange`, `attackRange`, `bolt`, the cue and `cueScale` for as long as it is the one being done;
+   * everything else in the row (speed, recovery, holding and keeping away, the shield, the figure) is the boss's whole.
+   */
+  moves?: Move[][];
+  /**
+   * The share of its vitality below which each later phase begins, one fewer than there are lists in `moves`, falling:
+   * `[.5]` is two phases and a change at half. Crossing one is a phase change (`PHASE_CHANGE` in dungeon-enemy.ts).
+   */
+  phases?: number[];
+  /** `pool` bosses are dealt to floors one and two from a pool; the `final` one is the last floor's. Absent for everything else. */
+  boss?: 'pool' | 'final';
   /** What the renderer needs to draw it - plain numbers, so this file stays free of three.js. */
   look: {
     pose: PoseStyle;
     /** The body's scale, which the corpse keeps. */
     scale: [number, number, number];
     /** The telegraph on the floor: an arc that closes on the body, or a lane (length, width) along the line it attacks down. */
-    cue: { shape: 'arc' } | { shape: 'lane'; length: number; width: number } | { shape: 'ring'; radius: number };
+    cue: Cue;
     /** Multiplies the telegraph's size, so a longer reach draws a larger mark. */
     cueScale: number;
     /** Heights above the feet of the health bar and of the alert glyph. */

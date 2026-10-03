@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { COMMITTED_WINDUP, HIT_COOLDOWN, RECOVERY } from '../app/dungeon-enemy.ts';
-import { canStand, cellKey, TILE } from '../app/dungeon-floor.ts';
-import { awayFrom, blocks, burn, HIT_FLASH, landBlow, type Blow, type Struck } from '../app/dungeon-hits.ts';
+import { bossReach, COMMITTED_WINDUP, HIT_COOLDOWN, RECOVERY } from '../app/dungeon-enemy.ts';
+import { canStand, cellKey, moveOnFloor, TILE } from '../app/dungeon-floor.ts';
+import { awayFrom, blocks, bossPush, burn, HIT_FLASH, landBlow, type Blow, type Struck } from '../app/dungeon-hits.ts';
+import { asReaper, TEST_BOSS } from './fixtures/test-boss.ts';
 import { TIDEBLADE, weaponById } from '../app/dungeon-weapon.ts';
 
 // What steel, a bolt and fire each do to the body they land on - the sequence the frame loop used to
@@ -111,4 +112,32 @@ test('a shieldbearer turns a blow aside from the front, and only while its shiel
   // Without a facing to judge by (the balance sim's bodies carry none) nothing is ever turned aside.
   const blind = body('shieldbearer', { hp: 12 });
   assert.equal(landBlow(cells, blind, at(), blow(), headOn).blocked, false);
+});
+
+test('the push that opens a boss\'s phase change leaves the knight outside its largest melee reach, from any side and any distance', () => {
+  asReaper(TEST_BOSS, () => {
+    const cells = floor(24, 24), boss = { kind: 'reaper' as const, x: 12 * TILE, z: 12 * TILE };
+    // The reach to clear is the sweep's 3.1, not the swing's 1.9: a pounce and a volley are lanes, not reach.
+    assert.equal(bossReach('reaper'), 3.1);
+    let pushed = 0;
+    for (let side = 0; side < 8; side++) for (const gap of [0, 0.4, 1, 2, 3]) {
+      const knight = { x: boss.x + Math.cos(side * Math.PI / 4) * gap, z: boss.z + Math.sin(side * Math.PI / 4) * gap };
+      assert.ok(Math.hypot(knight.x - boss.x, knight.z - boss.z) < 3.1, 'precondition: the knight starts inside the reach');
+      const push = bossPush(boss, knight), at = { ...knight };
+      moveOnFloor(cells, at, push.x, push.z);
+      const left = Math.hypot(at.x - boss.x, at.z - boss.z);
+      assert.ok(left > 3.1, `a knight ${gap} from the boss on side ${side} was left ${left.toFixed(2)} from it, inside its 3.1 reach`);
+      pushed++;
+    }
+    assert.equal(pushed, 40);
+    // Already clear of it: no push at all.
+    assert.deepEqual(bossPush(boss, { x: boss.x + 4, z: boss.z }), { x: 0, z: 0 });
+    // His back to a wall, he goes as far as the floor lets him and is left standing on it, not in the stone.
+    const edge = { x: 23 * TILE, z: 12 * TILE }, wall = { kind: 'reaper' as const, x: 22 * TILE, z: 12 * TILE }, cornered = { ...edge };
+    const shove = bossPush(wall, edge);
+    assert.ok(shove.x > 0, 'precondition: the push drives him into the wall');
+    moveOnFloor(cells, cornered, shove.x, shove.z);
+    assert.ok(canStand(cells, cornered.x, cornered.z), 'the push left the knight inside the wall');
+    assert.ok(cornered.x < 23.5 * TILE, 'the push carried the knight through the wall');
+  });
 });

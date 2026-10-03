@@ -11,7 +11,7 @@ export const SEQUENCE_SECONDS = 40, SEQUENCE_DT = 1 / 60;
 // (`EnemyView.tell`), and a rule that took it from the archetype instead would agree with the bestiary and disagree with this.
 const TELL = 1.25;
 
-export type Recorded = { kind: EnemyKind; digest: string; frames: number; windups: number; hits: number; looses: number; raises: number; lunges: number; noticing: number; ready: number; dozing: number };
+export type Recorded = { kind: EnemyKind; digest: string; neutral: boolean; frames: number; windups: number; hits: number; looses: number; raises: number; lunges: number; noticing: number; ready: number; dozing: number };
 
 const r6 = (value: number) => Math.round(value * 1e6) / 1e6;
 
@@ -31,6 +31,8 @@ const knightAt = (t: number) => { const radius = 3.5 + 3 * Math.sin(t * 0.45), a
 export function recordSequence(kind: EnemyKind): Recorded {
   const stats = enemyStats(kind, 1);
   let enemy = { kind, x: 0, z: 0, room: 1, cooldown: 0.4, hitFlash: 0, windup: 0, lunge: 0, tell: TELL * stats.tell, speed: stats.speed, aim: { x: 1, z: 0 }, anchor: { x: 0, z: 0 }, notice: 0, hp: 100, maxHp: 100, move: 0, phase: 0, change: 0 } as EnemyView;
+  // Plan 021 added fields to the intent; the digest below is of the ones that existed at 1ae7e92, and an ordinary body must leave the new ones idle.
+  let neutral = true;
   const lines: string[] = [], count = { windups: 0, hits: 0, looses: 0, raises: 0, lunges: 0, noticing: 0, ready: 0, dozing: 0 };
   const frames = Math.round(SEQUENCE_SECONDS / SEQUENCE_DT);
   for (let i = 0; i < frames; i++) {
@@ -45,6 +47,7 @@ export function recordSequence(kind: EnemyKind): Recorded {
     }
     const before = enemy.windup, intent = decideEnemy(enemy, knight, world, SEQUENCE_DT);
     if (before <= 0 && intent.windup > 0) count.windups++;
+    if (intent.move !== 0 || intent.phase !== 0 || intent.change !== 0 || intent.phaseChange || intent.scatter) neutral = false;
     if (intent.hit) count.hits++;
     if (intent.loose) count.looses++;
     if (intent.raise) count.raises++;
@@ -55,5 +58,5 @@ export function recordSequence(kind: EnemyKind): Recorded {
     lines.push(JSON.stringify([intent.act, r6(intent.x), r6(intent.z), r6(intent.cooldown), r6(intent.hitFlash), r6(intent.windup), r6(intent.lunge), r6(intent.aim.x), r6(intent.aim.z), r6(intent.notice), intent.face === null ? null : r6(intent.face), intent.hit, intent.loose ? [r6(intent.loose.x), r6(intent.loose.z)] : null, intent.raise, intent.sound, r6(intent.distance)]));
     enemy = { ...enemy, x: intent.x, z: intent.z, cooldown: intent.cooldown, hitFlash: intent.hitFlash, windup: intent.windup, lunge: intent.lunge, aim: intent.aim, notice: intent.notice };
   }
-  return { kind, digest: fnv(lines.join('\n')), frames, ...count };
+  return { kind, digest: fnv(lines.join('\n')), neutral, frames, ...count };
 }

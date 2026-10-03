@@ -159,6 +159,27 @@ export const deathPool = (kind: EnemyKind, at: { x: number; z: number }): Pool |
   return fire ? { x: at.x, z: at.z, radius: fire.radius, life: fire.life, damage: fire.damage, interval: fire.interval, timer: 0 } : null;
 };
 
+/** Ring centres a `scatter` lays are at least this far apart, so three marks are three places and not one. */
+export const SCATTER_SPACING = 2;
+/** Where the knight has been, oldest first: one sample every `TRAIL_STEP` seconds, the last `TRAIL_LENGTH` of them. */
+export const TRAIL_STEP = 0.25, TRAIL_LENGTH = 8;
+
+/**
+ * The rings a boss's `scatter` may mark (plan 021 D6): at most `count`, at the knight's last positions, newest first, each at
+ * least SCATTER_SPACING from the ones already chosen, and never more than the rings the game can still draw. There are
+ * `HOSTILE_POOL_RINGS` of them and a seventh pool is silently never created, so what is already burning is subtracted first:
+ * `live.hostile` the fire boss and pyre bodies have laid, `live.own` the knight's own flask pools, which share the cap. Every
+ * spot comes off `trail`; a trail shorter than the wish yields fewer.
+ */
+export const scatterRings = (trail: readonly { x: number; z: number }[], count: number, live: { hostile: number; own: number }) => {
+  const free = Math.max(0, HOSTILE_POOL_RINGS - finite(live.hostile) - finite(live.own)), wanted = Math.min(Math.floor(finite(count)), free);
+  const spots: { x: number; z: number }[] = [];
+  for (let i = trail.length - 1; i >= 0 && spots.length < wanted; i--) {
+    if (spots.every(spot => Math.hypot(spot.x - trail[i].x, spot.z - trail[i].z) >= SCATTER_SPACING)) spots.push({ x: trail[i].x, z: trail[i].z });
+  }
+  return spots;
+};
+
 /** Whether a point is standing in the fire. */
 export const poolCatches = (pool: Pool, x: number, z: number) => Math.hypot(pool.x - x, pool.z - z) < pool.radius;
 

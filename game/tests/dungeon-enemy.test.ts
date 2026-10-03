@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
+import { landBlow, burn } from '../app/dungeon-hits.ts';
+import { PHASE_CHANGE, strikeDamage, type EnemyIntent } from '../app/dungeon-enemy.ts';
+import { asReaper, TEST_BOSS, TEST_KING } from './fixtures/test-boss.ts';
+import { recordSequence, type Recorded } from './fixtures/enemy-sequence.ts';
 import { AIM_LOCK, fallOf, raiseSpot, RAISE_SPREAD, ALERT_RADIUS, ALERT_STAGGER, BASE_STATS, BESTIARY, ENEMY_KINDS, HIT, HIT_COOLDOWN, hitCooldown, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, interruptsWindup, LUNGE_SPEED, LUNGE_TIME, nearbyDozers, NOTICE_TIME, PATROL_SPAN, PATROL_SPEED, pursuitStep, RECOVERY, separateCrowd, sweptContact, type CrowdBody, type EnemyView, type Wakeable, type World } from '../app/dungeon-enemy.ts';
 
 // A square of open floor wide enough that nothing in these tests walks off it.
@@ -10,7 +14,7 @@ const floorFrom = (rows: string[]) => { const cells = new Set<string>(); rows.fo
 const world = (cells: Set<string>, patch: Partial<World> = {}): World => ({ cells, activeRoom: 1, pathDistance: () => 0, ...patch });
 // `notice` defaults to NOTICE_TIME, i.e. already fully alert: most of these tests are about what an
 // engaged body does, and the dozing/noticing machinery gets its own tests below with notice: 0.
-const foe = (patch: Partial<EnemyView> = {}): EnemyView => ({ kind: 'guard', x: 0, z: 0, room: 1, cooldown: 0, hitFlash: 0, windup: 0, lunge: 0, tell: 0.5, speed: 2.2, aim: { x: 1, z: 0 }, anchor: { x: 0, z: 0 }, notice: NOTICE_TIME, ...patch });
+const foe = (patch: Partial<EnemyView> = {}): EnemyView => ({ kind: 'guard', x: 0, z: 0, room: 1, cooldown: 0, hitFlash: 0, windup: 0, lunge: 0, tell: 0.5, speed: 2.2, aim: { x: 1, z: 0 }, anchor: { x: 0, z: 0 }, notice: NOTICE_TIME, hp: 100, maxHp: 100, move: 0, phase: 0, change: 0, ...patch });
 const body = (patch: Partial<CrowdBody> = {}): CrowdBody => ({ x: 0, z: 0, windup: 0, dead: false, ...patch });
 const near = (a: number, b: number, slack = 1e-6) => Math.abs(a - b) <= slack;
 
@@ -474,4 +478,183 @@ test('the reaper and the rattler are never dealt by the floor generator, on any 
   for (const k of arenaOnly) assert.equal(BESTIARY[k].firstFloor, Infinity, `${k} can be dealt`);
   // A rattler dies to one blow of a starting blade, which is its whole point.
   assert.ok(BASE_STATS.rattler.hp <= HIT, 'a rattler takes more than one blow');
+});
+
+// ---- Plan 021 Stage A: moves and phases. -----------------------------------------------------------------------------------------
+
+// What `tests/fixtures/enemy-sequence.ts` returned for every ordinary kind at 1ae7e92, before an archetype could have moves or phases:
+// an FNV digest of every intent over forty seconds of scripted fight, and what the fight held. A record, not a recomputation.
+const BEFORE_PLAN_021: Record<string, Omit<Recorded, 'neutral'>> = {
+  guard: { kind: 'guard', digest: '92ec2e7b', frames: 2400, windups: 9, hits: 6, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1830, dozing: 200 },
+  stalker: { kind: 'stalker', digest: '36a81d56', frames: 2400, windups: 10, hits: 5, looses: 0, raises: 0, lunges: 104, noticing: 40, ready: 1638, dozing: 200 },
+  warden: { kind: 'warden', digest: 'fd8f6709', frames: 2400, windups: 7, hits: 5, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1817, dozing: 200 },
+  archer: { kind: 'archer', digest: '2460d9ae', frames: 2400, windups: 18, hits: 0, looses: 11, raises: 0, lunges: 0, noticing: 40, ready: 1493, dozing: 200 },
+  shieldbearer: { kind: 'shieldbearer', digest: 'c70db169', frames: 2400, windups: 7, hits: 4, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1884, dozing: 200 },
+  reaper: { kind: 'reaper', digest: 'bbc7ada5', frames: 2400, windups: 6, hits: 3, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1733, dozing: 200 },
+  pyre: { kind: 'pyre', digest: 'd11fa9eb', frames: 2400, windups: 9, hits: 6, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1829, dozing: 200 },
+  bonecaller: { kind: 'bonecaller', digest: 'c280ec6d', frames: 2400, windups: 12, hits: 0, looses: 0, raises: 8, lunges: 0, noticing: 40, ready: 1313, dozing: 200 },
+  rattler: { kind: 'rattler', digest: 'ce119782', frames: 2400, windups: 11, hits: 5, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1866, dozing: 200 },
+};
+
+test('an archetype without moves produces exactly the intents it produced before plan 021, and leaves the boss fields idle', () => {
+  assert.deepEqual(Object.keys(BEFORE_PLAN_021).sort(), [...ENEMY_KINDS].sort(), 'a kind has no recorded sequence');
+  for (const kind of ENEMY_KINDS) {
+    assert.equal(BESTIARY[kind].moves, undefined, `${kind} has moves, so it is a boss and not an ordinary kind`);
+    const got = recordSequence(kind), { neutral, ...rest } = got;
+    // The fight has to have made the kind do something, or equal digests prove nothing.
+    assert.ok(got.windups >= 6, `${kind}: the scripted fight started only ${got.windups} tells, too few to say anything about its intents`);
+    assert.ok(got.hits + got.looses + got.raises >= 3, `${kind}: the scripted fight never saw it hit, loose or raise (${got.hits}, ${got.looses}, ${got.raises})`);
+    assert.deepEqual(rest, BEFORE_PLAN_021[kind], `${kind}: its intents over the scripted fight are not what they were before plan 021 (digest, then what the fight held)`);
+    assert.equal(neutral, true, `${kind}: an ordinary body's move, phase or change left zero, or it reported a phase change or a scatter`);
+  }
+});
+
+/** One frame's feedback, as the game does it: what the intent returns is what the next decision is handed. */
+const fed = (enemy: EnemyView, intent: EnemyIntent): EnemyView => ({ ...enemy, x: intent.x, z: intent.z, cooldown: intent.cooldown, hitFlash: intent.hitFlash, windup: intent.windup, lunge: intent.lunge, aim: intent.aim, notice: intent.notice, move: intent.move, phase: intent.phase, change: intent.change });
+const BLOW = { damage: 3, stagger: false, knockback: 0.4, wardenKnockback: 0.1 };
+const DT = 1 / 60;
+/** Runs a boss on until its tell runs out (windup back to zero on a frame that began with one), returning the intent that spent it. */
+const untilSpent = (start: EnemyView, knight: { x: number; z: number }, w: World) => {
+  let enemy = start;
+  for (let frame = 0; frame < 240; frame++) {
+    const intent = decideEnemy(enemy, knight, w, DT);
+    if (enemy.windup > 0 && intent.windup === 0) return { intent, enemy: fed(enemy, intent) };
+    enemy = fed(enemy, intent);
+  }
+  throw new Error('the tell never ran out');
+};
+/** Runs a boss on, recovering, until it begins its next tell. */
+const untilWinding = (start: EnemyView, knight: { x: number; z: number }, w: World) => {
+  let enemy = start;
+  for (let frame = 0; frame < 600; frame++) {
+    const intent = decideEnemy(enemy, knight, w, DT);
+    if (enemy.windup === 0 && intent.windup > 0) return { intent, enemy: fed(enemy, intent) };
+    enemy = fed(enemy, intent);
+  }
+  throw new Error('no tell began');
+};
+
+test('a boss\'s rotation advances when a move is spent and not when it is interrupted', () => {
+  asReaper(TEST_BOSS, () => {
+    const cells = openFloor(), w = world(cells), knight = { x: 1.2, z: 0 };
+    const boss = foe({ kind: 'reaper', hp: 40, maxHp: 40, tell: 99 });
+    // The first move, the swing, begins: its own tell (the view's is nonsense a boss must ignore), and the rotation still on it.
+    const first = decideEnemy(boss, knight, w, DT);
+    assert.equal(first.windup, 0.5, 'the first move did not begin, or did not use its own tell');
+    assert.equal(first.move, 0, 'a move began and the rotation had already moved on');
+    // Spent: the rotation is on the sweep, and the sweep is what comes next - with its own tell, once the recovery is over.
+    const spent = untilSpent(fed(boss, first), knight, w);
+    assert.equal(spent.intent.move, 1, 'the swing was spent and the rotation did not advance');
+    const second = untilWinding(spent.enemy, knight, w);
+    assert.equal(second.intent.windup, 0.9, 'the move after the swing was not the sweep');
+    assert.equal(second.intent.move, 1);
+    // Interrupted with a real blow: the tell is broken (the precondition), and the sweep is tried again, not the move after it.
+    const struck = { kind: 'reaper' as const, hp: 40, windup: second.enemy.windup, cooldown: second.enemy.cooldown, hitFlash: 0 };
+    assert.equal(landBlow(cells, { ...struck }, { x: 0, z: 0 }, BLOW, { x: 1, z: 0 }).broke, false, 'precondition: ordinary steel does not break a boss\'s tell, so it takes an arm that staggers');
+    assert.equal(landBlow(cells, struck, { x: 0, z: 0 }, { ...BLOW, stagger: true }, { x: 1, z: 0 }).broke, true, 'the blow did not break the tell, so nothing was interrupted');
+    const broken = { ...second.enemy, windup: struck.windup, cooldown: struck.cooldown, hitFlash: struck.hitFlash };
+    assert.equal(broken.windup, 0);
+    const again = untilWinding(broken, knight, w);
+    assert.equal(again.intent.windup, 0.9, 'an interrupted sweep was followed by a different move');
+    assert.equal(again.intent.move, 1, 'an interrupted move advanced the rotation');
+  });
+});
+
+test('a boss skips a move the knight is out of range of for the next that fits, and skips none when he is in range', () => {
+  asReaper(TEST_BOSS, () => {
+    const cells = openFloor(), boss = foe({ kind: 'reaper', hp: 40, maxHp: 40 });
+    const w = (knightX: number) => world(cells, { pathDistance: (x, z) => Math.abs(x - Math.round(knightX / TILE)) + Math.abs(z) });
+    // In range of the swing (reach 1.8): the swing, the first of the rotation.
+    const near = decideEnemy(boss, { x: 1.2, z: 0 }, w(1.2), DT);
+    assert.equal(near.windup, 0.5, 'in range of the first move it did not begin the first move');
+    assert.equal(near.move, 0);
+    // 2.5 out: past the swing's 1.8, inside the sweep's 2.8. The swing is skipped for the sweep, and the rotation carries on after it.
+    const mid = decideEnemy(boss, { x: 2.5, z: 0 }, w(2.5), DT);
+    assert.equal(mid.windup, 0.9, 'out of the swing\'s range and inside the sweep\'s, it did not begin the sweep');
+    assert.equal(mid.move, 1);
+    const spent = untilSpent(fed(boss, mid), { x: 2.5, z: 0 }, w(2.5));
+    assert.equal(spent.intent.move, 0, 'after the move it skipped to, the rotation did not carry on from that one');
+    // Past every move's reach: nothing begins, and it closes on him instead.
+    const far = decideEnemy(boss, { x: 6, z: 0 }, w(6), DT);
+    assert.equal(far.windup, 0, 'a move began from outside every move\'s range');
+    assert.ok(far.x > boss.x, 'out of range of every move it did not close in');
+  });
+});
+
+test('crossing a threshold changes phase once, cancels what the boss was doing, and nothing hurts it for the change', () => {
+  asReaper(TEST_BOSS, () => {
+    const cells = openFloor(), w = world(cells), knight = { x: 1.2, z: 0 };
+    const winding = foe({ kind: 'reaper', hp: 40, maxHp: 40, windup: 0.3, cooldown: 0 });
+    // The threshold is what changed the phase: a boss of 21 in 40 goes on winding its swing, one of 19 does not.
+    const above = decideEnemy({ ...winding, hp: 21 }, knight, w, DT);
+    assert.equal(above.phaseChange, false);
+    assert.ok(above.windup > 0, 'above the threshold the boss dropped its tell');
+    const change = decideEnemy({ ...winding, hp: 19 }, knight, w, DT);
+    assert.equal(change.phaseChange, true, 'a boss below half its vitality did not change phase');
+    assert.equal(change.windup, 0, 'the change left the swing it was winding up');
+    assert.equal(change.hit, false);
+    assert.deepEqual([change.phase, change.move, change.change], [1, 0, PHASE_CHANGE]);
+    // A blow meant for it: it would land (the precondition, on a body with no change running), and in the change it lands nothing.
+    const blowOn = (over: { change: number }) => { const struck = { kind: 'reaper' as const, hp: 19, windup: 0, cooldown: 0, hitFlash: 0, ...over }; return { struck, result: landBlow(cells, struck, { x: 0, z: 0 }, BLOW, { x: 1, z: 0 }) }; };
+    const control = blowOn({ change: 0 });
+    assert.equal(control.struck.hp, 16, 'the control blow did not land, so a boss that took nothing proves nothing');
+    // The change runs its second, with the boss still, facing him, and the phase changing exactly once.
+    let enemy = fed({ ...winding, hp: 19 }, change), frames = 0, changes = 0, immune = 0;
+    while (enemy.change > 0) {
+      const hit = blowOn({ change: enemy.change });
+      assert.equal(hit.struck.hp, 19, `a blow took ${19 - hit.struck.hp} off a boss in the middle of a phase change`);
+      assert.equal(hit.result.broke || hit.result.killed, false);
+      const fire = { kind: 'reaper' as const, hp: 19, windup: 0, cooldown: 0, hitFlash: 0, change: enemy.change };
+      assert.equal(burn(fire, 4), false); assert.equal(fire.hp, 19, 'fire burned a boss in the middle of a phase change');
+      if (hit.result.immune) immune++;
+      const intent = decideEnemy(enemy, knight, w, DT);
+      if (intent.phaseChange) changes++;
+      // The frame the change runs out is the boss's own again; every frame before it, it is still and committed to nothing.
+      if (intent.change > 0) {
+        assert.equal(intent.windup, 0, 'the boss began a move in the middle of its phase change');
+        assert.equal(intent.hit || intent.loose !== null, false);
+        assert.deepEqual([intent.x, intent.z], [0, 0], 'the boss moved in the middle of its phase change');
+      }
+      enemy = fed({ ...enemy, hp: 19 }, intent); frames++;
+      assert.ok(frames < 120, 'the change never ended');
+    }
+    assert.ok(immune > 0, 'no blow was refused for being in the change');
+    assert.equal(changes, 0, 'the phase changed again during the change');
+    assert.ok(Math.abs(frames * DT - PHASE_CHANGE) < 2 * DT, `the change ran ${(frames * DT).toFixed(3)}s, not ${PHASE_CHANGE}s`);
+    // Over, it is hittable again, and it carries on in the new phase, which has no threshold left to cross.
+    const after = blowOn({ change: enemy.change });
+    assert.equal(after.struck.hp, 16, 'the boss was still untouchable after its change');
+    const next = untilWinding(enemy, knight, w);
+    assert.equal(next.intent.phase, 1);
+    assert.equal(next.intent.phaseChange, false);
+  });
+});
+
+test('a blow that takes a boss across two thresholds enters each phase in turn and skips none', () => {
+  asReaper(TEST_KING, () => {
+    const cells = openFloor(), w = world(cells), knight = { x: 1.2, z: 0 };
+    // From full vitality to a tenth in one blow: below both the 60% and the 25%.
+    let enemy = foe({ kind: 'reaper', hp: 10, maxHp: 100, windup: 0.3 });
+    const entered: { frame: number; phase: number }[] = [];
+    for (let frame = 0; frame < 300; frame++) {
+      const intent = decideEnemy(enemy, knight, w, DT);
+      if (intent.phaseChange) entered.push({ frame, phase: intent.phase });
+      enemy = fed({ ...enemy, hp: 10 }, intent);
+    }
+    assert.ok(entered.length > 0, 'a boss below both thresholds never changed phase');
+    assert.equal(entered[0].phase, 1, `the first change entered phase ${entered[0].phase}: it skipped phase 1`);
+    assert.deepEqual(entered.map(e => e.phase), [1, 2], 'the phases were not entered one after the other, once each');
+    assert.ok(entered[1].frame - entered[0].frame >= PHASE_CHANGE / DT - 2, 'the second change began inside the first');
+    assert.equal(enemy.phase, 2);
+  });
+});
+
+test('a boss\'s blow costs what its move says, scaled by the floor as an ordinary body\'s is; everything else costs what it always did', () => {
+  asReaper(TEST_BOSS, () => {
+    // The sweep (slot 1 of phase 0) is 14 at the first floor and fifteen percent more for each floor below it.
+    assert.equal(strikeDamage('reaper', 1, 0, 1), 14);
+    assert.equal(strikeDamage('reaper', 3, 0, 1), 18, 'a boss\'s move did not grow with the floor');
+    assert.equal(strikeDamage('reaper', 3, 1, 1), 13, 'the phase was not read: phase 1\'s second move is the pounce');
+  });
+  for (const kind of ENEMY_KINDS) for (const level of [1, 2, 3]) assert.equal(strikeDamage(kind, level), enemyStats(kind, level).damage, `${kind} on floor ${level}`);
 });
