@@ -4,14 +4,17 @@ import {
   expect,
   type Game,
   type GameWindow,
+  hasClearPath,
   laneSpot,
   openSpot,
   roomCentre,
+  settleBoss,
   strikeStance,
   test,
   TILE,
   WARM_UP,
 } from './helpers.ts';
+import { reserveSize } from '../../app/dungeon-bestiary.ts';
 import { altarHall } from '../../app/dungeon-floor.ts';
 import { ARM_ORDER, freshMeta } from '../../app/dungeon-meta.ts';
 
@@ -108,15 +111,18 @@ const BUDGET = {
   // Measured 2026-09-29 on d3d11 (whose counters equalled SwiftShader's on the three scenes above): 8 bodies, 508 calls,
   // 286,247 triangles, 184 shadow calls, +4.5% calls on the purse. Each ceiling is the figure measured.
   'caller-chamber': { calls: 508, triangles: 286_247 },
-  // Plan 021 Stage B: the stair hall of the tightest goal chamber (seed 0x86 floor three, a 45-tile crypt) with the Captain standing in it, framed 5.5 from the boss. Measured 2026-10-03 on SwiftShader:
-  // 320 calls, 246,034 triangles (Stage 0's stand-in, a warden scaled to 1.8, read 317 / 245,574 in the same room). 188 calls under the 508 above. Each ceiling is the figure measured.
-  'captain-chamber': { calls: 320, triangles: 246_034 },
+  // Plan 021 Stages B and E: the Captain in the tightest goal chamber floors one and two lay (seed 33 floor two, a 45-tile crypt), framed 5.5 from the boss, held quiet. Stage B took it in floor three's crypt (320 / 246,034, 188 under the 508 above), the
+  // only place it stood as the last floor's boss; the Bone King now holds floor three, so the scene moved to the pool bosses' room: 273 calls, 212,078 triangles, 235 under the 508. Measured 2026-10-03 on SwiftShader. Each ceiling is the figure measured.
+  'captain-chamber': { calls: 273, triangles: 212_078 },
+  // Plan 021 Stage E: the Bone King in the tightest goal chamber floor three can lay (seed 0x86, a 45-tile crypt) with his whole reserve standing (reserveSize: four rattlers), the knight framed 5.5 from him: the worst boss chamber, and the one the 508 above is held to.
+  // Measured 2026-10-03 on SwiftShader, twice, identical: 428 calls, 268,012 triangles, 80 calls under the 508 (Stage 0: a reserve of six fits at 491, seven at 520). Each ceiling is the figure measured.
+  'king-chamber': { calls: 428, triangles: 268_012 },
   // Plan 021 Stages C and D: the pool bosses in the tightest goal chamber floors one and two lay (seed 33 floor two, a 45-tile crypt), each the boss alone, held quiet, framed 5.5 from it. Measured 2026-10-03 on SwiftShader.
   // The Pyre Mother: 291 calls, 210,062 triangles (the floor-two crypt is cheaper than the floor-three one the Captain's number was taken in), 217 under the 508 above. Each ceiling is the figure measured.
   'mother-chamber': { calls: 291, triangles: 210_062 },
   // The Tide Hound: 253 calls, 210,696 triangles (a leaner figure than the Mother's by calls, a hair heavier by triangles), 255 under the 508 above.
   'hound-chamber': { calls: 253, triangles: 210_696 },
-  // The Bastion: 273 calls, 212,962 triangles, 235 under the 508 above. Every pool boss's chamber is under it, with 191 to 255 to spare (Mother 217, Hound 255, Bastion 235, the Captain's floor-three crypt 188).
+  // The Bastion: 273 calls, 212,962 triangles, 235 under the 508 above. Every pool boss's chamber is under it, with 191 to 255 to spare (Mother 217, Hound 255, Bastion 235, the Captain 235 in the same crypt; the King with his reserve 80).
   'bastion-chamber': { calls: 273, triangles: 212_962 },
 } as const;
 
@@ -268,12 +274,14 @@ test.describe('the busiest chamber plan 018 deals', () => {
   });
 });
 
-// Plan 021 Stage B: the stair hall with its boss standing. The worst goal chamber the generator lays (a 45-tile crypt: seed 0x86 on floor three, which the Stage 0 frame
-// measurement found the dearest of six) with the Captain, huge and awake, in frame from the distance a fight opens at. It holds the boss alone and nothing else, so it is a
-// third of the busiest chamber above; it is here so a boss that grows (a second figure, a reserve standing) has a number to be held to, and the King's chamber with its reserve standing is held to the 508 above (Stage E).
-test.describe('the stair hall with its boss', () => {
+// Plan 021 Stage E: the Bone King's stair hall with his reserve standing - the worst boss chamber, and the one the 508 ceiling above is held against (Stage 0: a reserve of six fits under it, seven does not; his is sized
+// from his move list, `reserveSize`). The worst goal chamber the generator lays (a 45-tile crypt: seed 0x86 on floor three, which the Stage 0 frame measurement found the dearest of six). The reserve is stood up by the
+// King himself, in the real game: one blow from death he is in his last phase, where he summons on every second move, and with the knight beyond every other move's reach (a bolt reaches 7, a summon 9) summoning is
+// all he does. He is kept on his spot (a fixture, like a teleport) and the knight alive; the rattlers are held quiet. Then the knight is framed 5.5 from him, as the other boss scenes are, and the frame is drawn.
+test.describe('the stair hall with the Bone King and his reserve', () => {
   test.use({ seeds: [0x1, 0x86] });
-  test('the Captain standing in the worst goal chamber stays inside its budget', async ({ game }) => {
+  test('the King standing in the worst goal chamber with every rattler he called stays inside its budget', async ({ game }) => {
+    test.slow();
     await game.enter();
     await game.buildFloor(3);
     await game.step(0);
@@ -281,25 +289,49 @@ test.describe('the stair hall with its boss', () => {
     expect(floor.seed, 'the page was not handed the seed this scenario is staged on: pick another seed').toBe(0x86);
     const goal = floor.rooms[floor.goal], opening = await game.state();
     expect(goal.shape, 'the goal chamber of this seed is no longer the tight crypt this budget was set on: pick another seed').toBe('crypt');
-    const bossAt = opening.enemies.findIndex((e) => e.kind === 'captain' && e.room === floor.goal);
-    expect(bossAt, 'the goal chamber holds no Captain').toBeGreaterThanOrEqual(0);
-    const boss = opening.enemies[bossAt];
-    // Held quiet, so the frame is the standing boss and the knight lives to see it; the knight in frame, a fight's opening distance away on a clear lane.
-    await game.configureCombat({ enemies: [{ index: bossAt, cooldown: 999, windup: 0 }] });
-    const spot = laneSpot(floor, boss, 5.5);
+    const kingAt = opening.enemies.findIndex((e) => e.kind === 'king' && e.room === floor.goal);
+    expect(kingAt, 'the goal chamber holds no King').toBeGreaterThanOrEqual(0);
+    const reserve = opening.enemies.map((e, index) => ({ e, index })).filter(({ e }) => e.kind === 'rattler' && e.buried && e.summoner === kingAt).map(({ index }) => index);
+    expect(reserve.length, 'the King is not buried with the reserve his move list sizes').toBe(reserveSize('king'));
+    // Where he stands and where the knight stands while he calls: on the chamber's own tiles, a clear lane between them, past the bolt's reach of 7 and inside the summon's 9.
+    const tiles = floor.tiles.filter((t) => t.room === floor.goal).map((t) => ({ x: t.x * TILE, z: t.z * TILE }));
+    let pair: { home: { x: number; z: number }; far: { x: number; z: number } } | null = null;
+    for (const home of tiles) for (const far of tiles) {
+      const gap = Math.hypot(home.x - far.x, home.z - far.z);
+      if (!pair && gap > 7.6 && gap < 8.8 && hasClearPath(floor.cells, home, far)) pair = { home, far };
+    }
+    expect(pair, 'no two tiles of the goal chamber are 7.6 to 8.8 apart on a clear lane: pick another seed for this scenario').not.toBeNull();
+    const { home, far } = pair!;
+    await game.configureCombat({ enemies: [...reserve.map((index) => ({ index, cooldown: 999, windup: 0 })), { index: kingAt, x: home.x, z: home.z, hp: 1 }] });
+    await game.teleport(far.x, far.z);
+    // He has to notice the knight before he can change phase: the changes begin a beat after the knight comes into the room.
+    await game.step(600);
+    await settleBoss(game);
+    let state = await game.state();
+    expect(state.boss?.phase, 'one blow from death he is not in his last phase').toBe(2);
+    const standing = (s: typeof state) => s.enemies.filter((e) => e.kind === 'rattler' && !e.buried).length;
+    for (let t = 0; t < 40_000 && standing(state) < reserve.length; t += 100) {
+      await game.configureCombat({ health: state.maxHealth, enemies: [{ index: kingAt, x: home.x, z: home.z }] });
+      await game.step(100);
+      state = await game.state();
+    }
+    // The precondition: he called the whole reserve himself, so every rattler stands and none is left in the ground.
+    expect(state.enemies.filter((e) => e.kind === 'rattler' && !e.buried), 'the King did not stand his whole reserve up').toHaveLength(reserve.length);
+    expect(state.enemies.filter((e) => e.buried && e.room === floor.goal), 'a body of the stair hall is still buried').toHaveLength(0);
+    await game.configureCombat({ health: state.maxHealth, enemies: [{ index: kingAt, x: home.x, z: home.z, cooldown: 999, windup: 0 }] });
+    const spot = laneSpot(floor, home, 5.5);
     await game.teleport(spot.x, spot.z);
     await game.step(400);
-    const state = await game.state();
-    expect(state.boss?.kind, 'the boss is not the Captain').toBe('captain');
-    expect(state.enemies.filter((e) => !e.buried).map((e) => e.room === floor.goal), 'more than the stair hall\'s boss is in the staged chamber').toContain(true);
+    state = await game.state();
+    expect(state.boss?.kind, 'the boss is not the King').toBe('king');
+    expect(state.enemies.filter((e) => e.kind === 'rattler' && !e.buried), 'a rattler fell before the frame was drawn').toHaveLength(reserve.length);
     expect(state.health, 'the knight fell before the frame was drawn').toBeGreaterThan(0);
-    await spend(game, 'captain-chamber');
+    await spend(game, 'king-chamber');
   });
 });
 
-// Plan 021 Stages C and D: the pool bosses' stair halls, each in the tightest goal chamber floors one and two can lay (seed 33 floor two, a 45-tile crypt; the Captain's above is the floor-three crypt, the one
-// place the Captain stands as the last floor's boss). `?boss=` puts the boss on the floor, so no scene searches seeds for one. The boss alone, held quiet, framed 5.5 from it.
-const POOL_SCENES = [['mother', 'mother-chamber'], ['hound', 'hound-chamber'], ['bastion', 'bastion-chamber']] as const;
+// Plan 021 Stages C and D: the pool bosses' stair halls, each in the tightest goal chamber floors one and two can lay (seed 33 floor two, a 45-tile crypt; the Captain's is in it too, now that the Bone King holds floor three). `?boss=` puts the boss on the floor, so no scene searches seeds for one. The boss alone, held quiet, framed 5.5 from it.
+const POOL_SCENES = [['captain', 'captain-chamber'], ['mother', 'mother-chamber'], ['hound', 'hound-chamber'], ['bastion', 'bastion-chamber']] as const;
 for (const [kind, scene] of POOL_SCENES) {
   test.describe(`the stair hall with the ${kind}`, () => {
     test.use({ seeds: [0x1, 33], boss: kind });

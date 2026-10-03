@@ -443,10 +443,10 @@ export default function DungeonGame() {
     };
     // The heading a body looks along, off the yaw its pose last set (`face` is atan2(-x, -z) of it).
     const facingOf = (enemy: Enemy) => ({ x: -Math.sin(enemy.group.rotation.y), z: -Math.cos(enemy.group.rotation.y) });
-    // A bonecaller's tell ran out: the next `perTell` of its buried reserve stand up side by side, a pace
+    // A bonecaller's tell ran out: the next `perTell` of its buried reserve (the summon move's own, for a boss) stand up side by side, a pace
     // toward the knight, awake.
-    const raise = (caller: Enemy, index: number) => {
-      const reserve = stage.enemies.filter(e => e.buried && !e.dead && e.summoner === index).slice(0, BESTIARY[caller.kind].summons?.perTell ?? 0);
+    const raise = (caller: Enemy, index: number, perTell = BESTIARY[caller.kind].summons?.perTell ?? 0) => {
+      const reserve = stage.enemies.filter(e => e.buried && !e.dead && e.summoner === index).slice(0, perTell);
       reserve.forEach((body, slot) => {
         const at = raiseSpot(floor.cells, caller.group.position, player.position, slot);
         body.buried = false; body.awake = true; body.group.visible = true; body.room = caller.room;
@@ -2102,7 +2102,7 @@ export default function DungeonGame() {
               if (delay < stage.enemies[idx].alertIn) stage.enemies[idx].alertIn = delay;
             });
           }
-          if (intent.raise) raise(enemy, index);
+          if (intent.raise) raise(enemy, index, doing?.summon?.perTell);
           enemy.windup = intent.windup; enemy.lunge = intent.lunge; enemy.aim.set(intent.aim.x,0,intent.aim.z);
           if(previousWindup>0&&enemy.windup===0)enemy.attackAge=0;
           else if(previousWindup<=0&&enemy.windup>0)enemy.attackAge=Infinity;

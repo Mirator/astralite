@@ -1,6 +1,6 @@
 import { ARROW_KEYS, expect, laneSpot, press, SCREEN_DIRECTIONS, settleBoss, strikeStance, test, TILE, canStand, hasClearPath, GameError, type Floor, type Game, type ScreenDirection } from './helpers.ts';
 import type { Page } from '@playwright/test';
-import { BESTIARY } from '../../app/dungeon-bestiary.ts';
+import { BESTIARY, reserveSize } from '../../app/dungeon-bestiary.ts';
 
 // Plan 021 Stage B: the Drowned Captain, in the running game. The rules are held in node - the row and its rotation in dungeon-captain.test.ts, the
 // phase change, the push and the unhittable second in dungeon-enemy.test.ts and dungeon-hits.test.ts, the deal in dungeon-floor.test.ts, the pay in
@@ -423,6 +423,132 @@ test('the Bastion is wired: a swing\'s arc, the bar names it, a real strike is t
   const struck = (await game.state()).enemies[0];
   expect(struck.blocked, 'a strike was turned aside in phase two, with the shield broken').toBe(open.enemies[0].blocked);
   expect(struck.hp, 'a strike in phase two did not wound it').toBe(open.enemies[0].hp - open.weapon.strikeDamage);
+});
+
+// Plan 021 Stage E: the Bone King, on floor three, where he is always dealt. Floor three of the harness's seed is laid with him standing alone in the stair hall and his reserve buried under him.
+const kingFloor = async (game: Game) => {
+  await game.enter();
+  await game.buildFloor(3);
+  await game.step(0);
+  const opening = await game.state();
+  const at = opening.enemies.findIndex((e) => e.kind === 'king');
+  expect(at, 'floor three holds no Bone King').toBeGreaterThanOrEqual(0);
+  expect(opening.enemies[at].room, 'the Bone King does not stand in the stair hall').toBe(opening.floor.goal);
+  return { opening, at, floor: await game.floor() };
+};
+const reserveOf = (state: Awaited<ReturnType<Game['state']>>, at: number) => state.enemies.filter((e) => e.kind === 'rattler' && e.summoner === at);
+const kingOf = (state: Awaited<ReturnType<Game['state']>>) => state.enemies.find((e) => e.kind === 'king')!;
+/** The spawn indices of what the King at `at` called: the fixture addresses a body by it. */
+const reserveIds = (state: Awaited<ReturnType<Game['state']>>, at: number) => state.enemies.map((e, index) => ({ e, index })).filter(({ e }) => e.summoner === at).map(({ index }) => index);
+
+test('the Bone King is wired: he opens with a summon drawn as a ring, a call stands up the move\'s own two rattlers from the reserve under him, and the bar names him with a tick for each of his two changes', async ({ game, page }) => {
+  test.slow();
+  const { opening, at, floor } = await kingFloor(game);
+  const reserve = reserveOf(opening, at);
+  expect(reserve.length, 'the floor did not bury the reserve his move list sizes').toBe(reserveSize('king'));
+  expect(reserve.every((e) => e.buried && !e.visible), 'the reserve is not buried and hidden').toBe(true);
+  expect(opening.enemies.filter((e) => e.room === opening.floor.goal && !e.buried).map((e) => e.kind), 'the stair hall holds more than its boss').toEqual(['king']);
+  // Held at a place the knight can stand with a clear lane, 6 from him: past a swing, inside a summon.
+  const king = kingOf(opening), spot = laneSpot(floor, { x: king.x, z: king.z }, 6.5);
+  await game.teleport(spot.x, spot.z);
+  await game.step(60);
+  await expect(page.locator('.chamber-notice')).toContainText('The Bone King bars the stair');
+  const first = await nextTell(game);
+  expect([first.attack, first.cue.visible, first.cue.shape, first.bar], 'his first move was not a summon drawn as a ring, with no floating bar').toEqual(['summon', true, 'ring', false]);
+  expect(reserveOf(await game.state(), at).filter((e) => !e.buried), 'precondition: nothing stands yet, so what stands afterwards was called by this tell').toHaveLength(0);
+  const bar = page.locator('.boss-bar');
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveAttribute('aria-label', 'The Bone King');
+  await expect(bar).toHaveAttribute('aria-valuemax', String(first.maxHp));
+  await expect(bar.locator('u')).toHaveCount(2);
+  expect(await bar.locator('u').evaluateAll((ticks) => ticks.map((t) => (t as HTMLElement).style.left)), 'the ticks are not at 60% and 25%').toEqual(['60%', '25%']);
+  // The tell runs out: the first move of phase one raises its own perTell of the reserve, standing side by side, and no more.
+  const perTell = BESTIARY.king.moves![0][0].summon!.perTell;
+  await game.step(Math.round(BESTIARY.king.moves![0][0].tell * 1000) + 200);
+  const called = await game.state();
+  expect(reserveOf(called, at).filter((e) => !e.buried && e.visible && e.awake), `the call did not stand up ${perTell} rattlers`).toHaveLength(perTell);
+  expect(reserveOf(called, at).filter((e) => e.buried), 'the call raised more than it asked for').toHaveLength(reserve.length - perTell);
+  // Below 25%: the second change, announced. He summons on every second move from then on, whatever the knight does between: kept inside every reach (a fixture) so no move is skipped.
+  await game.configureCombat({ health: called.maxHealth, enemies: [{ index: at, hp: 1 }, ...reserveIds(opening, at).map((index) => ({ index, cooldown: 999, windup: 0 }))] });
+  const calm = await settleBoss(game);
+  expect(calm.phase, 'at one blow from death he is not in his last phase').toBe(2);
+  await expect(page.locator('.chamber-notice')).toContainText('The Bone King calls the dead');
+  const keepClose = async () => {
+    const now = await game.state(), k = kingOf(now);
+    const near = laneSpot(floor, { x: k.x, z: k.z }, 2.2);
+    await game.teleport(near.x, near.z);
+    await game.configureCombat({ health: now.maxHealth });
+  };
+  // The first move of the last phase has begun by the time the change is settled (the tell lasts a second): it is the first of the eight.
+  let last = await bossOf(game);
+  const seen: (string | null)[] = last.windup > 0 ? [last.attack] : [];
+  // What each summon tell stood up, as the scene has it the frame it ran out: his last phase calls one at a time (the move's own perTell), not the two of phase one.
+  const standing = async () => reserveOf(await game.state(), at).filter((e) => !e.buried).length;
+  let was = await standing();
+  const standUp: number[] = [];
+  for (let waited = 0; waited < 90_000 && seen.length < 8; waited += 50) {
+    await keepClose();
+    await game.step(50);
+    const boss = await bossOf(game);
+    if (last.windup === 0 && boss.windup > 0) seen.push(boss.attack);
+    if (last.windup > 0 && boss.windup === 0 && last.attack === 'summon') { const now = await standing(); standUp.push(now - was); was = now; }
+    last = boss;
+  }
+  expect(BESTIARY.king.moves![2][0].summon!.perTell, 'precondition: the last phase calls fewer at a time than phase one, so the two are told apart').toBeLessThan(perTell);
+  expect(standUp.length, 'fewer than two summon tells ran out').toBeGreaterThanOrEqual(2);
+  expect(standUp.slice(0, 2), `a summon of the last phase did not stand up exactly its own ${BESTIARY.king.moves![2][0].summon!.perTell}`).toEqual([1, 1]);
+  expect(seen, 'he did not begin eight moves').toHaveLength(8);
+  expect(seen.map((attack) => attack === 'summon'), `a summon belongs on every second move: ${seen.join(', ')}`).toEqual([true, false, true, false, true, false, true, false]);
+});
+
+test('felling the Bone King crumbles everything he called, standing or buried, opens the stair, and the stair wins the run through the real cards', async ({ game, page }) => {
+  test.slow();
+  const { opening, at, floor } = await kingFloor(game);
+  // The reserve is held quiet (it stands when called and does nothing), the King is one blow from death, and the knight keeps beyond his bolt and inside his summon so that all he does is call.
+  await game.configureCombat({ enemies: [...reserveIds(opening, at).map((index) => ({ index, cooldown: 999, windup: 0 })), { index: at, hp: 1 }] });
+  const king = kingOf(opening), far = laneSpot(floor, { x: king.x, z: king.z }, 8.2, { clearance: 0 });
+  await game.teleport(far.x, far.z);
+  await game.step(600);
+  await settleBoss(game);
+  let state = await game.state();
+  for (let waited = 0; waited < 40_000 && reserveOf(state, at).filter((e) => !e.buried).length < 2; waited += 100) {
+    const k = kingOf(state);
+    await game.configureCombat({ health: state.maxHealth, enemies: [{ index: at, x: k.x, z: k.z }] });
+    await game.step(100);
+    state = await game.state();
+  }
+  // The precondition: some of what he called stands, and some is still in the ground - both are what his fall has to take.
+  expect(reserveOf(state, at).filter((e) => !e.buried).length, 'the King called nothing, so there is nothing for his fall to crumble').toBeGreaterThanOrEqual(2);
+  expect(state.objective.stairOpen, 'the stair opened with the King standing').toBe(false);
+  const xpBefore = state.experience.total;
+  // Real strikes fell him, as in the Captain's: a stance beside him each time, the strike key, and let it land.
+  for (let swing = 0; swing < 60 && state.boss; swing++) {
+    expect(state.mode, `the knight died on the way to the King\n${await game.report()}`).toBe('playing');
+    const k = kingOf(state), stance = strikeStance(floor, { x: k.x, z: k.z });
+    await game.configureCombat({ health: state.maxHealth });
+    await game.teleport(stance.x, stance.z);
+    await game.step(16);
+    await strike(page, stance.key);
+    await game.step(240);
+    state = await game.state();
+  }
+  expect(state.boss, 'a real strike never felled the King').toBeNull();
+  expect(state.enemies.filter((e) => e.room === state.floor.goal), 'something he called was left standing or buried in the stair hall').toHaveLength(0);
+  expect([state.objective.stairClear, state.objective.stairOpen], 'his fall did not open the stair').toEqual([true, true]);
+  await expect(page.locator('.boss-bar'), 'the boss bar outlived the boss').toBeHidden();
+  expect(state.experience.total - xpBefore, 'the King paid something other than a boss\'s reward, or his crumbled reserve paid').toBe(state.experience.perBoss);
+  // The stair is the win: the floor card first (the King the one body of his hall), then the card of the run.
+  await game.teleport(state.stair.x, state.stair.z);
+  await game.step(64);
+  await page.keyboard.press('KeyE');
+  await game.step(32);
+  expect((await game.state()).mode).toBe('complete');
+  expect(Number((await page.locator('.floor-results strong').allInnerTexts())[0]), 'the floor card did not count the King as felled').toBe(1);
+  await page.locator('.success-screen button').click();
+  await game.built();
+  await game.step(16);
+  expect((await game.state()).mode, 'the stair of the last floor did not win the run').toBe('won');
+  await expect(page.getByText('THE KEEP IS BEHIND YOU')).toBeVisible();
 });
 
 test.describe('on a phone', () => {

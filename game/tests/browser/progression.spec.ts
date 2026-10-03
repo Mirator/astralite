@@ -89,7 +89,8 @@ const fightStair = async (
     if (state.mode !== 'playing') return state;
     const targets = stairEnemies(state);
     if (!targets.length) return state;
-    const target = [...targets].sort((a, b) => a.hp - b.hp)[0];
+    // The boss first: the Bone King's rattlers stand up again as fast as they are cut down, so the lowest vitality on the stair is never the one that ends it.
+    const target = targets.find((enemy) => enemy.kind === state.boss?.kind) ?? [...targets].sort((a, b) => a.hp - b.hp)[0];
     await strikeOnce(game, page, floor, { x: target.x, z: target.z });
   }
   throw new Error(`could not clear the stair\n${await game.report()}`);
@@ -126,7 +127,8 @@ test('killing the stair boss ends a floor, freezes it, and waits for a real Cont
 
     const before = await game.state();
     const bosses = stairEnemies(before);
-    expect(bosses.map((enemy) => enemy.kind), 'the stair hall holds more than its boss').toEqual(['captain']);
+    // Floor one's boss is the page's (`?boss=captain`); the last floor's is always the Bone King (plan 021 Stage E), who has his reserve buried under him and nobody else standing.
+    expect(bosses.map((enemy) => enemy.kind), 'the stair hall holds more than its boss').toEqual([level === 3 ? 'king' : 'captain']);
     const xpBefore = before.experience.total;
 
     // The boss's fall opens the stair but ends nothing: the results wait for the knight to take it.
