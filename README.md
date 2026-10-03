@@ -4,7 +4,7 @@ An isometric browser dungeon crawler. Every run generates a fresh drowned
 fortress: three floors, each 10–25 freely-branching rooms of six footprint
 types, each its own island joined to the next by a door that opens once the
 chamber is clear (there are no corridors or bridges), populated with guards,
-stalkers and wardens to cut down.
+stalkers and wardens to cut down, and ended by a boss at the stair of each floor.
 
 Built with React 19 RSC on [vinext](https://www.npmjs.com/package/vinext)
 (Vite), rendered with Three.js, styled with Tailwind CSS v4.

@@ -4790,3 +4790,128 @@ blow is the frame to press on, and the test now takes it from a fight run withou
   telling apart harder (an outline for the mark) after a playtest.
 - The Hound's and Bastion's fights were run in the sim and in the arena, not on a generated floor: the stair-gating scenario (`boss.spec`, "it bars the stair") is the Captain's, on a pinned floor, and `?boss=` puts any of the three there; a scenario per boss was not written.
 - The `balance:check` stuck run (meta-max, seed 182138) is a sim artifact and is not fixed; a hysteresis in the sim's pursuit would, and so would the same for `pursuitStep` if a body ever stood still on a boundary in the game (nothing suggests it does).
+
+## 2026-10-03 - Plan 021 Stage E, Stage F and Stage G: the Bone King, the tuning against D9, and the documents
+
+Branch `claude/beautiful-gauss-5o0cw4`, draft PR #87. Floor three now deals the Bone King, always; the bosses are tuned (HP and damage only, D7) against D9 with a new `npm run balance:bosses`. **D9 is met for the default and weak knights and not for
+weak-meta-max, which no HP and damage setting can reach at the same time as the weak knight's band (below). No stop rule tripped** (no boss is more than 53% of the boss deaths; pool fairness is met, trivially, which is said below; no move list or timing was changed).
+Nothing in Stage H (the playtest) is done.
+
+### Stage E: what was built
+
+- `app/dungeon-bestiary.ts`: the `king` row (`boss: 'final'`, `FINAL_BOSS`, scale 1.8, steadfast, phases `[.6, .25]`, `title` "The Bone King", notices "The Bone King rises" and "The Bone King calls the dead"). Phase one: summon (tell 1.2, raises two), swing (.8, reach 3.2),
+  volley (.8, one bolt, lane 8 x 1.3). Below 60%: summon, swing, volley, sweep (1.0, reach 3.4), pounce (.7, a 5 x 2.2 lane). Below 25%: summon, swing, summon, volley, summon, sweep, summon, pounce: a summon on every second move, one rattler a call (the phase's tells are a little shorter).
+  `reserveSize(kind)`: an ordinary caller's `summons.count`; a boss's the most any one phase's round can raise (each summon move's `perTell` summed over the rotation, worst phase): the King's is four (2, 2 and 4), which is also what stands in his chamber. `buryReserves` buries `reserveSize`.
+  The row's `summons.count` (2) is not read for a boss. `FINAL_BOSS` is `king`; the Captain is a pool boss only.
+- `app/dungeon-floor.ts`: `buryReserves` through `reserveSize`; floor three's default boss is `FINAL_BOSS`. `app/dungeon-game.tsx`: `raise` takes the summon move's own `perTell` (the sim already did). `scripts/balance/sim.ts`: `simulateLevel` takes an optional laid floor.
+- The figure (`dungeon-skeleton.ts`): the bonecaller's skeleton crowned and grown huge: a brass crown of seven uneven spikes, a mantle of royal violet over the shoulders, a cloak that falls to the floor behind, bone spikes off the shoulders, a brass chain across the chest, a gold sceptre (a haft, a bone skull with brass horns and the caller's light in its eye).
+  Palette ivory bone, dark iron, bright brass, violet cloth, violet eyes; cutaway window 1.2 x 1.95; cause label "Struck down by the Bone King". Judged on `npm run figures` (eight facings, SwiftShader): it reads as a crowned thing in purple and gold from every side. Not judged on a GPU, not by an operator.
+
+### Stage E: the frame numbers (SwiftShader, 2026-10-03)
+
+| scene | calls | triangles | under 508 |
+| --- | --- | --- | --- |
+| King, seed 0x86 floor three (a 45-tile crypt), his whole reserve (four rattlers) standing, framed 5.5 from him | 427 | 267,984 | 81 |
+| Captain, seed 33 floor two (a 45-tile crypt), alone | 273 | 212,078 | 235 |
+
+The King's reserve is stood up by the King himself in the running game (one blow from death he is in his last phase, held on his spot at 7.6 to 8.8 from the knight, where summoning is all he does) and the frame is drawn once the held rattlers have stopped walking. A first version drew after a fixed
+400 ms and read 268,008 to 268,012 locally and 268,028 on CI: the rattlers were still walking and every mesh is culled by where it stands. Settled, four runs in a row read 427 / 267,984 (the cause is written beside the ceiling). Stage 0's six standing fit at 491 and seven do not; four stand here, and
+`dungeon-king.test.ts` holds the reserve to six at most. The Captain's number moved from floor three's crypt (320 / 246,034) because floor three is the King's now.
+
+### Stage E: planted bugs
+
+Each planted, run against its own test only, watched failing on its own message, restored.
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| reserve sized from the move list (node) | bury `summons.count` | `seed 3: the floor buried 2 rattlers under the King, not the 4 his worst phase raises` |
+| the same | size from phase one only | `the reserve is not the worst phase's round` (2 !== 4) |
+| a summon on every second move below 25% (node) | the last phase's second summon replaced by a swing (every third move) | `move 2 was a swing: a summon belongs on every second move, starting with the first` |
+| the fall crumbles what he called (node) and the sim fells him | `fallOf` crumbles nothing | `his fall did not crumble every body he called`; in the sim `the floor hit its timeout: something he called was left to hold the stair shut` |
+| the King is wired (browser) | `raise` ignores the move's `perTell` | `a summon of the last phase did not stand up exactly its own 1` (received [2, 0]) |
+| the King's fall and the win (browser) | the crumble loop in `fell` skipped | `something he called was left standing or buried in the stair hall` (four left) |
+| the King's chamber | sixty extra crown spikes | `king-chamber pushes more triangles than the budget allows` (268,976 against 268,012) |
+
+Two things the plants and CI taught: three floor-three specs assumed the Captain (CI found them: the frame scene, `progression.spec` which now expects the King and fells the boss first because his rattlers stand up as fast as they are cut down, and `dealt-kinds.spec`, whose `buried()` counted every buried body on the
+floor and now counts the caller's own by spawn index). The weak knight's floor-three seed in `balance-sim.test.ts` was re-picked more than once as the bosses changed (158381, then 8; floor two 207, then 11), and its boon-draft independence test now compares the cards both knights were dealt.
+
+### Stage F: the tool
+
+`npm run balance:bosses` (`scripts/balance/bosses.ts`, tests in `tests/balance-bosses.test.ts`, 6, each planted): the per-boss duels (`simulateArena`, a fresh knight, 30 seeds per boss per floor for the default and weak knights: death rate, median boss seconds, boss damage, the reserve's damage, vitality left when it fell,
+phase changes), D9's pool fairness read off them (the fewest deaths floored at one, since one death in thirty is luck), and D9's whole-run table (the default, weak and weak-meta-max knights on `bands.json`'s 30 runs: escape, deaths to a boss, boss fight seconds, per boss deaths and fights, and the 70% stop rule). `--duels`, `--runs`, `--seeds`, `--json`.
+Planted: the fewest not floored (`two deaths against none is one lucky pair at thirty duels, not a boss twice as deadly: the fewest is floored at one`), the default rows counted (`the default knight's deaths, another floor's, or the last floor's boss were counted`), the policy ignored (`the weak knight lost 0% of the
+Captain's duels and the default one 0%: the duel is not reading the policy it was given`), the King left out of the fought floors, and the weak band widened in the targets.
+
+### Stage F: the tuning, step by step
+
+Before (D7's hypothesis, Captain 60, Mother 50, Hound 45, Bastion 70, King 80 vitality; floor three dealing the King; `balance:check` on the tree after Stage E): default escape 100, weak 96.7, weak-meta-max 100, special-crossbow 76.7; every bot duel 5 to 12 s (default knight, floor one: Captain 9.0, Mother 6.5, Hound 7.3, Bastion 11.3, King 11.2 s on floor three), no
+bot died in a duel; the only band the Stage E tree left was the weak knight's floor-three vitality (max 92, measured 100). Every row below is `balance:bosses` machinery run on 30 runs from seed 1 (the runs `balance:check` plays) with HP and damage multipliers applied to the live bestiary by a throwaway script; the order is the order run. h is the HP multiple of D7's number and d the damage multiple;
+default / weak / weak-meta-max escape in percent, default fight median seconds, and whom the default knight's deaths were:
+
+| step | h (Captain, Mother, Hound, Bastion, King) | d (same order) | default | weak | weak-meta-max | default fight s | default deaths |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| x1 | 3.5 all | .6 all | 100 | 60.0 | 100 | 20.7 | none |
+| x2 | 4.85, 4.3, 5.8, 3.4, 6.3 | 1.0 all | 53.3 | 3.3 | 63.3 | 29.7 | Mother 7, Captain 6, Bastion 1 |
+| x3 | same | .8 all | 70.0 | 3.3 | 86.7 | 30.0 | Mother 5, Captain 4 |
+| x4 | same | .6 all | 93.3 | 26.7 | 100 | 30.8 | Mother 1, Captain 1 |
+| x5 | same | .5, .75, .65, .7, .7 | 83.3 | 16.7 | 100 | 30.3 | Mother 5 |
+| x6 | same | .5, .75, .5, .55, .6 | 83.3 | 33.3 | 100 | 30.3 | Mother 5 |
+| f1 | the integer numbers (290, 215, 260, 240, 500) | x6's, rounded to integer damage | 90.0 | 40.0 | 100 | 30.4 | Mother 3 |
+| **f2 (shipped)** | 290, 215, 260, 240, 500 | Mother x.8, the others as x6 | **80.0** | **33.3** | 100 | 30.3 | Mother 6 |
+
+The h column came from step x1's per-boss default fight seconds (23.8, 26.6, 20.0, 34.1, 18.2 against D9's 25 to 60 s): HP scaled to about 33 s each, which is 4 to 6 times D7's numbers. The d column is the dial that moves the escape rates, per boss, because the bosses differ in who they kill: the default knight (dodges 80% of what it reads) dies only to the Captain and the Pyre Mother
+and almost never to the Hound, the Bastion or the King, while the weak knight (never dodges) dies to the Captain, the Hound and the Bastion most and to the Mother least. So the Captain, the Hound and the Bastion were turned down and the Mother up. **Shipped numbers** (`app/dungeon-bestiary.ts`): Captain 290 vitality, blows 12, 12, 10 / 12, 10, 10; Mother 215, fan bolts
+10 (8 below half), sweep 13, fire 6 a bite; Hound 260, pounces 9, swings 8; Bastion 240, swings 11, sweeps 9, charge 12; Bone King 500, swing 13, bolt 8, sweep 11, pounce 12. On floors two and three the usual extra blade of vitality (+4) and +15% damage a floor apply as before. Moves, tells and reaches
+are untouched. Duel by floor-one default knight, shipped: Captain 33.1 s and 44% vitality left, Mother 32.8 s (87% of duels lost), Hound 33.0 s and 82%, Bastion 33.4 s and 64%, King 57.5 s (30% lost).
+
+### Stage F: D9, met or not met (`npm run balance:bosses`, the shipped numbers)
+
+| target | measured | |
+| --- | --- | --- |
+| default escape 75 to 90 | 80.0 | met |
+| default: at least half its deaths to a boss | 100% (6 of 6, all the Pyre Mother's) | met, and see below |
+| default boss fights 25 to 60 s | median 30.3 (Captain 31.5, Mother 26.1, Hound 32.4, Bastion 24.5, King 30.3) | met |
+| weak escape 30 to 55 | 33.3 | met (the edge of the band: one run is 3.3 points) |
+| weak-meta-max escape 55 to 80 | 100.0 | **not met**, and cannot be with the weak knight's band, below |
+| pool fairness: no pool boss kills the weak knight more than twice as often as another, per floor | floor one 30 / 30 / 30 / 30 deaths of 30, floor two 30 / 24 / 30 / 30 | met, vacuously (below) |
+
+Per-boss, whole runs (30 runs from seed 1, boss floors met / deaths / median fight seconds): default Captain 14 / 0 / 31.5, Mother 16 / 6 / 26.1, Hound 11 / 0 / 32.4, Bastion 15 / 0 / 24.5, King 24 / 0 / 30.3; weak Captain 13 / 4 / 26.6, Mother 14 / 4 / 18.8, Hound 9 / 1 / 19.2, Bastion 15 / 4 / 14.4, King 16 / 1 / 27.2 (and one death to the King's rattlers),
+the other weak deaths warden 4 and stalker 3; weak-meta-max every boss, no deaths. The Pyre Mother accounts for 10 of 20 boss deaths over the three policies (50%): the 70% stop rule is not tripped.
+
+**Where D9 does not hold together, so the report is exact:**
+1. **weak-meta-max cannot reach 55 to 80 while the weak knight is 30 to 55.** The knight with every upgrade bought is far stronger than the weak one at every setting of the dials, because Deep Lungs, Whetted Start and above all Second Tide (it survives the first lethal blow) shift the whole cliff. The (weak, weak-meta-max) escape pairs of every run above: (60, 100) x1, (3.3, 63.3) x2, (3.3, 86.7) x3,
+   (26.7, 100) x4, (16.7, 100) x5, (33.3, 100) x6, (40, 100) f1, (33.3, 100) shipped. The weak-meta-max knight is inside 55 to 80 only where the weak knight escapes 3.3%, and the weak knight is inside 30 to 55 only where the weak-meta-max one escapes 100. A bot with Second Tide needs two lethal events in one run, the weak one only one. Meeting both would need a
+   different dial (the upgrades' size, or the weak bot), which D7 puts out of this stage; this is for the operator.
+2. **Pool fairness is met only because the fresh-knight duel cannot tell the pool bosses apart.** The weak knight in the arena (100 vitality, no boons, no earlier chambers) loses 100% of its duels to every pool boss at the shipped numbers (floor two's Mother 80%): the duel's outcome is a cliff, 0% below a boss's critical damage and 100% above it (a sweep of d at fixed HP: Captain
+   0% / 0% at d .3, 0% / 100% at .4, 100% at .5; Mother 0% to .5, 67 to 80% at .6 and .7; Hound and Bastion likewise). So fairness holds as a ratio of equal numbers. What differs between the bosses is the run table above (the weak knight with its boons and top-ups dies 1 to 4 times in 9 to 15 floors), where Hound 1 of 9 against Captain, Mother and Bastion 4 each is
+   within the twofold rule's spirit but not measured by it. A fairer instrument would be a duel that starts from a run's typical vitality and boons; it was not built.
+3. **All six of the default knight's deaths are the Pyre Mother's.** That meets D9 (at least half to a boss) and the 70% rule over all three policies, but the default knight's deaths do not spread: it reads and dodges every tell of the other four, and a fan plus fire is what it cannot dodge. The Captain at d .6 or more would share it, at the cost of the weak knight leaving its band (x4: weak 26.7).
+4. **The special-crossbow knight falls to 3.3% escape.** Bosses of 215 to 500 vitality cannot be killed by the Keep Crossbow's limited quiver (the knight fights from range); that is a consequence of D9's fight length and of D7's rule that only HP and damage move, reported and not fixed; its bands are widened to hold it (`bands.json` note). The cleaver (83.3) and flask moved less.
+5. **The bots' damage is now low per blow** (a Captain swing of 12 against an ordinary warden's 20) and the boss fights are long (290 vitality is about 70 starting-blade hits). That is what the bot numbers asked for and says nothing about how it feels to a person; Stage H re-decides D4, D7 and D9.
+
+`balance:check` on the shipped tree: every metric inside its band (623.5 s). `bands.json`: `measured` re-taken in full and a note appended; bands moved only where a measurement left them (default escape min 85 to 75 and floor-one death max 10 to 20; the weak knight's escape min 75 to 25, its three death maxima and its floor one and two vitality minima;
+special-cleaver escape min 85 to 75; special-crossbow, nearly all; special-flask floor-three vitality min 80 to 60; meta-max run length max 170 to 220; weak-meta-max floor one and two vitality minima and run length max 140 to 190). The edit was made as text on the lines that moved (70 lines of the diff), not through a JSON serializer.
+
+### D6 (plan 019's price arithmetic with D10's ten pearls a boss), reported, no price changed
+
+`PRICE_TOTAL` is 900 (`app/dungeon-meta.ts`), set for twenty runs at the assumption of about 45 pearls a human run, weighted 40 / 40 / 15 / 5 over a death on floor one / floor two / floor three / an escape (10, 46, 89 and 146 pearls). A boss pays 10 and a run that dies at floor f has felled f - 1: 0, 10, 20 and 30 more
+for the four outcomes, so the weighted human run earns about 43 + 8.5 = **51.5**, and 900 / 51.5 is **17.5 runs** (it was 20.9 at 43). The bots, measured on the shipped tree (30 runs each): the default knight earns 143.9 a run with the boss pearls and 119.2 without (6.3 runs to 900 against 7.6), the weak knight 94.1 and 78.4 (9.6 against 11.5): the boss pearls are 20 to 21% of a run's pay, as D10
+guessed ("about 20%"). **D6's "about twenty runs" becomes about seventeen** at the human assumption, 15% faster; that is inside "about", so D6 still holds and nothing needs repricing, but the assumption is a guess and the operator's playtest log is the number that matters. If the dying moves to the later floors (the bosses end runs), a death pays more and a run is longer, so seventeen
+is probably a little low.
+
+### Stage G: the documents
+
+`GAME_OVERVIEW.md` (the boss at the end of each floor, the boss bar and its rules, the five bosses, the boss pearls, the stair hall), `README.md` (one line), `game/tests/README.md` (the King, the reserve, the new specs and `balance:bosses`), the header of `app/dungeon-bestiary.ts` (how to add a boss: moves, phases, the pool, reserve sizing, the figure,
+the fit, tuning, `?boss=`), the `plans/README.md` row, the plan's Evidence for Stages E and F.
+
+### Gates
+
+`npm run typecheck`, `npm run lint` clean; `npm test` 451 of 451; `balance:check` green on the shipped tree. Browser specs run locally with `GAME_TEST_WORKERS=2`: `boss` (all 11, including the King's two), `frame-budget` (the King and the Captain, `--repeat-each=4` on the King), `progression`, `dealt-kinds`, `arena-kinds`, `bench`, `models`, `polish` and the special slam. The full browser suite was not run locally
+(the operator's speed rule): CI on #87 is the gate.
+
+### Not done / not verified
+
+- Stage H (the operator's playtest on a real GPU) is untouched, and so is everything the bot numbers cannot see: whether a 290-vitality Captain with 12-damage blows is a good fight, whether the King's reserve and phases read, whether the King's figure reads on a GPU.
+- weak-meta-max (D9) is not met; the fairness check is met only trivially (items 1 and 2 above); the crossbow special is shut out of the bosses (item 4). The three hard bands that moved (default, weak and weak-meta-max) are the operator's to re-decide after the playtest.
+- The sim's King: the bot goes for the King first (a caller is the target before anything nearer) and has no dodge rule of its own for a summon. The reserve's damage to the weak knight in a duel is 49 to 56 of its 100.
+- The pearls arithmetic above rests on a human-earnings guess; no human run log exists.

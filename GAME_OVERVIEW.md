@@ -18,7 +18,7 @@ The experience is designed around a simple promise: **explore, fight, grow stron
 4. Choose a door with the swap key. Each door shows what waits behind it (a fight, a shrine, a mending, or a purse of experience), and every door leads one layer closer to the stair.
 5. Earn experience from enemies and from purse chambers, and recover vitality from cleared chambers, and more from mending chambers.
 6. Rank up and choose boons that improve the current run.
-7. Defeat the wardens guarding the exit. Their fall unseals the stair; stand on it and take it with the swap key to review the floor results and descend.
+7. Defeat the **boss** that guards the exit. It stands alone in the stair hall, with a health bar at the top of the screen while it fights; its fall unseals the stair. Stand on it and take it with the swap key to review the floor results and descend.
 8. Escape after three floors—or fall. Either way the run pays out pearls, and the result card has one button, **Return to the Altar**, which carries you back to the hall to spend them, choose an arm and go down again. There is no instant retry: every attempt leaves from the hall.
 
 ## The Drowned Keep
@@ -33,7 +33,7 @@ Rooms are assigned encounter identities so exploration changes the immediate pla
 - **Ambush rooms** wake hidden enemies after entry.
 - **Gauntlets** place timed ember hazards across the arena.
 - **Sanctuaries** contain a one-use healing shrine.
-- **Warden chambers** block progress until their defenders fall.
+- **The stair hall** holds a boss and nobody else, and blocks the stair until it falls.
 
 ## Combat and movement
 
@@ -49,13 +49,21 @@ Enemy behavior is meant to be learned at a glance:
 - **Pyres** are frail, and the danger is where they die: the fire they leave bites anyone standing in it (from floor two).
 - **Bonecallers** never strike; they hold back and call up rattlers, which stand up again as fast as they are cut down while the caller lives. Reach the caller, and everything it called falls with it (from floor three).
 
+Every stair hall holds one **boss**: a huge figure with several moves, each telegraphed on the floor as the ordinary kinds are, whose moves change as it is hurt. Crossing a threshold ends whatever it was winding up, holds it still and untouchable for a second while a ring plays at its feet, and throws the knight clear of its reach; a notice names the change. While a boss is awake and alive a **boss bar** stands at the top of the screen with its name, its vitality and a tick at each threshold, and goes the moment it falls. Felling one pays 100 experience and 10 pearls. Floors one and two each deal a boss from a pool of four, never the same one twice in a run; floor three always deals the Bone King.
+
+- **The Drowned Captain**, a huge warden: two heavy swings and a sweep that takes everything round it; below half it adds a pounce across the room.
+- **The Pyre Mother** holds off at range: a fan of bolts, and a scatter that marks rings on the floor where the knight has been and lights them as fire. Below half the fan is wider, she adds a close sweep and scatters twice running.
+- **The Tide Hound**, a stalker grown huge: long pounces and a swing; below half its tells shorten and its pounces come two at a time, the second beginning the instant the first ends.
+- **The Bastion** holds a tower shield square to the front except while it winds up or recovers, behind swings and a sweep; below half the shield breaks and a charge joins them.
+- **The Bone King** summons, swings and looses a bolt; below 60% a sweep and a pounce join them, and below 25% he summons on every second move. His rattlers are buried at his feet from the start (the most his worst phase can raise), stand up when he calls them and go back into the ground when cut down while he lives. Felling him crumbles everything he called, standing or buried, and opens the last stair: that is the win.
+
 Enemy windups use visible cues, attacks require a clear path, and bodies keep enough separation to remain readable in groups. Damage briefly grants invulnerability, while hazards track their own flare cycle so overlapping threats remain consistent.
 
 ## Progression
 
 Experience belongs to the current descent and resets when a new run begins. Defeated enemies and chambers that pay a purse of experience advance the player’s rank. Each rank offers a choice of boons, including improvements to strike strength, reach, dash distance, healing on kills, maximum vitality, and damage resistance.
 
-What survives a descent is **pearls**. Every run, won or lost, banks pearls when it ends: one for each enemy felled (a bonecaller’s rattlers do not count), 15 for each floor left behind, and 25 for escaping, so even a death on the first floor pays a handful. Pearls are shown only at the altar and on the result card, never on the playfield. The result card’s **Return to the Altar** button leads to the hall, where the **Tide Altar** is the one place pearls are spent (walk to it and press the swap key; the shop holds the world still while it is open): it unlocks the six arms beyond the Tideblade, in any order, and sells four small upgrades (Deep Lungs, Whetted Start, Keen Eye and Second Tide, which sets the knight back on his feet once a descent when a blow would kill him). Unlocking an arm does not equip it; the arm is chosen on the racks of the hall before a descent, and settled when you take the way down. Everything together costs 900 pearls, about twenty typical runs, and the first two runs are enough for the cheapest arm and the first rank of Deep Lungs. The upgrades are small on purpose (Whetted Start is a quarter of a blade’s bite), because the keep is already easy for the balance bots: with every upgrade bought even the bot that never dodges escapes every run, so a difficulty pass comes next.
+What survives a descent is **pearls**. Every run, won or lost, banks pearls when it ends: one for each enemy felled (a bonecaller’s rattlers do not count), 10 more for each boss, 15 for each floor left behind, and 25 for escaping, so even a death on the first floor pays a handful. Pearls are shown only at the altar and on the result card, never on the playfield. The result card’s **Return to the Altar** button leads to the hall, where the **Tide Altar** is the one place pearls are spent (walk to it and press the swap key; the shop holds the world still while it is open): it unlocks the six arms beyond the Tideblade, in any order, and sells four small upgrades (Deep Lungs, Whetted Start, Keen Eye and Second Tide, which sets the knight back on his feet once a descent when a blow would kill him). Unlocking an arm does not equip it; the arm is chosen on the racks of the hall before a descent, and settled when you take the way down. Everything together costs 900 pearls, about twenty typical runs (about seventeen with the boss pearls), and the first two runs are enough for the cheapest arm and the first rank of Deep Lungs. The upgrades are small on purpose (Whetted Start is a quarter of a blade’s bite), because the keep is easy for the balance bots once the shop is bought: the bosses now end one run in five for the bot that dodges and two in three for the bot that never does, but with every upgrade bought even that bot still escapes every run, so a difficulty pass comes next.
 
 The game keeps **three save slots**. Choosing ENTER THE KEEP on the title opens a slot picker: three cards, each showing the pearls, the deepest floor, the runs logged and the arms owned in that slot (or “Empty”), each with an Erase that takes two presses. Every slot keeps its own pearls, purchases, arms, deepest descent and run log; settings and key bindings are shared by the device, and a save from before slots arrives in slot 1 on the first visit. In the hall, the pause menu has **Leave to Title**, which returns to the picker; mid-run the pause menu has no way out of the run, which ends on its card.
 
@@ -63,7 +71,7 @@ The game remembers, per slot, the deepest descent, the seed of the current keep,
 
 ## Player experience
 
-The permanent HUD stays intentionally minimal: vitality, the strike, special and dash icons (the special and the dash each with a cooldown sweep), and progress toward the next boon. In the hall, where the knight is not at risk, vitality and rank are not shown. Controls, journey statistics, settings, and the expanded floor map live in menus instead of competing with the playfield. Short room notices communicate meaningful events without turning objectives into a persistent overlay.
+The permanent HUD stays intentionally minimal (the boss bar is not part of it: it exists only while a boss fights): vitality, the strike, special and dash icons (the special and the dash each with a cooldown sweep), and progress toward the next boon. In the hall, where the knight is not at risk, vitality and rank are not shown. Controls, journey statistics, settings, and the expanded floor map live in menus instead of competing with the playfield. Short room notices communicate meaningful events without turning objectives into a persistent overlay.
 
 Keyboard and touch are first-class inputs. Keyboard bindings can be remapped, and touch supports either a continuous thumbstick or labelled direction buttons alongside separate dash, special, and strike controls. Volume, mute, fullscreen, and reduced-motion settings are saved locally. Reduced motion removes camera shake and animated hurt pulsing while preserving combat timing.
 
@@ -81,6 +89,6 @@ The project’s established principles are:
 
 ## Current form
 
-Astralite is a single-player browser game built with React, Three.js, and TypeScript. Its current playable scope includes procedural three-floor runs of sealed chambers joined by reward doors, arm-based combat with a strike, a special, and a dodge, three save slots, seven arms (six of them unlocked with pearls and chosen on the racks of the Tide Altar's hall), a pearl economy and the Tide Altar, a hall of its own that turns lost runs into upgrades and every attempt's starting point, a bestiary of guards, stalkers, wardens, archers, shieldbearers, pyres, and bonecallers, multiple encounter types, hazards and shrines, run-specific boons, floor results, persistence of the best run, history and purchases, keyboard and multitouch controls, accessibility settings, audio, and deterministic test hooks used for automated playthroughs.
+Astralite is a single-player browser game built with React, Three.js, and TypeScript. Its current playable scope includes procedural three-floor runs of sealed chambers joined by reward doors, arm-based combat with a strike, a special, and a dodge, three save slots, seven arms (six of them unlocked with pearls and chosen on the racks of the Tide Altar's hall), a pearl economy and the Tide Altar, a hall of its own that turns lost runs into upgrades and every attempt's starting point, a bestiary of guards, stalkers, wardens, archers, shieldbearers, pyres, and bonecallers, five bosses that guard the stair of each floor, multiple encounter types, hazards and shrines, run-specific boons, floor results, persistence of the best run, history and purchases, keyboard and multitouch controls, accessibility settings, audio, and deterministic test hooks used for automated playthroughs.
 
 The reference image points toward the broader fantasy: an immediately readable adventure through varied, beautifully lit ruins where every new route feels like another story hidden beneath the waterline.
