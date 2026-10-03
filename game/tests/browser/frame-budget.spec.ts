@@ -9,9 +9,12 @@ import {
   openSpot,
   roomCentre,
   settleBoss,
+  stanceNear,
   strikeStance,
+  swing,
   test,
   TILE,
+  until,
   WARM_UP,
 } from './helpers.ts';
 import { reserveSize } from '../../app/dungeon-bestiary.ts';
@@ -124,6 +127,11 @@ const BUDGET = {
   'hound-chamber': { calls: 253, triangles: 210_696 },
   // The Bastion: 273 calls, 212,962 triangles, 235 under the 508 above. Every pool boss's chamber is under it, with 191 to 255 to spare (Mother 217, Hound 255, Bastion 235, the Captain 235 in the same crypt; the King with his reserve 80).
   'bastion-chamber': { calls: 273, triangles: 212_962 },
+  // Plan 022 Stage B: the biggest chamber the waves deal (floor three, seed 0x2's hall of ten bodies in waves of 3, 3 and 4), its last wave standing. A dormant wave to come draws nothing (Stage 0: 1, 5 and 9 dormant bodies all drew 201 calls,
+  // 209,882 triangles, 56 shadow calls) but a corpse stays drawn and costs a standing body's calls (about 35 a body): with the six dead of the first two waves left in frame this scene read 586 calls / 294,968 triangles, 78 over the 508 above, so the
+  // floor takes the dead of the waves before back as the next wave is rung (`corpseSink`: they sink into the paving over the rings' 0.9 s and are no longer drawn), and the frame is the four standing bodies of the last wave with six corpses lying undrawn.
+  // Measured 2026-10-03 on SwiftShader, twice: 440 calls (68 under 508) and 255,930 / 255,942 triangles, 153 geometries, 28 textures. Each ceiling is the figure measured (the higher of the two for triangles); the scene fails below 60% of the calls.
+  'wave-chamber': { calls: 440, triangles: 255_942 },
 } as const;
 
 /** Draws the staged frame, then holds its counters against the ceiling. */
@@ -488,5 +496,49 @@ test.describe('the full post chain', () => {
     // The scene is drawn into the composer's own targets, so the canvas only ever receives the last
     // full-screen pass: a multisampled one bought a resolve per frame and not one smoothed edge.
     expect(frame.antialias).toBe(false);
+  });
+});
+
+// Plan 022 Stage B: the heaviest chamber the waves deal. D2 caps a wave at five bodies and a chamber at ten, and Stage 0 measured that a dormant body costs nothing (the wave to come is not drawn), but a dead one stays in the scene as a corpse until the floor takes it back (when the next wave is rung). So the worst frame is the last wave of the biggest chamber standing: floor three, seed 0x2's room 9, a hall of
+// ten bodies in three waves (3, 3 and 4 with a warden at the head of the first and the last). The first two waves are felled with real blows, the third is called by the chamber itself (rings, then bodies), and the frame is drawn with the
+// whole of it in view, the third wave held quiet. The dead of the first two have been taken back by the floor when the third was rung.
+test.describe('the biggest chamber the waves deal, at its last wave', () => {
+  test.use({ waves: null, seeds: [0x1, 0x2] });
+  test('a floor-three hall of ten bodies, the last wave standing over the two before it, stays inside its budget', async ({ game, page }) => {
+    test.slow();
+    await game.enter();
+    await game.buildFloor(3);
+    await game.step(0);
+    const floor = await game.floor(), opening = await game.state();
+    expect(floor.seed, 'the page was not handed the seed this scenario is staged on: pick another seed').toBe(0x2);
+    const bodies = (state: typeof opening, room: number, wave: number) => state.enemies.map((e, index) => ({ e, index })).filter(({ e }) => e.room === room && e.wave === wave && !e.buried);
+    const room = floor.rooms.find((r) => [1, 2, 3].map((wave) => bodies(opening, r.id, wave).length).join() === '3,3,4');
+    expect(room, 'seed 0x2 floor three no longer holds a chamber of three waves of 3, 3 and 4: pick another seed').toBeDefined();
+    const waves = [1, 2, 3].map((wave) => bodies(opening, room!.id, wave));
+    await game.teleport(room!.entry.x * TILE, room!.entry.z * TILE);
+    await game.step(200);
+    const stance = stanceNear(floor, { x: room!.x * TILE, z: room!.z * TILE }, 5, 4);
+    await game.teleport(stance.x, stance.z);
+    await game.step(50);
+    const stage = async (wave: typeof waves[number], extra: { cooldown: number; windup: number }) =>
+      game.configureCombat({ health: opening.maxHealth, enemies: wave.map(({ index }, i) => ({ index, x: stance.slots[i].x, z: stance.slots[i].z, hp: 1, ...extra, aim: { x: -stance.facing.x, z: -stance.facing.z } })) });
+    for (const [n, wave] of [[1, waves[0]], [2, waves[1]]] as const) {
+      await stage(wave, { cooldown: 30, windup: 0.3 });
+      await game.step(16);
+      await swing(page, stance.key);
+      await game.step(220);
+      expect((await game.state()).enemies.filter((e) => e.room === room!.id && !e.buried && e.wave <= n && e.awake), `wave ${n} survived the blow`).toHaveLength(0);
+      await until(game, `wave ${n + 1} standing`, (s) => bodies(s, room!.id, n + 1).every(({ e }) => e.awake), 4000);
+    }
+    // The last wave stands and is held quiet; the two before it lie where they fell.
+    await stage(waves[2], { cooldown: 999, windup: 0 });
+    await game.step(400);
+    const state = await game.state();
+    expect(state.corpses, 'the two waves before lie dead: six corpses').toHaveLength(6);
+    expect(state.corpses.filter((c) => c.visible), 'a corpse of the waves before is still drawn: the floor takes them back as the next wave is rung').toHaveLength(0);
+    expect(bodies(state, room!.id, 3).every(({ e }) => e.awake && e.visible), 'the last wave is not all standing in view').toBe(true);
+    expect(state.enemies.filter((e) => e.room === room!.id && !e.buried), 'the chamber holds more than its last wave').toHaveLength(4);
+    expect(state.health, 'the knight fell before the frame was drawn').toBeGreaterThan(0);
+    await spend(game, 'wave-chamber');
   });
 });

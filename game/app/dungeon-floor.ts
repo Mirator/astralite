@@ -17,8 +17,9 @@ export type Room = { encounter: Encounter; id: number; x: number; z: number; hal
  */
 export type Door = { id: number; from: number; to: number; x: number; z: number; face: { x: number; z: number } };
 // `buried` bodies are a summoner's reserve (dungeon-arena.ts): hidden, inert and outside every count until
-// the spawn index `summoner` raises them.
-export type Spawn = { x: number; z: number; kind: EnemyKind; room: number; ambush: boolean; buried?: boolean; summoner?: number };
+// the spawn index `summoner` raises them. `wave` (plan 022, dungeon-waves.ts) is 2 or more on a body a chamber calls after the one before it has
+// fallen; absent means the first wave, which is every spawn `generateFloor` lays.
+export type Spawn = { x: number; z: number; kind: EnemyKind; room: number; ambush: boolean; buried?: boolean; summoner?: number; wave?: number };
 
 /**
  * The share of a pack each kind takes, in the order they are drawn; whatever is left over is guards.

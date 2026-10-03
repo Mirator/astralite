@@ -6,6 +6,7 @@ import { generateFloor } from '../app/dungeon-floor.ts';
 import type { EnemyKind } from '../app/dungeon-bestiary.ts';
 import { weaponById } from '../app/dungeon-weapon.ts';
 import { freshMeta, type Meta } from '../app/dungeon-meta.ts';
+import { SHRINE } from '../app/dungeon-sim.ts';
 import { hurledBlow } from '../app/dungeon-combat.ts';
 import { landBlow } from '../app/dungeon-hits.ts';
 import { asReaper, TEST_BOSS, TEST_SCATTERER } from './fixtures/test-boss.ts';
@@ -33,8 +34,9 @@ test('the boon draft is independent of how often the knight dodges', () => {
   // Both streams come off the seed, but through different generators. Sharing one would make the
   // dodge rate silently deal different cards, which is exactly the confound that made an early skill
   // sweep read backwards.
-  const bold = simulateRun(0x7c0de, policy({ dodge: 1 }));
-  const timid = simulateRun(0x7c0de, policy({ dodge: 0 }));
+  // Plan 022 moved the seed this was pinned on (0x7c0de): with waves the knight who never dodges dies on floor one there with two cards. 0x4242 deals both six.
+  const bold = simulateRun(0x4242, policy({ dodge: 1 }));
+  const timid = simulateRun(0x4242, policy({ dodge: 0 }));
   // A knight who dies early drafts fewer cards (the bosses of plan 021 kill the one who never dodges): the cards both were dealt must be the same ones.
   const shared = Math.min(bold.boons.length, timid.boons.length);
   assert.ok(shared >= 3, `precondition: both knights were dealt at least three cards (${bold.boons.length} and ${timid.boons.length}), so equal prefixes mean something`);
@@ -256,4 +258,41 @@ test('the rings a scatter marks become fire that bites the knight and bills the 
     for (const r of reports) assert.equal(r.damage.reaper, r.poolDamage.reaper, 'a scatterer dealt damage that was not fire');
     assert.equal(total(reports, r => r.bossDamage), total(reports, r => r.poolDamage.reaper), 'the fire was not billed to the boss');
   });
+});
+
+test('a sanctuary\'s shrine mends a hurt knight once, as the game does (plan 022 Stage 0)', () => {
+  // dungeon-game.tsx has always healed SHRINE the first frame the knight stands hurt within reach of an unused shrine; the sim did not, which is the parity gap this closes.
+  let mends = 0, whole = 0;
+  for (const seed of Array.from({ length: 30 }, (_, i) => 1 + i * 7919)) {
+    const run = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
+    for (const floor of run.floors) {
+      const sanctuaries = new Set(generateFloor(seed + floor.level - 1, floor.level).rooms.filter(room => room.id !== 0 && room.encounter === 'sanctuary').map(room => room.id));
+      assert.equal(new Set(floor.shrineMends.map(m => m.room)).size, floor.shrineMends.length, `seed ${seed} floor ${floor.level}: a shrine mended the knight twice`);
+      for (const mend of floor.shrineMends) {
+        assert.ok(sanctuaries.has(mend.room), `seed ${seed} floor ${floor.level}: a chamber that is no sanctuary mended the knight`);
+        assert.ok(mend.healed > 0 && mend.healed <= SHRINE, `seed ${seed} floor ${floor.level}: a shrine mended ${mend.healed}, and heals at most ${SHRINE}`); mends++; if (mend.healed === SHRINE) whole++;
+      }
+    }
+  }
+  assert.ok(mends >= 5 && whole >= 1, `precondition: only ${mends} shrine mends over 30 runs (${whole} of the full ${SHRINE}), so the shrine was barely exercised`);
+});
+
+test('the sim deals a floor its later waves, calls each only after the one before is down, and still clears the floor (plan 022 Stage B)', () => {
+  let seconds = 0, plainSeconds = 0, groups = 0, raised = 0, cleared = 0;
+  const seeds = [1, 2, 3, 4, 5, 6].map(i => i * 7919);
+  for (const seed of seeds) {
+    // The same floor with its first waves only (a floor a test lays itself is not dealt waves) and as the sim deals it.
+    const plain = simulateLevel(seed, 2, policy(), generateFloor(seed, 2)), waved = simulateLevel(seed, 2, policy());
+    assert.equal(plain.waveBodies.length, 0, 'a floor handed in was dealt waves');
+    assert.equal(plain.wavesRaised, 0);
+    groups += new Set(waved.waveBodies.map(b => `${b.room}:${b.wave}`)).size;
+    raised += waved.wavesRaised;
+    if (waved.outcome === 'cleared') cleared++;
+    assert.ok(waved.wavesRaised <= new Set(waved.waveBodies.map(b => `${b.room}:${b.wave}`)).size, `seed ${seed}: more waves stood than were dealt`);
+    assert.equal(waved.waveBodies.every(b => b.wave >= 2), true);
+    seconds += waved.seconds; plainSeconds += plain.seconds;
+  }
+  assert.ok(groups >= 12 && raised >= 6, `precondition: ${groups} waves were dealt over six floors and ${raised} stood, so the knight barely met one`);
+  assert.ok(cleared >= 4, `only ${cleared} of six floors were cleared with waves in them: the knight is stuck waiting for a wave that never stands`);
+  assert.ok(seconds > plainSeconds * 1.1, `six floors took ${seconds.toFixed(0)} s with waves and ${plainSeconds.toFixed(0)} s without: a wave should add fights, not nothing`);
 });
