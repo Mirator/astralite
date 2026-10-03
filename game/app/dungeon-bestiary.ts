@@ -480,3 +480,45 @@ export const reserveSize = (kind: EnemyKind): number => {
   if (!archetype.moves) return archetype.summons.count;
   return Math.max(0, ...archetype.moves.map(phase => phase.reduce((sum, move) => sum + (move.attack === 'summon' ? move.summon?.perTell ?? archetype.summons!.perTell : 0), 0)));
 };
+
+// Plan 022 Stage C (D7, D8): elites. An elite is an ordinary body carrying one modifier, dealt by `dealElites` (dungeon-waves.ts) onto a `Spawn.elite`; it is the same kind, the same figure and the same moves, with a number or two changed
+// (`eliteStats`, dungeon-enemy.ts) and a colour that says which. Every modifier reuses a rule that already exists, so the balance sim gets it for nearly nothing.
+//
+// HOW TO CHANGE THEM. A modifier's multipliers, its colours and the fire a volatile body leaves are all in `ELITES`; which kinds may carry one is `eliteKind` and the odds per floor are in dungeon-waves.ts (`ELITE_RATE`, `ELITE_PER_WAVE`).
+// A fifth modifier is one more row here and one more member of `ELITE_MODIFIERS`; the compiler finds the rest of the Record. Tune with `npm run balance:check` (tests/dungeon-elites.test.ts holds the shape).
+export const ELITE_MODIFIERS = ['hasted', 'armoured', 'wrathful', 'volatile'] as const;
+export type EliteModifier = typeof ELITE_MODIFIERS[number];
+
+export type Elite = {
+  /** Multipliers on the kind's own numbers (`eliteStats`): walking speed, seconds of tell, vitality, damage per blow. */
+  speed: number; tell: number; hp: number; damage: number;
+  /** The fire it leaves where it falls, for the modifier that leaves one (the pyre's own); `deathPoolOf` reads it. */
+  pool?: { radius: number; life: number; damage: number; interval: number };
+  /** The colour the body glows when it is idle, and its eyes burn (D8): cyan, steel, red-orange, ember. */
+  glow: number;
+  /** What the modifier is called, for the snapshot, the bench label and a playtest note. */
+  name: string;
+};
+
+export const ELITES: Record<EliteModifier, Elite> = {
+  hasted: { speed: 1.35, tell: 0.8, hp: 1, damage: 1, glow: 0x35e0ff, name: 'Hasted' },
+  armoured: { speed: 1, tell: 1, hp: 2, damage: 1, glow: 0xb4c3d4, name: 'Armoured' },
+  wrathful: { speed: 1, tell: 1, hp: 1, damage: 1.4, glow: 0xff5e1c, name: 'Wrathful' },
+  volatile: { speed: 1, tell: 1, hp: 1, damage: 1, pool: { radius: 1.7, life: 3.5, damage: 8, interval: 0.6 }, glow: 0xffb62e, name: 'Volatile' },
+};
+
+/**
+ * Whether a kind may carry a modifier: never a boss, never a body that calls others (the bonecaller) and never one that is only ever called (the rattler), so a fight's reserve and its
+ * bosses stay what their designs say. Read off the table, so a kind added later is eligible unless it is one of those.
+ */
+export const eliteKind = (kind: EnemyKind): boolean => {
+  const archetype = BESTIARY[kind];
+  return !archetype.boss && !archetype.summons && !ENEMY_KINDS.some(other => BESTIARY[other].summons?.kind === kind);
+};
+
+/** The modifiers a kind can carry: all of them, bar the one it already has - a pyre leaves a fire on its own, so a volatile pyre would be a plain one. Empty for a kind that cannot be elite. */
+export const elitesFor = (kind: EnemyKind): EliteModifier[] =>
+  eliteKind(kind) ? ELITE_MODIFIERS.filter(modifier => !(ELITES[modifier].pool && BESTIARY[kind].deathPool)) : [];
+
+/** The fire a body leaves where it falls: its kind's own, or a volatile elite's. */
+export const deathPoolOf = (kind: EnemyKind, elite?: EliteModifier) => BESTIARY[kind].deathPool ?? (elite ? ELITES[elite].pool : undefined);

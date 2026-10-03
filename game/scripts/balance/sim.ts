@@ -13,7 +13,7 @@
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
 import { canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
-import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, fallOf, moveOf, nearbyDozers, raiseSpot, scaledDamage, separateCrowd, type CrowdBody, type EnemyKind, type EnemyView, type Move, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
+import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, eliteStats, fallOf, moveOf, nearbyDozers, raiseSpot, scaledDamage, separateCrowd, type CrowdBody, type EliteModifier, type EnemyKind, type EnemyView, type Move, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { bossPush, landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, bossOnFloor, cellKey, dealBosses, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
@@ -194,6 +194,8 @@ export type FloorReport = {
   fightEncounters: string[];
   /** Plan 022: the knight's vitality as a share of his maximum the moment he walked into the stair hall (the boss's chamber); null on a floor he never reached it on (he died first, or the floor has no door to it). */
   hpAtStair: number | null;
+  /** Plan 022 (D7): elites the knight felled this floor, by modifier (a modifier none was felled of is absent). */
+  eliteKills: Partial<Record<EliteModifier, number>>;
   /** Plan 022: 1 if the knight died on this floor before he walked into the stair hall (`hpAtStair` null), so something other than the boss ended the run; 0 otherwise. D13 asks for a third of the default knight's deaths to be these. */
   deathsBeforeBoss: number;
   /** Plan 022: waves the floor's chambers called (each later wave of each chamber that stood up counts once). */
@@ -202,6 +204,8 @@ export type FloorReport = {
   waveFights: number[];
   /** Plan 022: every body of a later wave the sim stood on this floor (read off the bodies it ran), by chamber and wave, reserves included: what the game's scene is held against. */
   waveBodies: { room: number; wave: number; kind: EnemyKind; buried: boolean }[];
+  /** Plan 022 (D7): every elite the sim stood on this floor (read off the bodies it ran), with the vitality it was built with: what the game's scene is held against. */
+  eliteBodies: { room: number; wave: number; kind: EnemyKind; elite: EliteModifier; hp: number }[];
   /** Plan 022: each mend a shrine made, by the chamber it stands in and the vitality it gave (at most `SHRINE`, the first time the knight stood hurt within reach of it). */
   shrineMends: { room: number; healed: number }[];
   hpAfter: number;
@@ -237,6 +241,8 @@ type Body = {
   // `intent.face`, which agrees except mid-trail, when a shield is down anyway). A `buried` body is a
   // summoner's reserve: asleep, untargetable and outside every count until its `summoner` (a spawn index) raises it.
   face: number; buried: boolean; summoner: number; maxHp: number;
+  // Plan 022 (D7): the modifier this body carries, if it is an elite: `eliteStats` made its numbers, a volatile one leaves fire, and it pays double.
+  elite?: EliteModifier;
   // Plan 022 (dungeon-waves.ts): 1 for every body generateFloor lays; 2 or more for a body its chamber calls once the wave before it is down.
   wave: number;
   // Plan 021. A boss's rotation slot, phase and the seconds of phase change left (EnemyView), the move whose tell is running
@@ -310,12 +316,12 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
       // Whatever took the last of the vitality is what the run log would record.
       const damage = report.damage;
       cause = (Object.keys(damage) as Cause[]).filter(k => damage[k] > 0).sort((a, b) => damage[b] - damage[a])[0] ?? null;
-      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills, bosses: run.bosses }), floors };
+      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills, bosses: run.bosses, elites: run.elites }), floors };
     }
     // Descending restores a quarter of the bar, as the results card promises.
     if (level < FLOORS) heal(run, Math.round(run.maxHp * 0.25));
   }
-  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills, bosses: run.bosses }), floors };
+  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills, bosses: run.bosses, elites: run.elites }), floors };
 }
 
 /**
@@ -362,9 +368,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   let corridorSeconds = 0, spentRecross = 0;
 
   const bodies: Body[] = floor.spawns.map((spawn, index) => {
-    const stats = enemyStats(spawn.kind, level);
+    const stats = eliteStats(spawn.kind, level, spawn.elite);
     return {
-      kind: spawn.kind, x: spawn.x * TILE, z: spawn.z * TILE,
+      kind: spawn.kind, elite: spawn.elite, x: spawn.x * TILE, z: spawn.z * TILE,
       hp: stats.hp, damage: stats.damage, tell: stats.tell, speed: stats.speed,
       // dungeon-game.tsx:617 staggers the opening cooldown so a pack does not swing as one.
       cooldown: 0.4 + (index % 3) * 0.2, hitFlash: 0, windup: 0, lunge: 0,
@@ -415,6 +421,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const cleared = new Set<number>([0]);
   // Plan 016 fight duration: when each room's fight started, and how long each finished one took.
   const fightStart = new Map<number, number>(), fights: number[] = [], fightEncounters: string[] = [];
+  const eliteKills: Partial<Record<EliteModifier, number>> = {};
   let hpAtStair: number | null = null, wavesRaised = 0; const waveFights: number[] = [], shrineMends: { room: number; healed: number }[] = [];
   const clearRoom = (room: number) => {
     cleared.add(room);
@@ -477,8 +484,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     body.dead = true;
     // A boss's fall, read before this kill's draught or the room's top-up can touch his vitality (plan 021 D9).
     if (BESTIARY[body.kind].boss) { bossHpLeft = run.hp / run.maxHp * 100; bossTo = t; }
-    resolveKill(run, body.kind);
-    const fire = deathPool(body.kind, body);
+    resolveKill(run, body.kind, !!body.elite);
+    if (body.elite) eliteKills[body.elite] = (eliteKills[body.elite] ?? 0) + 1;
+    const fire = deathPool(body.kind, body, body.elite);
     if (fire && fires.length < HOSTILE_POOL_RINGS) fires.push({ pool: fire, kind: body.kind });
     for (const at of fall.crumble) bodies[at].dead = true;
     if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
@@ -1033,7 +1041,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: bodies.filter(b => b.wave > 1).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, buried: b.buried })), shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: bodies.filter(b => b.wave > 1).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, buried: b.buried })), eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

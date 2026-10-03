@@ -25,6 +25,8 @@ export const STRIKE_BONUS = 4;
 export const XP_PER_ENEMY = 25;
 // Plan 021 (D10): felling a boss pays four bodies' worth and counts as a boss as well as a kill (`Run.bosses`, `RunEnd.bosses`).
 export const XP_PER_BOSS = 100;
+// Plan 022 (D9): an elite pays double, and counts as an elite as well as a kill (`Run.elites`), which `pearlsFor` pays a second pearl for.
+export const XP_PER_ELITE = 2 * XP_PER_ENEMY;
 // What a cleared chamber pays (plan 017). Every clear tops the knight up; the door he chose decides the
 // rest: a purse of experience, or a real heal in place of the top-up. These are the dead end's old 60 XP
 // and 30 vitality, split so each door offers one of them rather than both.
@@ -54,6 +56,8 @@ export type Run = {
   hp: number; maxHp: number; kills: number; totalXp: number;
   // Plan 021: bosses felled this run (a boss is also a kill).
   bosses: number;
+  // Plan 022: elites felled this run (an elite is also a kill).
+  elites: number;
   rankLevel: number; rankProgress: number; pendingRanks: number; choosing: boolean;
   // Boon-derived modifiers. `guardAgainst` and `dashSpan` are multipliers, the rest are additive.
   // `strike` is a bonus on top of whatever the knight is holding, not the damage itself: the weapon
@@ -76,7 +80,7 @@ export type Run = {
 // With no argument this is the run the game has always started. `start` carries what was bought between runs;
 // `arm` is the game's to equip and means nothing here.
 export const createRun = (start?: RunStart): Run => ({
-  hp: start?.maxHp ?? START_HP, maxHp: start?.maxHp ?? START_HP, kills: 0, totalXp: 0, bosses: 0,
+  hp: start?.maxHp ?? START_HP, maxHp: start?.maxHp ?? START_HP, kills: 0, totalXp: 0, bosses: 0, elites: 0,
   rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
   strike: start?.strike ?? 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
   invuln: 0, taken: [], specialCooldown: 0,
@@ -178,10 +182,10 @@ export const takeBoon = (run: Run, id: string): Boon | null => {
 };
 
 // A boss (the bestiary says which kind is one) pays `XP_PER_BOSS` and is counted in `run.bosses` as well as in `run.kills`; `kind` is left out
-// by a caller that has none to name, which pays what a body always paid.
-export const resolveKill = (run: Run, kind?: EnemyKind): Reward => {
-  const boss = !!kind && !!BESTIARY[kind].boss, xp = boss ? XP_PER_BOSS : XP_PER_ENEMY;
-  run.kills += 1; if (boss) run.bosses += 1;
+// by a caller that has none to name, which pays what a body always paid. An elite (plan 022 D9; `elite` is true for a body that carried a modifier) pays `XP_PER_ELITE` and is counted in `run.elites`.
+export const resolveKill = (run: Run, kind?: EnemyKind, elite = false): Reward => {
+  const boss = !!kind && !!BESTIARY[kind].boss, xp = boss ? XP_PER_BOSS : elite ? XP_PER_ELITE : XP_PER_ENEMY;
+  run.kills += 1; if (boss) run.bosses += 1; else if (elite) run.elites += 1;
   const { ranks } = grantXp(run, xp);
   return { xp, ranks, healed: heal(run, run.draught) };
 };

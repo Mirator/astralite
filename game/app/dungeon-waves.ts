@@ -1,4 +1,4 @@
-import { BESTIARY, reserveSize, type EnemyKind } from './dungeon-bestiary.ts';
+import { BESTIARY, ELITE_MODIFIERS, elitesFor, reserveSize, type EliteModifier, type EnemyKind } from './dungeon-bestiary.ts';
 import { ARRIVAL_CLEAR, carves, drawKind, oneCaller, PACK_MIX, packSource, TILE, type Floor, type PackMix, type PackSource, type Spawn } from './dungeon-floor.ts';
 
 // Waves (plan 022): a chamber that fights in waves is dealt its first wave by `generateFloor` exactly as it always was (the pack it has always held),
@@ -16,6 +16,9 @@ import { ARRIVAL_CLEAR, carves, drawKind, oneCaller, PACK_MIX, packSource, TILE,
 //     for the frame budget (`tests/browser/frame-budget.spec.ts`, the `wave-chamber` scene is held to them) and for how much of a chamber is readable.
 //   - `WAVE_PAUSE` is the breath after the last body of a wave falls, `WAVE_MARK` how long the rings show on the floor before the bodies stand.
 //   - A chamber with `layer <= FIRST_WAVE_LAYERS` is never dealt later waves: the first two fights past the gate are the tutorial beat.
+// ELITES (plan 022 Stage C) are dealt here too, by `dealElites`, after the waves, from a second stream of their own (`eliteStream`): `ELITE_RATE` is the share of a floor's eligible bodies (`eliteKind`, dungeon-bestiary.ts) that carry a modifier,
+// `ELITE_PER_WAVE` the most one wave of one chamber may hold, and floor one deals none. What a modifier does is the bestiary's `ELITES`; this file only says who gets one. A chamber's rolls are per body in spawn order and always draw the same two numbers
+// whether or not the body is eligible, so a rate change moves who is elite and never which kind a body is, and no wave rule moves an elite's draw.
 // After a change: `npm test` (tests/dungeon-waves.test.ts holds every cap and the append-only rule), `npm run balance:check` and re-measure the bands.
 // The hash stream is per chamber (`stream`), so adding a rule to one source moves no other source's bodies.
 
@@ -70,6 +73,42 @@ const stream = (seed: number, level: number, room: number) => {
   let state = h;
   return () => { state = state + 0x6d2b79f5 >>> 0; let t = state; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 };
+
+/** Plan 022 D7: the share of a floor's eligible bodies that are elite, by floor (floor one deals none), and the most one wave of one chamber holds. */
+export const ELITE_RATE: Readonly<Record<number, number>> = { 1: 0, 2: 0.15, 3: 0.25 };
+export const ELITE_PER_WAVE: Readonly<Record<number, number>> = { 1: 0, 2: 1, 3: 2 };
+
+/** The elite stream of a chamber: the wave stream's own mixing with another salt, so no wave rule and no table row moves who is elite. */
+const eliteStream = (seed: number, level: number, room: number) => {
+  let h = (Math.imul(seed >>> 0 ^ 0x656c6974, 0x9e3779b1) ^ Math.imul(level + 1, 0x27d4eb2f) ^ Math.imul(room + 1, 0x165667b1)) >>> 0;
+  h = Math.imul(h ^ h >>> 16, 0x85ebca6b) >>> 0; h = Math.imul(h ^ h >>> 13, 0xc2b2ae35) >>> 0; h = (h ^ h >>> 16) >>> 0;
+  let state = h;
+  return () => { state = state + 0x6d2b79f5 >>> 0; let t = state; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+};
+
+/**
+ * The spawns with elites dealt (plan 022 D7): every standing body (never a buried reserve) of an eligible kind rolls its floor's `ELITE_RATE`, in spawn order within its chamber, and a roll that wins carries a modifier drawn from
+ * `elitesFor(kind)` unless its wave already holds `ELITE_PER_WAVE`. Pure, a copy: the input is untouched, and a spawn that is not elite comes back as the very same object. `rate` and `perWave` are parameters so a test can deal a floor the game does not.
+ */
+export const dealElites = (spawns: readonly Spawn[], seed: number, level: number, rate = ELITE_RATE[level] ?? 0, perWave = ELITE_PER_WAVE[level] ?? 0): Spawn[] => {
+  const out = [...spawns], streams = new Map<number, () => number>(), held = new Map<string, number>();
+  spawns.forEach((spawn, i) => {
+    if (spawn.buried || !(rate > 0)) return;
+    if (!streams.has(spawn.room)) streams.set(spawn.room, eliteStream(seed, level, spawn.room));
+    const random = streams.get(spawn.room)!, roll = random(), pick = random(), allowed = elitesFor(spawn.kind), wave = `${spawn.room}:${spawn.wave ?? 1}`;
+    if (!allowed.length || roll >= rate || (held.get(wave) ?? 0) >= perWave) return;
+    held.set(wave, (held.get(wave) ?? 0) + 1);
+    out[i] = { ...spawn, elite: allowed[Math.min(allowed.length - 1, Math.floor(pick * allowed.length))] };
+  });
+  return out;
+};
+
+/** Plan 022 D14 (`?elite=<modifier>`, development only): every standing body that can carry `modifier` carries it, whatever the floor's rate. An arena roster is dealt through this; a campaign floor never is. */
+export const allElite = (spawns: readonly Spawn[], modifier: EliteModifier): Spawn[] =>
+  spawns.map(spawn => !spawn.buried && elitesFor(spawn.kind).includes(modifier) ? { ...spawn, elite: modifier } : spawn);
+
+/** `?elite=` read: one of the four modifiers by name, or nothing. */
+export const parseElite = (text: string | null): EliteModifier | null => (ELITE_MODIFIERS as readonly string[]).includes(text ?? '') ? text as EliteModifier : null;
 
 /** The tiles of a chamber's own floor: not a prop's hole, not the alcove a door is cut into (the same rule `gateRacks` reads). */
 export const roomTiles = (floor: Pick<Floor, 'rooms' | 'tiles'>, id: number) => {
@@ -131,8 +170,8 @@ export const dealWaves = (floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'spaw
   return spawns;
 };
 
-/** The floor with its later waves dealt: `generateFloor`'s own output, with `spawns` replaced and nothing else touched. */
-export const wavedFloor = <F extends Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'spawns' | 'goal' | 'weaponDrop'>>(floor: F, seed: number, level: number, table: WaveTable = WAVE_TABLE): F => ({ ...floor, spawns: dealWaves(floor, seed, level, table) });
+/** The floor with its later waves and its elites dealt: `generateFloor`'s own output, with `spawns` replaced and nothing else touched. */
+export const wavedFloor = <F extends Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'spawns' | 'goal' | 'weaponDrop'>>(floor: F, seed: number, level: number, table: WaveTable = WAVE_TABLE): F => ({ ...floor, spawns: dealElites(dealWaves(floor, seed, level, table), seed, level) });
 
 /** How far a felled wave's corpses sink (world units) in the `WAVE_MARK` that the next wave's rings show: under the paving, out of sight. */
 export const CORPSE_DEPTH = 1.4;
