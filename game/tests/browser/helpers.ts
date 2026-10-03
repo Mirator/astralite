@@ -244,7 +244,7 @@ export type Snapshot = {
   /** The development arena this page is charting floors as, or null for an ordinary keep. */
   arena: { roster: EnemyKind[]; level: number } | null;
   /** The bodies that have fallen and lie where they fell (the snapshot's `enemies` no longer lists them). */
-  corpses: { kind: EnemyKind; x: number; z: number; visible: boolean }[];
+  corpses: { kind: EnemyKind; x: number; y: number; z: number; visible: boolean }[];
   /** Plan 022: the rings a called wave shows, read off the ring meshes: where each is drawn, whether it is showing, the body it is for (its index in the spawn list, the chamber and the wave). */
   waveMarks: { x: number; z: number; visible: boolean; wave: number; room: number; index: number }[];
   /**

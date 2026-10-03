@@ -127,10 +127,11 @@ const BUDGET = {
   'hound-chamber': { calls: 253, triangles: 210_696 },
   // The Bastion: 273 calls, 212,962 triangles, 235 under the 508 above. Every pool boss's chamber is under it, with 191 to 255 to spare (Mother 217, Hound 255, Bastion 235, the Captain 235 in the same crypt; the King with his reserve 80).
   'bastion-chamber': { calls: 273, triangles: 212_962 },
-  // Plan 022 Stage B: the biggest chamber the waves deal (floor three, seed 0x2's hall of ten bodies in waves of 3, 3 and 4), its last wave standing with the six bodies before it lying dead in frame - a corpse stays drawn, so it costs what a
-  // standing body does (about 35 calls), and ten bodies are the cap (D2). Measured 2026-10-03 on SwiftShader, three times: 586 calls each time, 294,932 to 294,968 triangles (the corpses settle a hair differently), 153 geometries, 28 textures: 78 calls over the 508 above (+15%), which is what the ten-body cap
-  // buys. Each ceiling is the figure measured; the dormant waves to come draw nothing (Stage 0: 1, 5 and 9 dormant bodies all drew 201 calls, 209,882 triangles, 56 shadow calls).
-  'wave-chamber': { calls: 586, triangles: 294_968 },
+  // Plan 022 Stage B: the biggest chamber the waves deal (floor three, seed 0x2's hall of ten bodies in waves of 3, 3 and 4), its last wave standing. A dormant wave to come draws nothing (Stage 0: 1, 5 and 9 dormant bodies all drew 201 calls,
+  // 209,882 triangles, 56 shadow calls) but a corpse stays drawn and costs a standing body's calls (about 35 a body): with the six dead of the first two waves left in frame this scene read 586 calls / 294,968 triangles, 78 over the 508 above, so the
+  // floor takes the dead of the waves before back as the next wave is rung (`corpseSink`: they sink into the paving over the rings' 0.9 s and are no longer drawn), and the frame is the four standing bodies of the last wave with six corpses lying undrawn.
+  // Measured 2026-10-03 on SwiftShader, twice: 440 calls (68 under 508) and 255,930 / 255,942 triangles, 153 geometries, 28 textures. Each ceiling is the figure measured (the higher of the two for triangles); the scene fails below 60% of the calls.
+  'wave-chamber': { calls: 440, triangles: 255_942 },
 } as const;
 
 /** Draws the staged frame, then holds its counters against the ceiling. */
@@ -498,10 +499,9 @@ test.describe('the full post chain', () => {
   });
 });
 
-// Plan 022 Stage B: the heaviest chamber the waves deal. D2 caps a wave at five bodies and a chamber at ten, and Stage 0 measured that a dormant body costs nothing (the wave to come is not drawn), but a dead one does not leave the scene: it
-// lies where it fell, drawn as a corpse, for the rest of the floor. So the worst frame is the last wave of the biggest chamber standing with every wave before it lying round the knight: floor three, seed 0x2's room 9, a hall of
+// Plan 022 Stage B: the heaviest chamber the waves deal. D2 caps a wave at five bodies and a chamber at ten, and Stage 0 measured that a dormant body costs nothing (the wave to come is not drawn), but a dead one stays in the scene as a corpse until the floor takes it back (when the next wave is rung). So the worst frame is the last wave of the biggest chamber standing: floor three, seed 0x2's room 9, a hall of
 // ten bodies in three waves (3, 3 and 4 with a warden at the head of the first and the last). The first two waves are felled with real blows, the third is called by the chamber itself (rings, then bodies), and the frame is drawn with the
-// whole of it in view, the third wave held quiet. Corpses are all drawn here, where in a fight they would lie scattered and some would be out of frame: this is the ceiling, not the typical.
+// whole of it in view, the third wave held quiet. The dead of the first two have been taken back by the floor when the third was rung.
 test.describe('the biggest chamber the waves deal, at its last wave', () => {
   test.use({ waves: null, seeds: [0x1, 0x2] });
   test('a floor-three hall of ten bodies, the last wave standing over the two before it, stays inside its budget', async ({ game, page }) => {
@@ -535,7 +535,7 @@ test.describe('the biggest chamber the waves deal, at its last wave', () => {
     await game.step(400);
     const state = await game.state();
     expect(state.corpses, 'the two waves before lie dead: six corpses').toHaveLength(6);
-    expect(state.corpses.every((c) => c.visible), 'a corpse is not drawn, so it costs nothing and the frame is not the worst one').toBe(true);
+    expect(state.corpses.filter((c) => c.visible), 'a corpse of the waves before is still drawn: the floor takes them back as the next wave is rung').toHaveLength(0);
     expect(bodies(state, room!.id, 3).every(({ e }) => e.awake && e.visible), 'the last wave is not all standing in view').toBe(true);
     expect(state.enemies.filter((e) => e.room === room!.id && !e.buried), 'the chamber holds more than its last wave').toHaveLength(4);
     expect(state.health, 'the knight fell before the frame was drawn').toBeGreaterThan(0);

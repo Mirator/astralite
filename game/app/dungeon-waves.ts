@@ -134,6 +134,20 @@ export const dealWaves = (floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'spaw
 /** The floor with its later waves dealt: `generateFloor`'s own output, with `spawns` replaced and nothing else touched. */
 export const wavedFloor = <F extends Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'spawns' | 'goal' | 'weaponDrop'>>(floor: F, seed: number, level: number, table: WaveTable = WAVE_TABLE): F => ({ ...floor, spawns: dealWaves(floor, seed, level, table) });
 
+/** How far a felled wave's corpses sink (world units) in the `WAVE_MARK` that the next wave's rings show: under the paving, out of sight. */
+export const CORPSE_DEPTH = 1.4;
+/**
+ * The corpses the floor takes back when a chamber marks its next wave: every fallen body of that chamber from an earlier wave. A chamber's corpses stay drawn for the life of the floor
+ * otherwise, and a corpse costs a standing body's draw calls (about 35 a body), which is what the ten-body chamber cap would spend (plan 022 Stage B: 586 calls against the 508 ceiling).
+ * Draw only: no rule of the fight reads it, and the balance sim never asks.
+ */
+export const corpsesDue = <B extends { room: number; wave?: number; dead: boolean }>(bodies: readonly B[], room: number, wave: number): B[] => bodies.filter(b => b.room === room && b.dead && (b.wave ?? 1) < wave);
+/** How deep a corpse has sunk `age` seconds after its wave's rings appeared (eased in), and whether it is gone (no longer drawn) - once the rings have shown for `WAVE_MARK`. */
+export const corpseSink = (age: number): { depth: number; gone: boolean } => {
+  const t = Math.min(1, Math.max(0, age / WAVE_MARK));
+  return { depth: CORPSE_DEPTH * t * t, gone: t >= 1 };
+};
+
 /** What `waveDue` reads of a body: where it is, which wave it belongs to (absent is the first), and whether it is down, buried or standing. */
 export type WaveBody = { room: number; wave?: number; dead: boolean; buried: boolean; awake: boolean };
 /** The wave clock of the chamber the knight is in: the seconds every earlier wave has been down, and the seconds the rings have shown (null: not yet showing). */

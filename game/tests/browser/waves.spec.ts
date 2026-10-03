@@ -72,10 +72,19 @@ test.describe('a chamber that fights in waves', () => {
           const moved = marked.waveMarks.filter((mark) => dealt.some((spot) => Math.hypot(spot.x - knight.x, spot.z - knight.z) < WAVE_CLEAR && Math.hypot(spot.x - mark.x, spot.z - mark.z) > 0.01));
           expect(moved.length, 'precondition: no ring was moved off the knight, so the clearance was not exercised').toBeGreaterThan(0);
         }
+        // The dead of the waves before are taken back by the floor as the rings close: still drawn but sinking half way, gone when the wave stands.
+        const lying = marked.corpses.map((c) => c.y);
+        expect(lying.length, 'precondition: the waves before lie dead').toBe(first.length + (n === 2 ? second.length : 0));
+        expect(marked.corpses.filter((c) => c.visible).length, 'precondition: the corpses of the wave that just fell are still drawn when its successor is rung').toBeGreaterThan(0);
+        await game.step(450);
+        const sinking = await game.state();
+        expect(sinking.corpses.filter((c) => c.visible).every((c, i, list) => c.y < lying[sinking.corpses.indexOf(list[i])]), 'a corpse did not sink while the rings showed').toBe(true);
         // And the bodies stand on the rings, for good.
         const rung = marked.waveMarks.map((mark) => ({ index: mark.index, x: mark.x, z: mark.z }));
         const up = await until(game, `wave ${n + 1} standing`, (s) => bodiesOf(s, room!.id, n + 1).every(({ e }) => e.awake), 2000);
         expect(up.waveMarks, 'the rings stayed down after the wave stood').toHaveLength(0);
+        expect(up.corpses.filter((c) => c.visible), `the dead of the waves before are still drawn when wave ${n + 1} stands`).toHaveLength(0);
+        expect(up.corpses.length, 'precondition: they lie in the scene, only not drawn').toBe(lying.length);
         // Matched by place: a standing body is a snapshot entry, and the dead have left the list, so spawn indices no longer line up with it.
         const risen = bodiesOf(up, room!.id, n + 1).map(({ e }) => e), unmatched = [...risen];
         expect(risen.length, 'precondition: every ringed body stood').toBe(rung.length);

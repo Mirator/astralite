@@ -20,7 +20,7 @@ import { animateCloth } from './dungeon-motion';
 import { altarHall, canStand, dealBosses, gateRacks, generateFloor, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
 import { FINAL_BOSS } from './dungeon-bestiary';
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
-import { idleClock, roomTiles, springing, waveDue, waveSpots, wavedFloor, WAVE_CAP, WAVE_MARK, type WaveClock } from './dungeon-waves';
+import { corpseSink, corpsesDue, idleClock, roomTiles, springing, waveDue, waveSpots, wavedFloor, WAVE_CAP, WAVE_MARK, type WaveClock } from './dungeon-waves';
 import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import SlotPicker from './dungeon-slot-picker';
 import AltarPanel, { type AltarKind } from './dungeon-altar-panel';
@@ -771,6 +771,8 @@ export default function DungeonGame() {
     const waveMeshes = Array.from({ length: WAVE_CAP }, () => { const mesh = makePoolMesh(); world.add(mesh); return mesh; });
     const waveMarks: { enemy: Enemy; mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; at: { x: number; z: number }; age: number }[] = [];
     let waveClock: WaveClock = idleClock();
+    // The fallen of the waves before, sinking into the paving over the rings' WAVE_MARK and then no longer drawn (`corpseSink`): a corpse costs a standing body's draw calls, and the ten-body chamber cap would spend them all.
+    const sinking: { enemy: Enemy; age: number }[] = [];
     const clearWaveMarks = () => { for (const mark of waveMarks) mark.mesh.visible = false; waveMarks.length = 0; waveClock = idleClock(); };
     // Plan 016: the Tolling Slam's ring on the floor while the maul is wound; the slam itself is impacts.slam.
     // An outline at the reach over a faint wash rather than the flask's solid ring: it has to say "this far"
@@ -826,7 +828,7 @@ export default function DungeonGame() {
       for (const live of hostile) live.mesh.visible = false;
       hostile.length = 0;
       for (const live of hostilePools) live.mesh.visible = false;
-      hostilePools.length = 0; unmark(); clearWaveMarks(); trail.length = 0; trailTimer = 0;
+      hostilePools.length = 0; unmark(); clearWaveMarks(); sinking.length = 0; trail.length = 0; trailTimer = 0;
       for (const live of pools) live.mesh.visible = false;
       pools.length = 0;
     };
@@ -2106,6 +2108,7 @@ export default function DungeonGame() {
               const mesh = waveMeshes[i]; mesh.visible = true; mesh.position.set(at.x, .07, at.z); mesh.scale.setScalar(1.45); mesh.material.color.setHex(THREAT);
               waveMarks.push({ enemy: called[i], mesh, at, age: 0 });
             });
+            for (const enemy of corpsesDue(stage.enemies, activeRoom, due.mark)) if (enemy.group.visible && !sinking.some(s => s.enemy === enemy)) sinking.push({ enemy, age: 0 });
             audio.play('warn');
           }
           if (due.raise !== null) {
@@ -2186,6 +2189,12 @@ export default function DungeonGame() {
           // What the decision looks like: pose, gait, the landed blow's flash and its trails (dungeon-enemy-view).
           poseEnemy(enemy, intent, dt, t, elapsed);
         });
+        // Plan 022: the dead of the waves before go down into the floor as the next wave's rings close, after the death animation has had its way with them (it writes the corpse's height every frame until it settles).
+        for (let i = sinking.length - 1; i >= 0; i--) {
+          const fall = sinking[i], body = fall.enemy, sink = corpseSink(fall.age += dt);
+          if (sink.gone) { body.group.visible = false; sinking.splice(i, 1); continue; }
+          body.group.position.y = (body.death?.settled ? body.death.joints[0].endPosition.y : body.group.position.y) - sink.depth;
+        }
         // The rings a scatter has marked close on their centres over its tell and flicker, in the colour of every other tell, until they light.
         for (const mark of marked) { const tell = mark.owner.tell > 0 ? 1 - mark.owner.windup / mark.owner.tell : 1; mark.mesh.scale.setScalar(mark.radius * (1.45 - .45 * Math.min(1, Math.max(0, tell)))); mark.mesh.material.opacity = .55 + Math.sin(t * 18) * .2; }
         // Plan 021 (D8): the boss bar - on while a boss has noticed the knight and still stands, off the moment it falls or he does (`fell`, `endRun`). React hears of it only when what it shows changes.

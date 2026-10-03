@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import { generateFloor, PACK_MIX, TILE, ARRIVAL_CLEAR, type Spawn } from '../app/dungeon-floor.ts';
 import { BESTIARY, reserveSize } from '../app/dungeon-bestiary.ts';
-import { CHAMBER_CAP, dealWaves, fitWave, FIRST_WAVE_LAYERS, idleClock, springing, calledIn, roomTiles, spotOf, waveDue, waveSpots, WAVE_CAP, WAVE_CLEAR, WAVE_MARK, WAVE_PAUSE, WAVE_TABLE, wavedFloor, type WaveBody, type WaveClock, type WaveTable } from '../app/dungeon-waves.ts';
+import { CHAMBER_CAP, CORPSE_DEPTH, corpseSink, corpsesDue, dealWaves, fitWave, FIRST_WAVE_LAYERS, idleClock, springing, calledIn, roomTiles, spotOf, waveDue, waveSpots, WAVE_CAP, WAVE_CLEAR, WAVE_MARK, WAVE_PAUSE, WAVE_TABLE, wavedFloor, type WaveBody, type WaveClock, type WaveTable } from '../app/dungeon-waves.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
 const SEEDS = Array.from({ length: 150 }, (_, i) => i * 7919 + 13);
@@ -312,4 +312,17 @@ test('when a cap bites, the warden pinned to a wave stays and the drawn bodies a
   assert.deepEqual(fitWave(['stalker', 'guard', 'archer'], false, 2), ['stalker', 'guard']);
   assert.deepEqual(fitWave(['stalker'], true, 5), ['warden', 'stalker'], 'a wave inside the cap is whole');
   assert.deepEqual(fitWave(['stalker'], true, 0), [], 'a chamber with no room is dealt nothing, the warden included');
+});
+
+test('the floor takes back the dead of the waves before, and only those, over the rings\' WAVE_MARK', () => {
+  const fallen = body({ dead: true }), earlier = body({ dead: true, wave: 2 }), later = body({ dead: true, wave: 3 }), standing = body({ wave: 1 }), elsewhere = body({ dead: true, room: 9 });
+  assert.deepEqual(corpsesDue([fallen, earlier, later, standing, elsewhere], 4, 3), [fallen, earlier], 'the corpses due when wave 3 is rung are the chamber\'s fallen of waves 1 and 2');
+  assert.deepEqual(corpsesDue([fallen, earlier, later], 4, 2), [fallen], 'wave 2 being rung takes only wave 1\'s');
+  assert.deepEqual(corpsesDue([fallen], 4, 1), [], 'nothing is taken before a second wave');
+  assert.deepEqual(corpseSink(0), { depth: 0, gone: false });
+  let last = 0;
+  for (let age = 0; age < WAVE_MARK; age += 0.05) { const { depth, gone } = corpseSink(age); assert.ok(depth >= last && !gone, `a corpse is gone or rising ${age.toFixed(2)} s into the rings`); last = depth; }
+  assert.ok(last > CORPSE_DEPTH * 0.7, `a corpse has only sunk ${last} by the end of the rings`);
+  assert.deepEqual(corpseSink(WAVE_MARK), { depth: CORPSE_DEPTH, gone: true }, 'a corpse is not gone, and as deep as the floor takes it, when the wave stands');
+  assert.equal(corpseSink(WAVE_MARK + 5).gone, true);
 });
