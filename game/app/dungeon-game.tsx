@@ -20,7 +20,7 @@ import { animateCloth } from './dungeon-motion';
 import { altarHall, canStand, dealBosses, gateRacks, generateFloor, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
 import { FINAL_BOSS } from './dungeon-bestiary';
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
-import { springing } from './dungeon-waves';
+import { idleClock, roomTiles, springing, waveDue, waveSpots, wavedFloor, WAVE_CAP, WAVE_MARK, type WaveClock } from './dungeon-waves';
 import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import SlotPicker from './dungeon-slot-picker';
 import AltarPanel, { type AltarKind } from './dungeon-altar-panel';
@@ -392,7 +392,7 @@ export default function DungeonGame() {
     // Plan 022 (dungeon-waves.ts): where a chamber's waves stand, read off its bodies for the snapshot - the wave in play (the last one called), how many the chamber holds, and whether the rings of the next one show.
     const waveState = (room: number) => {
       const here = stage.enemies.filter(e => e.room === room), pending = Math.min(...here.filter(e => e.wave > 1 && !e.awake && !e.dead && !e.buried).map(e => e.wave)), of = Math.max(1, ...here.map(e => e.wave));
-      return { at: Number.isFinite(pending) ? pending - 1 : of, of, marked: false };
+      return { at: Number.isFinite(pending) ? pending - 1 : of, of, marked: waveMarks.some(mark => mark.enemy.room === room) };
     };
     // The last warden's fall unseals the stair; the knight still has to take it, and nothing ends until he does.
     const openStair = () => {
@@ -766,6 +766,12 @@ export default function DungeonGame() {
     const marked: { owner: Enemy; mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; at: { x: number; z: number }; radius: number }[] = [];
     const trail: { x: number; z: number }[] = []; let trailTimer = 0;
     const unmark = (owner?: Enemy) => { for (let i = marked.length - 1; i >= 0; i--) if (!owner || marked[i].owner === owner) { marked[i].mesh.visible = false; marked[i].mesh.material.color.setHex(0xff5a2a); marked.splice(i, 1); } };
+    // Plan 022 (D3, D4): the rings a chamber's next wave shows on the floor before its bodies stand, one on each spot (`waveSpots`: never within the clearance of the knight), drawn on ring meshes of their own - the fire ring's own art, so they never wait for a
+    // pyre's fire to go out - in the threat colour, closing as the wave comes. `waveClock` is the rule's clock for the chamber the knight is in (dungeon-waves.ts `waveDue`, which the balance sim asks as well); the world only draws what it says.
+    const waveMeshes = Array.from({ length: WAVE_CAP }, () => { const mesh = makePoolMesh(); world.add(mesh); return mesh; });
+    const waveMarks: { enemy: Enemy; mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; at: { x: number; z: number }; age: number }[] = [];
+    let waveClock: WaveClock = idleClock();
+    const clearWaveMarks = () => { for (const mark of waveMarks) mark.mesh.visible = false; waveMarks.length = 0; waveClock = idleClock(); };
     // Plan 016: the Tolling Slam's ring on the floor while the maul is wound; the slam itself is impacts.slam.
     // An outline at the reach over a faint wash rather than the flask's solid ring: it has to say "this far"
     // under the knight for a second at a time without the paving disappearing under it. Made once at mount.
@@ -820,7 +826,7 @@ export default function DungeonGame() {
       for (const live of hostile) live.mesh.visible = false;
       hostile.length = 0;
       for (const live of hostilePools) live.mesh.visible = false;
-      hostilePools.length = 0; unmark(); trail.length = 0; trailTimer = 0;
+      hostilePools.length = 0; unmark(); clearWaveMarks(); trail.length = 0; trailTimer = 0;
       for (const live of pools) live.mesh.visible = false;
       pools.length = 0;
     };
@@ -971,10 +977,14 @@ export default function DungeonGame() {
     const startsInHall = () => !skipHall && !arena;
     // Plan 021 (D14): `?boss=<kind>` (development only, ignored by a production build) puts that boss on floors one and two, for a playtest or a test that needs a particular one.
     const devBoss = process.env.NODE_ENV !== 'production' ? parseBoss(new URLSearchParams(window.location.search).get('boss')) : null;
+    // Plan 022 (D14): `?waves=off` (development only, ignored by a production build) deals every chamber its first wave and nothing after, as the keep was before waves.
+    const devWavesOff = process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('waves') === 'off';
     // A run's bosses are dealt when its floor one is charted, from that floor's seed; every later floor reads them back, so a restart on a seed meets the same bosses.
     const bossedFloor = (seed: number, nextLevel: number): Floor => {
       if (nextLevel === 1) { const dealt = dealBosses(seed); runBosses = [devBoss ?? dealt[0], devBoss ?? dealt[1], FINAL_BOSS]; }
-      return generateFloor(seed, nextLevel, { boss: runBosses[nextLevel - 1] ?? FINAL_BOSS });
+      const laid = generateFloor(seed, nextLevel, { boss: runBosses[nextLevel - 1] ?? FINAL_BOSS });
+      // Plan 022 (D5): the later waves are dealt on top of what the generator laid, appended after every spawn, from their own hash stream. `?waves=off` (development only, D14) leaves the first wave alone, for comparing.
+      return devWavesOff ? laid : wavedFloor(laid, seed, nextLevel);
     };
     const chart = (seed: number | undefined, nextLevel: number): Floor => wantHall ? altarHall() : arena ? arenaFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel, arena.roster) : bossedFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
     // A frame boundary the browser has painted: a rAF callback runs before its own frame's paint, so
@@ -2083,6 +2093,32 @@ export default function DungeonGame() {
           if(run.hp===0)endRun(kind);
         };
         trailTimer = sampleTrail(trail, trailTimer, player.position, dt);
+        // Plan 022 (D3, D4): the chamber the knight is in calls its next wave when every body before it is down - after the pause the rings go down where the bodies will stand (`waveSpots`), with a cue and no text, and when they
+        // have shown for WAVE_MARK the bodies stand on them, awake, in the burst `raise` plays, with the ambush's opening cooldown. The rule is dungeon-waves.ts's; scripts/balance/sim.ts asks the same one.
+        if (activeRoom >= 0) {
+          // Rings belong to the chamber that rang them: a knight who is somewhere else (a driver's teleport; a sealed chamber lets no one leave) leaves none behind.
+          if (waveMarks.some(mark => mark.enemy.room !== activeRoom)) clearWaveMarks();
+          const due = waveDue(stage.enemies, activeRoom, waveClock, dt);
+          waveClock = due.clock;
+          if (due.mark !== null) {
+            const called = stage.enemies.filter(e => e.room === activeRoom && e.wave === due.mark && !e.dead && !e.buried);
+            waveSpots(roomTiles(floor, activeRoom).map(t => ({ x: t.x * TILE, z: t.z * TILE })), called.map(e => ({ x: e.group.position.x, z: e.group.position.z })), { x: player.position.x, z: player.position.z }).forEach((at, i) => {
+              const mesh = waveMeshes[i]; mesh.visible = true; mesh.position.set(at.x, .07, at.z); mesh.scale.setScalar(1.45); mesh.material.color.setHex(THREAT);
+              waveMarks.push({ enemy: called[i], mesh, at, age: 0 });
+            });
+            audio.play('warn');
+          }
+          if (due.raise !== null) {
+            for (const mark of waveMarks) {
+              const body = mark.enemy;
+              body.awake = true; body.group.visible = true; body.group.position.set(mark.at.x, .03, mark.at.z); body.anchor = { x: mark.at.x, z: mark.at.z }; body.cooldown = Math.max(body.cooldown, .9);
+              burst(body.group.position, 0xb9a4ff, 14);
+            }
+            clearWaveMarks();
+          }
+          // The rings close on their centres over WAVE_MARK and flicker, as the scatter's do.
+          for (const mark of waveMarks) { mark.age += dt; mark.mesh.scale.setScalar(1.45 - .45 * Math.min(1, mark.age / WAVE_MARK)); mark.mesh.material.opacity = .55 + Math.sin(t * 18) * .2; }
+        }
         stage.enemies.forEach((enemy, index) => {
           if (!enemy.awake) { hideMarks(enemy); return; }
           // A neighbour's noticing beat can pull a still-dormant body in early; scripts/balance/sim.ts
@@ -2480,6 +2516,8 @@ export default function DungeonGame() {
         wayDown: stage.doors[0] ? { x: stage.doors[0].spot.x, z: stage.doors[0].spot.z, radius: DOOR_RADIUS, open: !stage.doors[0].bars.visible, over: overDoor === stage.doors[0].door, inScene: [stage.doors[0].ring, stage.doors[0].veil, stage.doors[0].sigil].every(part => part.parent === floorGroup), sign: doorSignOf(floor, stage.doors[0].door) } : null,
         stair: !!stage.stairRing && stage.stairRing.parent === floorGroup,
       } : null,
+      // Plan 022: the rings a called wave shows, read off the ring meshes (where each is drawn, whether it is showing, and the body it is for), not off the plan that placed them.
+      waveMarks: waveMarks.map(mark => ({ x: mark.mesh.position.x, z: mark.mesh.position.z, visible: mark.mesh.visible, wave: mark.enemy.wave, room: mark.enemy.room, index: stage.enemies.indexOf(mark.enemy) })),
       arena: arena ? { roster: [...arena.roster], level: arena.level } : null,
       // Plan 021: the live boss body, if one stands on this floor - its vitality and phase, the move it is in, whether it is taking damage, and what it is drawing (the cue's shape read off the mesh, and whether its own floating bar shows).
       boss: (() => { const body = stage.enemies.find(e => !e.dead && !e.buried && BESTIARY[e.kind].boss); if (!body) return null; const shape = body.cue.geometry as THREE.BufferGeometry & { type: string; parameters: { thetaLength?: number } };
