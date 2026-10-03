@@ -21,6 +21,8 @@ export type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: n
   // Whether this body is still a summoner's buried reserve, and which spawn index raises it (-1 for none);
   // and how many blows its shield has turned aside, which only diagnostics read.
   buried: boolean; summoner: number; blocked: number;
+  // Plan 022 (dungeon-waves.ts): 1 for every body generateFloor lays; 2 or more for a body its chamber calls once the wave before it is down.
+  wave: number;
   // Plan 021, a boss's: its rotation slot, its phase (`phase` above is the gait's), the seconds of phase change left and the move whose tell last began - what the
   // tell, the cue and the pose are drawn for - plus the ring a phase change plays at its feet and the cue textures a move's shape picks from. Zero and null on every other body.
   move: number; bossPhase: number; change: number; doing: Move | null; surge: THREE.Mesh | null; art: EnemyArt | null;
@@ -137,7 +139,7 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   if (surge) { surge.rotation.x=-Math.PI/2; surge.renderOrder=9; surge.visible=false; group.add(surge); }
   const skins: THREE.MeshStandardMaterial[] = [];
   body.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial && !skins.includes(o.material)) skins.push(o.material); });
-  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush && !spawn.buried, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity, buried:!!spawn.buried, summoner:spawn.summoner ?? -1, blocked:0, move:0, bossPhase:0, change:0, doing:null, surge, art: boss ? art : null };
+  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush && !spawn.buried, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity, buried:!!spawn.buried, summoner:spawn.summoner ?? -1, blocked:0, wave:spawn.wave ?? 1, move:0, bossPhase:0, change:0, doing:null, surge, art: boss ? art : null };
 };
 
 /**

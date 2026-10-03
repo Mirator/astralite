@@ -18,6 +18,7 @@ import { bossPush, landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, bossOnFloor, cellKey, dealBosses, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { arenaFloor, type Floor } from '../../app/dungeon-arena.ts';
+import { calledIn, springing } from '../../app/dungeon-waves.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, fanHeadings, ARROW_POOL, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
@@ -228,6 +229,8 @@ type Body = {
   // `intent.face`, which agrees except mid-trail, when a shield is down anyway). A `buried` body is a
   // summoner's reserve: asleep, untargetable and outside every count until its `summoner` (a spawn index) raises it.
   face: number; buried: boolean; summoner: number; maxHp: number;
+  // Plan 022 (dungeon-waves.ts): 1 for every body generateFloor lays; 2 or more for a body its chamber calls once the wave before it is down.
+  wave: number;
   // Plan 021. A boss's rotation slot, phase and the seconds of phase change left (EnemyView), the move whose tell is running
   // (its tell, reach and bolt are what the knight reads) and the rings a `scatter` tell has marked, to become fire when it ends.
   move: number; phase: number; change: number; winding: Move | null; marks: { x: number; z: number }[];
@@ -359,7 +362,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       // A buried body sleeps until a summon tell stands it up: `awake: !spawn.ambush` alone woke the whole reserve
       // at the start, the hole the arena's first version had (progress.md, 2026-09-26).
       aim: { x: 0, z: 0 }, room: spawn.room, awake: !spawn.ambush && !spawn.buried, dead: false,
-      face: 0, buried: !!spawn.buried, summoner: spawn.summoner ?? -1, maxHp: stats.hp,
+      face: 0, buried: !!spawn.buried, summoner: spawn.summoner ?? -1, maxHp: stats.hp, wave: spawn.wave ?? 1,
       move: 0, phase: 0, change: 0, winding: null, marks: [], get bossPhase() { return this.phase; },
       anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity,
     };
@@ -511,9 +514,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     lastRoom = activeRoom;
 
     // dungeon-game.tsx:826 springs a room's ambush the moment the knight is inside it.
-    if (activeRoom >= 0) for (const body of bodies) {
-      if (body.room === activeRoom && !body.awake && !body.dead && !body.buried) { body.awake = true; body.cooldown = Math.max(body.cooldown, 0.9); }
-    }
+    // Plan 022: never a later wave - `springing` (dungeon-waves.ts) is the filter the game reads too.
+    if (activeRoom >= 0) for (const body of springing(bodies, activeRoom)) { body.awake = true; body.cooldown = Math.max(body.cooldown, 0.9); }
 
     // A room the knight stands in with nothing left alive is done with, even if it never held a body to
     // kill. The reward itself is paid on the killing blow, as the game pays it; this only stops the
@@ -652,7 +654,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     } else if (dashTime <= 0) {
       // Nothing awake in reach. A sealed chamber is fought out first: walk at whatever is left alive in it.
       // Once it is clear the stair, in the warden hall, or else the chosen door, and through it.
-      const quarry = bodies.filter(b => !b.dead && !b.buried && b.room === chamber).sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z))[0];
+      const quarry = bodies.filter(b => !b.dead && !b.buried && b.room === chamber && calledIn(b)).sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z))[0];
       const shrine = !quarry ? shrines.find(shrine => shrine.room === chamber && !shrine.used && run.hp < run.maxHp) : undefined;
       const door = !quarry && !shrine && chamber !== floor.goal ? chooseDoor(chamber) : undefined;
       if (door && cleared.has(chamber) && Math.hypot(door.x * TILE - player.x, door.z * TILE - player.z) < DOOR_RADIUS) {
