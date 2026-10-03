@@ -78,7 +78,8 @@ test('a generated floor buries a caller\'s reserve under it, puts a cut-down rat
   // 1. The reserve reached the game: read off the running scene, not the generator.
   // The snapshot lists every living body on the floor, so "in this chamber" is read off `room`.
   const here = () => state.enemies.filter((enemy) => enemy.room === caller.room);
-  const buried = () => state.enemies.filter((enemy) => enemy.buried);
+  // The Bone King's reserve (plan 021 Stage E) is buried on this floor too, in the stair hall: the caller's is what answers to the caller's own spawn index.
+  const buried = () => state.enemies.filter((enemy) => enemy.buried && enemy.summoner === callerAt);
   expect(buried().length, 'the caller arrived with no reserve').toBe(perTell);
   expect(buried().every((enemy) => enemy.kind === 'rattler' && enemy.summoner === callerAt), `a buried body does not answer to spawn ${callerAt}, the caller's place in the floor`).toBe(true);
   expect(buried().every((enemy) => !enemy.visible && !enemy.awake), 'a buried body was on show or awake').toBe(true);

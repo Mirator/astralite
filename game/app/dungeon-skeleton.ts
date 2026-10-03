@@ -92,13 +92,25 @@ function trim(target: (Part | Node)[], name: string, geom: Geom, material: strin
 function skeletonSpec(kind: SkeletonKind): Node {
   // The one place a kind is still a name rather than a row: this is each body's own geometry, authored
   // part by part, and a new kind's figure is new parts rather than new numbers.
-  const stalker = kind === 'stalker', warden = kind === 'warden', archer = kind === 'archer';
+  // Plan 021: the Tide Hound is the stalker grown huge (its scale is the bestiary's) - the same crouched, long-armed, bareheaded, clawed body - with a ruff, barnacles, a long jaw and a tail of kelp of its own.
+  const hound = kind === 'hound';
+  const stalker = kind === 'stalker' || hound, warden = kind === 'warden', archer = kind === 'archer';
   // The arena-only kinds. Each borrows what it can from the four above - the guard's kit, the archer's
   // hood, the stalker's cloak - and adds the one part its silhouette is read by: the shieldbearer's tower
   // shield, the reaper's scythe, the pyre's fire cage, the bonecaller's staff and antlers, the
   // rattler's size (its scale is the bestiary's, not the spec's).
   const shieldbearer = kind === 'shieldbearer', reaper = kind === 'reaper', pyre = kind === 'pyre', bonecaller = kind === 'bonecaller', rattler = kind === 'rattler';
-  const hooded = archer || reaper || bonecaller, bareheaded = stalker || rattler;
+  // Plan 021: the Drowned Captain is the warden's plate grown huge (its scale is the bestiary's), under a wide-brimmed hat and a long drowned coat,
+  // carrying an anchor in place of the hammer. `plated` is everything the two share: the plate, the wide shoulders, the greaves.
+  // The Bastion is the shieldbearer grown huge and plated: the warden's plate and greaves under a flat-topped great helm, a tower shield the width of the body on the left arm, a flanged mace on the right.
+  const bastion = kind === 'bastion';
+  const captain = kind === 'captain', plated = warden || captain || bastion;
+  // The Pyre Mother (plan 021) is a pyre's cage and a bonecaller's hood and robe grown into one tall figure: a crown of flame about the hood, a skirt that widens to the floor, a great cage
+  // of coals on her back and a staff that ends in a brazier.
+  const mother = kind === 'mother';
+  // The Bone King (plan 021) is the bonecaller's skeleton crowned and grown huge: no hood and no helm, a tall crown of brass spikes, a mantle and a long royal cloak, and a sceptre that is the bonecaller's staff in gold.
+  const king = kind === 'king';
+  const hooded = archer || reaper || bonecaller || mother, bareheaded = stalker || rattler;
   const rigParts: (Part | Node)[] = [];
   const weaponParts: (Part | Node)[] = [];
   const skullParts: (Part | Node)[] = [];
@@ -109,23 +121,52 @@ function skeletonSpec(kind: SkeletonKind): Node {
   ];
 
   // makeSkeleton()'s own kind armour, added to `rig` before the base skeleton.
-  if (warden) {
+  if (plated) {
     rigParts.push({ name: 'plate', shape: { geometry: BONES.plate }, material: 'iron', at: [0, 1.0, -.05] });
     // Plan 014 round A: a brute, not a chess king. The shoulders are lopsided - the hammer side a great
     // hunched boulder of plate, the off side a lighter cop - and the crown is four iron spikes of
     // uneven height, each leaning its own way, rather than six matched gold teeth in a ring.
     for (const s of [-1, 1] as const) rigParts.push({ name: `shoulder-${s < 0 ? 'l' : 'r'}`, shape: { geometry: BONES.armor }, material: 'iron', at: [s * (s > 0 ? .55 : .47), s > 0 ? 1.27 : 1.19, 0], scale: s > 0 ? [1.62, 1.02, 1.3] : [1.02, .62, .92] });
+    if (captain) {
+      // A captain's hat, wide enough to read from across a hall: a flat brim, a tall crown banded in brass, a corner of the brim turned up on either
+      // side, and a spike of pale coral where a feather would be. It is the one silhouette in the keep that is wider at the head than at the shoulders.
+      const hat: Part[] = [
+        { name: 'hat-crown', shape: { cylinder: [.25, .31, .26, 10] }, material: 'cloth', at: [0, .17, 0] },
+        { name: 'hat-band', shape: { cylinder: [.315, .315, .06, 10] }, material: 'brass', at: [0, .07, 0] },
+        { name: 'hat-plume', shape: { cone: [.05, .5, 4] }, material: 'crest', at: [.25, .3, .06], rot: [0, 0, -.9] },
+      ];
+      for (const s of [-1, 1] as const) hat.push({ name: `hat-turn-${s < 0 ? 'l' : 'r'}`, shape: { cone: [.12, .32, 4] }, material: 'cloth', at: [s * .52, .06, 0], rot: [0, 0, s * -1.05] });
+      rigParts.push({ name: 'hat', shape: { cylinder: [.58, .6, .045, 12] }, material: 'cloth', at: [0, 1.8, .1], rot: [-.28, 0, -.05], parts: hat });
+    }
+    if (bastion) {
+      // A great helm, flat-topped and straight-sided, with a brass ridge along its crown and a slit for a visor: the one head in the keep with no crown, no hat and no hood.
+      const helm: Part[] = [
+        { name: 'helm-ridge', shape: { box: [.05, .13, .5] }, material: 'brass', at: [0, .27, 0] },
+        { name: 'helm-visor', shape: { box: [.34, .045, .02] }, material: 'shadow', at: [0, .06, -.305] },
+        { name: 'helm-band', shape: { cylinder: [.325, .325, .05, 10] }, material: 'brass', at: [0, -.14, 0] },
+      ];
+      rigParts.push({ name: 'helm', shape: { cylinder: [.3, .33, .5, 10] }, material: 'iron', at: [0, 1.7, .02], parts: helm });
+    }
+    if (!captain && !bastion) {
     const teeth: Part[] = [];
     const crownSpikes = [[.35, 2.1, .28], [1.95, 1.25, -.22], [3.3, 2.6, .12], [4.75, 1.05, -.35]] as const;
     crownSpikes.forEach(([angle, tall, lean], i) => teeth.push({ name: `crown-tooth-${i}`, shape: { geometry: BONES.crownTooth }, material: 'iron', at: [Math.cos(angle) * .27, .06 + tall * .09, Math.sin(angle) * .27], scale: [1.35, tall, 1.35], rot: [Math.sin(angle) * (.3 + lean), 0, -Math.cos(angle) * (.3 - lean)] }));
     rigParts.push({ name: 'crown', shape: { geometry: BONES.crown }, material: 'iron', at: [0, 1.61, .02], rot: [.08, 0, -.12], parts: teeth });
+    }
   } else if (hooded) {
     // A deep hood rather than a helm: the one bareheaded-looking silhouette in the keep, peaked so its
     // outline says "not a guard" before the bow has resolved. The cowl drapes behind the skull. The reaper
     // wears it taller and further forward, the bonecaller with antlers through it.
-    rigParts.push({ name: 'hood', shape: { cone: [.31, reaper ? .62 : .44, 8] }, material: 'cloth', at: [0, reaper ? 1.7 : 1.63, reaper ? .02 : .06], rot: [reaper ? -.45 : -.3, 0, 0] });
+    rigParts.push({ name: 'hood', shape: { cone: [.31, reaper ? .62 : mother ? .58 : .44, 8] }, material: 'cloth', at: [0, reaper ? 1.7 : mother ? 1.68 : 1.63, reaper ? .02 : .06], rot: [reaper ? -.45 : -.3, 0, 0] });
+    // Six tongues of flame standing round the hood's crown, each leaning its own way and of its own height: lit like the eyes, so from across a hall she is the one head in the keep that burns.
+    if (mother) for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3 + .3, tall = [.34, .22, .4, .26, .36, .2][i]; trim(rigParts, `flame-${i}`, 'spike', 'ember', [Math.cos(a) * .27, 1.9 + tall * .3, Math.sin(a) * .27 + .02], [.07, tall, .07], [Math.sin(a) * .35, 0, -Math.cos(a) * .35]); }
     rigParts.push({ name: 'cowl', shape: { geometry: BONES.armor }, material: 'cloth', at: [0, 1.4, .12], scale: [.98, .9, .72] });
     if (bonecaller) for (const s of [-1, 1] as const) for (let i = 0; i < 2; i++) trim(rigParts, `antler-${s < 0 ? 'l' : 'r'}-${i}`, 'spike', 'crest', [s * (.2 + i * .12), 1.8 + i * .1, .02], [.05, .34 - i * .1, .05], [0, 0, s * -(.55 + i * .5)]);
+  } else if (king) {
+    // A crown of brass: a broad band, and seven spikes of uneven height standing out of it, each leaning its own way - from across a hall the one head in the keep with a crown that is taller than the skull is wide.
+    const spikes: Part[] = [];
+    for (let i = 0; i < 7; i++) { const a = i * Math.PI * 2 / 7 + .2, tall = [2.6, 1.7, 3.2, 2.0, 2.9, 1.5, 2.3][i]; spikes.push({ name: `king-spike-${i}`, shape: { geometry: BONES.crownTooth }, material: 'brass', at: [Math.cos(a) * .27, .06 + tall * .09, Math.sin(a) * .27], scale: [1.4, tall, 1.4], rot: [Math.sin(a) * .22, 0, -Math.cos(a) * .22] }); }
+    rigParts.push({ name: 'crown', shape: { geometry: BONES.crown }, material: 'brass', at: [0, 1.62, .02], scale: [1.05, 1.5, 1.05], parts: spikes });
   } else if (!bareheaded) {
     // Plan 014 round B: the helmet sat .2 low and .13 behind the skull's centre, so its lower faces cut
     // straight through the cranium and the face read as a black block wedged into the bone. It now caps
@@ -148,6 +189,8 @@ function skeletonSpec(kind: SkeletonKind): Node {
   trim(skullParts, 'chin', 'joint', 'shadow', [0, -.043, -.244], [.043, .05, .018]);
   trim(skullParts, 'muzzle', 'box', 'bone', [0, -.17, -.13], [.31, .075, .18]);
   for (let i = 0; i < 5; i++) trim(skullParts, `tooth-${i}`, 'box', 'bone', [(i - 2) * .049, -.128, -.22], [.03, .055, .045]);
+  // The hound's long jaw: a snout out in front of the stalker's muzzle and two fangs hanging from it.
+  if (hound) { trim(skullParts, 'snout', 'box', 'bone', [0, -.2, -.34], [.26, .1, .32]); for (const s of [-1, 1] as const) trim(skullParts, `fang-${s < 0 ? 'l' : 'r'}`, 'spike', 'bone', [s * .08, -.3, -.4], [.035, .16, .035], [Math.PI, 0, 0]); }
   if (stalker) for (const s of [-1, 1] as const) {
     trim(skullParts, `horn-${s < 0 ? 'l' : 'r'}`, 'spike', 'bone', [s * .18, -.2, -.19], [.045, .19, .045], [Math.PI, 0, s * -.12]);
     trim(skullParts, `horn-shade-${s < 0 ? 'l' : 'r'}`, 'spike', 'shadow', [s * .2, .17, .04], [.1, .24, .1], [0, 0, s * -.25]);
@@ -169,14 +212,14 @@ function skeletonSpec(kind: SkeletonKind): Node {
   // matching makeSkeleton()'s own order.
   armParts[0]!.push({ name: 'arm-shape-l', shape: { geometry: BONES.limb }, material: 'bone', at: [0, stalker ? -.4 : -.27, 0], scale: [1, stalker ? 1.35 : .85, 1] });
   armParts[1]!.push({ name: 'arm-shape-r', shape: { geometry: BONES.limb }, material: 'bone', at: [0, stalker ? -.4 : -.27, 0], scale: [1, stalker ? 1.35 : .85, 1] });
-  const shieldPart: Part = { name: 'shield', shape: { geometry: BONES.shield }, material: 'iron', at: [-.02, -.36, -.16], rot: [-Math.PI / 2, 0, 0], hidden: !(kind === 'guard' || shieldbearer), scale: shieldbearer ? [1.3, 1, 1.8] : undefined, parts: shieldParts };
+  const shieldPart: Part = { name: 'shield', shape: { geometry: BONES.shield }, material: 'iron', at: [-.02, -.36, -.16], rot: [-Math.PI / 2, 0, 0], hidden: !(kind === 'guard' || shieldbearer || bastion), scale: shieldbearer ? [1.3, 1, 1.8] : bastion ? [1.9, 1.2, 2.7] : undefined, parts: shieldParts };
   armParts[0]!.push(shieldPart);
   if (stalker) for (let i = 0; i < 2; i++) {
     for (let c = 0; c < 3; c++) armParts[i]!.push({ name: `claw-${i === 0 ? 'l' : 'r'}-${c}`, shape: { geometry: BONES.claw }, material: 'bone', rot: [-Math.PI / 2, (1 - c) * .25, 0, 'YXZ'], at: [(c - 1) * .15, -.83, -.16] });
   }
   legParts[0]!.push({ name: 'leg-shape-l', shape: { geometry: BONES.limb }, material: 'bone', at: [0, -.25, 0], scale: [1, .75, 1] });
   legParts[1]!.push({ name: 'leg-shape-r', shape: { geometry: BONES.limb }, material: 'bone', at: [0, -.25, 0], scale: [1, .75, 1] });
-  if (warden) {
+  if (plated) {
     legParts[0]!.push({ name: 'greave-l', shape: { geometry: BONES.armor }, material: 'iron', at: [0, -.29, 0], scale: [.55, .7, .65] });
     legParts[1]!.push({ name: 'greave-r', shape: { geometry: BONES.armor }, material: 'iron', at: [0, -.29, 0], scale: [.55, .7, .65] });
   }
@@ -193,13 +236,13 @@ function skeletonSpec(kind: SkeletonKind): Node {
     trim(parts, `${tag}-joint`, 'joint', 'bone', [0, -length * .48, 0], [.095, .085, .095]);
     trim(parts, `${tag}-shaft-a`, 'shaft', 'bone', [-.036, -length * .71, -.018], [.032, length * .38, .037], [0, 0, .1]);
     trim(parts, `${tag}-shaft-b`, 'shaft', 'bone', [.036, -length * .71, -.018], [.032, length * .38, .037], [0, 0, -.1]);
-    if (!arm) trim(parts, `${tag}-cap`, 'box', warden ? 'iron' : 'bone', [0, -.45, -.08], [.16, .09, .29]);
+    if (!arm) trim(parts, `${tag}-cap`, 'box', plated ? 'iron' : 'bone', [0, -.45, -.08], [.16, .09, .29]);
     else trim(parts, `${tag}-cap`, 'box', stalker ? 'bone' : 'iron', [0, -length, -.035], [.16, .13, .14]);
   }
-  rigParts.push({ name: 'arm-l', at: [-(warden ? .48 : .33), 1.14, 0], rot: [0, 0, -(stalker ? .25 : .12)], parts: armParts[0]! });
-  rigParts.push({ name: 'arm-r', at: [warden ? .48 : .33, 1.14, 0], rot: [0, 0, stalker ? .25 : .12], parts: armParts[1]! });
-  rigParts.push({ name: 'leg-l', at: [-(warden ? .25 : .18), .53, 0], parts: legParts[0]! });
-  rigParts.push({ name: 'leg-r', at: [warden ? .25 : .18, .53, 0], parts: legParts[1]! });
+  rigParts.push({ name: 'arm-l', at: [-(plated ? .48 : .33), 1.14, 0], rot: [0, 0, -(stalker ? .25 : .12)], parts: armParts[0]! });
+  rigParts.push({ name: 'arm-r', at: [plated ? .48 : .33, 1.14, 0], rot: [0, 0, stalker ? .25 : .12], parts: armParts[1]! });
+  rigParts.push({ name: 'leg-l', at: [-(plated ? .25 : .18), .53, 0], parts: legParts[0]! });
+  rigParts.push({ name: 'leg-r', at: [plated ? .25 : .18, .53, 0], parts: legParts[1]! });
 
   // makeSkeleton()'s own weapon, then rig.add(...weapon) below.
   if (warden) {
@@ -207,6 +250,21 @@ function skeletonSpec(kind: SkeletonKind): Node {
     // from across a room is "that is a very large hammer".
     weaponParts.push({ name: 'haft', shape: { geometry: BONES.haft }, material: 'iron', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.52], scale: [1.25, 1.2, 1.25] });
     weaponParts.push({ name: 'head', shape: { geometry: BONES.hammer }, material: 'iron', at: [0, 0, -1.2], scale: [1.25, 1.22, 1.2], parts: [{ name: 'band', shape: { geometry: BONES.hammer }, material: 'brass', scale: [.18, 1.04, 1.04] }] });
+  } else if (captain) {
+    // An anchor in place of the hammer: a long iron shank, a stock across it near the ring, and the two flukes curving up from the crown, so from
+    // across a hall the one weapon in the keep with a hooked end. Barnacles of coral crust the crown.
+    weaponParts.push({ name: 'shank', shape: { geometry: BONES.haft }, material: 'iron', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.56], scale: [1.35, 1.25, 1.35] });
+    weaponParts.push({ name: 'stock', shape: { box: [.8, .1, .1] }, material: 'iron', at: [0, 0, -.1] });
+    weaponParts.push({ name: 'ring', shape: { torus: [.1, .03, 5, 10] }, material: 'brass', at: [0, 0, .08], rot: [0, Math.PI / 2, 0] });
+    weaponParts.push({ name: 'flukes', shape: { torus: [.42, .06, 5, 14, Math.PI * 1.05] }, material: 'iron', at: [0, -.04, -1.22], rot: [Math.PI / 2, 0, Math.PI * .975], scale: [1, 1, 1.15] });
+    for (const s of [-1, 1] as const) weaponParts.push({ name: `fluke-tip-${s < 0 ? 'l' : 'r'}`, shape: { cone: [.08, .28, 4] }, material: 'steel', at: [s * .41, -.04, -1.52], rot: [-Math.PI / 2, 0, 0] });
+    weaponParts.push({ name: 'barnacles', shape: { dodeca: [.09, 0] }, material: 'crest', at: [.1, .06, -1.05] });
+  } else if (bastion) {
+    // A flanged mace: a short haft and a heavy iron head with four flanges standing out of it, and a band of brass at the neck.
+    weaponParts.push({ name: 'haft', shape: { geometry: BONES.haft }, material: 'iron', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.42], scale: [1.2, .9, 1.2] });
+    weaponParts.push({ name: 'head', shape: { dodeca: [.27, 0] }, material: 'iron', at: [0, 0, -.98] });
+    weaponParts.push({ name: 'neck', shape: { cylinder: [.15, .15, .05, 8] }, material: 'brass', at: [0, 0, -.72], rot: [Math.PI / 2, 0, 0] });
+    for (const [x, y] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) weaponParts.push({ name: `flange-${x}${y}`, shape: { cone: [.07, .22, 4] }, material: 'steel', at: [x * .3, y * .3, -.98], rot: [y * -Math.PI / 2, 0, x * -Math.PI / 2] });
   } else if (archer) {
     // The bow stands in the plane of the arrow, its stave bowed away from the archer, pale so it reads
     // against the dark stone; the arrow is nocked from the start, so the whole weapon is one shape the
@@ -221,10 +279,22 @@ function skeletonSpec(kind: SkeletonKind): Node {
     // room the one weapon in the keep that curls.
     weaponParts.push({ name: 'haft', shape: { geometry: BONES.haft }, material: 'iron', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.62], scale: [.8, 1.45, .8] });
     weaponParts.push({ name: 'scythe', shape: { torus: [.42, .04, 4, 12, 2.3] }, material: 'steel', at: [.36, 0, -1.5], rot: [Math.PI / 2, 0, Math.PI * .55], scale: [1, 1, 1.4] });
+  } else if (mother) {
+    // A long staff ending in a brazier: an iron bowl on the haft, a coal heaped in it and three flames standing out of the coal.
+    weaponParts.push({ name: 'staff', shape: { geometry: BONES.haft }, material: 'crest', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.62], scale: [.7, 1.45, .7] });
+    weaponParts.push({ name: 'bowl', shape: { cylinder: [.2, .1, .16, 8] }, material: 'iron', at: [0, 0, -1.4] });
+    weaponParts.push({ name: 'brazier-coal', shape: { dodeca: [.17, 0] }, material: 'ember', at: [0, .1, -1.4] });
+    for (let i = 0; i < 3; i++) weaponParts.push({ name: `brazier-flame-${i}`, shape: { cone: [.06, .3 + (i % 2) * .1, 4] }, material: 'ember', at: [(i - 1) * .08, .3, -1.4], rot: [0, 0, (i - 1) * -.25] });
   } else if (pyre) {
     // A short haft carrying a live coal, which is also the colour its death leaves on the floor.
     weaponParts.push({ name: 'haft', shape: { geometry: BONES.haft }, material: 'iron', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.3], scale: [.8, .55, .8] });
     weaponParts.push({ name: 'coal', shape: { dodeca: [.13, 0] }, material: 'ember', at: [0, 0, -.72] });
+  } else if (king) {
+    // The bonecaller's staff in gold: a heavy haft capped in brass, a skull on it with a crown of its own, and the caller's light in its sockets.
+    weaponParts.push({ name: 'staff', shape: { geometry: BONES.haft }, material: 'brass', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.55], scale: [1.1, 1.3, 1.1] });
+    weaponParts.push({ name: 'staff-skull', shape: { geometry: BONES.skull }, material: 'bone', at: [0, 0, -1.42], scale: .7 });
+    weaponParts.push({ name: 'staff-eye', shape: { geometry: BONES.socket }, material: 'eye', at: [0, .08, -1.6], scale: 1.8 });
+    for (const s of [-1, 1] as const) weaponParts.push({ name: `staff-horn-${s < 0 ? 'l' : 'r'}`, shape: { cone: [.05, .3, 4] }, material: 'brass', at: [s * .16, .14, -1.42], rot: [0, 0, s * -.7] });
   } else if (bonecaller) {
     // A staff crowned with a skull whose sockets carry the caller's own light.
     weaponParts.push({ name: 'staff', shape: { geometry: BONES.haft }, material: 'crest', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.5], scale: [.7, 1.2, .7] });
@@ -233,17 +303,49 @@ function skeletonSpec(kind: SkeletonKind): Node {
   } else if (!stalker) {
     weaponParts.push({ name: 'blade', shape: { geometry: BONES.blade }, material: 'steel', at: [0, 0, -.4] });
   }
-  rigParts.push({ name: 'weapon', at: archer ? [.08, 1.0, -.42] : [warden || reaper ? .5 : .42, .97, -.12], rot: [archer ? -1 : warden ? .45 : .1, 0, 0], parts: weaponParts });
+  rigParts.push({ name: 'weapon', at: archer ? [.08, 1.0, -.42] : [warden || captain || bastion || reaper ? .5 : .42, .97, -.12], rot: [archer ? -1 : warden || captain || bastion ? .45 : .1, 0, 0], parts: weaponParts });
 
   // enemyDetails()'s rig-level rib/joint loop (ribs skip when warden - the plate armour covers them).
   for (let i = 0; i < 4; i++) {
-    if (!warden) trim(rigParts, `rib-${i}`, 'rib', 'bone', [0, .78 + i * .09, -.025], [.23 + i * .022, .2, .24 + i * .013], [Math.PI / 2, 0, -Math.PI * .78]);
+    if (!plated) trim(rigParts, `rib-${i}`, 'rib', 'bone', [0, .78 + i * .09, -.025], [.23 + i * .022, .2, .24 + i * .013], [Math.PI / 2, 0, -Math.PI * .78]);
     trim(rigParts, `rib-joint-${i}`, 'joint', 'bone', [0, .72 + i * .13, .075], [.1, .07, .075]);
   }
 
   // enemyDetails()'s kind branch: warden's plate armour and hammer bands, stalker's spine spikes and
   // cloak, or the guard's tabard, shield rim and sword guard.
-  if (warden) {
+  if (captain) {
+    // The warden's plate under a drowned captain's coat: the lopsided shoulders and the gorget, a coat that falls to the floor behind and a split
+    // tabard before, a sash across the chest, and kelp hanging off the shoulders.
+    for (const s of [-1, 1] as const) {
+      const side = s < 0 ? 'l' : 'r', big = s > 0;
+      for (let i = 0; i < 3; i++) trim(rigParts, `pauldron-${side}-${i}`, 'box', 'iron', [s * ((big ? .58 : .47) + i * .05), (big ? 1.33 : 1.2) - i * .11, -.025], big ? [.56, .14, .62] : [.32, .08, .4], [0, 0, s * (big ? -.34 : -.18)]);
+      trim(rigParts, `coat-${side}`, 'cloth', 'cloth', [s * .24, .5, .17], [.44, 1.02, 1], [-.18, s * .4, s * -.14]);
+      trim(rigParts, `tabard-${side}`, 'cloth', 'cloth', [s * .18, .5, -.25], [.34, .8, 1], [0, 0, s * -.1]);
+      for (let i = 0; i < 2; i++) trim(rigParts, `kelp-${side}-${i}`, 'cloth', 'cloth', [s * (.56 + i * .1), 1.02 - i * .1, .12], [.12, .55 - i * .1, 1], [-.1, 0, s * (.12 + i * .1)]);
+      trim(rigParts, `coral-${side}`, 'joint', 'crest', [s * .6, 1.35, .05], [.09, .07, .09]);
+    }
+    trim(rigParts, 'gorget', 'joint', 'brass', [0, 1.12, -.255], [.1, .13, .035]);
+    trim(rigParts, 'sash', 'box', 'brass', [0, 1.0, -.245], [.78, .06, .04], [0, 0, -.55]);
+    trim(rigParts, 'chest-rib', 'box', 'iron', [0, 1.0, -.235], [.05, .4, .03]);
+    for (let i = 0; i < 3; i++) trim(rigParts, `fauld-${i}`, 'box', 'iron', [0, .71 - i * .08, 0], [.5 + i * .02, .1, .3 + i * .02]);
+  } else if (bastion) {
+    // The warden's plate worn square: a matched pair of heavy pauldrons, a tabard of crimson split to the belt, a gorget and a brass-ribbed breastplate; and on the shield a brass rim, a brass
+    // cross and a ring of rivets round its boss.
+    for (const s of [-1, 1] as const) {
+      const side = s < 0 ? 'l' : 'r';
+      for (let i = 0; i < 3; i++) trim(rigParts, `pauldron-${side}-${i}`, 'box', 'iron', [s * (.56 + i * .05), 1.3 - i * .11, -.025], [.5, .13, .56], [0, 0, s * -.3]);
+      trim(rigParts, `tabard-${side}`, 'cloth', 'cloth', [s * .18, .54, -.25], [.34, .74, 1], [0, 0, s * -.1]);
+      trim(rigParts, `collar-${side}`, 'box', 'brass', [s * .23, 1.04, -.23], [.042, .35, .032], [0, 0, s * -.25]);
+    }
+    trim(rigParts, 'gorget', 'joint', 'brass', [0, 1.12, -.255], [.1, .13, .035]);
+    trim(rigParts, 'chest-rim', 'box', 'brass', [0, 1.235, -.2], [.7, .03, .06]);
+    trim(rigParts, 'chest-rib', 'box', 'brass', [0, 1.0, -.235], [.06, .4, .03]);
+    for (let i = 0; i < 3; i++) trim(rigParts, `fauld-${i}`, 'box', 'iron', [0, .71 - i * .08, 0], [.5 + i * .02, .1, .3 + i * .02]);
+    for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; trim(shieldParts, `rivet-${i}`, 'joint', 'brass', [Math.sin(a) * .31, .069, Math.cos(a) * .31], [.031, .025, .031]); }
+    trim(shieldParts, 'cross-h', 'box', 'brass', [0, .065, 0], [.055, .026, .64]);
+    trim(shieldParts, 'cross-v', 'box', 'brass', [0, .065, 0], [.64, .026, .055]);
+    shieldParts.push({ name: 'rim', shape: { torus: [.36, .03, 4, 16] }, material: 'brass', at: [0, .055, 0], rot: [Math.PI / 2, 0, 0] });
+  } else if (warden) {
     for (const s of [-1, 1] as const) {
       const side = s < 0 ? 'l' : 'r';
       const heavy = s > 0;
@@ -277,12 +379,41 @@ function skeletonSpec(kind: SkeletonKind): Node {
     rigParts.push({ name: 'cage-coal', shape: { dodeca: [.17, 0] }, material: 'ember', at: [0, 1.28, .3] });
     for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + Math.PI / 4; trim(rigParts, `cage-bar-${i}`, 'box', 'iron', [Math.cos(a) * .17, 1.28, .3 + Math.sin(a) * .17], [.035, .42, .035]); }
     trim(rigParts, 'cage-cap', 'box', 'iron', [0, 1.5, .3], [.36, .04, .36]);
+  } else if (mother) {
+    // A robe that widens to the floor in three panels a side, so her outline is a bell; and on her back the pyre's cage made twice the size, a coal the size of a skull in it and
+    // flames standing out of its cap.
+    trim(rigParts, 'robe-front', 'cloth', 'cloth', [0, .45, -.19], [.66, .95, 1]);
+    trim(rigParts, 'robe-back', 'cloth', 'cloth', [0, .5, .16], [.68, 1.0, 1], [0, Math.PI, 0]);
+    for (const s of [-1, 1] as const) for (let i = 0; i < 3; i++) trim(rigParts, `skirt-${s < 0 ? 'l' : 'r'}-${i}`, 'cloth', 'cloth', [s * (.26 + i * .09), .3 - i * .04, .02 + i * .04], [.34, .62 - i * .05, 1], [-.1, s * (.7 + i * .35), s * -(.2 + i * .12)]);
+    rigParts.push({ name: 'cage-coal', shape: { dodeca: [.25, 0] }, material: 'ember', at: [0, 1.3, .36] });
+    for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; trim(rigParts, `cage-bar-${i}`, 'box', 'iron', [Math.cos(a) * .27, 1.3, .36 + Math.sin(a) * .27], [.04, .62, .04]); }
+    trim(rigParts, 'cage-cap', 'box', 'iron', [0, 1.64, .36], [.5, .05, .5]);
+    trim(rigParts, 'cage-base', 'box', 'iron', [0, .96, .36], [.5, .05, .5]);
+    for (let i = 0; i < 3; i++) trim(rigParts, `cage-flame-${i}`, 'spike', 'ember', [(i - 1) * .14, 1.82 + (i % 2) * .06, .36], [.08, .3 + (i % 2) * .12, .08], [0, 0, (i - 1) * -.2]);
+    trim(rigParts, 'sash', 'box', 'brass', [0, 1.0, -.23], [.62, .06, .04], [0, 0, .5]);
+  } else if (king) {
+    // A mantle of royal cloth over both shoulders, a cloak that falls to the floor behind in two panels, a robe before, spikes of bone standing off the shoulders and a chain of brass across the chest.
+    for (const s of [-1, 1] as const) {
+      const side = s < 0 ? 'l' : 'r';
+      trim(rigParts, `mantle-${side}`, 'cloth', 'cloth', [s * .3, 1.12, .03], [.46, .56, 1], [-.1, s * .3, s * -.5]);
+      trim(rigParts, `cloak-${side}`, 'cloth', 'cloth', [s * .22, .52, .15], [.46, 1.1, 1], [-.16, s * .4, s * -.12]);
+      for (let i = 0; i < 2; i++) trim(rigParts, `shoulder-spike-${side}-${i}`, 'spike', 'bone', [s * (.4 + i * .14), 1.3 + i * .05, 0], [.06, .3 - i * .08, .06], [0, 0, s * -(.9 + i * .4)]);
+    }
+    trim(rigParts, 'robe-front', 'cloth', 'cloth', [0, .45, -.18], [.6, .92, 1]);
+    trim(rigParts, 'chain', 'box', 'brass', [0, 1.05, -.24], [.5, .05, .03], [0, 0, .35]);
   } else if (bonecaller) {
     // A robe to the floor, front and back.
     trim(rigParts, 'robe-front', 'cloth', 'cloth', [0, .45, -.17], [.56, .9, 1]);
     trim(rigParts, 'robe-back', 'cloth', 'cloth', [0, .5, .14], [.58, .95, 1], [0, Math.PI, 0]);
   } else if (rattler) {
     trim(rigParts, 'loincloth', 'cloth', 'cloth', [0, .5, -.16], [.32, .3, 1]);
+  } else if (hound) {
+    // The stalker's spine and cloak, bigger, and over them a ruff of bone spikes round the neck, a row of coral barnacles down the back and three strands of kelp for a tail.
+    for (let i = 0; i < 5; i++) trim(rigParts, `spine-spike-${i}`, 'spike', 'bone', [0, .8 + i * .135, .13], [.085, (.3 + i * .05) * 1.25, .085], [.8, 0, 0]);
+    for (const s of [-1, 1] as const) trim(rigParts, `cloak-${s < 0 ? 'l' : 'r'}`, 'cloth', 'cloth', [s * .2, .67, .12], [.34, .8, 1], [-.3, s * .5, s * -.25]);
+    for (let i = 0; i < 9; i++) { const a = i * Math.PI * 2 / 9; trim(rigParts, `ruff-${i}`, 'spike', 'bone', [Math.cos(a) * .3, 1.3, Math.sin(a) * .3 - .02], [.07, .38 + (i % 3) * .08, .07], [Math.sin(a) * .9, 0, -Math.cos(a) * .9]); }
+    for (let i = 0; i < 5; i++) trim(rigParts, `barnacle-${i}`, 'joint', 'crest', [(i % 2 - .5) * .16, .85 + i * .12, .2], [.08 + (i % 3) * .02, .06, .08]);
+    for (let i = 0; i < 3; i++) trim(rigParts, `tail-${i}`, 'cloth', 'cloth', [(i - 1) * .13, .42 - i % 2 * .06, .38], [.15, .85 - i * .08, 1], [.9, (i - 1) * .35, 0]);
   } else if (stalker) {
     for (let i = 0; i < 5; i++) trim(rigParts, `spine-spike-${i}`, 'spike', 'bone', [0, .8 + i * .135, .13], [.065, (.23 + i * .04) * 1.25, .065], [.8, 0, 0]);
     for (const s of [-1, 1] as const) trim(rigParts, `cloak-${s < 0 ? 'l' : 'r'}`, 'cloth', 'cloth', [s * .2, .67, .12], [.32, .69, 1], [-.3, s * .5, s * -.25]);
@@ -322,12 +453,27 @@ const PALETTE: Record<SkeletonKind, { bone: number; iron: number; ironRoughness:
   // Cold like the rest of the dead: a slate-blue hood, not the stalker's or the warden's drowned green, and
   // pale ice eyes - the one eye colour on the keep's side that is neither warm nor lime.
   archer: { bone: 0xa29e8e, iron: 0x3f4a53, ironRoughness: 0.5, brass: 0x4e4536, eye: 0x8fd8ff, cloth: 0x2f3947, pool: .58 },
+  // The Drowned Captain (plan 021): the warden's dark plate over a coat of deep drowned teal, tarnished brass braid, and eyes the sea-green of a
+  // lantern under water - the one eye colour that is neither warm nor ice, so it names the boss from across the hall. The widest pool at its feet.
+  captain: { bone: 0x6f8f86, iron: 0x1d2a2c, ironRoughness: 0.55, brass: 0x8a7236, eye: 0x58ffd0, cloth: 0x1c4650, pool: 1.0 },
   // The arena-only kinds. Eyes stay clear of THREAT's red and of each other's hue; cloth stays cold except
   // the pyre's, whose warmth is the fire it carries.
   shieldbearer: { bone: 0x9aa19a, iron: 0x4a5560, ironRoughness: 0.45, brass: 0x7a6a44, eye: 0xffb347, cloth: 0x3a4458, pool: .62 },
   reaper: { bone: 0xc2bba8, iron: 0x2a2d31, ironRoughness: 0.6, brass: 0x4a3f2e, eye: 0xff7ad9, cloth: 0x17191d, pool: .7 },
+  // The Tide Hound (plan 021): drowned grey-blue bone, the keep's coldest, in kelp-dark cloth, with eyes the white of a lantern fish: nothing else in the keep is blue-white-eyed and low, so it names itself
+  // by the way it carries its head before its lane is drawn.
+  hound: { bone: 0x6a7f8c, iron: 0x2c3a42, ironRoughness: 0.55, brass: 0x5c6e6a, eye: 0xe6f6ff, cloth: 0x234050, pool: .85 },
+  // The Bastion (plan 021): the cold steel-blue of the shieldbearer made heavy, with bright brass trim and a crimson tabard - the one boss that is mostly a colour and not a shadow - and white-warm eyes
+  // behind the visor slit.
+  bastion: { bone: 0x9aa19a, iron: 0x3c4c60, ironRoughness: 0.4, brass: 0xb08a3c, eye: 0xfff2d8, cloth: 0x6a1f2e, pool: 1.0 },
   pyre: { bone: 0x8f8676, iron: 0x35302b, ironRoughness: 0.6, brass: 0x7a5530, eye: 0xffc36a, cloth: 0x4a2b1e, pool: .58 },
   bonecaller: { bone: 0xb8b39e, iron: 0x3a3f46, ironRoughness: 0.5, brass: 0x6b5a3a, eye: 0xb9a4ff, cloth: 0x3b2d4a, pool: .6 },
+  // The Pyre Mother (plan 021): a smoked, warm bone under a robe the red-brown of a coal's edge, and eyes white-hot where the pyre's are amber - the one boss whose palette is warm, so she names
+  // her fire from across the hall before her cage has resolved. A wide pool for her skirt.
+  mother: { bone: 0xa8957f, iron: 0x3a2a24, ironRoughness: 0.6, brass: 0xa8622a, eye: 0xffe6b0, cloth: 0x7a2a18, pool: .95 },
+  // The Bone King (plan 021): old ivory bone under a cloak of deep royal violet, bright brass for the crown and sceptre, and eyes a deeper violet than the bonecaller's lilac - the one boss that is gold and purple, so he is a king
+  // from across the hall, and the widest pool of them all for his cloak.
+  king: { bone: 0xd2c9b0, iron: 0x2a2630, ironRoughness: 0.55, brass: 0xc29a3c, eye: 0xc07bff, cloth: 0x3a1d5a, pool: 1.05 },
   rattler: { bone: 0xb0aa98, iron: 0x3f4a53, ironRoughness: 0.5, brass: 0x6f6244, eye: 0xfff0a0, cloth: 0x3d3a33, pool: .42 },
 };
 

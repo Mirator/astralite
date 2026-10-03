@@ -1,3 +1,4 @@
+import type { Attack, PoseStyle } from './dungeon-bestiary.ts';
 import { BESTIARY, LUNGE_TIME, RECOVERY, type EnemyKind } from './dungeon-enemy.ts';
 
 // Presentation only: read the combat clock, never advance it or decide a hit. `attackAge` is
@@ -21,9 +22,17 @@ export type EnemyPose = {
   trail: boolean;
 };
 
-export function enemyPose(kind: EnemyKind, windup: number, tell: number, cooldown: number, lunge: number, attackAge = Infinity): EnemyPose {
+/**
+ * The style a body moves in while it does `attack` (plan 021): a boss has several moves and each is drawn as the kind of blow it is - a swing as
+ * the body's own style, a sweep as the full turn, a pounce as the crouch and leap, a volley as the draw, a summon or a scatter as the call. An
+ * ordinary kind, which has the one attack and the one style, is not asked.
+ */
+export const poseStyleOf = (kind: EnemyKind, attack: Attack | null): PoseStyle =>
+  attack === 'sweep' ? 'spin' : attack === 'pounce' ? 'pounce' : attack === 'volley' ? 'draw' : attack === 'summon' || attack === 'scatter' ? 'channel' : BESTIARY[kind].look.pose;
+
+export function enemyPose(kind: EnemyKind, windup: number, tell: number, cooldown: number, lunge: number, attackAge = Infinity, styled: PoseStyle = BESTIARY[kind].look.pose): EnemyPose {
   // `stalker` and `warden` name the two bodies these styles were drawn for; any kind wearing the style moves the same way.
-  const style = BESTIARY[kind].look.pose, stalker = style === 'pounce', warden = style === 'overhead';
+  const style = styled, stalker = style === 'pounce', warden = style === 'overhead';
   const safeWindup = Math.max(0, finiteOr(windup, 0));
   const safeTell = Math.max(0.001, finiteOr(tell, .5));
   const safeCooldown = Math.max(0, finiteOr(cooldown, 0));

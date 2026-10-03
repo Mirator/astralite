@@ -48,6 +48,16 @@ export const CUTAWAY_ELLIPSE: Record<SlotOwner, { radii: [number, number]; yOffs
   pyre: { radii: [0.65, 1.0], yOffset: 1.0 },
   bonecaller: { radii: [0.65, 1.05], yOffset: 1.05 },
   rattler: { radii: [0.5, 0.75], yOffset: 0.72 },
+  // Plan 021: the Captain is the warden at 1.7 over its 1.3, so the warden's window grown by that ratio (1.3077): wide enough to take a body that fills the lens.
+  captain: { radii: [1.2, 1.76], yOffset: 1.65 },
+  // The Pyre Mother is the pyre's window (0.65 x 1.0, centre 1.0) at her 1.5, and the pool bosses after her are each their base kind's at theirs.
+  mother: { radii: [0.98, 1.5], yOffset: 1.5 },
+  // The Tide Hound is the stalker's window (0.65 x 1.0) at 1.6, lowered a little for the way it carries its head.
+  hound: { radii: [1.04, 1.6], yOffset: 1.35 },
+  // The Bastion is a shieldbearer's window (0.72 x 1.05, centre 1.0) at 1.7, wider for the shield it stands behind.
+  bastion: { radii: [1.3, 1.8], yOffset: 1.7 },
+  // The Bone King is the bonecaller's window (0.65 x 1.05, centre 1.05) at his 1.8, taller still for the crown.
+  king: { radii: [1.2, 1.95], yOffset: 1.9 },
 };
 
 // ------------------------------------------------------------------------------- shader injection

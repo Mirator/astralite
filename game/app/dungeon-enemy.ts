@@ -3,10 +3,10 @@
 // the THREE.Group, the poses, the sound and the particles, and asks this module for the decision behind
 // each of them. Everything works over plain {x, z} points, so a whole fight can be replayed in node
 // instead of by hand-driving a browser, which is how every spatial regression here has been caught.
-import { BESTIARY, byKind, type EnemyKind, type EnemyStats } from './dungeon-bestiary.ts';
+import { BESTIARY, byKind, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
 import { TILE, canStand, cellKey, hasClearPath, moveOnFloor } from './dungeon-floor.ts';
 
-export { ENEMY_KINDS, BESTIARY, type EnemyKind, type EnemyStats } from './dungeon-bestiary.ts';
+export { ENEMY_KINDS, BESTIARY, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
 export type Point = { x: number; z: number };
 
 // A body stops caring about the knight once the walk to him is long enough. The cutoff is generous
@@ -87,9 +87,46 @@ export const hitCooldown = (kind: EnemyKind, broke: boolean, stagger: boolean) =
 // still kill in the same number of blows; what changed is that a gap now exists to tune inside.
 export const HIT = 4;
 export const BASE_STATS: Record<EnemyKind, EnemyStats> = byKind(a => a.stats);
+const floorsDeeper = (level: number) => Math.max(0, Math.floor(Number.isFinite(level) ? level : 1) - 1);
+/** A floor-one blow's damage on this floor: fifteen percent more for every floor down, rounded. */
+export const scaledDamage = (base: number, level: number) => Math.round(base * (1 + 0.15 * floorsDeeper(level)));
 export const enemyStats = (kind: EnemyKind, level: number): EnemyStats => {
-  const base = BASE_STATS[kind], deeper = Math.max(0, Math.floor(Number.isFinite(level) ? level : 1) - 1);
-  return { hp: base.hp + deeper * HIT, damage: Math.round(base.damage * (1 + 0.15 * deeper)), tell: base.tell, speed: base.speed };
+  const base = BASE_STATS[kind], deeper = floorsDeeper(level);
+  return { hp: base.hp + deeper * HIT, damage: scaledDamage(base.damage, level), tell: base.tell, speed: base.speed };
+};
+
+// Plan 021: a boss is an archetype with a list of moves for each phase (dungeon-bestiary.ts `Move`) and the shares of its
+// vitality at which a later phase begins. The rotation inside a phase is fixed - no random draw - so a fight is a pattern to
+// learn and a seed replays it. These read the live table, not a snapshot: a test stands a boss in for a kind that is never dealt.
+/** Seconds a boss stands still and unhittable while it changes phase, and the ring it plays at its feet lasts. */
+export const PHASE_CHANGE = 1.0;
+/** How far outside its own melee reach the knight is left by the push that opens a phase change (`bossPush`, dungeon-hits.ts). */
+export const BOSS_PUSH_MARGIN = 0.6;
+/** The move a body is in the middle of, by its phase and its place in that phase's rotation; null for an ordinary kind. */
+export const moveOf = (kind: EnemyKind, phase: number, move: number): Move | null => {
+  const table = BESTIARY[kind].moves;
+  return table ? table[Math.min(Math.max(0, phase), table.length - 1)]?.[move] ?? null : null;
+};
+/** What one landed blow costs the knight on this floor: the move's own damage for a boss, the kind's for everything else. */
+export const strikeDamage = (kind: EnemyKind, level: number, phase = 0, move = 0) => {
+  const doing = moveOf(kind, phase, move);
+  return doing ? scaledDamage(doing.damage, level) : enemyStats(kind, level).damage;
+};
+/** The farthest a boss strikes on foot, over every phase: what the knight has to be pushed beyond. A pounce and a volley are not reach, they are lanes. */
+export const bossReach = (kind: EnemyKind) => {
+  const reaches = (BESTIARY[kind].moves ?? []).flat().filter(move => move.attack === 'swing' || move.attack === 'sweep').map(move => move.strikeRange);
+  return reaches.length ? Math.max(...reaches) : BESTIARY[kind].strikeRange;
+};
+
+/**
+ * The most enemy arrows a boss can have in the air at once (plan 021): its widest fan, times how many volleys can overlap in flight. Two volleys are released at least one tell plus the boss's recovery
+ * apart, and a bolt lives `flight` seconds, so that is how many are in the air together. It has to fit `ARROW_POOL` (dungeon-projectile.ts): a thirteenth arrow is silently never drawn. Zero for a body with no volley.
+ */
+export const volleyDemand = (kind: EnemyKind) => {
+  const volleys = (BESTIARY[kind].moves ?? []).flat().filter(move => move.attack === 'volley' && move.bolt);
+  if (!volleys.length) return 0;
+  const gap = Math.min(...volleys.map(move => move.tell)) + RECOVERY[kind];
+  return Math.max(...volleys.map(move => (move.bolt!.fan?.count ?? 1) * Math.ceil(move.bolt!.flight / gap)));
 };
 
 // Everything a decision reads off an enemy. The renderer's Enemy also carries a THREE.Group, a health
@@ -97,7 +134,10 @@ export const enemyStats = (kind: EnemyKind, level: number): EnemyStats => {
 // `anchor` is fixed at spawn and never returned by an intent - it is the post a dozing body paces
 // around, not something a frame changes. `notice` is the one piece of memory the noticing beat needs:
 // 0 while dozing, climbing to NOTICE_TIME once something has its attention, pinned there once alert.
-export type EnemyView = { kind: EnemyKind; x: number; z: number; room: number; cooldown: number; hitFlash: number; windup: number; lunge: number; tell: number; speed: number; aim: Point; anchor: Point; notice: number };
+// Plan 021: `hp` and `maxHp` are what a boss's phase is read from; `move` is its place in the current phase's rotation (the
+// move it is doing, or the next it will try), `phase` the phase it is in, and `change` the seconds of a phase change still to
+// run. They are fed back each frame like `windup`, and an ordinary kind never reads them: they leave as they came in.
+export type EnemyView = { kind: EnemyKind; x: number; z: number; room: number; cooldown: number; hitFlash: number; windup: number; lunge: number; tell: number; speed: number; aim: Point; anchor: Point; notice: number; hp: number; maxHp: number; move: number; phase: number; change: number };
 
 export type World = {
   cells: Set<string>;
@@ -134,6 +174,13 @@ export type EnemyIntent = {
   // A `summon` tell ran out this frame: the caller raises the next `perTell` of the body's buried reserve,
   // as many of them as are left.
   raise: boolean;
+  // Plan 021. A `scatter` tell ran out this frame: the caller turns the rings it marked into fire pools.
+  scatter: boolean;
+  // The rotation slot, the phase and the change clock to feed back (EnemyView). `phaseChange` is true on the one frame a
+  // threshold is crossed: the windup and the lunge are already cancelled, `phase` is the new one and `change` is PHASE_CHANGE.
+  // While `change` runs the body is still, and the caller keeps it unhittable (`Struck.change`, dungeon-hits.ts).
+  move: number; phase: number; change: number;
+  phaseChange: boolean;
   sound: 'warn' | 'dash' | 'slash' | null;
   // Range to the knight before this frame's movement, which is what the gait and the poses read.
   // Not computed for a dozing body, which nothing looks at again this frame.
@@ -272,14 +319,28 @@ export function fallOf(bodies: readonly Bound[], index: number): { reassembles: 
   return { reassembles: false, crumble };
 }
 
+/**
+ * The first move at or after `from` in the rotation whose reach the knight is inside, or -1 when none is: a move he is too
+ * far for is skipped for the next that fits, and one that fits is never skipped. A boss that finds none closes in.
+ */
+const pickMove = (moves: readonly Move[], from: number, distance: number) => {
+  // A `chain` move follows the pounce before it and nothing else: it is taken when it is the one the rotation stands on, and never skipped to.
+  for (let k = 0; k < moves.length; k++) { const at = (from + k) % moves.length; if (distance <= moves[at].attackRange && !(k > 0 && moves[at].chain)) return at; }
+  return -1;
+};
+
 // One enemy, one frame. Assumes the caller has already dropped the asleep and the dying — those two are
 // visual states the renderer resolves, and neither ticks a cooldown.
 export function decideEnemy(enemy: EnemyView, player: Point, world: World, frameDt: number): EnemyIntent {
   const dt = step(frameDt);
+  // A boss's moves for the phase it is in, and the slot it is on; null for every ordinary kind, which takes the path it always took.
+  const archetype = BESTIARY[enemy.kind], table = archetype.moves;
+  const moves = table ? table[Math.min(Math.max(0, enemy.phase), table.length - 1)] : null, slot = moves ? enemy.move % moves.length : 0;
   // Ticked before the activation cutoff, so a body that has been standing in a far room still comes out
   // of its recovery: reaching it must not hand the player a free swing it never earned.
   const hitFlash = Math.max(0, enemy.hitFlash - dt), cooldown = enemy.cooldown - dt;
-  const rest = { x: enemy.x, z: enemy.z, cooldown, hitFlash, windup: enemy.windup, lunge: enemy.lunge, aim: { x: enemy.aim.x, z: enemy.aim.z }, notice: enemy.notice, face: null, hit: false, loose: null, raise: false, sound: null } satisfies Omit<EnemyIntent, 'act' | 'distance'>;
+  const change = table ? Math.max(0, enemy.change - dt) : enemy.change;
+  const rest = { x: enemy.x, z: enemy.z, cooldown, hitFlash, windup: enemy.windup, lunge: enemy.lunge, aim: { x: enemy.aim.x, z: enemy.aim.z }, notice: enemy.notice, face: null, hit: false, loose: null, raise: false, scatter: false, move: enemy.move, phase: enemy.phase, change, phaseChange: false, sound: null } satisfies Omit<EnemyIntent, 'act' | 'distance'>;
   const cellX = Math.round(enemy.x / TILE), cellZ = Math.round(enemy.z / TILE);
   const nearby = isActive(world.pathDistance(cellX, cellZ), enemy.room === world.activeRoom);
   // A beat already under way - its own or one caught from a neighbour - runs to completion even on a
@@ -298,28 +359,44 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
 
   const toX = player.x - enemy.x, toZ = player.z - enemy.z, distance = Math.hypot(toX, toZ);
 
+  if (moves) {
+    // Plan 021 D3. A phase change stands the boss still and facing him with nothing committed, for PHASE_CHANGE seconds; the
+    // caller keeps it unhittable and pushes the knight out of its reach (`bossPush`). One change at a time, whatever a single
+    // blow took off it: crossing two thresholds at once enters the first phase, and the second is entered when that change is over.
+    const turned = Math.atan2(-toX, -toZ);
+    if (change > 0) return { ...rest, act: 'ready', face: turned, windup: 0, lunge: 0, distance };
+    const below = archetype.phases?.[enemy.phase];
+    if (below !== undefined && enemy.hp < below * enemy.maxHp) return { ...rest, act: 'ready', face: turned, windup: 0, lunge: 0, move: 0, phase: enemy.phase + 1, change: PHASE_CHANGE, phaseChange: true, distance };
+  }
+
   if (enemy.lunge > 0) {
     const landed = { x: enemy.x, z: enemy.z };
     moveOnFloor(world.cells, landed, enemy.aim.x * LUNGE_SPEED * dt, enemy.aim.z * LUNGE_SPEED * dt);
     // Connecting ends the pounce outright, so one leap can never bill the knight twice.
-    const hit = sweptContact(enemy, landed, player);
-    return { ...rest, act: 'lunge', x: landed.x, z: landed.z, lunge: hit ? 0 : Math.max(0, enemy.lunge - dt), hit, distance };
+    const hit = sweptContact(enemy, landed, player), lunge = hit ? 0 : Math.max(0, enemy.lunge - dt);
+    // A pounce is a boss's move done when the leap is over, not when its tell ran out: that is when the rotation moves on.
+    return { ...rest, act: 'lunge', x: landed.x, z: landed.z, lunge, hit, distance, ...(moves && lunge === 0 ? { move: (slot + 1) % moves.length } : null) };
   }
 
   if (enemy.windup > 0) {
-    const attack = BESTIARY[enemy.kind].attack, pounce = attack === 'pounce', volley = attack === 'volley';
+    const doing = moves ? moves[slot] : null, attack = doing?.attack ?? archetype.attack, strike = doing?.strikeRange ?? STRIKE_RANGE[enemy.kind];
+    const pounce = attack === 'pounce', volley = attack === 'volley';
     const windup = Math.max(0, enemy.windup - dt);
     // A volley's lane is still following the knight until the lock; a swing's aim was fixed when it began.
     const aim = volley && windup > AIM_LOCK ? unit(toX, toZ, distance) : rest.aim;
     if (windup > 0) return { ...rest, act: 'windup', windup, aim, distance };
-    const recovered = { ...rest, act: 'windup' as const, windup: 0, aim, cooldown: RECOVERY[enemy.kind], distance };
+    // The blow is spent here and the boss's rotation moves on - except a pounce, whose leap is still to come (above).
+    // A move the next one is chained to has no recovery: the pounce's leap hands straight to it (`Move.chain`).
+    const chained = !!moves && !!moves[(slot + 1) % moves.length].chain;
+    const recovered = { ...rest, act: 'windup' as const, windup: 0, aim, cooldown: chained ? 0 : RECOVERY[enemy.kind], distance, ...(moves && !pounce ? { move: (slot + 1) % moves.length } : null) };
     if (attack === 'summon') return { ...recovered, raise: true, sound: 'warn' };
+    if (attack === 'scatter') return { ...recovered, scatter: true, sound: 'warn' };
     // A sweep has no aim to step around: everything within reach, on every side, that no wall shelters.
-    if (attack === 'sweep') return { ...recovered, hit: distance < STRIKE_RANGE[enemy.kind] && hasClearPath(world.cells, enemy, player), sound: 'slash' };
+    if (attack === 'sweep') return { ...recovered, hit: distance < strike && hasClearPath(world.cells, enemy, player), sound: 'slash' };
     // The tell has run out and the swing is committed: it is tested against where the knight is *now*,
     // along the direction it aimed at when it started, which is what makes stepping around it work.
     const aimed = (toX * aim.x + toZ * aim.z) / (distance || 1);
-    const hit = attack === 'swing' && distance < STRIKE_RANGE[enemy.kind] && hasClearPath(world.cells, enemy, player) && aimed > 0.45;
+    const hit = attack === 'swing' && distance < strike && hasClearPath(world.cells, enemy, player) && aimed > 0.45;
     return { ...recovered, lunge: pounce ? LUNGE_TIME : enemy.lunge, hit, loose: volley ? aim : null, sound: pounce ? 'dash' : volley ? 'slash' : null };
   }
 
@@ -327,9 +404,11 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   // wrong way once it recovers.
   const face = Math.atan2(-toX, -toZ);
   if (hitFlash > 0) return { ...rest, act: 'ready', face, distance };
-  const clearAttackLine = distance <= ATTACK_RANGE[enemy.kind] && hasClearPath(world.cells, enemy, player);
+  // A boss reaches for the next move in its rotation that the knight is within range of; anything else, the one attack it has.
+  const pick = moves ? pickMove(moves, slot, distance) : -1;
+  const clearAttackLine = moves ? pick >= 0 && hasClearPath(world.cells, enemy, player) : distance <= ATTACK_RANGE[enemy.kind] && hasClearPath(world.cells, enemy, player);
   if (clearAttackLine && cooldown <= 0) {
-    return { ...rest, act: 'ready', face, windup: enemy.tell, aim: unit(toX, toZ, distance), sound: 'warn', distance };
+    return { ...rest, act: 'ready', face, windup: moves ? moves[pick].tell : enemy.tell, aim: unit(toX, toZ, distance), sound: 'warn', distance, ...(moves ? { move: pick } : null) };
   }
   // A body that fights at range gives ground while it recovers, rather than standing to be cut down. It
   // backs straight away and lets the walls stop it: a cornered archer is the knight's reward for closing.

@@ -4,7 +4,7 @@
 //
 // Pure, like the rest of the rules: no React, no DOM, no three.js. The renderer owns the mesh and the
 // trail; this owns whether the shot connected and where it stopped.
-import { BESTIARY, type EnemyKind } from './dungeon-bestiary.ts';
+import { BESTIARY, type Bolt, type EnemyKind } from './dungeon-bestiary.ts';
 import { TILE, cellKey } from './dungeon-floor.ts';
 
 export type Shot = {
@@ -36,6 +36,21 @@ export type Flight = {
   done: boolean;
   /** It stopped because of a wall rather than a body or the clock, which is what sparks off stone. */
   struck: boolean;
+};
+
+/** How many enemy arrows the game can have in the air at once: a thirteenth volley is silently dropped, so a boss's volleys are designed inside it (`volleyDemand`, dungeon-enemy.ts). */
+export const ARROW_POOL = 12;
+
+/**
+ * The headings a volley is loosed along (plan 021): its aim, and for a fan `count` bolts `spread` radians apart centred on it, the aimed one first and then outward, left then right, so a pool
+ * that ran short would drop the outermost bolts and never the one that was aimed. A volley without a fan is the one heading, as it always was.
+ */
+export const fanHeadings = (aim: { x: number; z: number }, fan?: Bolt['fan']): { x: number; z: number }[] => {
+  const count = fan ? Math.max(1, Math.floor(finite(fan.count))) : 1, spread = fan ? finite(fan.spread) : 0, angle = Math.atan2(aim.x, aim.z);
+  return Array.from({ length: count }, (_, n) => {
+    const away = Math.ceil(n / 2) * (n % 2 ? -1 : 1), turned = angle + away * spread;
+    return n === 0 ? { x: aim.x, z: aim.z } : { x: Math.sin(turned), z: Math.cos(turned) };
+  });
 };
 
 /** How close a bolt passes before it counts. Generous, because a bolt is thin and a body is not. */
@@ -158,6 +173,43 @@ export const deathPool = (kind: EnemyKind, at: { x: number; z: number }): Pool |
   const fire = BESTIARY[kind].deathPool;
   return fire ? { x: at.x, z: at.z, radius: fire.radius, life: fire.life, damage: fire.damage, interval: fire.interval, timer: 0 } : null;
 };
+
+/** Ring centres a `scatter` lays are at least this far apart, so three marks are three places and not one. */
+export const SCATTER_SPACING = 2;
+/** Where the knight has been, oldest first: one sample every `TRAIL_STEP` seconds, the last `TRAIL_LENGTH` of them. */
+export const TRAIL_STEP = 0.25, TRAIL_LENGTH = 8;
+
+/**
+ * The rings a boss's `scatter` may mark (plan 021 D6): at most `count`, at the knight's last positions, newest first, each at
+ * least SCATTER_SPACING from the ones already chosen, and never more than the rings the game can still draw. There are
+ * `HOSTILE_POOL_RINGS` of them and a seventh pool is silently never created, so what is already burning is subtracted first:
+ * `live.hostile` the fire boss and pyre bodies have laid, `live.own` the knight's own flask pools, which share the cap. Every
+ * spot comes off `trail`; a trail shorter than the wish yields fewer.
+ */
+export const scatterRings = (trail: readonly { x: number; z: number }[], count: number, live: { hostile: number; own: number }) => {
+  const free = Math.max(0, HOSTILE_POOL_RINGS - finite(live.hostile) - finite(live.own)), wanted = Math.min(Math.floor(finite(count)), free);
+  const spots: { x: number; z: number }[] = [];
+  for (let i = trail.length - 1; i >= 0 && spots.length < wanted; i--) {
+    if (spots.every(spot => Math.hypot(spot.x - trail[i].x, spot.z - trail[i].z) >= SCATTER_SPACING)) spots.push({ x: trail[i].x, z: trail[i].z });
+  }
+  return spots;
+};
+
+/**
+ * One frame of the knight's trail, the record `scatterRings` marks from: a sample of where he stands every `TRAIL_STEP` seconds, the last `TRAIL_LENGTH` of them. `timer` is the clock to feed back
+ * and `trail` is changed in place. A junk frame delta adds nothing.
+ */
+export const sampleTrail = (trail: { x: number; z: number }[], timer: number, at: { x: number; z: number }, frameDt: number) => {
+  const next = timer + finite(frameDt);
+  if (next < TRAIL_STEP) return next;
+  trail.push({ x: at.x, z: at.z });
+  if (trail.length > TRAIL_LENGTH) trail.shift();
+  return next - TRAIL_STEP;
+};
+
+/** The fire a lit `scatter` ring becomes: a pool of the move's own fire at the marked spot, burning from its first bite. `damage` is what a bite costs on this floor (`scaledDamage`, dungeon-enemy.ts). */
+export const scatterPool = (at: { x: number; z: number }, fire: { radius: number; life: number; interval: number }, damage: number): Pool =>
+  ({ x: at.x, z: at.z, radius: fire.radius, life: fire.life, damage, interval: fire.interval, timer: 0 });
 
 /** Whether a point is standing in the fire. */
 export const poolCatches = (pool: Pool, x: number, z: number) => Math.hypot(pool.x - x, pool.z - z) < pool.radius;

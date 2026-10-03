@@ -18,8 +18,8 @@ const back = (page: import('@playwright/test').Page) => page.getByRole('button',
 const LEGACY_META = { pearls: 137, upgrades: { lungs: 1 }, arms: ['tideblade', 'maul'], arm: 'maul' };
 const LEGACY_BEST = { floor: 2, xp: 415, kills: 12, won: false };
 const LEGACY_RUNS: RunEnd[] = [
-  { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 20 },
-  { at: 1_700_000_500_000, floor: 1, won: false, cause: 'guard', seconds: 31, rank: 1, xp: 20, kills: 2, boons: [], seed: 7, arm: 'tideblade', upgrades: {}, pearls: 1 },
+  { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 20, bosses: 0 },
+  { at: 1_700_000_500_000, floor: 1, won: false, cause: 'guard', seconds: 31, rank: 1, xp: 20, kills: 2, boons: [], seed: 7, arm: 'tideblade', upgrades: {}, pearls: 1, bosses: 0 },
 ];
 
 test.describe('a save from before slots', () => {

@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { altarHall, ARRIVAL_CLEAR, buryReserves, canStand, carves, drawKind, GATE_ARMS, GATE_SPACING, gateRacks, generateFloor, HALL_SEED, HEART_CLEAR, cellKey, moveOnFloor, oneCaller, PACK_MIX, TILE, type Spawn } from '../app/dungeon-floor.ts';
+import { altarHall, ARRIVAL_CLEAR, buryReserves, canStand, carves, dealBosses, drawKind, parseBoss, GATE_ARMS, GATE_SPACING, gateRacks, generateFloor, HALL_SEED, HEART_CLEAR, cellKey, moveOnFloor, oneCaller, PACK_MIX, TILE, type Spawn } from '../app/dungeon-floor.ts';
 import { arenaFloor } from '../app/dungeon-arena.ts';
-import { BESTIARY, type EnemyKind } from '../app/dungeon-bestiary.ts';
+import { BESTIARY, BOSS_POOL, type EnemyKind } from '../app/dungeon-bestiary.ts';
 import { HOSTILE_POOL_RINGS } from '../app/dungeon-projectile.ts';
 import { PICKUP_RADIUS } from '../app/dungeon-sim.ts';
 import { FOUND_WEAPONS, STARTING_WEAPON } from '../app/dungeon-weapon.ts';
@@ -133,12 +133,14 @@ test('guards stand on walkable floor, never inside a wall or a prop', () => {
   }
 });
 
-test('the gate is safe and the stair is guarded by wardens', () => {
-  for (const level of [1, 3]) for (const floor of floors(level)) {
+// Plan 021 (D5): the stair hall holds its boss and nobody else - no wardens - on every floor, whatever the level.
+test('the gate is safe and the stair is guarded by its boss alone', () => {
+  for (const level of [1, 2, 3]) for (const floor of floors(level)) {
     assert.equal(floor.spawns.filter((spawn) => spawn.room === 0).length, 0, `seed ${floor.seed} spawns in the gate`);
-    const stair = floor.spawns.filter((spawn) => spawn.room === floor.goal);
-    assert.equal(stair.length, level >= 3 ? 3 : 2, `seed ${floor.seed} stair pack`);
-    assert.ok(stair.every((spawn) => spawn.kind === 'warden' && !spawn.ambush), `seed ${floor.seed} stair is not wardens`);
+    const stair = floor.spawns.filter((spawn) => spawn.room === floor.goal && !spawn.buried);
+    assert.equal(stair.length, 1, `seed ${floor.seed} level ${level} stair pack: ${stair.map(s => s.kind).join(',')}`);
+    assert.ok(BESTIARY[stair[0].kind].boss && !stair[0].ambush && !stair[0].buried, `seed ${floor.seed} the stair holds a ${stair[0].kind}, which is not a standing boss`);
+    assert.equal(floor.spawns.filter(spawn => spawn.kind === 'warden' && spawn.room === floor.goal).length, 0, `seed ${floor.seed} a warden still stands on the stair`);
   }
 });
 
@@ -344,19 +346,90 @@ const layoutHash = (floor: Floor) => createHash('sha256').update(JSON.stringify(
 /** The fixture was laid from `362db84`, before plan 018. Rolls are unchanged, so any difference is the promoted kinds and nothing else. */
 test('dealing the new kinds moves no room, prop, weapon or body: floor one is identical and deeper floors change only guards', () => {
   assert.equal(recorded.length, 90, 'the recorded sweep is 30 floors on each of three levels');
-  let changed = 0;
+  let changed = 0, boss = 0;
   for (const rec of recorded) {
     const floor = generateFloor(rec.seed, rec.level), standing = floor.spawns.filter(s => !s.buried);
     assert.equal(layoutHash(floor), rec.layout, `level ${rec.level} seed ${rec.seed}: a prop or the weapon drop moved, so a random draw was added or removed`);
-    assert.equal(standing.length, rec.spawns.length, `level ${rec.level} seed ${rec.seed}: the number of bodies changed`);
-    standing.forEach((s, i) => {
-      const was = rec.spawns[i];
-      assert.deepEqual([s.x, s.z, s.room, s.ambush], [was.x, was.z, was.room, was.ambush], `level ${rec.level} seed ${rec.seed} body ${i} moved`);
-      if (rec.level === 1) assert.equal(s.kind, was.kind, `floor one seed ${rec.seed} body ${i} changed kind`);
-      else if (s.kind !== was.kind) { assert.equal(was.kind, 'guard', `level ${rec.level} seed ${rec.seed} body ${i}: a ${was.kind} became a ${s.kind}; only guards may be replaced`); changed++; }
+    // Plan 021 (D5): the recorded stair hall held two or three wardens and now holds the boss alone, on the first warden's spot. Every other body is exactly where it was.
+    const was = rec.spawns.filter(s => s.room !== floor.goal), now = standing.filter(s => s.room !== floor.goal), stair = rec.spawns.filter(s => s.room === floor.goal);
+    assert.ok(stair.length >= 2, `level ${rec.level} seed ${rec.seed}: the recording lost its stair wardens`);
+    assert.equal(now.length, was.length, `level ${rec.level} seed ${rec.seed}: the number of bodies outside the stair hall changed`);
+    now.forEach((s, i) => {
+      assert.deepEqual([s.x, s.z, s.room, s.ambush], [was[i].x, was[i].z, was[i].room, was[i].ambush], `level ${rec.level} seed ${rec.seed} body ${i} moved`);
+      if (rec.level === 1) assert.equal(s.kind, was[i].kind, `floor one seed ${rec.seed} body ${i} changed kind`);
+      else if (s.kind !== was[i].kind) { assert.equal(was[i].kind, 'guard', `level ${rec.level} seed ${rec.seed} body ${i}: a ${was[i].kind} became a ${s.kind}; only guards may be replaced`); changed++; }
     });
+    const hall = standing.filter(s => s.room === floor.goal);
+    assert.equal(hall.length, 1, `level ${rec.level} seed ${rec.seed}: the stair hall holds ${hall.length} bodies, not its boss alone`);
+    assert.deepEqual([hall[0].x, hall[0].z], [stair[0].x, stair[0].z], `level ${rec.level} seed ${rec.seed}: the boss is not on the first warden's spot`);
+    boss++;
   }
+  assert.equal(boss, 90, 'every recorded floor was checked for its boss');
   assert.ok(changed > 50, `only ${changed} guards changed kind across the recorded floors, so the promoted kinds were barely dealt`);
+});
+
+// --- Plan 021 Stage B: the boss option and the deal ---------------------------------------------------------------
+
+test('the stair hall holds exactly the boss it is given, and the Captain on floors one and two and the King on floor three when it is given none', () => {
+  const stairOf = (floor: Floor) => floor.spawns.filter(s => s.room === floor.goal && !s.buried).map(s => s.kind);
+  for (const level of [1, 2, 3]) for (const seed of sweepSeeds(level).slice(0, 12)) {
+    assert.deepEqual(stairOf(generateFloor(seed, level)), [level >= 3 ? 'king' : 'captain'], `seed ${seed} level ${level}: the default is not the floor's boss alone`);
+    assert.deepEqual(stairOf(generateFloor(seed, level, { boss: 'bonecaller' })), ['bonecaller'], `seed ${seed} level ${level}: the boss option was not honoured (a stand-in kind proves the option reaches the room)`);
+  }
+});
+
+test('dealBosses is a pure hash of the run seed, the same on every call, and the boss a floor is given moves nothing else it lays', () => {
+  const wide = ['captain', 'guard', 'stalker', 'archer'] as const, seed = 0x51ed;
+  const deals = (runSeed: number) => JSON.stringify([dealBosses(runSeed, wide), dealBosses(runSeed)]);
+  const first = Array.from({ length: 30 }, (_, n) => deals(seed + n * 977));
+  // Generate floors in between, and call the deal in another order: a deal that kept state, or shared the generator's stream, would not repeat.
+  for (let n = 0; n < 5; n++) generateFloor(seed + n, 1 + n % 3);
+  const again = Array.from({ length: 30 }, (_, n) => deals(seed + (29 - n) * 977)).reverse();
+  assert.deepEqual(again, first, 'the deal changed with what was called before it');
+  assert.ok(new Set(first.map(deal => JSON.parse(deal)[0].join())).size >= 3, 'precondition: the wide pool is dealt varied pairs, so equal deals mean something');
+  assert.equal(dealBosses(seed)[0] === dealBosses(seed)[1], false, 'the live pool dealt one boss to both floors');
+  // The boss a floor is given reaches only the stair hall: every prop, door, drop and other body is the same whichever boss it is.
+  for (const level of [1, 3]) for (const runSeed of sweepSeeds(level).slice(0, 10)) {
+    const a = generateFloor(runSeed, level, { boss: 'captain' }), b = generateFloor(runSeed, level, { boss: 'archer' });
+    const lay = (f: Floor) => JSON.stringify({ ...f, cells: [...f.cells], roomByCell: [...f.roomByCell], spawns: f.spawns.filter(sp => sp.room !== f.goal) });
+    assert.equal(lay(a), lay(b), `seed ${runSeed} level ${level}: the boss option changed something outside the stair hall, so it drew from the generator's stream`);
+    assert.deepEqual([a.spawns.find(sp => sp.room === a.goal)?.kind, b.spawns.find(sp => sp.room === b.goal)?.kind], ['captain', 'archer'], `seed ${runSeed}: the stair hall did not take the boss (precondition)`);
+  }
+});
+
+test('a run never meets the same pool boss on floors one and two, and a wider pool is dealt from every kind', () => {
+  const pool = ['captain', 'guard', 'stalker', 'archer'] as const, firsts = new Set<string>(), seconds = new Set<string>();
+  for (let seed = 1; seed <= 400; seed++) {
+    const [a, b] = dealBosses(seed * 7919, pool);
+    assert.notEqual(a, b, `seed ${seed * 7919} dealt ${a} to both floors`);
+    firsts.add(a); seconds.add(b);
+  }
+  assert.equal(firsts.size, pool.length, 'precondition: floor one dealt every kind in the pool');
+  assert.equal(seconds.size, pool.length, 'precondition: floor two dealt every kind in the pool');
+});
+
+// Plan 021 Stage C: the live pool, not a stand-in. Floor one's boss and floor two's are never the same, every pool boss turns up on each floor, and (Stage D, four of them) each is dealt about
+// as often as the others: a share between 60% and 140% of an even one, which is 15% to 35% of the floors for a pool of four.
+test('over a thousand run seeds the deal never repeats a boss on floors one and two, and deals every pool boss on each floor about as often as the others', () => {
+  const floors: Record<EnemyKind, number>[] = [0, 1].map(() => Object.fromEntries(BOSS_POOL.map(kind => [kind, 0])) as Record<EnemyKind, number>);
+  for (let n = 1; n <= 1000; n++) {
+    const [a, b] = dealBosses(n * 7919 + 13);
+    assert.notEqual(a, b, `run seed ${n * 7919 + 13} dealt ${a} to both floors`);
+    assert.ok(BOSS_POOL.includes(a) && BOSS_POOL.includes(b), `run seed ${n} dealt a boss outside the pool: ${a}, ${b}`);
+    floors[0][a]++; floors[1][b]++;
+  }
+  const even = 1000 / BOSS_POOL.length;
+  floors.forEach((counts, floor) => {
+    for (const kind of BOSS_POOL) {
+      assert.ok(counts[kind] > 0, `precondition: floor ${floor + 1} was never dealt ${kind}, so a share of it means nothing`);
+      assert.ok(counts[kind] >= even * 0.6 && counts[kind] <= even * 1.4, `${kind} was dealt to ${(counts[kind] / 10).toFixed(1)}% of floor ${floor + 1}s, not within 60% to 140% of an even ${(100 / BOSS_POOL.length).toFixed(1)}%`);
+    }
+  });
+});
+
+test('the dev boss link names a pool boss and nothing else', () => {
+  for (const kind of BOSS_POOL) assert.equal(parseBoss(kind), kind, `${kind} is in the pool and the link refuses it`);
+  for (const text of [null, '', 'warden', 'guard', 'Captain', 'captain,captain', 'ghost']) assert.equal(parseBoss(text), null, `${text} was taken for a boss`);
 });
 
 test('each promoted kind is dealt from its first floor on, and never before it', () => {

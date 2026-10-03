@@ -4376,3 +4376,542 @@ through the slots to the hall": with a seed stored in slot 1 (asserted as the pr
 button, and ENTER → slot 1 lands in the hall, not the remembered keep. Planted bug: a LAST KEEP button put back on the
 title, failing with "the title still offers LAST KEEP, a retry that skips the hall". Gates: typecheck, lint, `npm test`
 392/392; a11y, slots, arena and loading specs 20/20 (SwiftShader, 2 workers). Full suite on the PR's CI.
+
+## 2026-10-03 - Plan 021 Stage 0 and Stage A: the baseline, and moves and phases with nothing dealt
+
+Branch `claude/beautiful-gauss-5o0cw4`, on `main` at `1ae7e92`. Stage 0 measured four things and changed no game file (the throwaway frame-cost
+edit to the warden's scale was reverted before anything was committed). Stage A gave an archetype moves and phases, and nothing deals one:
+`balance:check` prints Stage 0's 72 values exactly. No stop rule tripped, but two numbers below are the envelope Stages B to E have to stay inside.
+
+### Stage 0
+
+**1. Balance baseline** (`npm run balance:check`, 30 runs a policy from seed 1; every metric inside its band; 492.7 s). Escape rate, death rate by floor
+(f1/f2/f3), median vitality left by floor, median run seconds:
+
+| policy | escape | death f1/f2/f3 | HP left f1/f2/f3 | seconds |
+| --- | --- | --- | --- | --- |
+| default | 100.0 | 0.0 / 0.0 / 0.0 | 100.0 / 100.0 / 100.0 | 149.0 |
+| weak | 83.3 | 0.0 / 3.3 / 10.7 | 86.4 / 82.0 / 73.6 | 127.9 |
+| special | 100.0 | 0.0 / 0.0 / 0.0 | 100.0 / 100.0 / 100.0 | 146.3 |
+| special-fangs | 100.0 | 0.0 / 0.0 / 0.0 | 100.0 / 100.0 / 100.0 | 142.7 |
+| special-cleaver | 100.0 | 0.0 / 0.0 / 0.0 | 100.0 / 100.0 / 100.0 | 168.8 |
+| special-crossbow | 93.3 | 0.0 / 0.0 / 6.7 | 100.0 / 100.0 / 100.0 | 222.8 |
+| special-flask | 100.0 | 0.0 / 0.0 / 0.0 | 100.0 / 100.0 / 100.0 | 196.7 |
+| meta-max | 100.0 | 0.0 / 0.0 / 0.0 | 100.0 / 100.0 / 100.0 | 145.7 |
+| weak-meta-max | 100.0 | 0.0 / 0.0 / 0.0 | 89.7 / 85.2 / 78.7 | 123.8 |
+
+**2. Goal-room fit.** The goal room of every floor in the `balance:check` sweep (30 seeds x 3 floors = 90), of the pinned test seeds (15 seeds x 3 floors = 45)
+and of 1,500 further floors (500 seeds x 3). Measured off the generated floor (`generateFloor`), props and walls included. "Circle" is the largest circle of open
+floor around the room's centre (where the stair is). "Refuge" is, for the least roomy room of a set, the smallest over every place the boss could stand of the distance from
+it to the farthest floor tile: a sweep has to be shorter than that by the knight's body (0.5) for him to have somewhere outside it wherever the boss stands. "Chord" is
+the longest straight clear line in the room. Units are world units (a tile is 1.48); each figure is the least of its set.
+
+| set | floor | free tiles | circle at centre | refuge | longest chord |
+| --- | --- | --- | --- | --- | --- |
+| sweep, 90 rooms | 1 | 53 to 222 | 3.70 | 6.28 | 12.56 |
+| | 2 | 53 to 169 | 3.70 | 6.28 | 12.56 |
+| | 3 | 45 to 197 | 3.70 | 6.10 | 11.84 |
+| pinned seeds, 45 | 1 / 2 / 3 | 72-172 / 60-171 / 45-150 | 3.70 | 7.55 / 7.40 / 6.10 | 14.80 / 14.80 / 11.84 |
+| 1,500 floors | 1 / 2 / 3 | 45 to 222 on each | 3.70 | 6.10 | 11.84 |
+
+By shape (1,500 floors, free tiles): court 125 to 222, hall 59 to 140, gallery 63 to 130, crypt **45** to 124, cross 53 to 92, round 49 to 108. The smallest refuge
+is a crypt's or a round's (6.10); a court's is 11.56. The 3.70 circle at the centre is the prop rule (no prop within three tiles of the heart), not a wall: it is the
+same in every room. **Worst room:** a 45-tile crypt, half-extents 4 by 3, for example seed 3 floor 3 (also seeds 126707 and 304032 on floor 3, 618219 on floor 2):
+circle 3.70, refuge 6.10, diameter 12.20, longest clear chord 11.84, area 45 x 2.19 = 98.6 square units. Where bodies are placed today (500 seeds x 3 floors, every
+goal room): the first body is always placed (no goal room is without one), 3.61 tiles or more from the way in and 2.00 or more from the stair, so D5's "the boss takes
+the first body's spot" always has a spot.
+
+D4 gives the moves no numbers yet, so there is nothing to hold against this table but stand-ins taken from reaches that exist (a reaper's 2.3 sweep scaled to a
+boss's 1.7, a stalker's lane (5 long, 1.7 wide) widened likewise to 2.9, an archer's 9.1 bolt, the pyre's 1.7 ring three times over). Against the worst room: a sweep of 3.9 leaves
+the knight 2.2 of floor beyond it wherever the boss stands, **a sweep may reach 5.6 and no further** (refuge 6.10 less the 0.5 margin); a lane is clipped by stone
+(`laneLength`) and is 2.9 wide against a 7.4 inscribed diameter; a 9.1 bolt does not cross the 12.2 room; three 1.7 rings cover 27 square units, 28% of the room. **The
+stop rule did not trip**: a 45-tile crypt holds moves of those sizes with the knight able to stand outside them. It is an envelope, not a proof: a sweep above 5.6, or
+more than three rings at 1.7, does not fit it, and the plan's own figures for the real reaches are Stage B and C's to choose inside it.
+
+**3. Frame cost** (SwiftShader, level 3, seeds 0x1 round, 0x3 crypt, 0x6 cross, 0x7 gallery, 0xc hall, 0x86 crypt; the goal room framed from 4.5 to 7 units from the boss;
+throwaway edit of the warden's `look.scale` to 1.8, reverted; counters are the renderer's own and repeat exactly):
+
+| goal room (floor 3) | empty | one warden at 1.8 | three wardens (today's) |
+| --- | --- | --- | --- |
+| seed 0x3 crypt, 45 tiles | 250 / 220,734 tri / 55 shadow | 288 / 228,978 / 74 | 364 / 245,466 / 112 |
+| seed 0x1 round | 277 / 237,234 / 63 | 315 / 245,478 / 82 | 391 / 261,966 / 120 |
+| seed 0x6 cross | 252 / 222,039 / 52 | 290 / 230,283 / 71 | 366 / 246,771 / 109 |
+| seed 0x7 gallery | 253 / 224,921 / 54 | 291 / 233,165 / 73 | 331 / 241,713 / 94 |
+| seed 0xc hall | 264 / 217,379 / 63 | 302 / 225,623 / 82 | 377 / 242,003 / 120 |
+| seed 0x86 crypt | 279 / 237,330 / 66 | **317 / 245,574 / 85** | 393 / 262,062 / 123 |
+
+A warden is 38 calls and 8,244 triangles whatever its scale; the worst chamber with a boss alone is 317 calls against the 508 ceiling (`caller-chamber`), 191 to spare. A
+rattler is 29 calls (arena, level 3, warden plus k rattlers: 277, 335, 393, 451, **509**, 567 calls for k = 0, 2, 4, 6, 8, 10; +12,020 triangles and +28 shadow calls per two). So **the
+boss chamber with its reserve standing fits under 508 only up to six rattlers standing at once in the worst room measured (317 + 6 x 29 = 491; seven is 520)**; a buried
+body draws nothing. No reserve is defined before Stage E sizes the King's, so the stop rule is not tripped, and it is the figure Stage E is held to: more than six standing at once
+is reported, not absorbed. Six rooms on one renderer is a sample, not a sweep: an empty goal room costs 250 to 279 calls across it, and the 317 is built on its highest.
+
+**4. Exposure list**, and how each goes (restaged in Stage B, with `?boss=` where a test needs a known boss; nothing below was changed in these two stages):
+
+- `progression.spec.ts:105-281` (the stair scenario on floors 1 and 3, and the rank-up scenario). Both count the goal room's bodies (`stairEnemies`, `room === goal`) and
+  pay them at 25 each: the results card's tally (`results[0]` = wardens), its XP (`wardens * 25`) and `grantXp(gap - wardens * 25)`. After D5 and D10 that is one body and 100 XP.
+  `stairEnemies` must also leave out buried bodies (the King's reserve is in the goal room) or floor 3 counts them. `fightStair` leaves each warden at `hp: 1`; a boss at 1 is under
+  every threshold, so it changes phase before it can be struck (one change on the Captain, two on the King, a second each, unhittable), and the fixture has to wait the changes out
+  before swinging. Floor 3 ends in the King, not the Captain, from Stage E.
+- `special.spec.ts:564-616` (a Maul slam fells the last warden). Same dependence: `wardens.length`, `ring` of that many, `gap - wardens.length * 25`, and `hp: 1` for every body in the room.
+  With one boss it stages one body, 100 XP and a wait for the phase change before the held slam, or the slam lands in the unhittable second.
+- `shots.spec.ts:99-113` (`@capture`, "the warden chamber with the stair still sealed", seed 0x1). The assertions (`stairClear` false, stair not open) hold with a boss standing; the
+  frame does not: the reference frame `sealed-warden-chamber` shows two wardens and will show one boss. Regenerate that baseline through the `captures` workflow.
+- `hall.spec.ts:183-188`. It compares floor one's body count with `generateFloor(DEFAULT_SEEDS[0], 1).spawns` filtered to standing bodies, so a boss in place of two wardens is on both
+  sides; only the message "the stair is open before its wardens fell" is stale. Re-run it, do not assume it.
+- `dungeon-floor.test.ts:136-166`. "the stair is guarded by wardens" asserts 2 (3 on floor 3) standing bodies, all wardens: it becomes exactly one standing body that is the boss (the King
+  on level 3 with its reserve buried in the goal room). "deeper floors are meaner" counts all wardens (`wardens(3) > wardens(1) * 1.5`) and every spawn, buried included (`count(3) >
+  count(1) * 1.3`): with the goal wardens gone, floor one holds 1 of the 3 wardens it holds on seed 0x1 and floor three 6 of 9, so the ratio rises; the spawn count loses two or three bodies and
+  gains the King's reserve. Both are re-measured at Stage B, not assumed.
+- **The "any warden" finders** (`gameplay.spec.ts:151, 399, 552`; `special.spec.ts` `stage(..., 'warden')` at :37, 74, 95, 288, 312, 382, 447, 815, 904; `slash.spec.ts:74-77`): measured on every pinned
+  seed and floor. On seed 0x1 floor 1 (the default of nearly every spec) the first warden by spawn order is index 27 in room 14, not in the goal room 18, and one warden stands outside the goal room, so
+  they all still find one. Every seed in the pinned set (0x1, 0x7, 0xc, 0x86, 0x3, 0x6, 0x11, 0xb) has at least one warden outside the goal room on floor 1. **One seed does not: 0x60 floor 1 holds two
+  wardens and both are in the goal room**; the only spec on 0x60 is the light budget in `frame-budget.spec.ts`, which looks for none. **Two finders need a second warden**: the Heavy Bolt scenario
+  (`special.spec.ts:811-891`, `another(opening, index, 'warden')`) takes the first warden for the near one and a second awake warden for the far one, and on seed 0x1 floor 1 the second is a goal-room warden.
+  After D5 floor one has one warden on that seed. It restages on a seed whose floor has two wardens outside the goal room (0x7 floor 1 has 2: rooms 11 and 13; 0x86 floor 1: rooms 15 and 19) or in the arena.
+
+### Stage A
+
+What was built, file by file:
+
+- `app/dungeon-bestiary.ts`: `Attack` gains `'scatter'`; new `Cue` (the cue union, now named) and `Move` types; `Archetype` gains optional `moves` (one rotation per phase), `phases` (the vitality shares where
+  each later phase begins, falling) and `boss` (`'pool' | 'final'`). No row has any of them.
+- `app/dungeon-enemy.ts`: `EnemyView` gains `hp`, `maxHp`, `move`, `phase` and **`change`** (seconds of phase change left; the plan names the first four, and the one-second unhittable window needs a clock);
+  `EnemyIntent` gains `move`, `phase`, `change`, `phaseChange`, `scatter`. New `PHASE_CHANGE` (1.0), `BOSS_PUSH_MARGIN` (0.6), `scaledDamage`, `moveOf`, `strikeDamage`, `bossReach`. `decideEnemy`: for an archetype
+  with `moves` it picks the next move in the rotation the knight is within range of (`pickMove`), uses that move's tell, reach, attack and range, advances the rotation when the move is spent (a pounce when its leap
+  ends, not its tell), and on a threshold crossing cancels the windup and lunge, enters the next phase only (one at a time), and stands still for `PHASE_CHANGE`. Ordinary archetypes take their old path.
+- `app/dungeon-hits.ts`: `Struck.change` and `unhittable`; `landBlow` returns `{ immune: true }` and touches nothing while it runs, and `burn` does nothing; new `bossPush(boss, knight)`, the displacement that leaves the
+  knight `BOSS_PUSH_MARGIN` beyond `bossReach`.
+- `app/dungeon-projectile.ts`: `scatterRings(trail, count, live)`, `SCATTER_SPACING`, `TRAIL_STEP`, `TRAIL_LENGTH`.
+- `scripts/balance/sim.ts`: the view carries the boss fields; a body takes `move`, `phase`, `change` back; a boss's blow, bolt and raise use the move's damage, bolt and `perTell`; a phase change counts and pushes the knight
+  (`bossPush`); a scatter marks rings at the start of its tell off the knight's trail and lights them when it ends, billed to the boss; blows, fire and the Flashpoint leave a boss in its change alone; the report gains `bossKind`,
+  `bossDamage`, `bossDeaths`, `bossSeconds`, `bossHpLeft` (read at the boss's fall, before the kill's draught or the room's top-up) and `phaseChanges`.
+- `app/dungeon-game.tsx`: one line, the view handed to `decideEnemy` carries the new fields (`hp`, `maxHp` and zeros for the rest, with a comment that Stage B threads them).
+- Tests: `tests/fixtures/enemy-sequence.ts` (the ordinary-fight driver, committed on its own before any change, digests recorded at `1ae7e92`) and `tests/fixtures/test-boss.ts` (two-phase `TEST_BOSS`, three-phase `TEST_KING`,
+  one-move `TEST_SCATTERER`, stood in for the reaper by `asReaper`, which restores it and `BASE_STATS`).
+
+**Interpretations.**
+
+- **A move completes when its tell runs out, except a pounce, which completes when its leap ends.** The rotation moves on then, and the damage of the pounce's hit (landing a few frames later) still reads the move that threw it.
+- **The phase change is one `change` clock**, kept on the view like `windup`. It makes the boss still and committed to nothing while it runs; the frame it runs out is the boss's again (it may begin a tell at once).
+  A change also cancels a lunge. A threshold is crossed strictly (`hp < share * maxHp`).
+- **`Move.damage` is a floor-one figure**, scaled like `stats.damage` (`strikeDamage`, +15% a floor, rounded); `tell` is absolute. The move's `recovery` is the archetype's (the plan gives a move none).
+- **`bossReach` is the farthest `swing` or `sweep` over every phase** (a pounce and a volley are lanes). The push leaves the knight 0.6 beyond it; walls stop it (`moveOnFloor`), so a knight with his back to one can be left inside.
+- **`scatterRings(trail, count, live)` takes `live` as `{ hostile, own }`** so "counting the knight's own flask pools" (D6) is a rule the function applies and a test can plant. In the game the knight's flask pools draw
+  from their own six meshes (`poolMeshes`), separate from the six hostile ones, so counting them is conservative; the plan's rule is kept as written.
+- **A scatter's rings are chosen when its tell starts** (that is when the cue is drawn on them) and light when it ends.
+- **Not done in the sim: the dodge rules.** The plan lists "away from a sweep ring, sideways from a lane, out of a marked ring". A boss is read off the move it is winding up and dodged by the ordinary rule (sideways from
+  anything that is not a swing), which is what a reaper's sweep gets today. A marked-ring dodge was written and removed: its plant (never step out of a marked ring) survived, because the existing step out of lit fire
+  does the same work one bite later and the rate of fire taken came out equal with and without it (the knight who left the ring also stayed out of melee, so the fight ran twice as long). It belongs to Stage C, where a
+  scatter boss exists to measure it against.
+- **The arena cannot show `bossHpLeft` before a top-up**: its gate is cleared from the start and pays none. The test pins the value at the fall (the knight's vitality less what the boss dealt); that it is read before a
+  goal chamber's top-up is Stage B's to hold, where a boss stands in one.
+
+**Planted bugs** (each planted in the code, run against its own test only with `node --test`, then restored; the tree was clean after each):
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| an archetype without moves produces exactly the intents it produced before plan 021 | every archetype routed through the move selector (a one-move table made of its row, tell from the row, not the view) | `guard: its intents over the scripted fight are not what they were before plan 021 (digest, then what the fight held)`, digest `cc608b57` for `92ec2e7b` |
+| the rotation advances when a move is spent and not when it is interrupted | advance on every windup start | `a move began and the rotation had already moved on` (1 !== 0) |
+| a boss skips a move out of range for the next that fits, and skips none in range | always take the next move | `in range of the first move it did not begin the first move` (0.9 !== 0.5) |
+| crossing a threshold changes phase once, cancels the windup, nothing hurts it | allow damage during the change (`landBlow` no longer reads `change`) | `a blow took 3 off a boss in the middle of a phase change` (16 !== 19) |
+| a blow across two thresholds enters each phase in turn | jump to the lowest phase | `the first change entered phase 2: it skipped phase 1` (2 !== 1) |
+| the push leaves the knight outside the largest melee reach | push one tile | `a knight 0 from the boss on side 0 was left 1.48 from it, inside its 3.1 reach` |
+| a scatter marks at most the free rings, counting the knight's own | ignore the knight's pools | `the knight's own pools were not counted against the rings` (3 !== 2) |
+| a boss with two phases hurts the knight, changes phase once ... (sim) | never apply phaseChange in the sim (state not stored back) | `a boss with one threshold changed phase 28638 times` |
+| the same | never count or push on `intent.phaseChange` | `no boss ever changed phase: the sim never applies intent.phaseChange` |
+| a boss's blow costs what its move says, scaled by the floor | a move's damage not scaled | `a boss's move did not grow with the floor` (14 !== 18) |
+| the rings a scatter marks become fire that bills the boss | the marked rings never become pools | `the rings a scatter marked never became fire that bit the knight` |
+
+Two things the plants taught: the first draft of the ordinary-kinds test could not fail (a one-move table built from a row gives the same intents), so the driver hands each body a tell a quarter longer than its kind's and the
+digest now catches a selector that reads the row; and the sim test's first fixture boss never landed a blow, because the sim's knight breaks any non-steadfast tell with ordinary steel, so the fixture is steadfast, as a
+warden is. The interrupted half of the rotation test (a broken sweep is tried again, not the move after it) is reached only after the plant's earlier assertion, so that plant does not show it can fail on its own; it holds
+by construction (nothing but `landBlow` clears a windup without spending it, and the rotation is advanced only where a tell runs out).
+
+**Gates.** `npm run typecheck` clean; `npm run lint` clean; `npm test` 402 of 402 (was 392: ten new). `npm run balance:check` prints all 72 values identical to Stage 0's and every metric inside its band
+(run twice: 478.8 s on the tree before the last sim edit, 472.0 s on the final tree, both diffed row by row against the baseline). The browser suite was not run locally (the operator's speed rule): nothing browser-visible changed,
+and the one game line passes the new fields; CI on the draft PR runs it. Nothing pushed.
+
+### Not done / not verified
+
+- Stage B onward is untouched; the exposure list above is a list, nothing in it was restaged.
+- The frame-cost numbers are SwiftShader, six goal rooms, floor 3; a GPU was not used.
+- The goal-room fit uses stand-in reaches (D4 gives none); the real ones are measured against the 5.6 and 28% envelope when they exist.
+- The sim's marked-ring dodge and the "away from a sweep" refinement are deferred, as above.
+
+## 2026-10-03 - Plan 021 Stage B: the Drowned Captain, the deal, the boss bar and the boss reward
+
+Branch `claude/beautiful-gauss-5o0cw4`. Every stair hall now holds a boss and nobody else; the pool holds one, the Captain, so every floor deals it (floor three stands it in for the Bone King until Stage E). Nothing was
+tuned: the Captain's numbers are D7's hypothesis, Stage F's to tune. No stop rule tripped.
+
+### What changed
+
+- `app/dungeon-bestiary.ts`: the `captain` row (60 vitality, damage 24, speed 1.8, steadfast, `boss: 'pool'`, scale 1.7), phases `[.5]`; phase one is swing (tell .8, reach 3.2), swing (.7), sweep (1.1, reach 3.6, drawn as a 3.6 ring); phase two is swing, pounce
+  (tell .7, a 5 x 2.4 lane, begins from 5.5), sweep (1.0). Swing and sweep both begin from 2.7 and 2.6, so a boss walking in meets the swing first. `title`, `phaseNotice` (new optional archetype fields), `BOSS_POOL`, `FINAL_BOSS`.
+- `app/dungeon-floor.ts`: `generateFloor(seed, level, { boss })`: the goal roster is `[boss, warden, (warden)]`, so every placement draw is made as before, and every goal body but the first is dropped before the reserve is buried (the boss takes the first body's
+  spot; nothing draws a number, and a chamber too tight to place any gets the boss on its tile farthest from the way in, which no sweep ever needed). `dealBosses(runSeed, pool)` (a pure hash with its own mixing; floor two is dealt from the pool less floor one's pick),
+  `bossOnFloor`, `parseBoss` (the dev link).
+- `app/dungeon-enemy-pose.ts`, `dungeon-enemy-view.ts`: a boss is posed in the style of the move it last began (`poseStyleOf`: swing overhead, sweep spin, pounce crouch and leap), its telegraph swaps shape and size per move (`beginMove`; three shared, never-disposed
+  geometries), a phase change rears the body back and plays a pale ring (`surge`) at its feet out to where the knight is left, and its floating bar is hidden. `dungeon-skeleton.ts`: the Captain's figure (the warden's plate, a wide teal hat tilted back off its face, a coat and kelp,
+  an anchor for a weapon, sea-green eyes), its palette; `dungeon-occlusion.ts` its cutaway; `dungeon-run-summary.ts` its cause label.
+- `app/dungeon-game.tsx`: the real `move`, `phase` and `change` are fed to `decideEnemy` and stored back; a move's own damage and bolt are used (read before the intent advances the rotation, as the sim does); a tell beginning calls `beginMove`; a phase change cancels the trails,
+  pushes the knight with `bossPush` (walls stop it), raises the notice ("The Captain draws the tide"), shakes and bursts; a blow or a bolt on a boss in its change shows sparks and lands nothing (`landBlow`'s `immune`). The boss bar is DOM (`.boss-bar`, `role="progressbar"`, named for the boss, a tick at each
+  threshold), shown while a boss has noticed the knight and stands, cleared in `fell`, `endRun` and a floor build. The goal notice names the boss. `?boss=` is read only under `NODE_ENV !== 'production'`. The deal is made when floor one is charted and every later floor reads it back.
+  Snapshot: `boss` (see `tests/README.md`), `experience.perBoss`. `fell` pays `resolveKill(run, kind)`.
+- `app/dungeon-sim.ts`: `XP_PER_BOSS` 100, `Run.bosses`, `resolveKill(run, kind?)`. `app/dungeon-meta.ts`: `BOSS_PEARLS` 10, `pearlsFor` and `bank` take an optional `bosses`. `app/dungeon-save.ts`: `RunEnd.bosses` (0 on an old record) and an optional `bossKinds` (the boss each floor the run reached held, floor
+  order; absent on an old record, kept only of boss kinds); `app/dungeon-run-export.ts` fills `bosses` on a pre-boss export.
+- `scripts/balance/sim.ts`: floors are laid with `dealBosses(seed)`'s bosses, kills are paid with the kind, the report's pearls count bosses. `scripts/build/leaks.ts`: `?boss=` is a dev-only marker.
+- `app/globals.css`: `.boss-bar`.
+
+### Interpretations
+
+- **`bossKinds` is the boss of each floor the run reached**, floors 1 to the floor it ended on, not only the bosses it fought: a run that died on floor 2 names two. `bosses` is how many fell.
+- **The harness boots every page with `?boss=captain`** (like `boot=eager` and `hall=skip`; `test.use({ boss: null })` opts out onto a page of its own), so floors one and two hold the Captain whatever the deal makes of the pinned seeds, and the suite does not move when Stage C grows the pool. The dev link accepts a pool boss only.
+- **A boss "awake" is a boss that has noticed the knight** (`notice` at its full beat); that is when the bar appears, and it goes if the boss falls back to dozing. A boss one blow from death (a fixture's `hp: 1`) is under every threshold, so it changes phase first; `settleBoss` in `helpers.ts` waits that out.
+- **The sweep begins from 2.6, under the swing's 2.7**, so a Captain walking in meets the swing first and phase one is swing, swing, sweep as D4 writes it; with the sweep at 3.0 the boss began the sweep first when the knight stood at 5.9 (found in the first screenshot run). Phase two is swing, pounce, sweep: a knight out of the swing's reach is met with the pounce, which is what the phase adds.
+- **The boss bar on a phone replaces the title row for the fight** (at 900 px and under, the title is hidden while the bar shows and the chamber notice moves down), because the vitality column, the minimap and the menu leave no other clear row at 360 x 740. At 901 px and over it is centred between the title and the options.
+- **The Captain's scatter, summon and volley are not applied in the game** (it has none); the game applies `scatter`, `raise` and `loose` as before for ordinary kinds. A Stage C scatter needs its cue and pools in the game, as the plan says.
+- The Heavy Bolt scenario was restaged in the arena (two wardens and a guard) rather than on a second pinned seed: it stages by kind, like every other scenario in `special.spec.ts`.
+
+### The frame numbers
+
+`frame-budget.spec.ts` gains `captain-chamber`: the tightest goal chamber (seed 0x86 floor three, a 45-tile crypt) with the Captain standing, framed 5.5 from it, boss alone. Measured 2026-10-03 on SwiftShader, twice, identical: **320 calls, 246,034 triangles**, 130 geometries, 28 textures (Stage 0's stand-in, a warden at 1.8 in the same room, read 317 / 245,574: the Captain's figure is 3 calls and 460 triangles dearer). 188 calls under the 508 ceiling. Ceilings are the figures; the floors are the helper's 60% and 20%.
+
+### Balance, before and after
+
+`npm run balance:check`, 30 runs from seed 1, run twice on the final tree (the first red on the weak knight's two minimums, the second green after the update; 487 s and 538 s). Escape / death by floor / median vitality left by floor / seconds. Before is Stage 0's table.
+
+| policy | escape | deaths f1 / f2 / f3 | HP left f1 / f2 / f3 | seconds |
+| --- | --- | --- | --- | --- |
+| default | 100 (100) | 0 / 0 / 0 | 100 / 100 / 100 (same) | 155.1 (149.0) |
+| weak | 90.0 (83.3) | 0 / 0 / 6.9 (0 / 3.3 / 10.7) | 70.0 / 69.6 / 74.4 (86.4 / 82.0 / 73.6) | 134.1 (127.9) |
+| special | 100 | 0 / 0 / 0 | 99 / 100 / 100 (100 / 100 / 100) | 150.7 (146.3) |
+| special-fangs | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 144.4 (142.7) |
+| special-cleaver | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 174.4 (168.8) |
+| special-crossbow | 90.0 (93.3) | 0 / 0 / 10.0 (0 / 0 / 6.7) | 100 / 100 / 100 | 232.7 (222.8) |
+| special-flask | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 208.8 (196.7) |
+| meta-max | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 150.9 (145.7) |
+| weak-meta-max | 100 | 0 / 0 / 0 | 79.7 / 75.5 / 79.4 (89.7 / 85.2 / 78.7) | 128.4 (123.8) |
+
+Why: the stair hall's two or three wardens (20 damage a swing) became one Captain (24 a swing, a sweep, a pounce below half). The bots that dodge never meet its blows (the default bot took **0** boss damage in the median fight); the weak one, which never dodges, takes 48 in the median
+fight and ends with 56% of its vitality at the Captain's fall. Boss fights, over the 30 runs: default median **6.1 s** and 100% vitality left; weak median **5.3 s**. That is far under D9's 25 to 60 s: **the Captain lowers HP and kills almost no bot yet**, and fighting a bot for six seconds is the finding Stage F tunes HP and damage against;
+it is reported, not retuned. Two bands no longer held and moved (weak `floor1.medianHpLeft` 78 to 60, `floor2.medianHpLeft` 70 to 60), with a Stage B note in `bands.json`; `measured` was re-taken for every policy. The escape moves (weak 83.3 to 90.0, special-crossbow 93.3 to 90.0) are one or two runs
+at 30 runs and inside their bands; the weak knight's floor-2 death and a floor-3 death changed hands, and the old pinned seeds in `balance-sim.test.ts` (15839 died on floor 2) died on floor 3 now, so that test's floor-2 seed is 159.
+
+### Restaged (the Stage 0 exposure list)
+
+- `progression.spec.ts`: `stairEnemies` leaves out buried bodies and expects exactly the Captain; `fightStair` waits the phase changes out (`settleBoss`) after leaving it at `hp: 1`; the card's tally is one boss and its XP is `experience.perBoss` (100), not 25 a warden; the rank-up is lined to one boss's 100.
+- `special.spec.ts`, the Maul slam: stages the boss alone on the ring, waits out the change, puts the knight back at the heart (the push moved him) and re-stages, then primes the rank to the boss's 100. The Heavy Bolt scenario: staged in the arena (`warden, warden, guard`).
+- `shots.spec.ts` (`@capture`): the assertions hold with a boss standing; reworded and noted; the reference frame `sealed-warden-chamber` now shows one Captain and needs regenerating through the `captures` input.
+- `hall.spec.ts`: lays the comparison floor with the boss the run was dealt; the message names the boss.
+- `dungeon-floor.test.ts`: "the stair is guarded by wardens" is "by its boss alone" on all three floors; the 017 fixture test compares every body outside the stair hall as before and the stair hall as one boss on the first recorded warden's spot (all 90 floors); "deeper floors are meaner" holds unchanged.
+- The "any warden" finders: unchanged and still finding a warden outside the goal room on their seeds (no spec was found to use a goal-room warden other than the two above); `tests/README.md` has the new harness link, `settleBoss` and the snapshot field. `run-export.spec`, `slots.spec`, `meta.spec`, `death.spec`, `arena-kinds.spec` and `dealt-kinds.spec` run clean with the new `bosses` field.
+
+### Tests, and the bugs planted in them
+
+New node tests (415 of 415 pass; was 402 after Stage A): `dungeon-captain.test.ts` (5), the goal-room and deal tests in `dungeon-floor.test.ts` (4 new, 2 rewritten), `pearlsFor`, the old-record parse, `resolveKill` and the `?boss=` leak. Browser: `boss.spec.ts` (4) and the Captain's chamber. Each planted in the code, run against its own test, restored (`git status` clean after each):
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| the 017 fixture: goal room holds only its boss, every other body, prop and the drop unchanged | the goal roster drops the kept draws (`[boss]` only) | `level 1 seed 1: a prop or the weapon drop moved, so a random draw was added or removed` |
+| a boss the floor is given moves nothing else it lays | the boss option draws from the generator's `random` | `seed 1 level 1: the boss option changed something outside the stair hall, so it drew from the generator's stream` |
+| `dealBosses` is a pure hash | the deal keeps a call counter | `the deal changed with what was called before it` |
+| a run never meets the same boss twice | floor two dealt from the whole pool | `seed 15838 dealt captain to both floors` |
+| every boss pays ten pearls | pay per kill instead | `a boss on floor one is ten pearls, not ten for each of the twenty kills` (235 !== 45) |
+| an old record parses with no bosses and no list | the parse always writes a list / defaults bosses to 1 | `an old record grew a boss list` / `an old record did not read as felling no boss` (1 !== 0) |
+| a felled boss pays 100 and is counted | pays 25 / not counted | `a boss did not pay 100` / a deep-equal of `[kills, bosses, xp]` |
+| the dev boss link is dev-only | the marker removed from `findLeaks` | the reported-leak list differs (`['?boss=']` missing) |
+| (build) | `?boss=` read without the `NODE_ENV` guard, then `npm run build` and `build:check` | `development-only code reached the production bundle: ?boss=` |
+| the Captain's phases | phase two loses the pounce | the attack lists differ (and the phase-two pounce test fails) |
+| the Captain's reach fits the smallest chamber | the sweep reaches 6 | `a 6 sweep does not fit the 45-tile crypt` |
+| the Captain's rotation | the sweep first | the rotation differs (`swing, swing, sweep` against the sweep first) |
+| browser 1, the fight is wired | the floating bar shown beside the boss bar | `its own floating bar was showing beside the boss bar` |
+| browser 2, the phase is wired | no push | `the change left the knight inside the Captain's reach` (1.15 against 4.15) |
+| browser 2 | the change clock never stored | `the change showed no ring at its feet, or left it hittable` ([false, false]) |
+| browser 3, it bars the stair | `stairClear` ignores bosses | the stair opens at once: the notice reads `The stair opens` where `The Drowned Captain bars the stair` was expected |
+| browser 4, the phone | a fixed 420 px bar | `the bar is 420px wide and runs off a 360px screen` (436 against 360) |
+| frame budget, the Captain's chamber | sixty extra joints on the figure | `captain-chamber pushes more triangles than the budget allows` (255,634 against 246,034) |
+
+Two things the plants taught. The first draft of browser 2 had no stance with room behind the knight in the arena's crypt (a push cannot be seen against a wall), so the fixture moves the boss to the first tile that has one; and the ring is drawn from the frame after the one that decides the change, so the scenario steps one more before it reads it.
+
+### Not done / not verified
+
+- The full browser suite was not run locally (the operator's speed rule); CI on #87 is the gate. Specs run locally with `GAME_TEST_WORKERS=2`: `boss` (4), `progression` (2), `hall` (2), `special` (the slam, the Heavy Bolt and two neighbours), `shots` (the warden chamber), `run-export` (3), `slots` (5), `meta` and `death` (7), `arena-kinds` (3), `dealt-kinds` (1), and the frame-budget Captain scene (twice). All pass.
+- `bossHpLeft` before the goal chamber's top-up: the sim reads it at the boss's fall (Stage A), and the sim's floors now do have a goal chamber with a top-up, so it is proved there: the default bot's median `bossHpLeft` is 100 and the weak bot's 56, against 70 and 74 a floor after the top-up. The game has no such field.
+- The scatter, summon and volley moves in the game, the Pyre Mother and everything after Stage B, are untouched. The figure was judged on the bench (`npm run figures`) and in two arena screenshots (1000 x 700 and 360 x 740), on SwiftShader; not on a GPU, and not by an operator.
+- Nothing pushed. A production build was made and checked (`build:check`: 11 hooks, none shipped).
+
+## 2026-10-03 - Plan 021 Stages C and D: the Pyre Mother, the Tide Hound and the Bastion, and `scatter` in the game
+
+Branch `claude/beautiful-gauss-5o0cw4`, four commits (the Mother and scatter; the Hound; the Bastion; this log and the balance). The pool (`BOSS_POOL`) now holds four bosses, dealt per run from floor one's seed
+(`dealBosses`, floors one and two never the same); floor three still stands the Captain in until Stage E. Nothing was tuned: every number is D7's hypothesis, Stage F's to tune. No stop rule tripped.
+
+### What changed, file by file
+
+- `app/dungeon-bestiary.ts`: kinds `mother`, `hound`, `bastion`; `Bolt` (a `volley`'s bolt, with an optional `fan: { count, spread }`); `Move.chain`; `shield.until` (the phase a boss's shield breaks in); the three rows; `BOSS_POOL` is
+  captain, mother, hound, bastion.
+- `app/dungeon-enemy.ts`: `decideEnemy` gives a boss move that the next move is chained to no recovery (`chained`), and `pickMove` takes a chained move only when the rotation stands on it (never skips to it);
+  `volleyDemand(kind)`, the most arrows a boss can have in the air (its widest fan times the volleys that can overlap).
+- `app/dungeon-projectile.ts`: `ARROW_POOL` (12, the game's arrow count, now named), `fanHeadings(aim, fan)` (aimed bolt first, then alternately outward), `sampleTrail` (the knight's trail, shared by the game and the sim),
+  `scatterPool` (the fire a lit ring becomes).
+- `app/dungeon-hits.ts`: `blocks` reads `Struck.bossPhase` and a shield's `until`: a boss's shield is gone from the phase it breaks in.
+- `app/dungeon-game.tsx`: a scatter's tell marks its rings (`scatterRings`, off the knight's trail and the free rings, one of the six shared hostile fire-ring meshes each, in the threat colour, closing over the tell), the tell
+  running out lights each as a hostile pool where it was marked, a cut-short tell or a fall lets them go; a fan looses its bolts, the aimed one first, into the arrow pool; a boss's shield mesh is hidden in the change that breaks it;
+  snapshot `scatterMarks`, `hostilePools[].drawn`, `hostileRings`, `arrowsDrawn` and `boss.shield`.
+- `app/dungeon-skeleton.ts`, `dungeon-occlusion.ts`, `dungeon-run-summary.ts`: the three figures, palettes, cutaway windows and cause labels (below).
+- `scripts/balance/sim.ts`: the fan (into the same twelve arrows), `scatterPool`, `sampleTrail`; the knight's **marked-ring dodge** (`Policy.avoidMarks`, on unless `false`: stand in a ring a boss has marked and step straight away from its
+  heart before it lights; away from the boss when the newest ring is on his very feet); report fields `ringsLit`, `ringsOnKnight` and `blockedLate` (blows a shield turned aside after its boss changed phase); `Body.bossPhase` for `blocks`.
+- Tests: `dungeon-mother.test.ts` (6), `dungeon-hound.test.ts` (6), `dungeon-bastion.test.ts` (5), the live-pool deal in `dungeon-floor.test.ts`; `boss.spec.ts` gains four scenarios (the Mother's fan, the scatter's marks and pools, the knight's own fire against the
+  free rings, the Hound's chain, the Bastion's shield; five tests); `frame-budget.spec.ts` gains `POOL_SCENES`; `helpers.ts` types the new snapshot fields; `hall.spec.ts` lays its comparison floor with the page's boss (`DEFAULT_BOSS`), not
+  the deal's; the weak knight's floor-two seed in `balance-sim.test.ts` is 207 (was 159, which the pool of three escapes).
+- `scripts/balance/bands.json`: `measured` re-taken, no band moved (below). `tests/README.md`: the pool, the snapshot fields and the specs.
+
+### The bosses as built
+
+Every pool boss is steadfast (only a stagger arm breaks a tell), has one phase threshold at 50%, and takes the usual extra blade of vitality on floor two. `look.scale` per D11. Each row's `stats.damage` is its first move's damage, which
+`strikeDamage` and the table test read.
+
+| boss | vitality | speed | scale | phase one | below half |
+| --- | --- | --- | --- | --- | --- |
+| The Pyre Mother (`mother`) | 50 | 2.1 | 1.5 | volley (tell .8; a fan of 3 bolts .2 rad apart, 12 damage each; lane 8 x 4.6), volley, scatter (tell .9; 2 rings of radius 1.6, fire 2.2 s, 8 a bite every .6 s) | volley (tell .7; a fan of 5, .15 rad apart, 10 each; lane 8 x 6), close sweep (tell .9, reach 2.6, 16), scatter, scatter (3 rings each) |
+| The Tide Hound (`hound`) | 45 | 3.0 | 1.6 | pounce (tell .7, lane 5.4 x 2.2, 18), swing (tell .5, reach 2.6, 16), pounce | pounce (tell .5), pounce **chained** (tell .3, begins the instant the first leap ends, no recovery between), swing (tell .4) |
+| The Bastion (`bastion`) | 70 | 1.7 | 1.7 | swing (tell .7, reach 2.8, 20), swing (tell .6), sweep (tell 1.0, reach 3.2, 16) behind a frontal shield (arc .3: down while it winds up or recovers) | the shield breaks; swing (.6), swing (.5), sweep (.9), **charge** (a pounce: tell .8, lane 5.2 x 2.2, 22) |
+
+The Mother holds off at range (hold 6, gives ground inside 4 while she recovers) and has no gap in her fan to walk through, so the answer is the dash or being elsewhere; the Hound's lanes are the stalker's, the chain
+re-aims at wherever the knight stands when the first leap ends, so a dash before the first blow is met by the second lane and a dash on the first blow (its immunity takes that blow) leaves the second lane aimed at where he was.
+The Bastion's openings in phase one are its own blows, a flank (the shield is square to the front), and an arm that staggers.
+
+Figures (judged on `npm run figures`, SwiftShader, and in one arena screenshot of the Mother): the Mother is a pyre's cage and a bonecaller's hood and robe grown tall, a crown of six flames about the hood, a bell of a skirt, a cage of coals the size of a
+skull on her back and a staff ending in a brazier, in smoked bone, red-brown cloth and white-hot eyes; the Hound is the stalker's crouched body huge, with a ruff of bone spikes, coral barnacles down the spine, a long jaw with two fangs and a kelp tail, in the
+keep's coldest grey-blue with lantern-white eyes; the Bastion is the warden's plate under a flat-topped great helm with a brass ridge and a visor slit, a tower shield with a brass rim, cross and rivets, a flanged mace, in steel-blue plate, brass and crimson.
+Cutaway windows (0.98 x 1.5, 1.04 x 1.6, 1.3 x 1.8) and cause labels ("Burned by the Pyre Mother", "Run down by the Tide Hound", "Crushed by the Bastion").
+
+### The frame numbers
+
+Measured 2026-10-03 on SwiftShader, twice each, identical, in the tightest goal chamber floors one and two can lay (seed 33 floor two, a 45-tile crypt), the boss alone and held quiet, framed 5.5 from it; every ceiling is the figure measured and each scene is
+bounded below by the helper's 60% and 20%. The Captain's number (floor three's crypt) is unchanged.
+
+| scene | calls | triangles | geometries | calls under 508 |
+| --- | --- | --- | --- | --- |
+| `captain-chamber` (seed 0x86 floor 3) | 320 | 246,034 | 130 | 188 |
+| `mother-chamber` | 291 | 210,062 | 123 | 217 |
+| `hound-chamber` | 253 | 210,696 | 104 | 255 |
+| `bastion-chamber` | 273 | 212,962 | 113 | 235 |
+
+Every boss chamber is under the 508-call ceiling (`caller-chamber`).
+
+### Balance, before and after
+
+`npm run balance:check`, 30 runs from seed 1, on the tree after the Bastion (517 s): every metric inside its band, so no band moved; `measured` was re-taken. Escape / death by floor / median vitality left by floor / seconds; Stage B's number in brackets where it moved.
+
+| policy | escape | deaths f1 / f2 / f3 | HP left f1 / f2 / f3 | seconds |
+| --- | --- | --- | --- | --- |
+| default | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 154.6 (155.1) |
+| weak | 90 | 0 / 0 / 6.9 | 71.2 (70) / 76 (69.6) / 74.4 | 133.9 (134.1) |
+| special | 100 | 0 / 0 / 0 | 100 (99) / 100 / 100 | 150.3 (150.7) |
+| special-fangs | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 146.4 (144.4) |
+| special-cleaver | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 175.3 (174.4) |
+| special-crossbow | 80 (90) | 3.3 (0) / 6.9 (0) / 11.1 (10) | 96 (100) / 96 (100) / 100 | 237.8 (232.7) |
+| special-flask | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 211.6 (208.8) |
+| meta-max | 96.7 (100) | 0 / 0 / 0 | 100 / 100 / 100 | 151.3 (150.9) |
+| weak-meta-max | 100 | 0 / 0 / 0 | 83.1 (79.7) / 84.5 (75.5) / 79.4 | 128.5 (128.4) |
+
+What moved and why: **the Bastion is the crossbow's wall.** Three of the crossbow special's six non-escapes were the Bastion (seeds 23758 on floor 1, 71272 and 190057 on floor 2): its shield turns the bolts aside from the front and a ranged arm that keeps its distance has no flank. That is
+the design, and the band [60, 100] holds it. **meta-max's 96.7%** is one run (seed 182138) stuck on floor two for the whole 480 s, with the Mother alive and untouched: she and the knight stand 19 units apart in an open court, each on a cell boundary (x = 91.0, cell 61.5), and each
+frame the flip of the other's cell flips a pursuit tie (`pursuitStep` and the sim's flood both break ties by candidate order), so neither takes a step in z. It is an artifact of the sim's knight, not of the Mother (any pursuer would do the same to a still knight on a boundary), reported and not fixed; a human does not stand
+on a cell boundary exactly. The weak knight's other non-escape on seed 1 (stuck on floor two, the boss never reached) does not involve a boss. The default knight still escapes 100% with 100% vitality left, and the weak knight 90%.
+
+Duels (a fresh knight, the sim's arena, 30 seeds per boss per floor; a throwaway script, `balance:bosses` is Stage F's): no bot died in any duel. Median fight seconds and the vitality the weak knight (never dodges, reaction .6) has left when the boss falls, floor one / floor two:
+
+| boss | default knight s | weak knight s | weak knight vitality left |
+| --- | --- | --- | --- |
+| Captain | 9.1 / 8.8 | 6.0 / 6.4 | 52 / 44 |
+| Mother | 6.5 / 6.4 | 5.6 / 6.0 | 78 / 74 |
+| Hound | 7.3 / 7.5 | 5.0 / 5.5 | 46 / 37 |
+| Bastion | 11.4 / 11.8 | 7.9 / 7.7 | 40 / 31 |
+
+D9's pool-fairness check (no boss kills the weak bot more than twice as often as another) holds, but vacuously: nothing kills a duel bot. Where the bosses part is damage: the Mother is the softest (22 to 26 of the weak knight's vitality in a median fight, her fan hitting a knight who walks straight at her only
+at the end), the Bastion the hardest (60 to 69). **Every fight is still 5 to 12 s against D9's 25 to 60 s.** Stage F tunes HP and damage; it is the same finding as Stage B.
+
+### Interpretations
+
+- **"A pounce chains a second without a fresh tell"**: the second pounce has no recovery before it and begins the instant the first leap ends, but it has a tell of its own, a short re-aim (0.3 s, drawn as its lane) aimed at where the knight stands then. A pounce with no tell at all
+  would be unreadable. "One dash clears both lanes only when timed between them" is held as: a dash begun on the first blow's frame (its immunity takes that blow, and the second lane is aimed at where he was) clears both; one begun as the first leap begins is caught by the second.
+- **A chained move is taken only when the rotation stands on it** (after its pounce); skipped to for a knight beyond the first pounce's reach, it would be a lone pounce with a 0.3 s tell. Tested.
+- **Scatter rings reserve their meshes when marked.** The six shared hostile fire-ring meshes are the cap, and a mark takes one at the start of the tell, so every ring marked is drawn and none can be missing at lighting. The free-ring count subtracts the knight's own flask pools too (as D6 writes it), though they draw
+  from their own six meshes (conservative, as in Stage A). A ring's fire lasts 2.2 s: longer than the Mother's recovery (1.4, so the cap counts it when the next scatter marks) and shorter than the gap to the next lighting (tell .9 + 1.4, so the Mother alone never holds more than one scatter's rings, at most three, 24% of the smallest chamber, inside Stage 0's 28%).
+- **A fan is one lane on the floor.** The cue is a single rectangle wide enough for the outer bolt at its full length (4.6 and 6 wide against bolts that run 2.2 and 3.0 off the line at 8), so it overstates the fan near the Mother. Her five-bolt fan needs 5 of the 12 arrows (`volleyDemand`); the aimed bolt is loosed first, so a pool that ran short would drop the outermost.
+- **The plan's "phase 1" and "phase 2" are phases 0 and 1 in the code.** The Bastion's shield holds while `bossPhase` is below `until` (1).
+- **The Mother's close sweep is skipped for a knight out of its reach**, as every move is (D2), so below half she scatters twice running at range and sweeps only a knight at her feet; she gives ground while she recovers, so it is a punish and not a place to stand.
+- **The dash and stagger answers to the Bastion are held in node, not in the running game**: the browser scenario holds the frontal strike turned aside and then landing; the flank, the stagger arm and the openings are `dungeon-bastion.test.ts`.
+- **Floor-two chambers for the frame scenes**: the Captain's number was taken on floor three's crypt (the only place the Captain stood as the last floor's boss); the pool bosses stand on floors one and two, so their scenes use seed 33 floor two, a 45-tile crypt, through `?boss=`.
+
+### Planted bugs
+
+Each planted in the code, run against its own test only, then restored (the tree was clean after each). Message is the test's own.
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| the Mother's rotation | phase two loses the sweep | `she swept a knight standing at her feet only 0 times in eight moves` (and the rotation list differs; `precondition: her one close sweep is her whole melee reach`) |
+| her densest volley fits the arrows (node) | a fan of thirteen | `her volleys need 13 arrows and the pool holds 12` (and `the outer bolt of a fan of 13 runs 6.89 off the line, outside a lane 6 wide`) |
+| her densest volley, in the game | the same, then the boss.spec fan scenario | `her densest volley is 13 bolts and 12 were loosed` |
+| rings within D6 and Stage 0 | four rings a scatter | `a scatter marks 4 rings, not one to three (D6)` |
+| the sim's marked-ring dodge | never step out of a ring | `a knight who steps out of a marked ring had 8 of 8 light on him, no fewer than the 8 of 8 for one who never does` (16 lit and 8 on him with the dodge, 8 and 8 without: the dodge halves it and the fight runs twice as long) |
+| the deal never repeats | floor two dealt independently | `run seed 7932 dealt captain to both floors` |
+| the deal is even | one boss weighted double | `captain was dealt to 41.7% of floor 1s, not within 60% to 140% of an even 25.0%` |
+| the scatter's pools (browser) | pools lit at the boss's feet | `a pool burns at 5.92, 0.00, where no ring was marked` |
+| the knight's own fire (browser) | scatterRings ignores live pools (first draft: the knight stood still and was given one ring to mark, so the plant survived; the scenario now keeps him walking) | `she marked 3 rings with only 2 free` |
+| the Mother's chamber | sixty extra cage bars | `mother-chamber pushes more triangles than the budget allows` (211,502 against 210,062) |
+| the Hound's chain (node) | no `chain` on the row | `the second pounce began 62 frames after the first leap, not at once`; `a dash spent before the first blow was hit 0 times: the chain should have caught him once`; `only phase two's second pounce is chained to the one before it` |
+| the same | a chain that keeps its recovery | `the second pounce began 62 frames after the first leap, not at once` |
+| a chain is never skipped to | `pickMove` skips to it | `the chained pounce was begun alone, for a knight beyond the first pounce's reach` |
+| the Hound's chain (browser) | no `chain` on the row | `the chained pounce began 1312 ms after the first tell ended: the leap (320 ms) is all that should lie between` |
+| the Hound's chamber | sixty extra ruff spikes | `hound-chamber pushes more triangles than the budget allows` (211,656 against 210,696) |
+| the Bastion's shield by phase (node) | `until` removed from the row / `blocks` ignores the phase | `the shield held in phase two` |
+| the same, in the sim | `Body.bossPhase` always 0 / the same | `the Bastion's shield turned 6 blows aside after it broke` |
+| a stagger arm gets through | `blocks` ignores `stagger` | `a stagger arm was turned aside by the shield` |
+| the Bastion's rotation | the charge removed from phase two | `the charge did not join the round below half` (and the rotation list differs) |
+| the Bastion's shield (browser) | `until` removed | `in phase two it was still behind a shield` |
+| the same | `blocks` ignores the phase, the mesh still breaks | `a strike was turned aside in phase two, with the shield broken` |
+| the Bastion's chamber | sixty extra rivets on the shield | `bastion-chamber pushes more triangles than the budget allows` (222,562 against 212,962) |
+
+Two things the plants taught. The first draft of the own-fire scenario could not fail (a knight who stands still leaves a trail of one place, so a scatter marks one ring whatever the cap), and the first draft of the Hound's dash test started the dash the frame after the first blow, so it was hit (the frame of the
+blow is the frame to press on, and the test now takes it from a fight run without the dash). The sim's marked-ring dodge, the plant that survived in Stage A, now fails with its own message because the Mother's fights are long enough to have rings lit on a knight who stands in them (the arena Mother holds 300 vitality in that test, as the bot kills her in five seconds).
+
+### Gates
+
+`npm run typecheck`, `npm run lint` clean; `npm test` 436 of 436 (was 415 after Stage B). `npm run balance:check` green (above). Browser specs run locally with `GAME_TEST_WORKERS=2`: `boss` (all 9), `frame-budget` (the four boss chambers), `bench` (2), `arena-kinds` (3), `hall` (2), `progression`
+(2), `dealt-kinds` (1); all pass. The full browser suite was not run locally (the operator's speed rule): CI on #87 is the gate. Nothing pushed.
+
+### Not done / not verified
+
+- The Bone King and floor three's reserve (Stage E), tuning (Stage F: `balance:bosses` is not built; the duel table above is a throwaway script), the documents beyond `tests/README.md` (Stage G) and the playtest (Stage H) are untouched.
+- The figures were judged on the bench and in one arena screenshot on SwiftShader, not on a GPU and not by an operator. One thing the screenshot shows: a marked ring and a lit pool are both red discs (the threat colour and the flask fire's); they differ in the flicker and in the marked ring closing over its tell, which may need
+  telling apart harder (an outline for the mark) after a playtest.
+- The Hound's and Bastion's fights were run in the sim and in the arena, not on a generated floor: the stair-gating scenario (`boss.spec`, "it bars the stair") is the Captain's, on a pinned floor, and `?boss=` puts any of the three there; a scenario per boss was not written.
+- The `balance:check` stuck run (meta-max, seed 182138) is a sim artifact and is not fixed; a hysteresis in the sim's pursuit would, and so would the same for `pursuitStep` if a body ever stood still on a boundary in the game (nothing suggests it does).
+
+## 2026-10-03 - Plan 021 Stage E, Stage F and Stage G: the Bone King, the tuning against D9, and the documents
+
+Branch `claude/beautiful-gauss-5o0cw4`, draft PR #87. Floor three now deals the Bone King, always; the bosses are tuned (HP and damage only, D7) against D9 with a new `npm run balance:bosses`. **D9 is met for the default and weak knights and not for
+weak-meta-max, which no HP and damage setting can reach at the same time as the weak knight's band (below). No stop rule tripped** (no boss is more than 53% of the boss deaths; pool fairness is met, trivially, which is said below; no move list or timing was changed).
+Nothing in Stage H (the playtest) is done.
+
+### Stage E: what was built
+
+- `app/dungeon-bestiary.ts`: the `king` row (`boss: 'final'`, `FINAL_BOSS`, scale 1.8, steadfast, phases `[.6, .25]`, `title` "The Bone King", notices "The Bone King rises" and "The Bone King calls the dead"). Phase one: summon (tell 1.2, raises two), swing (.8, reach 3.2),
+  volley (.8, one bolt, lane 8 x 1.3). Below 60%: summon, swing, volley, sweep (1.0, reach 3.4), pounce (.7, a 5 x 2.2 lane). Below 25%: summon, swing, summon, volley, summon, sweep, summon, pounce: a summon on every second move, one rattler a call (the phase's tells are a little shorter).
+  `reserveSize(kind)`: an ordinary caller's `summons.count`; a boss's the most any one phase's round can raise (each summon move's `perTell` summed over the rotation, worst phase): the King's is four (2, 2 and 4), which is also what stands in his chamber. `buryReserves` buries `reserveSize`.
+  The row's `summons.count` (2) is not read for a boss. `FINAL_BOSS` is `king`; the Captain is a pool boss only.
+- `app/dungeon-floor.ts`: `buryReserves` through `reserveSize`; floor three's default boss is `FINAL_BOSS`. `app/dungeon-game.tsx`: `raise` takes the summon move's own `perTell` (the sim already did). `scripts/balance/sim.ts`: `simulateLevel` takes an optional laid floor.
+- The figure (`dungeon-skeleton.ts`): the bonecaller's skeleton crowned and grown huge: a brass crown of seven uneven spikes, a mantle of royal violet over the shoulders, a cloak that falls to the floor behind, bone spikes off the shoulders, a brass chain across the chest, a gold sceptre (a haft, a bone skull with brass horns and the caller's light in its eye).
+  Palette ivory bone, dark iron, bright brass, violet cloth, violet eyes; cutaway window 1.2 x 1.95; cause label "Struck down by the Bone King". Judged on `npm run figures` (eight facings, SwiftShader): it reads as a crowned thing in purple and gold from every side. Not judged on a GPU, not by an operator.
+
+### Stage E: the frame numbers (SwiftShader, 2026-10-03)
+
+| scene | calls | triangles | under 508 |
+| --- | --- | --- | --- |
+| King, seed 0x86 floor three (a 45-tile crypt), his whole reserve (four rattlers) standing, framed 5.5 from him | 427 | 267,984 | 81 |
+| Captain, seed 33 floor two (a 45-tile crypt), alone | 273 | 212,078 | 235 |
+
+The King's reserve is stood up by the King himself in the running game (one blow from death he is in his last phase, held on his spot at 7.6 to 8.8 from the knight, where summoning is all he does) and the frame is drawn once the held rattlers have stopped walking. A first version drew after a fixed
+400 ms and read 268,008 to 268,012 locally and 268,028 on CI: the rattlers were still walking and every mesh is culled by where it stands. Settled, four runs in a row read 427 / 267,984 (the cause is written beside the ceiling). Stage 0's six standing fit at 491 and seven do not; four stand here, and
+`dungeon-king.test.ts` holds the reserve to six at most. The Captain's number moved from floor three's crypt (320 / 246,034) because floor three is the King's now.
+
+### Stage E: planted bugs
+
+Each planted, run against its own test only, watched failing on its own message, restored.
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| reserve sized from the move list (node) | bury `summons.count` | `seed 3: the floor buried 2 rattlers under the King, not the 4 his worst phase raises` |
+| the same | size from phase one only | `the reserve is not the worst phase's round` (2 !== 4) |
+| a summon on every second move below 25% (node) | the last phase's second summon replaced by a swing (every third move) | `move 2 was a swing: a summon belongs on every second move, starting with the first` |
+| the fall crumbles what he called (node) and the sim fells him | `fallOf` crumbles nothing | `his fall did not crumble every body he called`; in the sim `the floor hit its timeout: something he called was left to hold the stair shut` |
+| the King is wired (browser) | `raise` ignores the move's `perTell` | `a summon of the last phase did not stand up exactly its own 1` (received [2, 0]) |
+| the King's fall and the win (browser) | the crumble loop in `fell` skipped | `something he called was left standing or buried in the stair hall` (four left) |
+| the King's chamber | sixty extra crown spikes | `king-chamber pushes more triangles than the budget allows` (268,976 against 268,012) |
+
+Two things the plants and CI taught: three floor-three specs assumed the Captain (CI found them: the frame scene, `progression.spec` which now expects the King and fells the boss first because his rattlers stand up as fast as they are cut down, and `dealt-kinds.spec`, whose `buried()` counted every buried body on the
+floor and now counts the caller's own by spawn index). The weak knight's floor-three seed in `balance-sim.test.ts` was re-picked more than once as the bosses changed (158381, then 8; floor two 207, then 11), and its boon-draft independence test now compares the cards both knights were dealt.
+
+### Stage F: the tool
+
+`npm run balance:bosses` (`scripts/balance/bosses.ts`, tests in `tests/balance-bosses.test.ts`, 6, each planted): the per-boss duels (`simulateArena`, a fresh knight, 30 seeds per boss per floor for the default and weak knights: death rate, median boss seconds, boss damage, the reserve's damage, vitality left when it fell,
+phase changes), D9's pool fairness read off them (the fewest deaths floored at one, since one death in thirty is luck), and D9's whole-run table (the default, weak and weak-meta-max knights on `bands.json`'s 30 runs: escape, deaths to a boss, boss fight seconds, per boss deaths and fights, and the 70% stop rule). `--duels`, `--runs`, `--seeds`, `--json`.
+Planted: the fewest not floored (`two deaths against none is one lucky pair at thirty duels, not a boss twice as deadly: the fewest is floored at one`), the default rows counted (`the default knight's deaths, another floor's, or the last floor's boss were counted`), the policy ignored (`the weak knight lost 0% of the
+Captain's duels and the default one 0%: the duel is not reading the policy it was given`), the King left out of the fought floors, and the weak band widened in the targets.
+
+### Stage F: the tuning, step by step
+
+Before (D7's hypothesis, Captain 60, Mother 50, Hound 45, Bastion 70, King 80 vitality; floor three dealing the King; `balance:check` on the tree after Stage E): default escape 100, weak 96.7, weak-meta-max 100, special-crossbow 76.7; every bot duel 5 to 12 s (default knight, floor one: Captain 9.0, Mother 6.5, Hound 7.3, Bastion 11.3, King 11.2 s on floor three), no
+bot died in a duel; the only band the Stage E tree left was the weak knight's floor-three vitality (max 92, measured 100). Every row below is `balance:bosses` machinery run on 30 runs from seed 1 (the runs `balance:check` plays) with HP and damage multipliers applied to the live bestiary by a throwaway script; the order is the order run. h is the HP multiple of D7's number and d the damage multiple;
+default / weak / weak-meta-max escape in percent, default fight median seconds, and whom the default knight's deaths were:
+
+| step | h (Captain, Mother, Hound, Bastion, King) | d (same order) | default | weak | weak-meta-max | default fight s | default deaths |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| x1 | 3.5 all | .6 all | 100 | 60.0 | 100 | 20.7 | none |
+| x2 | 4.85, 4.3, 5.8, 3.4, 6.3 | 1.0 all | 53.3 | 3.3 | 63.3 | 29.7 | Mother 7, Captain 6, Bastion 1 |
+| x3 | same | .8 all | 70.0 | 3.3 | 86.7 | 30.0 | Mother 5, Captain 4 |
+| x4 | same | .6 all | 93.3 | 26.7 | 100 | 30.8 | Mother 1, Captain 1 |
+| x5 | same | .5, .75, .65, .7, .7 | 83.3 | 16.7 | 100 | 30.3 | Mother 5 |
+| x6 | same | .5, .75, .5, .55, .6 | 83.3 | 33.3 | 100 | 30.3 | Mother 5 |
+| f1 | the integer numbers (290, 215, 260, 240, 500) | x6's, rounded to integer damage | 90.0 | 40.0 | 100 | 30.4 | Mother 3 |
+| **f2 (shipped)** | 290, 215, 260, 240, 500 | Mother x.8, the others as x6 | **80.0** | **33.3** | 100 | 30.3 | Mother 6 |
+
+The h column came from step x1's per-boss default fight seconds (23.8, 26.6, 20.0, 34.1, 18.2 against D9's 25 to 60 s): HP scaled to about 33 s each, which is 4 to 6 times D7's numbers. The d column is the dial that moves the escape rates, per boss, because the bosses differ in who they kill: the default knight (dodges 80% of what it reads) dies only to the Captain and the Pyre Mother
+and almost never to the Hound, the Bastion or the King, while the weak knight (never dodges) dies to the Captain, the Hound and the Bastion most and to the Mother least. So the Captain, the Hound and the Bastion were turned down and the Mother up. **Shipped numbers** (`app/dungeon-bestiary.ts`): Captain 290 vitality, blows 12, 12, 10 / 12, 10, 10; Mother 215, fan bolts
+10 (8 below half), sweep 13, fire 6 a bite; Hound 260, pounces 9, swings 8; Bastion 240, swings 11, sweeps 9, charge 12; Bone King 500, swing 13, bolt 8, sweep 11, pounce 12. On floors two and three the usual extra blade of vitality (+4) and +15% damage a floor apply as before. Moves, tells and reaches
+are untouched. Duel by floor-one default knight, shipped: Captain 33.1 s and 44% vitality left, Mother 32.8 s (87% of duels lost), Hound 33.0 s and 82%, Bastion 33.4 s and 64%, King 57.5 s (30% lost).
+
+### Stage F: D9, met or not met (`npm run balance:bosses`, the shipped numbers)
+
+| target | measured | |
+| --- | --- | --- |
+| default escape 75 to 90 | 80.0 | met |
+| default: at least half its deaths to a boss | 100% (6 of 6, all the Pyre Mother's) | met, and see below |
+| default boss fights 25 to 60 s | median 30.3 (Captain 31.5, Mother 26.1, Hound 32.4, Bastion 24.5, King 30.3) | met |
+| weak escape 30 to 55 | 33.3 | met (the edge of the band: one run is 3.3 points) |
+| weak-meta-max escape 55 to 80 | 100.0 | **not met**, and cannot be with the weak knight's band, below |
+| pool fairness: no pool boss kills the weak knight more than twice as often as another, per floor | floor one 30 / 30 / 30 / 30 deaths of 30, floor two 30 / 24 / 30 / 30 | met, vacuously (below) |
+
+Per-boss, whole runs (30 runs from seed 1, boss floors met / deaths / median fight seconds): default Captain 14 / 0 / 31.5, Mother 16 / 6 / 26.1, Hound 11 / 0 / 32.4, Bastion 15 / 0 / 24.5, King 24 / 0 / 30.3; weak Captain 13 / 4 / 26.6, Mother 14 / 4 / 18.8, Hound 9 / 1 / 19.2, Bastion 15 / 4 / 14.4, King 16 / 1 / 27.2 (and one death to the King's rattlers),
+the other weak deaths warden 4 and stalker 3; weak-meta-max every boss, no deaths. The Pyre Mother accounts for 10 of 20 boss deaths over the three policies (50%): the 70% stop rule is not tripped.
+
+**Where D9 does not hold together, so the report is exact:**
+1. **weak-meta-max cannot reach 55 to 80 while the weak knight is 30 to 55.** The knight with every upgrade bought is far stronger than the weak one at every setting of the dials, because Deep Lungs, Whetted Start and above all Second Tide (it survives the first lethal blow) shift the whole cliff. The (weak, weak-meta-max) escape pairs of every run above: (60, 100) x1, (3.3, 63.3) x2, (3.3, 86.7) x3,
+   (26.7, 100) x4, (16.7, 100) x5, (33.3, 100) x6, (40, 100) f1, (33.3, 100) shipped. The weak-meta-max knight is inside 55 to 80 only where the weak knight escapes 3.3%, and the weak knight is inside 30 to 55 only where the weak-meta-max one escapes 100. A bot with Second Tide needs two lethal events in one run, the weak one only one. Meeting both would need a
+   different dial (the upgrades' size, or the weak bot), which D7 puts out of this stage; this is for the operator.
+2. **Pool fairness is met only because the fresh-knight duel cannot tell the pool bosses apart.** The weak knight in the arena (100 vitality, no boons, no earlier chambers) loses 100% of its duels to every pool boss at the shipped numbers (floor two's Mother 80%): the duel's outcome is a cliff, 0% below a boss's critical damage and 100% above it (a sweep of d at fixed HP: Captain
+   0% / 0% at d .3, 0% / 100% at .4, 100% at .5; Mother 0% to .5, 67 to 80% at .6 and .7; Hound and Bastion likewise). So fairness holds as a ratio of equal numbers. What differs between the bosses is the run table above (the weak knight with its boons and top-ups dies 1 to 4 times in 9 to 15 floors), where Hound 1 of 9 against Captain, Mother and Bastion 4 each is
+   within the twofold rule's spirit but not measured by it. A fairer instrument would be a duel that starts from a run's typical vitality and boons; it was not built.
+3. **All six of the default knight's deaths are the Pyre Mother's.** That meets D9 (at least half to a boss) and the 70% rule over all three policies, but the default knight's deaths do not spread: it reads and dodges every tell of the other four, and a fan plus fire is what it cannot dodge. The Captain at d .6 or more would share it, at the cost of the weak knight leaving its band (x4: weak 26.7).
+4. **The special-crossbow knight falls to 3.3% escape.** Bosses of 215 to 500 vitality cannot be killed by the Keep Crossbow's limited quiver (the knight fights from range); that is a consequence of D9's fight length and of D7's rule that only HP and damage move, reported and not fixed; its bands are widened to hold it (`bands.json` note). The cleaver (83.3) and flask moved less.
+5. **The bots' damage is now low per blow** (a Captain swing of 12 against an ordinary warden's 20) and the boss fights are long (290 vitality is about 70 starting-blade hits). That is what the bot numbers asked for and says nothing about how it feels to a person; Stage H re-decides D4, D7 and D9.
+
+`balance:check` on the shipped tree: every metric inside its band (623.5 s). `bands.json`: `measured` re-taken in full and a note appended; bands moved only where a measurement left them (default escape min 85 to 75 and floor-one death max 10 to 20; the weak knight's escape min 75 to 25, its three death maxima and its floor one and two vitality minima;
+special-cleaver escape min 85 to 75; special-crossbow, nearly all; special-flask floor-three vitality min 80 to 60; meta-max run length max 170 to 220; weak-meta-max floor one and two vitality minima and run length max 140 to 190). The edit was made as text on the lines that moved (70 lines of the diff), not through a JSON serializer.
+
+### D6 (plan 019's price arithmetic with D10's ten pearls a boss), reported, no price changed
+
+`PRICE_TOTAL` is 900 (`app/dungeon-meta.ts`), set for twenty runs at the assumption of about 45 pearls a human run, weighted 40 / 40 / 15 / 5 over a death on floor one / floor two / floor three / an escape (10, 46, 89 and 146 pearls). A boss pays 10 and a run that dies at floor f has felled f - 1: 0, 10, 20 and 30 more
+for the four outcomes, so the weighted human run earns about 43 + 8.5 = **51.5**, and 900 / 51.5 is **17.5 runs** (it was 20.9 at 43). The bots, measured on the shipped tree (30 runs each): the default knight earns 143.9 a run with the boss pearls and 119.2 without (6.3 runs to 900 against 7.6), the weak knight 94.1 and 78.4 (9.6 against 11.5): the boss pearls are 20 to 21% of a run's pay, as D10
+guessed ("about 20%"). **D6's "about twenty runs" becomes about seventeen** at the human assumption, 15% faster; that is inside "about", so D6 still holds and nothing needs repricing, but the assumption is a guess and the operator's playtest log is the number that matters. If the dying moves to the later floors (the bosses end runs), a death pays more and a run is longer, so seventeen
+is probably a little low.
+
+### Stage G: the documents
+
+`GAME_OVERVIEW.md` (the boss at the end of each floor, the boss bar and its rules, the five bosses, the boss pearls, the stair hall), `README.md` (one line), `game/tests/README.md` (the King, the reserve, the new specs and `balance:bosses`), the header of `app/dungeon-bestiary.ts` (how to add a boss: moves, phases, the pool, reserve sizing, the figure,
+the fit, tuning, `?boss=`), the `plans/README.md` row, the plan's Evidence for Stages E and F.
+
+### Gates
+
+`npm run typecheck`, `npm run lint` clean; `npm test` 451 of 451; `balance:check` green on the shipped tree. Browser specs run locally with `GAME_TEST_WORKERS=2`: `boss` (all 11, including the King's two), `frame-budget` (the King and the Captain, `--repeat-each=4` on the King), `progression`, `dealt-kinds`, `arena-kinds`, `bench`, `models`, `polish` and the special slam. The full browser suite was not run locally
+(the operator's speed rule): CI on #87 is the gate.
+
+### Not done / not verified
+
+- Stage H (the operator's playtest on a real GPU) is untouched, and so is everything the bot numbers cannot see: whether a 290-vitality Captain with 12-damage blows is a good fight, whether the King's reserve and phases read, whether the King's figure reads on a GPU.
+- weak-meta-max (D9) is not met; the fairness check is met only trivially (items 1 and 2 above); the crossbow special is shut out of the bosses (item 4). The three hard bands that moved (default, weak and weak-meta-max) are the operator's to re-decide after the playtest.
+- The sim's King: the bot goes for the King first (a caller is the target before anything nearer) and has no dodge rule of its own for a summon. The reserve's damage to the weak knight in a duel is 49 to 56 of its 100.
+- The pearls arithmetic above rests on a human-earnings guess; no human run log exists.

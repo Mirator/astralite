@@ -1,6 +1,7 @@
 // One rounding rule for every blow that lands, shared with the game's contact test so a node test and the
 // running keep agree on the number.
 import { incomingDamage } from './dungeon-combat.ts';
+import { BESTIARY, type EnemyKind } from './dungeon-bestiary.ts';
 import type { Reward as ChamberReward } from './dungeon-floor.ts';
 import type { RunStart } from './dungeon-meta.ts';
 
@@ -22,6 +23,8 @@ export const BOONS: Boon[] = [
 // One more starting-blade's worth of damage, in the quarter-hit grain dungeon-enemy quotes vitality in.
 export const STRIKE_BONUS = 4;
 export const XP_PER_ENEMY = 25;
+// Plan 021 (D10): felling a boss pays four bodies' worth and counts as a boss as well as a kill (`Run.bosses`, `RunEnd.bosses`).
+export const XP_PER_BOSS = 100;
 // What a cleared chamber pays (plan 017). Every clear tops the knight up; the door he chose decides the
 // rest: a purse of experience, or a real heal in place of the top-up. These are the dead end's old 60 XP
 // and 30 vitality, split so each door offers one of them rather than both.
@@ -46,6 +49,8 @@ export const DEFIANCE_SHARE = 0.4;
 
 export type Run = {
   hp: number; maxHp: number; kills: number; totalXp: number;
+  // Plan 021: bosses felled this run (a boss is also a kill).
+  bosses: number;
   rankLevel: number; rankProgress: number; pendingRanks: number; choosing: boolean;
   // Boon-derived modifiers. `guardAgainst` and `dashSpan` are multipliers, the rest are additive.
   // `strike` is a bonus on top of whatever the knight is holding, not the damage itself: the weapon
@@ -68,7 +73,7 @@ export type Run = {
 // With no argument this is the run the game has always started. `start` carries what was bought between runs;
 // `arm` is the game's to equip and means nothing here.
 export const createRun = (start?: RunStart): Run => ({
-  hp: start?.maxHp ?? START_HP, maxHp: start?.maxHp ?? START_HP, kills: 0, totalXp: 0,
+  hp: start?.maxHp ?? START_HP, maxHp: start?.maxHp ?? START_HP, kills: 0, totalXp: 0, bosses: 0,
   rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
   strike: start?.strike ?? 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
   invuln: 0, taken: [], specialCooldown: 0,
@@ -169,10 +174,13 @@ export const takeBoon = (run: Run, id: string): Boon | null => {
   return boon;
 };
 
-export const resolveKill = (run: Run): Reward => {
-  run.kills += 1;
-  const { ranks } = grantXp(run, XP_PER_ENEMY);
-  return { xp: XP_PER_ENEMY, ranks, healed: heal(run, run.draught) };
+// A boss (the bestiary says which kind is one) pays `XP_PER_BOSS` and is counted in `run.bosses` as well as in `run.kills`; `kind` is left out
+// by a caller that has none to name, which pays what a body always paid.
+export const resolveKill = (run: Run, kind?: EnemyKind): Reward => {
+  const boss = !!kind && !!BESTIARY[kind].boss, xp = boss ? XP_PER_BOSS : XP_PER_ENEMY;
+  run.kills += 1; if (boss) run.bosses += 1;
+  const { ranks } = grantXp(run, xp);
+  return { xp, ranks, healed: heal(run, run.draught) };
 };
 
 // One payout per chamber, whatever brought its last body down. A shrine, the gate and the stair hall (no

@@ -15,8 +15,21 @@
 // sim's dodge policy for that attack (scripts/balance/sim.ts); node tests for the rule, and a browser test
 // that the running game is wired to it; then `npm run figures` to look at it, `?arena=<kind>:3` to fight it
 // (tests/README.md, The arena), and `npm run balance:check`.
+//
+// Adding a boss (plan 021), which is a kind with `moves`, `phases` and `boss` set. Everything above applies, and then: (1) its `moves`, one list per phase,
+// each `Move` an existing attack with its own tell, damage, reach and cue (`scatter` and `chain` are the two the bosses added), and `phases`, the shares of
+// its vitality where each later list begins (one fewer than there are lists), with `phaseNotice` for each; the first move's attack and damage are what
+// `attack` and `stats.damage` say. (2) `boss: 'pool'` and a place in `BOSS_POOL`, which `dealBosses` draws floors one and two from (never the same one twice
+// in a run; a pool of one deals it twice), or `boss: 'final'` and `FINAL_BOSS`, which floor three always gets. `firstFloor` stays Infinity so no pack deals it.
+// (3) A summoner's reserve is `reserveSize(kind)`: the most any one phase's round of `summon` moves can raise (their `perTell` summed), never `summons.count`,
+// and it has to stand under the 508-call ceiling (six rattlers fit in the tightest goal chamber, seven do not; `frame-budget.spec.ts`). (4) Its figure is built on
+// an existing skeleton at a larger `look.scale`, its `PALETTE` row, `CUTAWAY_ELLIPSE` and `CAUSE_LABELS`, then `npm run figures`. (5) The reaches it commits from
+// must fit the smallest goal chamber (45 tiles: a sweep of at most 5.6, lanes it can leap inside), and a volley's bolts the twelve-arrow pool (`volleyDemand`);
+// its scatter rings the six fire rings. (6) Tune HP and damage with `npm run balance:bosses` (the per-boss duels and D9's whole-run targets) and
+// `npm run balance:check`; never the moves, which are the design. (7) `?boss=<kind>` puts a pool boss on floors one and two for a playtest, `?arena=<kind>:1`
+// stages any boss alone, and the browser tests go in `tests/browser/boss.spec.ts`, the rules in a node test beside `dungeon-captain.test.ts`.
 
-export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler'] as const;
+export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler', 'captain', 'mother', 'hound', 'bastion', 'king'] as const;
 export type EnemyKind = typeof ENEMY_KINDS[number];
 
 /** Vitality, damage per blow, seconds of tell, and walking speed - the floor-one values. */
@@ -27,15 +40,51 @@ export type EnemyStats = { hp: number; damage: number; tell: number; speed: numb
  * `pounce` turns the tell into a lunge that connects on contact; `volley` looses a bolt along the aim,
  * which then has to fly to him (dungeon-projectile.ts) and can be stepped out of or dashed through;
  * `sweep` is a swing with no aim - everything inside its reach, all the way round; `summon` hurts no one
- * and raises from its buried reserve instead.
+ * and raises from its buried reserve instead; `scatter` (plan 021, a boss's move only) hurts no one in the
+ * tell either: it marks rings on the ground where the knight has been, and when the tell runs out each
+ * becomes a fire pool.
  */
-export type Attack = 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon';
+export type Attack = 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon' | 'scatter';
 
 /**
  * Which body the pose drives: a cut across the body, a hammer over the crown, a crouch and leap, a bow
  * drawn, a full turn with a long blade, or both arms raised to call.
  */
 export type PoseStyle = 'cut' | 'overhead' | 'pounce' | 'draw' | 'spin' | 'channel';
+
+/** The telegraph on the floor: an arc that closes on the body, or a lane (length, width) along the line it attacks down. */
+export type Cue = { shape: 'arc' } | { shape: 'lane'; length: number; width: number } | { shape: 'ring'; radius: number };
+
+/**
+ * What a `volley` looses: units a second and seconds of flight, and for a boss's move optionally a `fan` - `count` bolts, `spread` radians apart, centred on the aim
+ * (`fanHeadings`, dungeon-projectile.ts). One bolt when absent.
+ */
+export type Bolt = { speed: number; flight: number; fan?: { count: number; spread: number } };
+
+/**
+ * One thing a boss can do (plan 021). It carries what a single-attack kind keeps in its row and in `stats`: the
+ * attack, the seconds of tell, the damage of a floor-one blow (`strikeDamage` in dungeon-enemy.ts scales it with
+ * depth as `enemyStats` scales `stats.damage`), the reach it commits from and the reach it lands within, and the
+ * telegraph it draws. `bolt` is what a `volley` looses; `scatter` is how many rings a `scatter` marks and the fire
+ * each becomes; `summon` is how many of the reserve a `summon` raises.
+ */
+export type Move = {
+  attack: Attack;
+  tell: number;
+  damage: number;
+  strikeRange: number;
+  attackRange: number;
+  cue: Cue;
+  cueScale: number;
+  bolt?: Bolt;
+  /**
+   * Begins the instant the move before it is spent, with no recovery between and the tell it names here (a short one: a re-aim, not a fresh wind-up), from wherever the
+   * knight stands then. The Tide Hound's second pounce. The move before has to be a pounce, so there is a leap to chain from.
+   */
+  chain?: true;
+  scatter?: { rings: number; pool: { radius: number; life: number; damage: number; interval: number } };
+  summon?: { perTell: number };
+};
 
 export type Archetype = {
   stats: EnemyStats;
@@ -60,13 +109,14 @@ export type Archetype = {
   /** It backs away from the knight while inside this and recovering; 0 for a body that never gives ground. */
   keepAway: number;
   /** What a `volley` looses: units a second and seconds of flight. Absent for every other attack. */
-  bolt?: { speed: number; flight: number };
+  bolt?: Bolt;
   /**
    * A shield carried square to the front: a blow whose heading meets the body's facing at worse than this
    * cosine is turned aside (dungeon-hits.ts `blocks`), unless the arm staggers. It is down while the body
-   * winds up or recovers from its own swing, which is the opening.
+   * winds up or recovers from its own swing, which is the opening. A boss's carries `until`: the phase it breaks in (the shield holds
+   * while the boss's phase is below it), which is the Bastion's whole change.
    */
-  shield?: { arc: number };
+  shield?: { arc: number; until?: number };
   /** Fire it leaves where it falls, which bites the knight (dungeon-projectile.ts `deathPool`). */
   deathPool?: { radius: number; life: number; damage: number; interval: number };
   /**
@@ -75,13 +125,32 @@ export type Archetype = {
    * the reserve crumbles with it (dungeon-enemy.ts `reassembles`).
    */
   summons?: { kind: EnemyKind; count: number; perTell: number };
+  /**
+   * A boss (plan 021): what it does, one list per phase, in the order it does it. Absent for every ordinary kind, which
+   * has the one `attack` above and takes exactly the path it always took. A list is a rotation: `decideEnemy` takes the
+   * next move that fits the knight's range and comes back round to the start. Each `Move` replaces `attack`, `stats.tell`,
+   * `stats.damage`, `strikeRange`, `attackRange`, `bolt`, the cue and `cueScale` for as long as it is the one being done;
+   * everything else in the row (speed, recovery, holding and keeping away, the shield, the figure) is the boss's whole.
+   */
+  moves?: Move[][];
+  /**
+   * The share of its vitality below which each later phase begins, one fewer than there are lists in `moves`, falling:
+   * `[.5]` is two phases and a change at half. Crossing one is a phase change (`PHASE_CHANGE` in dungeon-enemy.ts).
+   */
+  phases?: number[];
+  /** `pool` bosses are dealt to floors one and two from a pool; the `final` one is the last floor's. Absent for everything else. */
+  boss?: 'pool' | 'final';
+  /** A boss's name, as the boss bar and the goal chamber's notice say it (plan 021 Stage B). Absent for everything else. */
+  title?: string;
+  /** What the notice says as each later phase begins, one for each of `phases`. */
+  phaseNotice?: string[];
   /** What the renderer needs to draw it - plain numbers, so this file stays free of three.js. */
   look: {
     pose: PoseStyle;
     /** The body's scale, which the corpse keeps. */
     scale: [number, number, number];
     /** The telegraph on the floor: an arc that closes on the body, or a lane (length, width) along the line it attacks down. */
-    cue: { shape: 'arc' } | { shape: 'lane'; length: number; width: number } | { shape: 'ring'; radius: number };
+    cue: Cue;
     /** Multiplies the telegraph's size, so a longer reach draws a larger mark. */
     cueScale: number;
     /** Heights above the feet of the health bar and of the alert glyph. */
@@ -227,8 +296,187 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
       death: { duration: .5, prone: true, weaponX: .45 }, shieldArm: false,
     },
   },
+  // The Drowned Captain (plan 021 D4): a huge warden, the first floor's boss until the pool grows. Phase one is two heavy
+  // swings and a sweep that takes everything round it; below half it adds a pounce across the room, and then goes round
+  // swing, pounce, sweep. Steadfast like the warden it is grown from: only a stagger arm breaks a tell. The numbers are
+  // Stage F's (290 vitality, damage ×0.5 of D7's hypothesis); the moves are the design.
+  captain: {
+    stats: { hp: 290, damage: 12, tell: 0.8, speed: 1.8 },
+    strikeRange: 3.2, attackRange: 2.7, holdRange: 2.4, recovery: 1.5,
+    attack: 'swing', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    boss: 'pool', title: 'The Drowned Captain', phaseNotice: ['', 'The Captain draws the tide'],
+    phases: [.5],
+    moves: [
+      [
+        { attack: 'swing', tell: 0.8, damage: 12, strikeRange: 3.2, attackRange: 2.7, cue: { shape: 'arc' }, cueScale: 2.13 },
+        { attack: 'swing', tell: 0.7, damage: 12, strikeRange: 3.2, attackRange: 2.7, cue: { shape: 'arc' }, cueScale: 2.13 },
+        { attack: 'sweep', tell: 1.1, damage: 10, strikeRange: 3.6, attackRange: 2.6, cue: { shape: 'ring', radius: 3.6 }, cueScale: 1 },
+      ],
+      [
+        { attack: 'swing', tell: 0.7, damage: 12, strikeRange: 3.2, attackRange: 2.7, cue: { shape: 'arc' }, cueScale: 2.13 },
+        { attack: 'pounce', tell: 0.7, damage: 10, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.4 }, cueScale: 1 },
+        { attack: 'sweep', tell: 1.0, damage: 10, strikeRange: 3.6, attackRange: 2.6, cue: { shape: 'ring', radius: 3.6 }, cueScale: 1 },
+      ],
+    ],
+    look: {
+      pose: 'overhead', scale: [1.7, 1.7, 1.7], cue: { shape: 'arc' }, cueScale: 2.13, barLift: 3.5, alertLift: 4.1, barColor: 0x7fe0c8, gait: .24, blood: 1.8, heavy: true,
+      trail: { from: 'weapon', color: 0x9fe8d6, width: .16, inner: [0, 0, -.24], tip: [0, 0, -1.5] },
+      death: { duration: 1.2, prone: false, weaponX: .9 }, shieldArm: false,
+    },
+  },
+  // The Pyre Mother (plan 021 D4): the pool's ranged boss, a pyre grown into the thing that lights them. She holds off at range (a pyre's rows of fire are hers to lay) and
+  // asks the knight to keep moving: phase one is a fan of three bolts, a fan again, and a scatter that marks two rings where he has been and lights them when the tell
+  // runs out. Below half she looses five bolts to the fan, adds a close sweep for a knight who has rushed her (she gives ground while she recovers, so it is a punish and
+  // not a place to stand), and scatters twice running, three rings a time. A fan has no gap to walk through: the answer is the dash, or being elsewhere. Steadfast like every
+  // boss: only a stagger arm breaks her tell. The numbers are Stage F's (215 vitality, damage ×0.8 of D7's hypothesis); the moves are the design.
+  mother: {
+    stats: { hp: 215, damage: 10, tell: 0.8, speed: 2.1 },
+    strikeRange: 2.6, attackRange: 8, holdRange: 6, recovery: 1.4,
+    attack: 'volley', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 4,
+    boss: 'pool', title: 'The Pyre Mother', phaseNotice: ['', 'The Pyre Mother kindles'],
+    phases: [.5],
+    moves: [
+      [
+        { attack: 'volley', tell: 0.8, damage: 10, strikeRange: 9, attackRange: 8, cue: { shape: 'lane', length: 8, width: 4.6 }, cueScale: 1, bolt: { speed: 12, flight: 0.75, fan: { count: 3, spread: 0.2 } } },
+        { attack: 'volley', tell: 0.8, damage: 10, strikeRange: 9, attackRange: 8, cue: { shape: 'lane', length: 8, width: 4.6 }, cueScale: 1, bolt: { speed: 12, flight: 0.75, fan: { count: 3, spread: 0.2 } } },
+        { attack: 'scatter', tell: 0.9, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.4 }, cueScale: 1, scatter: { rings: 2, pool: { radius: 1.6, life: 2.2, damage: 6, interval: 0.6 } } },
+      ],
+      [
+        { attack: 'volley', tell: 0.7, damage: 8, strikeRange: 9, attackRange: 8, cue: { shape: 'lane', length: 8, width: 6 }, cueScale: 1, bolt: { speed: 12, flight: 0.75, fan: { count: 5, spread: 0.15 } } },
+        { attack: 'sweep', tell: 0.9, damage: 13, strikeRange: 2.6, attackRange: 2.3, cue: { shape: 'ring', radius: 2.6 }, cueScale: 1 },
+        { attack: 'scatter', tell: 0.9, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.4 }, cueScale: 1, scatter: { rings: 3, pool: { radius: 1.6, life: 2.2, damage: 6, interval: 0.6 } } },
+        { attack: 'scatter', tell: 0.9, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.4 }, cueScale: 1, scatter: { rings: 3, pool: { radius: 1.6, life: 2.2, damage: 6, interval: 0.6 } } },
+      ],
+    ],
+    look: {
+      pose: 'draw', scale: [1.5, 1.5, 1.5], cue: { shape: 'lane', length: 8, width: 4.6 }, cueScale: 1, barLift: 3.45, alertLift: 3.95, barColor: 0xff9a4a, gait: .3, blood: 1.6, heavy: true,
+      trail: { from: 'weapon', color: 0xff9a4a, width: .14, inner: [0, 0, -.4], tip: [0, 0, -1.4] },
+      death: { duration: 1.1, prone: false, weaponX: .7 }, shieldArm: false,
+    },
+  },
+  // The Tide Hound (plan 021 D4): a stalker grown huge and quick, the pool's lane-dodging boss. Phase one is pounce, swing, pounce, each pounce a long lane drawn on the floor and a
+  // leap that bills what it runs through; below half the tells shorten and the pounces come two at a time: the second begins the instant the first leap ends, with no
+  // recovery between and a short re-aim of its own, from wherever the knight stands then (`chain`, dungeon-bestiary.ts). A dash out of the first lane is not the answer to the
+  // second. Steadfast like every boss. The numbers are Stage F's (260 vitality, damage ×0.5 of D7's hypothesis); the moves are the design.
+  hound: {
+    stats: { hp: 260, damage: 9, tell: 0.7, speed: 3.0 },
+    strikeRange: 2.6, attackRange: 6.5, holdRange: 1.8, recovery: 1.3,
+    attack: 'pounce', steadfast: true, advanceBelow: 0.9, firstFloor: Infinity, keepAway: 0,
+    boss: 'pool', title: 'The Tide Hound', phaseNotice: ['', 'The Tide Hound howls'],
+    phases: [.5],
+    moves: [
+      [
+        { attack: 'pounce', tell: 0.7, damage: 9, strikeRange: 5, attackRange: 6.5, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1 },
+        { attack: 'swing', tell: 0.5, damage: 8, strikeRange: 2.6, attackRange: 2.2, cue: { shape: 'arc' }, cueScale: 1.75 },
+        { attack: 'pounce', tell: 0.7, damage: 9, strikeRange: 5, attackRange: 6.5, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1 },
+      ],
+      [
+        { attack: 'pounce', tell: 0.5, damage: 9, strikeRange: 5, attackRange: 6.5, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.3, damage: 9, strikeRange: 5, attackRange: 9, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1, chain: true },
+        { attack: 'swing', tell: 0.4, damage: 8, strikeRange: 2.6, attackRange: 2.2, cue: { shape: 'arc' }, cueScale: 1.75 },
+      ],
+    ],
+    look: {
+      pose: 'pounce', scale: [1.6, 1.6, 1.6], cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1, barLift: 3.1, alertLift: 3.6, barColor: 0x8fd0ff, gait: .5, blood: 1.6, heavy: true,
+      trail: { from: 'claws', color: 0xb0e8ff, width: .14, inner: [0, -.72, -.12], tip: [0, -.87, -.5] },
+      death: { duration: .95, prone: true, weaponX: .53 }, shieldArm: false,
+    },
+  },
+  // The Bastion (plan 021 D4): a shieldbearer grown huge, the pool's boss for the knight who has learned to hit what is open. Phase one holds a tower shield square to the front
+  // whenever it is not winding up or recovering (`shield`, the shieldbearer's rule, dungeon-hits.ts `blocks`), and goes swing, swing, sweep: the opening is its own blow, or a flank,
+  // or an arm that staggers. Below half the shield breaks (`until: 1`) and a charge, a pounce, joins the round: swing, swing, sweep, charge. Steadfast like every boss. The numbers are
+  // Stage F's (240 vitality, damage ×0.55 of D7's hypothesis); the moves are the design.
+  bastion: {
+    stats: { hp: 240, damage: 11, tell: 0.7, speed: 1.7 },
+    strikeRange: 2.8, attackRange: 2.4, holdRange: 2.1, recovery: 1.5,
+    attack: 'swing', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    shield: { arc: 0.3, until: 1 },
+    boss: 'pool', title: 'The Bastion', phaseNotice: ['', 'The Bastion\'s shield breaks'],
+    phases: [.5],
+    moves: [
+      [
+        { attack: 'swing', tell: 0.7, damage: 11, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
+        { attack: 'swing', tell: 0.6, damage: 11, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
+        { attack: 'sweep', tell: 1.0, damage: 9, strikeRange: 3.2, attackRange: 2.4, cue: { shape: 'ring', radius: 3.2 }, cueScale: 1 },
+      ],
+      [
+        { attack: 'swing', tell: 0.6, damage: 11, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
+        { attack: 'swing', tell: 0.5, damage: 11, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
+        { attack: 'sweep', tell: 0.9, damage: 9, strikeRange: 3.2, attackRange: 2.4, cue: { shape: 'ring', radius: 3.2 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.8, damage: 12, strikeRange: 5, attackRange: 6, cue: { shape: 'lane', length: 5.2, width: 2.2 }, cueScale: 1 },
+      ],
+    ],
+    look: {
+      pose: 'cut', scale: [1.7, 1.7, 1.7], cue: { shape: 'arc' }, cueScale: 1.9, barLift: 3.65, alertLift: 4.2, barColor: 0xc8d4e0, gait: .24, blood: 1.8, heavy: true,
+      trail: { from: 'weapon', color: 0xdfe6ea, width: .16, inner: [0, 0, -.24], tip: [0, 0, -1.2] },
+      death: { duration: 1.2, prone: false, weaponX: .9 }, shieldArm: true,
+    },
+  },
+  // The Bone King (plan 021 D4): floor three's boss, always, a bonecaller crowned and grown huge. He answers with every kind of move the pool bosses use one of. Phase one is summon, swing, volley: two
+  // rattlers stand up from the reserve at his feet, a heavy swing for a knight who has reached him, a single bolt for one who keeps away. Below 60% a sweep (everything round him) and a pounce (a lane across the
+  // room) join the round, and below 25% he summons on every second move, one rattler a tell and four tells a round. The reserve is sized from that list (`reserveSize`, the most any one phase's round can raise), not from
+  // `summons.count`, which this row keeps only as what a lone summon is worth. Felling him crumbles everything he called, standing or buried. Steadfast like every boss. The numbers are Stage F's (500 vitality,
+  // damage ×0.6 of D7's hypothesis); the moves are the design.
+  king: {
+    stats: { hp: 500, damage: 0, tell: 0.8, speed: 1.9 },
+    strikeRange: 3.4, attackRange: 9, holdRange: 2.6, recovery: 1.4,
+    attack: 'summon', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    summons: { kind: 'rattler', count: 2, perTell: 2 },
+    boss: 'final', title: 'The Bone King', phaseNotice: ['', 'The Bone King rises', 'The Bone King calls the dead'],
+    phases: [.6, .25],
+    moves: [
+      [
+        { attack: 'summon', tell: 1.2, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 2 } },
+        { attack: 'swing', tell: 0.8, damage: 13, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
+        { attack: 'volley', tell: 0.8, damage: 8, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
+      ],
+      [
+        { attack: 'summon', tell: 1.2, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 2 } },
+        { attack: 'swing', tell: 0.75, damage: 13, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
+        { attack: 'volley', tell: 0.75, damage: 8, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
+        { attack: 'sweep', tell: 1.0, damage: 11, strikeRange: 3.4, attackRange: 2.6, cue: { shape: 'ring', radius: 3.4 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.7, damage: 12, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.2 }, cueScale: 1 },
+      ],
+      [
+        { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
+        { attack: 'swing', tell: 0.7, damage: 13, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
+        { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
+        { attack: 'volley', tell: 0.7, damage: 8, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
+        { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
+        { attack: 'sweep', tell: 0.9, damage: 11, strikeRange: 3.4, attackRange: 2.6, cue: { shape: 'ring', radius: 3.4 }, cueScale: 1 },
+        { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
+        { attack: 'pounce', tell: 0.7, damage: 12, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.2 }, cueScale: 1 },
+      ],
+    ],
+    look: {
+      pose: 'overhead', scale: [1.8, 1.8, 1.8], cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, barLift: 3.7, alertLift: 4.25, barColor: 0xc9a2ff, gait: .24, blood: 1.9, heavy: true,
+      trail: { from: 'weapon', color: 0xd9c4ff, width: .16, inner: [0, 0, -.24], tip: [0, 0, -1.5] },
+      death: { duration: 1.3, prone: false, weaponX: .9 }, shieldArm: false,
+    },
+  },
 };
 
 /** One field of every archetype, keyed by kind - how the per-quantity tables in dungeon-enemy.ts are read. */
 export const byKind = <T>(read: (archetype: Archetype) => T) =>
   Object.fromEntries(ENEMY_KINDS.map(kind => [kind, read(BESTIARY[kind])])) as Record<EnemyKind, T>;
+
+/**
+ * The bosses a floor can deal (plan 021 D13): the pool floors one and two draw from, in the order `dealBosses`
+ * (dungeon-floor.ts) indexes it. Stage B held only the Captain; Stage C added the Pyre Mother and Stage D the Tide Hound and the Bastion.
+ */
+export const BOSS_POOL: readonly EnemyKind[] = ['captain', 'mother', 'hound', 'bastion'];
+/** The last floor's boss (plan 021 Stage E): the Bone King, always. */
+export const FINAL_BOSS: EnemyKind = 'king';
+
+/**
+ * How many bodies a summoner is buried with (plan 021 Stage E). An ordinary caller's is its `summons.count`. A boss's is sized from its move list:
+ * the most any one phase's round can raise, which is each `summon` move's `perTell` summed over that phase's rotation, for the worst phase. A body
+ * cut down while its caller stands goes back into the reserve, so a round's worth is all a phase can ever ask for at once; `summons.count` is not read.
+ * It is also what the frame budget has to stand (`tests/browser/frame-budget.spec.ts`, 29 calls a rattler against the 508-call ceiling).
+ */
+export const reserveSize = (kind: EnemyKind): number => {
+  const archetype = BESTIARY[kind];
+  if (!archetype.summons) return 0;
+  if (!archetype.moves) return archetype.summons.count;
+  return Math.max(0, ...archetype.moves.map(phase => phase.reduce((sum, move) => sum + (move.attack === 'summon' ? move.summon?.perTell ?? archetype.summons!.perTell : 0), 0)));
+};

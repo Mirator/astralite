@@ -13,13 +13,13 @@
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
 import { canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
-import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, fallOf, nearbyDozers, raiseSpot, separateCrowd, STRIKE_RANGE, type CrowdBody, type EnemyKind, type EnemyView, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
-import { landBlow } from '../../app/dungeon-hits.ts';
+import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, fallOf, moveOf, nearbyDozers, raiseSpot, scaledDamage, separateCrowd, type CrowdBody, type EnemyKind, type EnemyView, type Move, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
+import { bossPush, landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
-import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
+import { TILE, bossOnFloor, cellKey, dealBosses, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { arenaFloor, type Floor } from '../../app/dungeon-arena.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
-import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
+import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, fanHeadings, ARROW_POOL, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
 import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
@@ -78,6 +78,10 @@ export type Policy = {
    * On unless it is `false`; a test switches it off to price the fire.
    */
   avoidFire?: boolean;
+  /**
+   * Plan 021: step out of a ring a boss's scatter has marked, before it lights. On unless it is `false`; a test switches it off to count the rings that light on him.
+   */
+  avoidMarks?: boolean;
   /**
    * Plan 018: go for a standing bonecaller before anything nearer. On unless it is `false`; a test switches it off to
    * watch the rattlers stand up and be cut down again, which a knight that goes straight for the caller cuts short.
@@ -162,6 +166,23 @@ export type FloorReport = {
   /** Vitality a pyre's fire took, by the kind that lit it - the part of `damage` that came from the ground. */
   poolDamage: Record<Cause, number>;
   /**
+   * Plan 021, for the boss this floor holds (a kind whose archetype says `boss`): its kind, or null on a floor with none; the
+   * vitality it took off the knight, by blow, bolt and fire; 1 if it was what killed him; the seconds from its noticing him to its
+   * fall (or to his, or the floor's end); his vitality as a share of his maximum the moment it fell, before the room's top-up
+   * (`bands.ts` reads the floor's after it), null if it never fell; and the phase changes it went through.
+   */
+  bossKind: EnemyKind | null;
+  bossDamage: number;
+  bossDeaths: number;
+  bossSeconds: number;
+  bossHpLeft: number | null;
+  phaseChanges: number;
+  /** Plan 021 Stage C: the rings a boss's scatter lit this floor, and how many of them lit with the knight standing inside - what stepping out of a marked ring (`avoidMarks`) saves. */
+  ringsLit: number;
+  ringsOnKnight: number;
+  /** Plan 021 Stage D: blows a shield turned aside after its boss changed phase - none, for the Bastion, whose shield breaks in the change. */
+  blockedLate: number;
+  /**
    * One entry per room fought and cleared this floor: seconds from the first frame one of that room's woken
    * bodies came within REACH_RADIUS of the knight to the frame the room held nothing alive. It is the fight
    * alone, without the walk to it, which is what a special can actually shorten. A ranged arm that clears a
@@ -201,6 +222,11 @@ type Body = {
   // `intent.face`, which agrees except mid-trail, when a shield is down anyway). A `buried` body is a
   // summoner's reserve: asleep, untargetable and outside every count until its `summoner` (a spawn index) raises it.
   face: number; buried: boolean; summoner: number; maxHp: number;
+  // Plan 021. A boss's rotation slot, phase and the seconds of phase change left (EnemyView), the move whose tell is running
+  // (its tell, reach and bolt are what the knight reads) and the rings a `scatter` tell has marked, to become fire when it ends.
+  move: number; phase: number; change: number; winding: Move | null; marks: { x: number; z: number }[];
+  /** The phase again, under the name `landBlow` reads (`Struck.bossPhase`): a boss's shield breaks in one. */
+  readonly bossPhase: number;
   // Where it spawned, for a dozing body's pace, and how far into noticing it is - see dungeon-enemy.ts.
   anchor: { x: number; z: number }; notice: number;
   // Countdown to a contagion kick a neighbour scheduled for this body; Infinity means none is pending.
@@ -257,20 +283,22 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
   const floors: FloorReport[] = [];
   let elapsed = 0, cause: Cause | null = null;
 
+  // Plan 021 (D13): the run's bosses are dealt as the game deals them, from floor one's seed, and each floor is laid with its own.
+  const dealt = dealBosses(seed);
   for (let level = 1; level <= FLOORS; level++) {
-    const report = simulateFloor(seed + level - 1, level, run, policy, nerve, draft);
+    const report = simulateFloor(seed + level - 1, level, run, policy, nerve, draft, generateFloor(seed + level - 1, level, { boss: bossOnFloor(dealt, level) }));
     floors.push(report);
     elapsed += report.seconds;
     if (report.outcome !== 'cleared') {
       // Whatever took the last of the vitality is what the run log would record.
       const damage = report.damage;
       cause = (Object.keys(damage) as Cause[]).filter(k => damage[k] > 0).sort((a, b) => damage[b] - damage[a])[0] ?? null;
-      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills }), floors };
+      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills, bosses: run.bosses }), floors };
     }
     // Descending restores a quarter of the bar, as the results card promises.
     if (level < FLOORS) heal(run, Math.round(run.maxHp * 0.25));
   }
-  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills }), floors };
+  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills, bosses: run.bosses }), floors };
 }
 
 /**
@@ -282,9 +310,9 @@ export function simulateArena(seed: number, level: number, roster: readonly Enem
   return simulateFloor(seed, level, startRun(policy), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), arenaFloor(seed, level, roster), true);
 }
 
-/** One generated floor fought by a fresh knight: no earlier floors, no boons, full vitality. For a test that needs a floor and not a descent. */
-export function simulateLevel(seed: number, level: number, policy: Policy = DEFAULT_POLICY): FloorReport {
-  return simulateFloor(seed, level, startRun(policy), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b));
+/** One generated floor fought by a fresh knight: no earlier floors, no boons, full vitality. For a test that needs a floor and not a descent; `built` is a floor the test laid itself (a chosen boss). */
+export function simulateLevel(seed: number, level: number, policy: Policy = DEFAULT_POLICY, built?: Floor): FloorReport {
+  return simulateFloor(seed, level, startRun(policy), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), built);
 }
 
 function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number, built?: Floor, arena = false): FloorReport {
@@ -292,6 +320,11 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const weapon = policy.weapon;
   const damage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
   let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0, specialCount = 0, blockedCount = 0, raisedCount = 0, reassembledCount = 0;
+  // Plan 021: the boss's numbers (see FloorReport), and whatever last took vitality, which is what the knight died to if he died.
+  let phaseChanges = 0, blockedLate = 0, ringsLit = 0, ringsOnKnight = 0, bossHpLeft: number | null = null, bossFrom: number | null = null, bossTo: number | null = null, lastBlow: Cause | null = null;
+  // Where the knight has been, oldest first, one sample a TRAIL_STEP: what a `scatter` marks its rings on.
+  const trail: { x: number; z: number }[] = [];
+  let trailTimer = 0;
   const poolDamage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
   let idle = 0, aloneRun = 0, aloneMax = 0, firstContactSum = 0, firstContactCount = 0;
   // Rooms already given a first-contact measurement (whether it resolved or the knight walked on), so a
@@ -321,6 +354,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       // at the start, the hole the arena's first version had (progress.md, 2026-09-26).
       aim: { x: 0, z: 0 }, room: spawn.room, awake: !spawn.ambush && !spawn.buried, dead: false,
       face: 0, buried: !!spawn.buried, summoner: spawn.summoner ?? -1, maxHp: stats.hp,
+      move: 0, phase: 0, change: 0, winding: null, marks: [], get bossPhase() { return this.phase; },
       anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity,
     };
   });
@@ -414,7 +448,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       return;
     }
     body.dead = true;
-    resolveKill(run);
+    // A boss's fall, read before this kill's draught or the room's top-up can touch his vitality (plan 021 D9).
+    if (BESTIARY[body.kind].boss) { bossHpLeft = run.hp / run.maxHp * 100; bossTo = t; }
+    resolveKill(run, body.kind);
     const fire = deathPool(body.kind, body);
     if (fire && fires.length < HOSTILE_POOL_RINGS) fires.push({ pool: fire, kind: body.kind });
     for (const at of fall.crumble) bodies[at].dead = true;
@@ -425,8 +461,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   };
   // A bonecaller's tell ran out (dungeon-game.tsx:398-408 `raise`): the next `perTell` of its buried reserve stand
   // up side by side a pace toward the knight, awake.
-  const raise = (caller: Body, index: number) => {
-    const reserve = bodies.filter(e => e.buried && !e.dead && e.summoner === index).slice(0, BESTIARY[caller.kind].summons?.perTell ?? 0);
+  const raise = (caller: Body, index: number, perTell = BESTIARY[caller.kind].summons?.perTell ?? 0) => {
+    const reserve = bodies.filter(e => e.buried && !e.dead && e.summoner === index).slice(0, perTell);
     reserve.forEach((body, slot) => {
       const at = raiseSpot(floor.cells, caller, player, slot);
       body.buried = false; body.awake = true; body.room = caller.room;
@@ -438,6 +474,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   while (t < FLOOR_TIMEOUT) {
     t += DT;
     tickRun(run, DT);
+    trailTimer = sampleTrail(trail, trailTimer, player, DT);
     dashTime = Math.max(0, dashTime - DT);
     dashCooldown = Math.max(0, dashCooldown - DT);
 
@@ -480,16 +517,18 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     // read from its lock rather than its start - dodging a lane that is still following him only moves
     // the lane - and the bolt's flight to him is reaction time too.
     const readable = (b: Body) => {
-      const bolt = BESTIARY[b.kind].bolt;
+      // A boss reads off the move it is winding up (plan 021); every other body off its one attack.
+      const bolt = (b.winding ?? BESTIARY[b.kind]).bolt;
       if (!bolt) return b.tell - b.windup >= policy.reaction;
       return b.windup <= AIM_LOCK && AIM_LOCK - b.windup + Math.hypot(b.x - player.x, b.z - player.z) / bolt.speed >= policy.reaction;
     };
-    const threat = live.find(b => b.windup > 0 && readable(b)
-      && Math.hypot(b.x - player.x, b.z - player.z) < STRIKE_RANGE[b.kind] + (BESTIARY[b.kind].attack === 'pounce' ? 2.6 : 0.4));
+    // A scatter's tell is not a blow he can dash: its rings are stepped out of instead (below).
+    const threat = live.find(b => b.windup > 0 && b.winding?.attack !== 'scatter' && readable(b)
+      && Math.hypot(b.x - player.x, b.z - player.z) < (b.winding ?? BESTIARY[b.kind]).strikeRange + ((b.winding ?? BESTIARY[b.kind]).attack === 'pounce' ? 2.6 : 0.4));
     if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, swing) && nerve() < policy.dodge) {
-      // A pounce or a bolt is out-run sideways; a swing is out-run backwards.
+      // A pounce or a bolt is out-run sideways; a swing is out-run backwards. A boss is read off the move it is winding up.
       const away = unit(player.x - threat.x, player.z - threat.z);
-      const step = BESTIARY[threat.kind].attack !== 'swing' ? { x: -away.z, z: away.x } : away;
+      const step = (threat.winding ?? BESTIARY[threat.kind]).attack !== 'swing' ? { x: -away.z, z: away.x } : away;
       facing.x = step.x; facing.z = step.z;
       dashTime = DASH_TIME; dashCooldown = run.dashSpan; attackTime = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; swingHits.clear();
       charging = null; swingKind = 'strike';
@@ -630,6 +669,13 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       const burning = fires.find(f => poolCatches(f.pool, player.x, player.z));
       if (burning) move = unit(player.x - burning.pool.x, player.z - burning.pool.z);
     }
+    // Plan 021 (Stage C): the rings a boss's scatter has marked are stepped out of before they light, straight away from the nearest one's heart; once a ring is lit it is `avoidFire`'s. Dashing is
+    // not for it (a scatter hurts no one in its tell), and the dodge and the strike are unchanged: this only replaces where he walks, and only while he stands in a marked ring.
+    if (policy.avoidMarks !== false && dashTime <= 0) {
+      const inside = live.flatMap(b => b.marks.map(at => ({ at, radius: b.winding?.scatter?.pool.radius ?? 0, from: b }))).find(({ at, radius }) => Math.hypot(player.x - at.x, player.z - at.z) < radius);
+      // The newest ring is marked on the very spot he stands on, which has no "away" to it: he steps away from the boss that marked it instead.
+      if (inside) move = Math.hypot(player.x - inside.at.x, player.z - inside.at.z) < 0.05 ? unit(player.x - inside.from.x, player.z - inside.from.z) : unit(player.x - inside.at.x, player.z - inside.at.z);
+    }
     if (move) { facing.x = move.x; facing.z = move.z; }
     const speed = charging !== null && dashTime <= 0 ? weapon.moveSpeed * (special?.moveScale ?? 1) : playerSpeed({ dashing: dashTime > 0, attacking: attackTime > 0, weapon: swing });
     // The lunge carries him down its line for its travel window, as dungeon-game.tsx does.
@@ -673,6 +719,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           pools.length = 0;
           for (const index of caught) {
             const body = bodies[index];
+            if (body.change > 0) continue;
             body.hp -= swing.damage + run.strike; body.hitFlash = 0.2;
             if (body.hp <= 0) {
               fell(body);
@@ -703,7 +750,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         // with the arm's own numbers, as it always has here; a special with its own.
         const shover = isSpecial() ? swing : weapon;
         // The body's facing goes in, so a shield turns a frontal blow aside as it does in the game (dungeon-game.tsx:1847).
-        if (landBlow(floor.cells, body, body, { damage: swing.damage + run.strike, stagger: swing.stagger, knockback: shover.knockback, wardenKnockback: shover.wardenKnockback }, unit(body.x - player.x, body.z - player.z), facingOf(body)).blocked) blockedCount++;
+        if (landBlow(floor.cells, body, body, { damage: swing.damage + run.strike, stagger: swing.stagger, knockback: shover.knockback, wardenKnockback: shover.wardenKnockback }, unit(body.x - player.x, body.z - player.z), facingOf(body)).blocked) { blockedCount++; if (body.phase > 0) blockedLate++; }
         if (body.hp <= 0) {
           fell(body);
         }
@@ -720,14 +767,38 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         body.alertIn -= DT;
         if (body.alertIn <= 0) { if (body.notice <= 0) body.notice = DT; body.alertIn = Infinity; }
       }
-      const view: EnemyView = { kind: body.kind, x: body.x, z: body.z, room: body.room, cooldown: body.cooldown, hitFlash: body.hitFlash, windup: body.windup, lunge: body.lunge, tell: body.tell, speed: body.speed, aim: body.aim, anchor: body.anchor, notice: body.notice };
+      const view: EnemyView = { kind: body.kind, x: body.x, z: body.z, room: body.room, cooldown: body.cooldown, hitFlash: body.hitFlash, windup: body.windup, lunge: body.lunge, tell: body.tell, speed: body.speed, aim: body.aim, anchor: body.anchor, notice: body.notice, hp: body.hp, maxHp: body.maxHp, move: body.move, phase: body.phase, change: body.change };
       const intent = decideEnemy(view, player, { ...world, activeRoom }, DT);
       const startedNoticing = body.notice <= 0 && intent.notice > 0;
       body.cooldown = intent.cooldown; body.hitFlash = intent.hitFlash; body.windup = intent.windup;
       body.lunge = intent.lunge; body.aim = intent.aim; body.notice = intent.notice;
       body.x = intent.x; body.z = intent.z;
       if (intent.face !== null) body.face = intent.face;
-      if (intent.raise) raise(body, i);
+      // Plan 021. The move this frame's blow belongs to is the one the body went into the frame on (the rotation slot moves on in
+      // the very intent that spends it); null for every ordinary kind, which keeps its one attack and the damage it was built with.
+      const doing = moveOf(body.kind, view.phase, view.move), strike = doing ? scaledDamage(doing.damage, level) : body.damage;
+      if (BESTIARY[body.kind].moves) {
+        body.move = intent.move; body.phase = intent.phase; body.change = intent.change;
+        if (bossFrom === null && BESTIARY[body.kind].boss && intent.notice > 0) bossFrom = t;
+        // A tell starting: the move's own tell is what he reads, and a scatter lays its rings on where he has been (the game's
+        // twin of this is plan 021 Stage C).
+        if (view.windup <= 0 && intent.windup > 0) {
+          body.winding = moveOf(body.kind, intent.phase, intent.move); body.tell = body.winding?.tell ?? body.tell;
+          if (body.winding?.scatter) body.marks = scatterRings([...trail, { x: player.x, z: player.z }], body.winding.scatter.rings, { hostile: fires.length, own: pools.length });
+        }
+        if (intent.windup <= 0 && !intent.scatter) { body.winding = null; body.marks = []; }
+        // A phase change (plan 021 D3; the game's twin is Stage B): the knight is pushed out of its reach, and for `change` seconds
+        // nothing hurts it (`Struck.change`, read by `landBlow`).
+        if (intent.phaseChange) { phaseChanges++; const push = bossPush(body, player); moveOnFloor(floor.cells, player, push.x, push.z); }
+        if (intent.scatter && doing?.scatter) {
+          for (const at of body.marks) if (fires.length < HOSTILE_POOL_RINGS) {
+            const pool = scatterPool(at, doing.scatter.pool, scaledDamage(doing.scatter.pool.damage, level));
+            fires.push({ kind: body.kind, pool }); ringsLit++; if (poolCatches(pool, player.x, player.z)) ringsOnKnight++;
+          }
+          body.marks = []; body.winding = null;
+        }
+      }
+      if (intent.raise) raise(body, i, doing?.summon?.perTell);
       if (startedNoticing) {
         const snapshot: Wakeable[] = bodies.map(b => ({ x: b.x, z: b.z, room: b.room, notice: b.notice, dead: b.dead || !b.awake }));
         nearbyDozers(snapshot, i).forEach((idx, rank) => {
@@ -736,14 +807,16 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         });
       }
       if (intent.hit) {
-        const dealt = hurt(run, body.damage, { dashing: dashImmune(dashTime), warded: true });
+        const dealt = hurt(run, strike, { dashing: dashImmune(dashTime), warded: true });
         damage[body.kind] += dealt;
+        if (dealt) lastBlow = body.kind;
         if (dealt && live.filter(b => Math.hypot(b.x - player.x, b.z - player.z) < 4).length >= 3) surrounded += dealt;
         if (run.hp <= 0) return endFloor('died');
       }
       // dungeon-game.tsx looses the same bolt on the same frame.
-      const bolt = BESTIARY[body.kind].bolt;
-      if (intent.loose && bolt) hostile.push({ kind: body.kind, shot: hostileBolt(body, intent.loose, bolt, body.damage) });
+      const bolt = (doing ?? BESTIARY[body.kind]).bolt;
+      // A fan looses several, the aimed one first, into the same twelve arrows the game has (a thirteenth is dropped).
+      if (intent.loose && bolt) for (const heading of fanHeadings(intent.loose, bolt.fan)) if (hostile.length < ARROW_POOL) hostile.push({ kind: body.kind, shot: hostileBolt(body, heading, bolt, strike) });
     }
 
     // Bolts at the knight fly after the bodies have moved, as the game flies them.
@@ -755,6 +828,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (!flight.hit) continue;
       const dealt = hurt(run, shot.damage, { dashing: dashImmune(dashTime), warded: true });
       damage[kind] += dealt;
+      if (dealt) lastBlow = kind;
       if (dealt && live.filter(b => Math.hypot(b.x - player.x, b.z - player.z) < 4).length >= 3) surrounded += dealt;
       if (run.hp <= 0) return endFloor('died');
     }
@@ -766,6 +840,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (bite.bites && poolCatches(pool, player.x, player.z)) {
         const dealt = hurt(run, pool.damage, { dashing: dashImmune(dashTime), warded: true });
         damage[kind] += dealt; poolDamage[kind] += dealt;
+        if (dealt) lastBlow = kind;
         if (run.hp <= 0) return endFloor('died');
       }
       if (pool.life <= 0) fires.splice(i, 1);
@@ -790,7 +865,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           const blow = thrown ? thrown.blow : { ...weapon, damage: shot.damage };
           // The push is the bolt's own heading, not the line from the knight to the body: the two differ once he has moved, for a pierced second body and for the harpoon (dungeon-game.tsx:2004-2010).
           // A shield-turned bolt is done with the body: no drag, and the harpoon keeps its one drag (dungeon-game.tsx:2011).
-          if (landBlow(floor.cells, body, body, blow, { x: shot.dx, z: shot.dz }, facingOf(body)).blocked) { blockedCount++; continue; }
+          if (landBlow(floor.cells, body, body, blow, { x: shot.dx, z: shot.dz }, facingOf(body)).blocked) { blockedCount++; if (body.phase > 0) blockedLate++; continue; }
           if (drags && hurled?.hurl && harpoon) {
             harpoon.dragged = true;
             const pull = dragToward(body, player, hurled.hurl.drag);
@@ -822,7 +897,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       const burn = poolStep(pool, DT);
       pool.life = burn.life; pool.timer = burn.timer;
       if (burn.bites) for (const body of bodies) {
-        if (body.dead || !body.awake || !poolCatches(pool, body.x, body.z)) continue;
+        if (body.dead || !body.awake || body.change > 0 || !poolCatches(pool, body.x, body.z)) continue;
         body.hp -= pool.damage;
         body.hitFlash = 0.2;
         if (body.hp <= 0) {
@@ -865,7 +940,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (!firing) { ring.burned = false; continue; }
       if (ring.burned || Math.hypot(ring.x - player.x, ring.z - player.z) >= 1.8) continue;
       const dealt = hurt(run, 10, { dashing: dashImmune(dashTime) });
-      if (dealt) { ring.burned = true; damage.hazard += dealt; if (run.hp <= 0) return endFloor('died'); }
+      if (dealt) { ring.burned = true; damage.hazard += dealt; lastBlow = 'hazard'; if (run.hp <= 0) return endFloor('died'); }
     }
 
     // --- shrines, boons, the stair ---------------------------------------------------------------
@@ -900,7 +975,11 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       barrenRooms: barrenRoomIds.size, spentRecrossings: spentRecross,
       alone: +aloneMax.toFixed(1),
       firstContact: +(firstContactCount ? firstContactSum / firstContactCount : 0).toFixed(2),
-      shots: shotCount, landed: landedCount, specials: specialCount, blocked: blockedCount, raised: raisedCount, reassembled: reassembledCount, poolDamage, fights, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      shots: shotCount, landed: landedCount, specials: specialCount, blocked: blockedCount, raised: raisedCount, reassembled: reassembledCount, poolDamage,
+      bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
+      bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
+      bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

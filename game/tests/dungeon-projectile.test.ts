@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey } from '../app/dungeon-floor.ts';
-import { BOLT_RADIUS, deathPool, flyHostile, flyShot, hostileBolt, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from '../app/dungeon-projectile.ts';
+import { BOLT_RADIUS, deathPool, flyHostile, flyShot, HOSTILE_POOL_RINGS, hostileBolt, poolCatches, poolStep, reloadStep, SCATTER_SPACING, scatterRings, type Mark, type Pool, type Shot } from '../app/dungeon-projectile.ts';
 import { chainLength, WEAPONS } from '../app/dungeon-weapon.ts';
 
 const openFloor = (half = 10) => { const cells = new Set<string>(); for (let x = -half; x <= half; x++) for (let z = -half; z <= half; z++) cells.add(cellKey(x, z)); return cells; };
@@ -189,4 +189,25 @@ test('a pyre leaves fire where it falls, and no other kind leaves any', () => {
   // It bites on its first frame rather than a full interval later.
   assert.equal(poolStep(fire!, 1 / 60).bites, 1);
   for (const kind of ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'bonecaller', 'rattler'] as const) assert.equal(deathPool(kind, at), null, `${kind} left fire`);
+});
+
+test('a scatter marks at most the rings that are free, counting the knight\'s own fire, each where he has been and apart from the others', () => {
+  // Eight places he has stood, a few units apart, newest last.
+  const trail = Array.from({ length: 8 }, (_, i) => ({ x: i * 3, z: 0 }));
+  assert.equal(HOSTILE_POOL_RINGS, 6);
+  // Nothing burning: the three it asked for, newest first, each one of his positions.
+  const three = scatterRings(trail, 3, { hostile: 0, own: 0 });
+  assert.deepEqual(three, [{ x: 21, z: 0 }, { x: 18, z: 0 }, { x: 15, z: 0 }]);
+  // Six rings and no more, whoever lit them: hostile and his own flask pools count together.
+  assert.equal(scatterRings(trail, 3, { hostile: 2, own: 1 }).length, 3, 'three free rings left, and three were not marked');
+  assert.equal(scatterRings(trail, 3, { hostile: 2, own: 2 }).length, 2, 'the knight\'s own pools were not counted against the rings');
+  assert.equal(scatterRings(trail, 3, { hostile: 0, own: 5 }).length, 1);
+  assert.equal(scatterRings(trail, 3, { hostile: 3, own: 3 }).length, 0, 'a ring was marked with none free: it would be marked and never burn');
+  assert.equal(scatterRings(trail, 3, { hostile: 5, own: 4 }).length, 0, 'more fire than rings drove the free count below zero');
+  // A knight who stood still is one place, not three.
+  const stood = Array.from({ length: 8 }, (_, i) => ({ x: i * 0.1, z: 0 }));
+  assert.ok(0.7 < SCATTER_SPACING, 'precondition: every position he stood on is within one spacing of the others');
+  assert.equal(scatterRings(stood, 3, { hostile: 0, own: 0 }).length, 1);
+  // And no trail, no rings.
+  assert.deepEqual(scatterRings([], 3, { hostile: 0, own: 0 }), []);
 });

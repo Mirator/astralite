@@ -125,6 +125,16 @@ test('vitality stops at zero and a fallen knight takes no further hits', () => {
   assert.equal(run.hp, 0);
 });
 
+// Plan 021 (D10): a boss is worth four bodies' XP and is counted as a boss as well as a kill; the kind decides, nothing else.
+test('a felled boss pays 100 XP and is counted, and an ordinary kind is not', () => {
+  const run = createRun();
+  assert.deepEqual(resolveKill(run, 'captain'), { xp: 100, ranks: 0, healed: 0 }, 'a boss did not pay 100');
+  assert.deepEqual([run.kills, run.bosses, run.totalXp], [1, 1, 100]);
+  assert.deepEqual(resolveKill(run, 'warden'), { xp: XP_PER_ENEMY, ranks: 0, healed: 0 }, 'a warden pays a warden\'s 25');
+  assert.deepEqual(resolveKill(run), { xp: XP_PER_ENEMY, ranks: 0, healed: 0 }, 'a kill that names no kind pays what it always paid');
+  assert.deepEqual([run.kills, run.bosses, run.totalXp], [3, 1, 150]);
+});
+
 test('a felled guard pays 25 XP and, with Grave Draught, vitality with it', () => {
   const run = createRun();
   run.hp = 50;
@@ -220,7 +230,7 @@ const bought = (upgrades: Meta['upgrades']): Meta => ({ ...freshMeta(), upgrades
 test('createRun() with no argument is exactly the run the game always started', () => {
   // A literal on purpose: `createRun(runStart(freshMeta()))` would agree with itself whatever it dealt.
   const today = {
-    hp: 100, maxHp: 100, kills: 0, totalXp: 0,
+    hp: 100, maxHp: 100, kills: 0, totalXp: 0, bosses: 0,
     rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
     strike: 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
     invuln: 0, taken: [], specialCooldown: 0,

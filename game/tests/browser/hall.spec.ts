@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { altarHall, gateRacks, generateFloor, HALL_SEED, TILE } from '../../app/dungeon-floor.ts';
 import { freshMeta, UPGRADES, type Meta } from '../../app/dungeon-meta.ts';
-import { DEFAULT_SEEDS, enterKeep, expect, type GameWindow, keyToward, pinnedDraws, pinSeeds, press, test, veilSeen, walkUntil, watchVeil, WARM_UP, type Snapshot } from './helpers.ts';
+import { DEFAULT_BOSS, DEFAULT_SEEDS, enterKeep, expect, type GameWindow, keyToward, pinnedDraws, pinSeeds, press, test, veilSeen, walkUntil, watchVeil, WARM_UP, type Snapshot } from './helpers.ts';
 
 // Plan 020 Stage C: the Tide Altar's hall. Every scenario here opts out of `?hall=skip` (D11), so the page boots the way a player's does: into the hall, past
 // no menu but the slot picker. The hall is the only coverage of that default flow in the suite (the rest skips it), so these stay on the PR gate.
@@ -180,12 +180,13 @@ test('the altar is a place, the arm is chosen on a rack, and the way down settle
   await expect(page.getByRole('progressbar', { name: 'Vitality' })).toHaveAttribute('aria-valuemax', '110');
 
   // ---- 4. Nothing of the hall is in the run: floor one is what the generator deals, stair, doors and bodies. ----
-  const dealt = generateFloor(DEFAULT_SEEDS[0], 1), goal = dealt.rooms[dealt.goal];
+  // Plan 021: the page boots with `?boss=` (the Captain, `DEFAULT_BOSS`), so the floor the generator lays for the comparison is laid with the boss the run holds, whatever the deal makes of this seed.
+  const dealt = generateFloor(DEFAULT_SEEDS[0], 1, { boss: DEFAULT_BOSS }), goal = dealt.rooms[dealt.goal];
   expect(run.floor.rooms, 'floor one\'s rooms are not the generator\'s').toEqual(dealt.rooms);
   expect(run.floor.edges).toEqual(dealt.edges);
   expect(run.enemies.length, 'floor one\'s bodies are not the generator\'s').toBe(dealt.spawns.filter((spawn) => !spawn.buried).length);
   expect(run.stair, 'the stair is not at the goal room\'s heart').toMatchObject({ x: expect.closeTo(goal.x * TILE, 3), z: expect.closeTo(goal.z * TILE, 3) });
-  expect(run.objective.stairOpen, 'the stair is open before its wardens fell').toBe(false);
+  expect(run.objective.stairOpen, 'the stair is open before its boss fell').toBe(false);
   const sign = (room: (typeof dealt.rooms)[number]) => room.reward ?? (room.role === 'goal' ? 'stair' : room.encounter === 'sanctuary' ? 'rest' : 'fight');
   const gateDoors = dealt.doors.filter((d) => d.from === 0);
   expect(run.chamber.doors.map((d) => [d.to, d.sign]), 'the gate\'s doors are not the generator\'s').toEqual(gateDoors.map((d) => [d.to, sign(dealt.rooms[d.to])]));

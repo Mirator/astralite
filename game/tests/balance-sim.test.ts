@@ -8,6 +8,7 @@ import { weaponById } from '../app/dungeon-weapon.ts';
 import { freshMeta, type Meta } from '../app/dungeon-meta.ts';
 import { hurledBlow } from '../app/dungeon-combat.ts';
 import { landBlow } from '../app/dungeon-hits.ts';
+import { asReaper, TEST_BOSS, TEST_SCATTERER } from './fixtures/test-boss.ts';
 
 // The harness is a measuring instrument, so what it owes the suite is not a balance assertion — those
 // are for a human reading a batch — but proof that it is measuring the same game twice. A sim that
@@ -34,7 +35,10 @@ test('the boon draft is independent of how often the knight dodges', () => {
   // sweep read backwards.
   const bold = simulateRun(0x7c0de, policy({ dodge: 1 }));
   const timid = simulateRun(0x7c0de, policy({ dodge: 0 }));
-  assert.deepEqual(bold.boons, timid.boons);
+  // A knight who dies early drafts fewer cards (the bosses of plan 021 kill the one who never dodges): the cards both were dealt must be the same ones.
+  const shared = Math.min(bold.boons.length, timid.boons.length);
+  assert.ok(shared >= 3, `precondition: both knights were dealt at least three cards (${bold.boons.length} and ${timid.boons.length}), so equal prefixes mean something`);
+  assert.deepEqual(bold.boons.slice(0, shared), timid.boons.slice(0, shared));
 });
 
 test('fight duration is measured per room fought, inside the floor it was fought on', () => {
@@ -167,7 +171,8 @@ test('walking into a chamber that holds a bonecaller wakes nothing in its reserv
   let quiet = 0;
   for (const seed of CALLER_KEEPS) {
     assert.ok(generateFloor(seed, 3).spawns.some(s => s.kind === 'bonecaller'), `seed ${seed} no longer deals a caller: pick another seed`);
-    const report = simulateLevel(seed, 3, policy());
+    // The floor is laid with the Captain on the stair (the boss the final floor held before the Bone King), so what is counted below is the caller's reserve and not the King's.
+    const report = simulateLevel(seed, 3, policy(), generateFloor(seed, 3, { boss: 'captain' }));
     assert.notEqual(report.outcome, 'stuck', `seed ${seed}: the floor hit its timeout`);
     if (report.raised > 0) continue;
     quiet++;
@@ -202,14 +207,53 @@ test('the sim offers as many cards as the run it plays is owed', () => {
 });
 
 test('a run report says what banking it would pay', () => {
-  // Written out, not recomputed: a pearl a kill, 15 a floor behind him, 25 for getting out.
+  // Written out, not recomputed: a pearl a kill, 15 a floor behind him, 25 for getting out, and (plan 021) ten for each boss the floors say fell.
+  const felled = (report: ReturnType<typeof simulateRun>) => report.floors.filter(floor => floor.bossHpLeft !== null).length;
   const won = simulateRun(0x1, policy());
   assert.equal(won.outcome, 'escaped', 'precondition: the default knight escapes this seed');
-  assert.equal(won.pearls, won.kills + 3 * 15 + 25, 'an escaped run report does not carry what a win pays');
-  // Seeds 15839 and 158381 are lost by the weak knight on floors 2 and 3 (bands.json's `weak` policy).
-  for (const [seed, floor] of [[15839, 2], [158381, 3]] as const) {
+  assert.equal(felled(won), 3, 'precondition: the escape went through three bosses');
+  assert.equal(won.pearls, won.kills + 3 * 15 + 25 + 3 * 10, 'an escaped run report does not carry what a win pays');
+  // Seeds 11 and 8 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159.
+  for (const [seed, floor] of [[11, 2], [8, 3]] as const) {
     const lost = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
     assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
-    assert.equal(lost.pearls, lost.kills + (floor - 1) * 15, `a run lost on floor ${floor} does not report what a death pays`);
+    assert.equal(felled(lost), floor - 1, `precondition: a run lost on floor ${floor} felled the ${floor - 1} bosses behind it`);
+    assert.equal(lost.pearls, lost.kills + (floor - 1) * 15 + (floor - 1) * 10, `a run lost on floor ${floor} does not report what a death pays`);
   }
+});
+
+// Plan 021 Stage A: the sim models a boss's moves and phases before anything deals one. A test archetype (tests/fixtures/test-boss.ts)
+// stands in for the reaper, the one kind nothing deals, and fights on `simulateArena`.
+test('a boss with two phases hurts the knight, changes phase once, and the report says what it did and how he stood when it fell', () => {
+  asReaper(TEST_BOSS, () => {
+    const reports = fight(['reaper'], { dodge: 0 });
+    for (const r of reports) {
+      assert.equal(r.bossKind, 'reaper', 'the report does not name the boss');
+      assert.ok(r.bossSeconds > 0, 'the boss never noticed the knight, so nothing was fought');
+      assert.ok(r.phaseChanges <= 1, `a boss with one threshold changed phase ${r.phaseChanges} times`);
+      assert.equal(r.bossDeaths, r.outcome === 'died' ? 1 : 0, 'the knight died to the only body on the floor and the report did not say so');
+    }
+    assert.ok(total(reports, r => r.bossDamage) > 0, 'the boss never hurt the knight: bossDamage is not read off its blows');
+    assert.ok(total(reports, r => r.phaseChanges) > 0, 'no boss ever changed phase: the sim never applies intent.phaseChange');
+    const fell = reports.filter(r => r.bossHpLeft !== null);
+    assert.ok(fell.length >= 3, `only ${fell.length} bosses fell, too few to check how the knight stood`);
+    for (const r of fell) {
+      // He took nothing but the boss's blows and gained nothing but the kill's, so at its fall he held what he started with less what it
+      // dealt. (The arena's gate is cleared from the start and pays no top-up, so this pins the value at the fall; that it is read before
+      // a goal chamber's top-up is for Stage B, which has a boss in one.)
+      assert.ok(r.bossDamage > 0, 'precondition: the boss took vitality, so a figure that ignored it would differ');
+      assert.ok(Math.abs(r.bossHpLeft! - (r.maxHpAfter - r.bossDamage) / r.maxHpAfter * 100) < 1e-6, `the knight stood at ${r.bossHpLeft}% when it fell, not ${((r.maxHpAfter - r.bossDamage) / r.maxHpAfter * 100).toFixed(2)}%`);
+    }
+  });
+});
+
+test('the rings a scatter marks become fire that bites the knight and bills the boss that marked them', () => {
+  asReaper(TEST_SCATTERER, () => {
+    const reports = fight(['reaper'], { dodge: 0, avoidFire: false });
+    // The boss does nothing but scatter, so every point it took off the knight came off the ground.
+    assert.ok(total(reports, r => r.bossSeconds) > 0, 'precondition: the boss fought');
+    assert.ok(total(reports, r => r.poolDamage.reaper) > 0, 'the rings a scatter marked never became fire that bit the knight');
+    for (const r of reports) assert.equal(r.damage.reaper, r.poolDamage.reaper, 'a scatterer dealt damage that was not fire');
+    assert.equal(total(reports, r => r.bossDamage), total(reports, r => r.poolDamage.reaper), 'the fire was not billed to the boss');
+  });
 });
