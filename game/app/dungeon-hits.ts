@@ -11,9 +11,10 @@ import { normalise, type Heading } from './dungeon-player.ts';
 
 /**
  * The part of a live enemy a blow writes to. The game's `Enemy` satisfies it. `change` is the seconds of a boss's phase change
- * still to run (`EnemyView.change`): while it does, nothing writes to the body at all. Absent for a body that has none.
+ * still to run (`EnemyView.change`): while it does, nothing writes to the body at all. Absent for a body that has none. `bossPhase` is the phase
+ * it is in (`EnemyView.phase`), which a boss's shield reads: absent for a body that has none, which is phase zero.
  */
-export type Struck = { kind: EnemyKind; hp: number; windup: number; cooldown: number; hitFlash: number; change?: number };
+export type Struck = { kind: EnemyKind; hp: number; windup: number; cooldown: number; hitFlash: number; change?: number; bossPhase?: number };
 
 /** Whether a boss is standing in a phase change, which nothing damages (plan 021 D3). */
 export const unhittable = (target: Pick<Struck, 'change'>) => (target.change ?? 0) > 0;
@@ -32,11 +33,13 @@ export const awayFrom = (from: Heading, to: Heading) => normalise({ x: to.x - fr
  * from the front - the blow's heading `push` runs from the knight to the body, so a body facing him meets
  * it head on - and only while the shield is up: not while the body winds up, and not while it recovers
  * from its own swing, which leaves more than a plain blow's HIT_COOLDOWN on the clock. A stagger arm
- * breaks the guard outright. `facing` is the unit heading the body looks along.
+ * breaks the guard outright, and a boss's shield (`until`) is gone from the phase it breaks in (plan 021, the Bastion's second phase).
+ * `facing` is the unit heading the body looks along.
  */
-export const blocks = (target: Pick<Struck, 'kind' | 'windup' | 'cooldown'>, facing: Heading, push: Heading, stagger: boolean) => {
+export const blocks = (target: Pick<Struck, 'kind' | 'windup' | 'cooldown' | 'bossPhase'>, facing: Heading, push: Heading, stagger: boolean) => {
   const shield = BESTIARY[target.kind].shield;
   if (!shield || stagger || target.windup > 0 || target.cooldown > HIT_COOLDOWN) return false;
+  if (shield.until !== undefined && (target.bossPhase ?? 0) >= shield.until) return false;
   return facing.x * push.x + facing.z * push.z < -shield.arc;
 };
 

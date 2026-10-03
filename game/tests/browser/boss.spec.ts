@@ -379,6 +379,52 @@ test('the Tide Hound is wired: a lane drawn for its pounce, the bar names it, an
   expect((await game.state()).health, 'precondition: the first pounce connected').toBeLessThanOrEqual(100 - BESTIARY.hound.moves![1][0].damage);
 });
 
+test('the Bastion is wired: a swing\'s arc, the bar names it, a real strike is turned aside by its shield in phase one and wounds it in phase two, when the shield is gone', async ({ game, page }) => {
+  await arena(game, page, 'bastion');
+  const floor = await game.floor();
+  const opening = await game.state();
+  expect(opening.enemies.map((e) => e.kind)).toEqual(['bastion']);
+  const anchor = { x: opening.enemies[0].x, z: opening.enemies[0].z };
+  // Its first move, with the cue the real tell draws, and the shield on its arm.
+  const spot = laneSpot(floor, anchor, 2.2);
+  await game.teleport(spot.x, spot.z);
+  const first = await nextTell(game);
+  expect([first.attack, first.cue.visible, first.cue.shape, first.bar, first.shield], 'its first move was not a swing drawn as an arc, with a shield on its arm and no floating bar').toEqual(['swing', true, 'arc', false, true]);
+  const bar = page.locator('.boss-bar');
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveAttribute('aria-label', 'The Bastion');
+  await expect(bar).toHaveAttribute('aria-valuemax', '70');
+  // Phase one: held between its blows and facing him, a real strike from the front is turned aside and wounds nothing.
+  const stance = strikeStance(floor, anchor);
+  const hold = async () => {
+    await game.configureCombat({ health: 100, enemies: [{ index: 0, windup: 0, cooldown: 0.3 }] });
+    await game.teleport(stance.x, stance.z);
+    await game.step(16); // it turns to face him
+  };
+  await hold();
+  const before = (await game.state()).enemies[0];
+  expect((await bossOf(game)).phase, 'precondition: it is in its first phase').toBe(0);
+  await strike(page, stance.key);
+  await game.step(200);
+  const turned = (await game.state()).enemies[0];
+  expect(turned.blocked, 'the strike never reached the shield, so nothing was tested').toBe(before.blocked + 1);
+  expect(turned.hp, 'a frontal strike wounded a raised shield').toBe(before.hp);
+  // Below half (35 of 70 is the threshold; 34 is under it): the shield breaks, the notice says so, and the mesh is gone from its arm.
+  await game.step(600);
+  await game.configureCombat({ enemies: [{ index: 0, hp: 34 }] });
+  const calm = await settleBoss(game);
+  expect([calm.phase, calm.shield], 'in phase two it was still behind a shield').toEqual([1, false]);
+  await expect(page.locator('.chamber-notice')).toContainText('The Bastion\'s shield breaks');
+  // The same strike from the same place now lands.
+  await hold();
+  const open = await game.state();
+  await strike(page, stance.key);
+  await game.step(200);
+  const struck = (await game.state()).enemies[0];
+  expect(struck.blocked, 'a strike was turned aside in phase two, with the shield broken').toBe(open.enemies[0].blocked);
+  expect(struck.hp, 'a strike in phase two did not wound it').toBe(open.enemies[0].hp - open.weapon.strikeDamage);
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 360, height: 740 }, hasTouch: true, isMobile: true });
 

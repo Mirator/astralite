@@ -54,6 +54,8 @@ export const CUTAWAY_ELLIPSE: Record<SlotOwner, { radii: [number, number]; yOffs
   mother: { radii: [0.98, 1.5], yOffset: 1.5 },
   // The Tide Hound is the stalker's window (0.65 x 1.0) at 1.6, lowered a little for the way it carries its head.
   hound: { radii: [1.04, 1.6], yOffset: 1.35 },
+  // The Bastion is a shieldbearer's window (0.72 x 1.05, centre 1.0) at 1.7, wider for the shield it stands behind.
+  bastion: { radii: [1.3, 1.8], yOffset: 1.7 },
 };
 
 // ------------------------------------------------------------------------------- shader injection

@@ -180,6 +180,8 @@ export type FloorReport = {
   /** Plan 021 Stage C: the rings a boss's scatter lit this floor, and how many of them lit with the knight standing inside - what stepping out of a marked ring (`avoidMarks`) saves. */
   ringsLit: number;
   ringsOnKnight: number;
+  /** Plan 021 Stage D: blows a shield turned aside after its boss changed phase - none, for the Bastion, whose shield breaks in the change. */
+  blockedLate: number;
   /**
    * One entry per room fought and cleared this floor: seconds from the first frame one of that room's woken
    * bodies came within REACH_RADIUS of the knight to the frame the room held nothing alive. It is the fight
@@ -223,6 +225,8 @@ type Body = {
   // Plan 021. A boss's rotation slot, phase and the seconds of phase change left (EnemyView), the move whose tell is running
   // (its tell, reach and bolt are what the knight reads) and the rings a `scatter` tell has marked, to become fire when it ends.
   move: number; phase: number; change: number; winding: Move | null; marks: { x: number; z: number }[];
+  /** The phase again, under the name `landBlow` reads (`Struck.bossPhase`): a boss's shield breaks in one. */
+  readonly bossPhase: number;
   // Where it spawned, for a dozing body's pace, and how far into noticing it is - see dungeon-enemy.ts.
   anchor: { x: number; z: number }; notice: number;
   // Countdown to a contagion kick a neighbour scheduled for this body; Infinity means none is pending.
@@ -317,7 +321,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const damage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
   let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0, specialCount = 0, blockedCount = 0, raisedCount = 0, reassembledCount = 0;
   // Plan 021: the boss's numbers (see FloorReport), and whatever last took vitality, which is what the knight died to if he died.
-  let phaseChanges = 0, ringsLit = 0, ringsOnKnight = 0, bossHpLeft: number | null = null, bossFrom: number | null = null, bossTo: number | null = null, lastBlow: Cause | null = null;
+  let phaseChanges = 0, blockedLate = 0, ringsLit = 0, ringsOnKnight = 0, bossHpLeft: number | null = null, bossFrom: number | null = null, bossTo: number | null = null, lastBlow: Cause | null = null;
   // Where the knight has been, oldest first, one sample a TRAIL_STEP: what a `scatter` marks its rings on.
   const trail: { x: number; z: number }[] = [];
   let trailTimer = 0;
@@ -350,7 +354,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       // at the start, the hole the arena's first version had (progress.md, 2026-09-26).
       aim: { x: 0, z: 0 }, room: spawn.room, awake: !spawn.ambush && !spawn.buried, dead: false,
       face: 0, buried: !!spawn.buried, summoner: spawn.summoner ?? -1, maxHp: stats.hp,
-      move: 0, phase: 0, change: 0, winding: null, marks: [],
+      move: 0, phase: 0, change: 0, winding: null, marks: [], get bossPhase() { return this.phase; },
       anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity,
     };
   });
@@ -746,7 +750,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         // with the arm's own numbers, as it always has here; a special with its own.
         const shover = isSpecial() ? swing : weapon;
         // The body's facing goes in, so a shield turns a frontal blow aside as it does in the game (dungeon-game.tsx:1847).
-        if (landBlow(floor.cells, body, body, { damage: swing.damage + run.strike, stagger: swing.stagger, knockback: shover.knockback, wardenKnockback: shover.wardenKnockback }, unit(body.x - player.x, body.z - player.z), facingOf(body)).blocked) blockedCount++;
+        if (landBlow(floor.cells, body, body, { damage: swing.damage + run.strike, stagger: swing.stagger, knockback: shover.knockback, wardenKnockback: shover.wardenKnockback }, unit(body.x - player.x, body.z - player.z), facingOf(body)).blocked) { blockedCount++; if (body.phase > 0) blockedLate++; }
         if (body.hp <= 0) {
           fell(body);
         }
@@ -861,7 +865,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           const blow = thrown ? thrown.blow : { ...weapon, damage: shot.damage };
           // The push is the bolt's own heading, not the line from the knight to the body: the two differ once he has moved, for a pierced second body and for the harpoon (dungeon-game.tsx:2004-2010).
           // A shield-turned bolt is done with the body: no drag, and the harpoon keeps its one drag (dungeon-game.tsx:2011).
-          if (landBlow(floor.cells, body, body, blow, { x: shot.dx, z: shot.dz }, facingOf(body)).blocked) { blockedCount++; continue; }
+          if (landBlow(floor.cells, body, body, blow, { x: shot.dx, z: shot.dz }, facingOf(body)).blocked) { blockedCount++; if (body.phase > 0) blockedLate++; continue; }
           if (drags && hurled?.hurl && harpoon) {
             harpoon.dragged = true;
             const pull = dragToward(body, player, hurled.hurl.drag);
@@ -975,7 +979,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, fights, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

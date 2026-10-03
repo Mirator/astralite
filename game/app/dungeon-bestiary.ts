@@ -16,7 +16,7 @@
 // that the running game is wired to it; then `npm run figures` to look at it, `?arena=<kind>:3` to fight it
 // (tests/README.md, The arena), and `npm run balance:check`.
 
-export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler', 'captain', 'mother', 'hound'] as const;
+export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler', 'captain', 'mother', 'hound', 'bastion'] as const;
 export type EnemyKind = typeof ENEMY_KINDS[number];
 
 /** Vitality, damage per blow, seconds of tell, and walking speed - the floor-one values. */
@@ -369,6 +369,36 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
       death: { duration: .95, prone: true, weaponX: .53 }, shieldArm: false,
     },
   },
+  // The Bastion (plan 021 D4): a shieldbearer grown huge, the pool's boss for the knight who has learned to hit what is open. Phase one holds a tower shield square to the front
+  // whenever it is not winding up or recovering (`shield`, the shieldbearer's rule, dungeon-hits.ts `blocks`), and goes swing, swing, sweep: the opening is its own blow, or a flank,
+  // or an arm that staggers. Below half the shield breaks (`until: 1`) and a charge, a pounce, joins the round: swing, swing, sweep, charge. Steadfast like every boss. The numbers are
+  // D7's hypothesis (70 vitality) and Stage F's to tune; the moves are the design.
+  bastion: {
+    stats: { hp: 70, damage: 20, tell: 0.7, speed: 1.7 },
+    strikeRange: 2.8, attackRange: 2.4, holdRange: 2.1, recovery: 1.5,
+    attack: 'swing', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    shield: { arc: 0.3, until: 1 },
+    boss: 'pool', title: 'The Bastion', phaseNotice: ['', 'The Bastion\'s shield breaks'],
+    phases: [.5],
+    moves: [
+      [
+        { attack: 'swing', tell: 0.7, damage: 20, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
+        { attack: 'swing', tell: 0.6, damage: 20, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
+        { attack: 'sweep', tell: 1.0, damage: 16, strikeRange: 3.2, attackRange: 2.4, cue: { shape: 'ring', radius: 3.2 }, cueScale: 1 },
+      ],
+      [
+        { attack: 'swing', tell: 0.6, damage: 20, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
+        { attack: 'swing', tell: 0.5, damage: 20, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
+        { attack: 'sweep', tell: 0.9, damage: 16, strikeRange: 3.2, attackRange: 2.4, cue: { shape: 'ring', radius: 3.2 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.8, damage: 22, strikeRange: 5, attackRange: 6, cue: { shape: 'lane', length: 5.2, width: 2.2 }, cueScale: 1 },
+      ],
+    ],
+    look: {
+      pose: 'cut', scale: [1.7, 1.7, 1.7], cue: { shape: 'arc' }, cueScale: 1.9, barLift: 3.65, alertLift: 4.2, barColor: 0xc8d4e0, gait: .24, blood: 1.8, heavy: true,
+      trail: { from: 'weapon', color: 0xdfe6ea, width: .16, inner: [0, 0, -.24], tip: [0, 0, -1.2] },
+      death: { duration: 1.2, prone: false, weaponX: .9 }, shieldArm: true,
+    },
+  },
 };
 
 /** One field of every archetype, keyed by kind - how the per-quantity tables in dungeon-enemy.ts are read. */
@@ -377,8 +407,8 @@ export const byKind = <T>(read: (archetype: Archetype) => T) =>
 
 /**
  * The bosses a floor can deal (plan 021 D13): the pool floors one and two draw from, in the order `dealBosses`
- * (dungeon-floor.ts) indexes it. Stage B held only the Captain; Stage C adds the Pyre Mother and Stage D the Tide Hound and the Bastion.
+ * (dungeon-floor.ts) indexes it. Stage B held only the Captain; Stage C added the Pyre Mother and Stage D the Tide Hound and the Bastion.
  */
-export const BOSS_POOL: readonly EnemyKind[] = ['captain', 'mother', 'hound'];
+export const BOSS_POOL: readonly EnemyKind[] = ['captain', 'mother', 'hound', 'bastion'];
 /** The last floor's boss. The Captain stands in for it until Stage E gives the Bone King his row. */
 export const FINAL_BOSS: EnemyKind = 'captain';

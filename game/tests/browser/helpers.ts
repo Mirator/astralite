@@ -245,12 +245,12 @@ export type Snapshot = {
   /**
    * Plan 021: the live boss body on this floor, or null. `phase` is its place in its `phases`, `move` its slot in the phase's rotation, `unhittable` and `change` the phase change in
    * progress, `attack` the move whose tell last began; `cue` is what its telegraph mesh is drawing, the shape read off the geometry on the mesh, and `bar` whether its own floating
-   * health bar shows (it must not: the boss bar replaces it); `surge` is the ring a phase change plays at its feet.
+   * health bar shows (it must not: the boss bar replaces it); `surge` is the ring a phase change plays at its feet; `shield` whether the shield mesh on its arm is showing (null for a boss that carries none).
    */
   boss: {
     kind: EnemyKind; hp: number; maxHp: number; phase: number; move: number; unhittable: boolean; change: number; awake: boolean; windup: number;
     attack: 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon' | 'scatter' | null;
-    cue: { visible: boolean; shape: 'arc' | 'ring' | 'lane'; scale: number }; bar: boolean; surge: boolean;
+    cue: { visible: boolean; shape: 'arc' | 'ring' | 'lane'; scale: number }; bar: boolean; surge: boolean; shield: boolean | null;
   } | null;
   /** Fire a pyre left where it fell, burning the knight. */
   hostilePools: { kind: EnemyKind; x: number; z: number; radius: number; life: number; damage: number; drawn: boolean }[];
