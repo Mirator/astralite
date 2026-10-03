@@ -530,7 +530,10 @@ test.describe('the biggest chamber the waves deal, at its last wave', () => {
       await game.step(16);
       await swing(page, stance.key);
       await game.step(220);
-      expect((await game.state()).enemies.filter((e) => e.room === room!.id && !e.buried && e.wave <= n && e.awake), `wave ${n} survived the blow`).toHaveLength(0);
+      const felled = await game.state();
+      expect(felled.enemies.filter((e) => e.room === room!.id && !e.buried && e.wave <= n && e.awake), `wave ${n} survived the blow`).toHaveLength(0);
+      // Floor three deals elites, which pay double experience (plan 022 D9): felling the wave can cross a rank, and the card the knight is then offered freezes the world, so the next wave is never called. He takes it, with the real key.
+      if (felled.boonOffer) { await game.takeBoon(); await game.step(50); }
       await until(game, `wave ${n + 1} standing`, (s) => bodies(s, room!.id, n + 1).every(({ e }) => e.awake), 4000);
     }
     // The last wave stands and is held quiet; the two before it lie where they fell.
