@@ -116,7 +116,7 @@ const BUDGET = {
   'captain-chamber': { calls: 273, triangles: 212_078 },
   // Plan 021 Stage E: the Bone King in the tightest goal chamber floor three can lay (seed 0x86, a 45-tile crypt) with his whole reserve standing (reserveSize: four rattlers), the knight framed 5.5 from him: the worst boss chamber, and the one the 508 above is held to.
   // Measured 2026-10-03 on SwiftShader, twice, identical: 428 calls, 268,012 triangles, 80 calls under the 508 (Stage 0: a reserve of six fits at 491, seven at 520). Each ceiling is the figure measured.
-  'king-chamber': { calls: 428, triangles: 268_012 },
+  'king-chamber': { calls: 427, triangles: 267_984 },
   // Plan 021 Stages C and D: the pool bosses in the tightest goal chamber floors one and two lay (seed 33 floor two, a 45-tile crypt), each the boss alone, held quiet, framed 5.5 from it. Measured 2026-10-03 on SwiftShader.
   // The Pyre Mother: 291 calls, 210,062 triangles (the floor-two crypt is cheaper than the floor-three one the Captain's number was taken in), 217 under the 508 above. Each ceiling is the figure measured.
   'mother-chamber': { calls: 291, triangles: 210_062 },
@@ -321,7 +321,17 @@ test.describe('the stair hall with the Bone King and his reserve', () => {
     await game.configureCombat({ health: state.maxHealth, enemies: [{ index: kingAt, x: home.x, z: home.z, cooldown: 999, windup: 0 }] });
     const spot = laneSpot(floor, home, 5.5);
     await game.teleport(spot.x, spot.z);
-    await game.step(400);
+    // The held rattlers still walk to the knight, and every mesh is culled by where it stands: the frame is drawn once they have all arrived and stopped (two reads a fifth of a second apart agree to a hundredth),
+    // so it is the same frame on every run and machine. CI read 16 triangles more than a first local run when this was a fixed 400 ms.
+    const places = async () => (await game.state()).enemies.filter((e) => e.kind === 'rattler' && !e.buried).map((e) => `${e.x.toFixed(2)},${e.z.toFixed(2)}`).join(' ');
+    let before = '';
+    for (let t = 0; t < 12_000; t += 200) {
+      await game.step(200);
+      const now = await places();
+      if (now === before) break;
+      before = now;
+    }
+    expect(await places(), 'the reserve was still moving when the frame was to be drawn').toBe(before);
     state = await game.state();
     expect(state.boss?.kind, 'the boss is not the King').toBe('king');
     expect(state.enemies.filter((e) => e.kind === 'rattler' && !e.buried), 'a rattler fell before the frame was drawn').toHaveLength(reserve.length);
