@@ -1,5 +1,6 @@
 import { ARROW_KEYS, expect, laneSpot, press, SCREEN_DIRECTIONS, settleBoss, strikeStance, test, TILE, canStand, hasClearPath, GameError, type Floor, type Game, type ScreenDirection } from './helpers.ts';
 import type { Page } from '@playwright/test';
+import { BESTIARY } from '../../app/dungeon-bestiary.ts';
 
 // Plan 021 Stage B: the Drowned Captain, in the running game. The rules are held in node - the row and its rotation in dungeon-captain.test.ts, the
 // phase change, the push and the unhittable second in dungeon-enemy.test.ts and dungeon-hits.test.ts, the deal in dungeon-floor.test.ts, the pay in
@@ -7,8 +8,8 @@ import type { Page } from '@playwright/test';
 // screen, that a real strike carries the boss through its phase and the change takes the knight out of its reach, that it bars the stair on a
 // generated floor, and that the bar fits a phone. Every page boots with `?boss=captain` (helpers.ts `DEFAULT_BOSS`), so none of this searches for a boss.
 
-const arena = async (game: Game, page: Page) => {
-  await page.evaluate(() => (window as unknown as { dungeonTest: { buildArena: (roster: string[], level: number) => void } }).dungeonTest.buildArena(['captain'], 1));
+const arena = async (game: Game, page: Page, kind = 'captain') => {
+  await page.evaluate((roster) => (window as unknown as { dungeonTest: { buildArena: (roster: string[], level: number) => void } }).dungeonTest.buildArena([roster], 1), kind);
   await game.enter();
 };
 
@@ -36,6 +37,20 @@ const nextTell = async (game: Game, limit = 6000) => {
     was = boss.windup;
   }
   throw new GameError(`the boss began no tell in ${limit} ms\n${await game.report()}`);
+};
+
+/**
+ * Steps the clock by hand until the boss is in a tell of this attack, and returns that frame's boss. `between` runs before each step: the scenarios that need the knight kept alive and
+ * in range while the boss works through its rotation put him there in it.
+ */
+const tellOf = async (game: Game, attack: string, between: () => Promise<void> = async () => {}, limit = 20000) => {
+  for (let waited = 0; waited < limit; waited += 50) {
+    await between();
+    await game.step(50);
+    const boss = await bossOf(game);
+    if (boss.windup > 0 && boss.attack === attack) return boss;
+  }
+  throw new GameError(`the boss never began a ${attack} tell in ${limit} ms\n${await game.report()}`);
 };
 
 /**
@@ -180,6 +195,144 @@ test('it bars the stair on a generated floor: sealed while the Captain stands, o
   const results = await page.locator('.floor-results strong').allInnerTexts();
   expect(Number(results[0]), 'the card did not count the boss as felled').toBeGreaterThanOrEqual(1);
   expect(Number(results[1]), 'the card did not tally the boss\'s XP').toBe(state.experience.total - opening.experience.total);
+});
+
+/**
+ * `count` places in the arena's chamber to stand at, 3.5 to 7.5 from `boss` on a clear line, no two within 2.4 of each other: the spots a scenario walks the knight between so his trail holds
+ * that many places for a scatter to mark (`SCATTER_SPACING` is 2). Throws if the chamber has too few, so a seed that cannot stage this says so.
+ */
+const standingSpots = (floor: Floor, boss: { x: number; z: number }, count: number) => {
+  const tiles = floor.tiles.filter((t) => t.room === floor.start).map((t) => ({ x: t.x * TILE, z: t.z * TILE }))
+    .filter((spot) => { const gap = Math.hypot(spot.x - boss.x, spot.z - boss.z); return gap >= 3.5 && gap <= 7.5 && canStand(floor.cells, spot.x, spot.z) && hasClearPath(floor.cells, spot, boss); })
+    .sort((a, b) => Math.hypot(a.x - boss.x, a.z - boss.z) - Math.hypot(b.x - boss.x, b.z - boss.z));
+  const picked: { x: number; z: number }[] = [];
+  for (const spot of tiles) if (picked.every((other) => Math.hypot(other.x - spot.x, other.z - spot.z) >= 2.4) && picked.length < count) picked.push(spot);
+  if (picked.length < count) throw new GameError(`the arena's chamber has ${picked.length} spots 3.5 to 7.5 from the boss that are 2.4 apart, not ${count}\npick another seed for this scenario`);
+  return picked;
+};
+
+/** Walks the knight between `spots`, a step at a time, a quarter second at each (so each lands in his trail), and keeps him alive: what the scenarios pass as `between`. */
+const pacing = (game: Game, spots: { x: number; z: number }[]) => {
+  let turn = 0;
+  return async () => {
+    if (turn % 6 === 0) { const spot = spots[(turn / 6) % spots.length]; await game.teleport(spot.x, spot.z); await game.configureCombat({ health: 100 }); }
+    turn++;
+  };
+};
+
+test('the Pyre Mother is wired: a lane drawn for her fan, the bar names her, the fan is every bolt drawn, and below half it is the five-bolt fan', async ({ game, page }) => {
+  await arena(game, page, 'mother');
+  const floor = await game.floor();
+  const opening = await game.state();
+  expect(opening.enemies.map((e) => e.kind)).toEqual(['mother']);
+  const spot = laneSpot(floor, { x: opening.enemies[0].x, z: opening.enemies[0].z }, 6);
+  await game.teleport(spot.x, spot.z);
+  const first = await nextTell(game);
+  expect([first.attack, first.cue.visible, first.cue.shape, first.bar], 'her first move was not a volley drawn as a lane, with no floating bar').toEqual(['volley', true, 'lane', false]);
+  const bar = page.locator('.boss-bar');
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveAttribute('aria-label', 'The Pyre Mother');
+  await expect(bar).toHaveAttribute('aria-valuemax', '50');
+  // The fan, as it flies: every bolt of it is an arrow on the screen, the aimed one and then the two either side.
+  const fanOf = (phase: number) => BESTIARY.mother.moves![phase][0].bolt!.fan!;
+  const bolts = async () => {
+    let state = await game.state();
+    for (let waited = 0; waited < 2000 && !state.hostileBolts.length; waited += 16) { await game.step(16); state = await game.state(); }
+    return state;
+  };
+  let state = await bolts();
+  expect(fanOf(0).count, 'precondition: phase one looses a fan of more than one').toBeGreaterThan(1);
+  expect(state.hostileBolts.map((b) => b.kind), 'the fan was not all in the air at once').toEqual(Array(fanOf(0).count).fill('mother'));
+  expect(state.arrowsDrawn, 'a bolt of the fan has no arrow drawn').toBe(fanOf(0).count);
+  // Below half: one blow short of the threshold is hp 25 and she changes phase on 24. Her densest volley is then the whole fan, and the twelve-arrow pool holds all of it.
+  await game.step(2500);
+  await game.configureCombat({ health: 100, enemies: [{ index: 0, hp: 24 }] });
+  const calm = await settleBoss(game);
+  expect(calm.phase, 'she did not change phase under half').toBe(1);
+  await expect(page.locator('.chamber-notice')).toContainText('The Pyre Mother kindles');
+  await game.configureCombat({ health: 100 });
+  await game.teleport(spot.x, spot.z);
+  expect((await tellOf(game, 'volley')).phase, 'the volley is not a phase two one').toBe(1);
+  state = await bolts();
+  expect(fanOf(1).count, 'precondition: phase two looses a wider fan than phase one').toBeGreaterThan(fanOf(0).count);
+  expect(state.hostileBolts.length, `her densest volley is ${fanOf(1).count} bolts and ${state.hostileBolts.length} were loosed`).toBe(fanOf(1).count);
+  expect(state.arrowsDrawn, 'a bolt of the five-bolt fan has no arrow drawn: the pool ran dry').toBe(fanOf(1).count);
+});
+
+test('a scatter marks rings where the knight has been, lights them where they were marked, and the fire bites a knight inside it and not outside', async ({ game, page }) => {
+  await arena(game, page, 'mother');
+  const floor = await game.floor();
+  const opening = await game.state();
+  const mother = { x: opening.enemies[0].x, z: opening.enemies[0].z };
+  const spots = standingSpots(floor, mother, 3);
+  const marking = await tellOf(game, 'scatter', pacing(game, spots));
+  expect(marking.cue.shape, 'the scatter was not drawn as the ring at her feet').toBe('ring');
+  let state = await game.state();
+  const marks = state.scatterMarks;
+  expect(marks.length, 'phase one marks two rings').toBe(BESTIARY.mother.moves![0][2].scatter!.rings);
+  expect(marks.every((m) => m.drawn && m.threat), 'a marked ring was not drawn in the tell\'s colour').toBe(true);
+  for (const mark of marks) expect(spots.some((s) => Math.hypot(s.x - mark.x, s.z - mark.z) < 0.05), `a ring was marked at ${mark.x.toFixed(2)}, ${mark.z.toFixed(2)}, where the knight had not stood`).toBe(true);
+  expect(Math.hypot(marks[0].x - marks[1].x, marks[0].z - marks[1].z), 'two rings were marked on one spot').toBeGreaterThanOrEqual(2);
+  for (const mark of marks) expect(Math.hypot(mark.x - state.enemies[0].x, mark.z - state.enemies[0].z), 'a ring was marked at the Mother\'s feet').toBeGreaterThan(2);
+  expect(state.hostilePools, 'fire was burning before the tell ran out').toHaveLength(0);
+  // The tell runs out: each marked ring is a pool of the move's own fire, where it was marked, on the ring that marked it.
+  for (let waited = 0; waited < 3000 && state.scatterMarks.length; waited += 16) { await game.step(16); state = await game.state(); }
+  expect(state.scatterMarks, 'the rings never lit').toHaveLength(0);
+  const fire = BESTIARY.mother.moves![0][2].scatter!.pool;
+  expect(state.hostilePools.length, 'a marked ring did not become a pool').toBe(marks.length);
+  for (const pool of state.hostilePools) {
+    expect([pool.kind, pool.radius, pool.drawn]).toEqual(['mother', fire.radius, true]);
+    expect(marks.some((m) => Math.hypot(m.x - pool.x, m.z - pool.z) < 0.05), `a pool burns at ${pool.x.toFixed(2)}, ${pool.z.toFixed(2)}, where no ring was marked`).toBe(true);
+  }
+  // A knight standing in a pool is bitten once in its interval, and one standing outside all of them is not.
+  const pools = state.hostilePools;
+  await game.configureCombat({ health: 100 });
+  await game.teleport(pools[0].x, pools[0].z);
+  await game.step(650);
+  const inside = await game.state();
+  expect(inside.hostilePools.length, 'precondition: the fire is still burning').toBe(pools.length);
+  expect(100 - inside.health, 'a knight standing in the fire was not bitten once').toBe(fire.damage);
+  const outside = floor.tiles.filter((t) => t.room === floor.start).map((t) => ({ x: t.x * TILE, z: t.z * TILE }))
+    .find((spot) => canStand(floor.cells, spot.x, spot.z) && pools.every((p) => Math.hypot(p.x - spot.x, p.z - spot.z) > fire.radius + 1));
+  if (!outside) throw new GameError('no spot of the chamber lies outside every pool\npick another seed for this scenario');
+  await game.configureCombat({ health: 100 });
+  await game.teleport(outside.x, outside.z);
+  await game.step(450);
+  const clear = await game.state();
+  expect(clear.hostilePools.length, 'precondition: the fire was still burning when the knight stood outside it').toBe(pools.length);
+  expect(clear.health, 'a knight outside the fire was burned').toBe(100);
+});
+
+test('with the knight\'s own fire on the ground she marks no more rings than are free, and every ring she marks is drawn', async ({ game, page }) => {
+  await arena(game, page, 'mother');
+  await game.equip('flask');
+  const floor = await game.floor();
+  const opening = await game.state();
+  const spots = standingSpots(floor, { x: opening.enemies[0].x, z: opening.enemies[0].z }, 3);
+  // Below half she scatters three rings, twice running: the second is marked while the first three still burn, and the knight's own flask then takes one of the six.
+  await game.configureCombat({ enemies: [{ index: 0, hp: 24 }] });
+  await settleBoss(game);
+  const pace = pacing(game, spots);
+  await tellOf(game, 'scatter', pace);
+  let state = await game.state();
+  for (let waited = 0; waited < 3000 && !state.hostilePools.length; waited += 16) { await game.step(16); state = await game.state(); }
+  const wanted = BESTIARY.mother.moves![1][2].scatter!.rings;
+  expect(state.hostilePools.length, 'precondition: the first scatter lit its three rings').toBe(wanted);
+  await game.configureCombat({ health: 100 });
+  await press(page, 'attack');
+  // He keeps walking between his spots throughout (the second scatter marks off the last two seconds of his trail, and a knight who stood still would give it one ring to mark).
+  for (let waited = 0; waited < 1500 && !(await game.state()).weapon.fires; waited += 50) { await pace(); await game.step(50); }
+  state = await game.state();
+  expect(state.weapon.fires, 'precondition: the flask broke into fire').toBeGreaterThan(0);
+  expect(state.hostilePools.length, 'precondition: her first rings are still burning when she marks the second').toBe(wanted);
+  const second = await tellOf(game, 'scatter', pace);
+  expect(second.windup, 'precondition: this is the second scatter\'s tell').toBeGreaterThan(0);
+  state = await game.state();
+  const free = Math.max(0, 6 - state.hostilePools.length - state.weapon.fires);
+  expect(free, 'precondition: fewer rings are free than the three she wants').toBeLessThan(wanted);
+  expect(state.scatterMarks.length, `she marked ${state.scatterMarks.length} rings with only ${free} free`).toBeLessThanOrEqual(free);
+  expect(state.scatterMarks.every((m) => m.drawn), 'a ring she marked is not drawn').toBe(true);
+  expect(state.hostileRings, 'the rings showing are not the pools burning and the rings marked').toBe(state.hostilePools.length + state.scatterMarks.length);
 });
 
 test.describe('on a phone', () => {

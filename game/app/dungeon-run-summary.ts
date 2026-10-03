@@ -16,6 +16,7 @@ export const CAUSE_LABELS: Record<RunCause, string> = {
   bonecaller: 'Felled by a bonecaller',
   rattler: 'Bitten by a rattler',
   captain: 'Sunk by the Drowned Captain',
+  mother: 'Burned by the Pyre Mother',
   hazard: 'Burned by the keep\u2019s embers',
 };
 

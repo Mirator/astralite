@@ -30,7 +30,7 @@ import { awayFrom, bossPush, burn as burnBody, landBlow } from './dungeon-hits';
 import { chargePose } from './dungeon-attack-pose';
 import { chainLength, chargeLevel, chargeReleases, devStartingArm, drawDamage, drawn, lungeStep, specialSwing, STARTING_WEAPON, TIDEBLADE, vaultHeight, vaultLanded, vaultStep, weaponById, type Special, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
-import { deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, laneLength, poolCatches, poolStep, reloadStep, type Mark, type Pool, type Shot } from './dungeon-projectile';
+import { ARROW_POOL, deathPool, fanHeadings, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, laneLength, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, type Mark, type Pool, type Shot } from './dungeon-projectile';
 import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
@@ -43,7 +43,7 @@ import { bank, buyArm, buyUpgrade, chooseArm, freshMeta, pearlsFor, runStart as 
 import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
-import { beginMove, dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, type Enemy, type EnemyKind } from './dungeon-enemy-view';
+import { beginMove, dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, THREAT, type Enemy, type EnemyKind } from './dungeon-enemy-view';
 import { createFloorStage, doorSign, doorSignOf, raiseFloor, type DoorSign, type FloorArt } from './dungeon-floor-scene';
 import { createMood } from './dungeon-mood';
 import { driveSliced as driveSlicedSteps, linkedPrograms, pollProgramsReady as pollPrograms, precompilePost } from './dungeon-warmup';
@@ -422,7 +422,7 @@ export default function DungeonGame() {
       if (fall.reassembles) { rebury(enemy, stage.enemies[enemy.summoner]); return; }
       enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind); dropMarks(enemy);
       award(resolveKill(run, enemy.kind)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
-      if (BESTIARY[enemy.kind].boss) { setBossBar(null); bossKey = ''; }
+      if (BESTIARY[enemy.kind].boss) { setBossBar(null); bossKey = ''; unmark(enemy); }
       // A pyre leaves its fire where it fell (dungeon-projectile's `deathPool`), which bites the knight.
       const fire = deathPool(enemy.kind, enemy.group.position), ring = fire ? hostilePoolMeshes.find(mesh => !mesh.visible) : undefined;
       if (fire && ring) { ring.visible = true; ring.position.set(fire.x, .07, fire.z); ring.scale.setScalar(fire.radius); hostilePools.push({ pool: fire, mesh: ring, kind: enemy.kind }); burst(enemy.group.position, 0xff8c38, 18); }
@@ -751,10 +751,15 @@ export default function DungeonGame() {
     // Bolts loosed at the knight, and the pool they come out of. Their own list, because they resolve
     // against him rather than against the bodies, and they never pierce.
     const hostile: { shot: Shot; mesh: THREE.Group; kind: EnemyKind }[] = [];
-    const arrowPool = Array.from({ length: 12 }, () => { const arrow = makeArrow(); world.add(arrow); return arrow; });
+    const arrowPool = Array.from({ length: ARROW_POOL }, () => { const arrow = makeArrow(); world.add(arrow); return arrow; });
     // Fire a pyre left where it fell, burning the knight rather than the bodies. Pooled like every other effect.
     const hostilePools: { pool: Pool; mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; kind: EnemyKind }[] = [];
     const hostilePoolMeshes = Array.from({ length: HOSTILE_POOL_RINGS }, () => { const mesh = makePoolMesh(); world.add(mesh); return mesh; });
+    // Plan 021 (D6): the rings a boss's `scatter` has marked and not yet lit, each holding one of the shared fire-ring meshes from the moment it is marked (so every ring marked is drawn, and the free rings are the
+    // most it can mark), and the knight's trail they are marked from. A tell that runs out lights them as pools (below); one that is cut short, or a boss that falls, lets them go.
+    const marked: { owner: Enemy; mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; at: { x: number; z: number }; radius: number }[] = [];
+    const trail: { x: number; z: number }[] = []; let trailTimer = 0;
+    const unmark = (owner?: Enemy) => { for (let i = marked.length - 1; i >= 0; i--) if (!owner || marked[i].owner === owner) { marked[i].mesh.visible = false; marked[i].mesh.material.color.setHex(0xff5a2a); marked.splice(i, 1); } };
     // Plan 016: the Tolling Slam's ring on the floor while the maul is wound; the slam itself is impacts.slam.
     // An outline at the reach over a faint wash rather than the flask's solid ring: it has to say "this far"
     // under the knight for a second at a time without the paving disappearing under it. Made once at mount.
@@ -809,7 +814,7 @@ export default function DungeonGame() {
       for (const live of hostile) live.mesh.visible = false;
       hostile.length = 0;
       for (const live of hostilePools) live.mesh.visible = false;
-      hostilePools.length = 0;
+      hostilePools.length = 0; unmark(); trail.length = 0; trailTimer = 0;
       for (const live of pools) live.mesh.visible = false;
       pools.length = 0;
     };
@@ -2071,6 +2076,7 @@ export default function DungeonGame() {
           tideReturns();
           if(run.hp===0)endRun(kind);
         };
+        trailTimer = sampleTrail(trail, trailTimer, player.position, dt);
         stage.enemies.forEach((enemy, index) => {
           if (!enemy.awake) { hideMarks(enemy); return; }
           // A neighbour's noticing beat can pull a still-dormant body in early; scripts/balance/sim.ts
@@ -2104,7 +2110,18 @@ export default function DungeonGame() {
           if (BESTIARY[enemy.kind].moves) {
             enemy.move = intent.move; enemy.bossPhase = intent.phase; enemy.change = intent.change;
             // A tell beginning takes the move's own cue, length and pose; a phase change (D3) cancels what was winding, rings at its feet, and pushes the knight out of its reach (`bossPush`, which walls stop).
-            if (previousWindup <= 0 && intent.windup > 0) { const began = moveOf(enemy.kind, intent.phase, intent.move); if (began) beginMove(enemy, began); }
+            if (previousWindup <= 0 && intent.windup > 0) {
+              const began = moveOf(enemy.kind, intent.phase, intent.move);
+              if (began) beginMove(enemy, began);
+              // A scatter's tell marks its rings where the knight has been, on the free ones (`scatterRings`), each on a ring mesh of its own, in the threat colour; they close as the tell does.
+              if (began?.scatter) for (const at of scatterRings([...trail, { x: player.position.x, z: player.position.z }], began.scatter.rings, { hostile: hostilePools.length + marked.length, own: pools.length })) {
+                const mesh = hostilePoolMeshes.find(ring => !ring.visible); if (!mesh) break;
+                mesh.visible = true; mesh.position.set(at.x, .07, at.z); mesh.material.color.setHex(THREAT); marked.push({ owner: enemy, mesh, at, radius: began.scatter.pool.radius });
+              }
+            }
+            // The tell ran out: each marked ring becomes the move's fire, on the mesh that marked it. Cut short (a phase change), they go.
+            if (intent.scatter && doing?.scatter) for (const mark of marked.filter(m => m.owner === enemy)) { mark.mesh.material.color.setHex(0xff5a2a); mark.mesh.scale.setScalar(mark.radius); hostilePools.push({ pool: scatterPool(mark.at, doing.scatter.pool, scaledDamage(doing.scatter.pool.damage, level)), mesh: mark.mesh, kind: enemy.kind }); marked.splice(marked.indexOf(mark), 1); burst(new THREE.Vector3(mark.at.x, .3, mark.at.z), 0xff8c38, 10); }
+            if (intent.windup <= 0 && !intent.scatter) unmark(enemy);
             if (intent.phaseChange) {
               enemy.attackAge = Infinity; enemy.trails.forEach(trail => trail.effect.clear());
               const push = bossPush({ kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z }, player.position); moveOnFloor(floor.cells, player.position, push.x, push.z);
@@ -2115,14 +2132,18 @@ export default function DungeonGame() {
           if (intent.sound) audio.play(intent.sound);
           if (intent.hit) hurtBy(enemy.kind, strike);
           // A volley becomes a bolt in the air; whether it finds the knight is decided as it flies, below.
-          const bolt = (doing ?? BESTIARY[enemy.kind]).bolt, arrow = intent.loose && bolt ? arrowPool.find(a => !a.visible) : undefined;
-          if (intent.loose && bolt && arrow) {
-            arrow.visible = true; arrow.position.set(enemy.group.position.x, .95, enemy.group.position.z); arrow.rotation.y = Math.atan2(-intent.loose.x, -intent.loose.z);
-            hostile.push({ mesh: arrow, kind: enemy.kind, shot: hostileBolt(enemy.group.position, intent.loose, bolt, strike) });
+          // A fan (the Pyre Mother's) looses several, the aimed one first; one the arrow pool has no arrow for is dropped, outermost first.
+          const bolt = (doing ?? BESTIARY[enemy.kind]).bolt;
+          if (intent.loose && bolt) for (const heading of fanHeadings(intent.loose, bolt.fan)) {
+            const arrow = arrowPool.find(a => !a.visible); if (!arrow) break;
+            arrow.visible = true; arrow.position.set(enemy.group.position.x, .95, enemy.group.position.z); arrow.rotation.y = Math.atan2(-heading.x, -heading.z);
+            hostile.push({ mesh: arrow, kind: enemy.kind, shot: hostileBolt(enemy.group.position, heading, bolt, strike) });
           }
           // What the decision looks like: pose, gait, the landed blow's flash and its trails (dungeon-enemy-view).
           poseEnemy(enemy, intent, dt, t, elapsed);
         });
+        // The rings a scatter has marked close on their centres over its tell and flicker, in the colour of every other tell, until they light.
+        for (const mark of marked) { const tell = mark.owner.tell > 0 ? 1 - mark.owner.windup / mark.owner.tell : 1; mark.mesh.scale.setScalar(mark.radius * (1.45 - .45 * Math.min(1, Math.max(0, tell)))); mark.mesh.material.opacity = .55 + Math.sin(t * 18) * .2; }
         // Plan 021 (D8): the boss bar - on while a boss has noticed the knight and still stands, off the moment it falls or he does (`fell`, `endRun`). React hears of it only when what it shows changes.
         const shown = stage.enemies.find(e => !e.dead && e.awake && !e.buried && BESTIARY[e.kind].boss && e.notice >= NOTICE_TIME);
         const barKey = shown ? `${shown.kind}:${Math.max(0, Math.ceil(shown.hp))}:${shown.bossPhase}` : '';
@@ -2457,7 +2478,7 @@ export default function DungeonGame() {
         return { kind: body.kind, hp: body.hp, maxHp: body.maxHp, phase: body.bossPhase, move: body.move, unhittable: body.change > 0, change: body.change, awake: body.awake, windup: body.windup, attack: body.doing?.attack ?? null, cue: { visible: body.cue.visible, shape: shape.type === 'PlaneGeometry' ? 'lane' : (shape.parameters.thetaLength ?? 0) > 6 ? 'ring' : 'arc', scale: body.cue.scale.x }, bar: body.bar.visible, surge: body.surge?.visible ?? false }; })(),
       // Plan 019: what the live run was dealt, read off the run itself once it was dealt (not off the meta table).
       run: { start: { ...began }, armLocked },
-      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: pc.weapon.special ?? null }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), hostilePools: hostilePools.map(h => ({ kind: h.kind, x: h.pool.x, z: h.pool.z, radius: h.pool.radius, life: h.pool.life, damage: h.pool.damage })), boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: stage.enemies.filter(e => !e.dead && !e.buried).length,
+      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: pc.weapon.special ?? null }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), hostilePools: hostilePools.map(h => ({ kind: h.kind, x: h.pool.x, z: h.pool.z, radius: h.pool.radius, life: h.pool.life, damage: h.pool.damage, drawn: h.mesh.visible })), scatterMarks: marked.map(m => ({ x: m.at.x, z: m.at.z, radius: m.radius, drawn: m.mesh.visible, threat: m.mesh.material.color.getHex() === THREAT })), arrowsDrawn: arrowPool.filter(arrow => arrow.visible).length, hostileRings: hostilePoolMeshes.filter(ring => ring.visible).length, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: stage.enemies.filter(e => !e.dead && !e.buried).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, onStair: stairOpen && onStair },
       chamber: { id: activeRoom, layer: floor.rooms[activeRoom]?.layer ?? -1, reward: floor.rooms[activeRoom]?.reward ?? null, sealed: !cleared.has(activeRoom), crossing: crossing ? (crossing.flipped ? 'in' : 'out') : null, doors: stage.doors.filter(view => view.door.from === activeRoom).map(view => ({ id: view.door.id, to: view.door.to, sign: doorSignOf(floor, view.door), x: view.spot.x, z: view.spot.z, radius: DOOR_RADIUS, open: !view.bars.visible, over: overDoor?.id === view.door.id })) },
       stair: { x: stage.stairSpot.x, z: stage.stairSpot.z, radius: STAIR_RADIUS },

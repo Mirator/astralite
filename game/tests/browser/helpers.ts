@@ -253,7 +253,14 @@ export type Snapshot = {
     cue: { visible: boolean; shape: 'arc' | 'ring' | 'lane'; scale: number }; bar: boolean; surge: boolean;
   } | null;
   /** Fire a pyre left where it fell, burning the knight. */
-  hostilePools: { kind: EnemyKind; x: number; z: number; radius: number; life: number; damage: number }[];
+  hostilePools: { kind: EnemyKind; x: number; z: number; radius: number; life: number; damage: number; drawn: boolean }[];
+  /**
+   * Plan 021 Stage C: the rings a boss's scatter has marked and not yet lit (`drawn` is whether the ring mesh is showing, `threat` whether it wears the tell's colour), the arrows the pool is
+   * showing, and how many of the six hostile fire rings are showing (lit pools and marks together). Read off the meshes.
+   */
+  scatterMarks: { x: number; z: number; radius: number; drawn: boolean; threat: boolean }[];
+  arrowsDrawn: number;
+  hostileRings: number;
   /** Bolts loosed at the knight, still in the air. */
   hostileBolts: { kind: EnemyKind; x: number; z: number; dx: number; dz: number; damage: number }[];
   boons: {

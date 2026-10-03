@@ -42,8 +42,8 @@ test('the Captain is a pool boss with D4\'s phases: swing, swing, sweep, and bel
   assert.ok(captain.phaseNotice![1].length > 0);
 });
 
-test('the Captain stands in the pool, in every table that has a row per kind, and on floor one has 60 vitality', () => {
-  assert.deepEqual([...BOSS_POOL], ['captain']);
+test('the Captain leads the pool, in every table that has a row per kind, and on floor one has 60 vitality', () => {
+  assert.equal(BOSS_POOL[0], 'captain', 'the Captain leads the pool, so a deal indexed into it stays where Stage B put it');
   assert.equal(FINAL_BOSS, 'captain', 'the final floor holds the Captain until the Bone King has a row');
   assert.ok(ENEMY_KINDS.includes('captain'));
   assert.equal(enemyStats('captain', 1).hp, 60);

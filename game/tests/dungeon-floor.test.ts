@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { altarHall, ARRIVAL_CLEAR, buryReserves, canStand, carves, dealBosses, drawKind, parseBoss, GATE_ARMS, GATE_SPACING, gateRacks, generateFloor, HALL_SEED, HEART_CLEAR, cellKey, moveOnFloor, oneCaller, PACK_MIX, TILE, type Spawn } from '../app/dungeon-floor.ts';
 import { arenaFloor } from '../app/dungeon-arena.ts';
-import { BESTIARY, type EnemyKind } from '../app/dungeon-bestiary.ts';
+import { BESTIARY, BOSS_POOL, type EnemyKind } from '../app/dungeon-bestiary.ts';
 import { HOSTILE_POOL_RINGS } from '../app/dungeon-projectile.ts';
 import { PICKUP_RADIUS } from '../app/dungeon-sim.ts';
 import { FOUND_WEAPONS, STARTING_WEAPON } from '../app/dungeon-weapon.ts';
@@ -387,7 +387,7 @@ test('dealBosses is a pure hash of the run seed, the same on every call, and the
   const again = Array.from({ length: 30 }, (_, n) => deals(seed + (29 - n) * 977)).reverse();
   assert.deepEqual(again, first, 'the deal changed with what was called before it');
   assert.ok(new Set(first.map(deal => JSON.parse(deal)[0].join())).size >= 3, 'precondition: the wide pool is dealt varied pairs, so equal deals mean something');
-  assert.deepEqual(dealBosses(seed), ['captain', 'captain'], 'the pool holds only the Captain until plan 021 Stage C');
+  assert.equal(dealBosses(seed)[0] === dealBosses(seed)[1], false, 'the live pool dealt one boss to both floors');
   // The boss a floor is given reaches only the stair hall: every prop, door, drop and other body is the same whichever boss it is.
   for (const level of [1, 3]) for (const runSeed of sweepSeeds(level).slice(0, 10)) {
     const a = generateFloor(runSeed, level, { boss: 'captain' }), b = generateFloor(runSeed, level, { boss: 'archer' });
@@ -408,8 +408,27 @@ test('a run never meets the same pool boss on floors one and two, and a wider po
   assert.equal(seconds.size, pool.length, 'precondition: floor two dealt every kind in the pool');
 });
 
+// Plan 021 Stage C: the live pool, not a stand-in. Floor one's boss and floor two's are never the same, every pool boss turns up on each floor, and (Stage D, four of them) each is dealt about
+// as often as the others: a share between 60% and 140% of an even one, which is 15% to 35% of the floors for a pool of four.
+test('over a thousand run seeds the deal never repeats a boss on floors one and two, and deals every pool boss on each floor about as often as the others', () => {
+  const floors: Record<EnemyKind, number>[] = [0, 1].map(() => Object.fromEntries(BOSS_POOL.map(kind => [kind, 0])) as Record<EnemyKind, number>);
+  for (let n = 1; n <= 1000; n++) {
+    const [a, b] = dealBosses(n * 7919 + 13);
+    assert.notEqual(a, b, `run seed ${n * 7919 + 13} dealt ${a} to both floors`);
+    assert.ok(BOSS_POOL.includes(a) && BOSS_POOL.includes(b), `run seed ${n} dealt a boss outside the pool: ${a}, ${b}`);
+    floors[0][a]++; floors[1][b]++;
+  }
+  const even = 1000 / BOSS_POOL.length;
+  floors.forEach((counts, floor) => {
+    for (const kind of BOSS_POOL) {
+      assert.ok(counts[kind] > 0, `precondition: floor ${floor + 1} was never dealt ${kind}, so a share of it means nothing`);
+      assert.ok(counts[kind] >= even * 0.6 && counts[kind] <= even * 1.4, `${kind} was dealt to ${(counts[kind] / 10).toFixed(1)}% of floor ${floor + 1}s, not within 60% to 140% of an even ${(100 / BOSS_POOL.length).toFixed(1)}%`);
+    }
+  });
+});
+
 test('the dev boss link names a pool boss and nothing else', () => {
-  assert.equal(parseBoss('captain'), 'captain');
+  for (const kind of BOSS_POOL) assert.equal(parseBoss(kind), kind, `${kind} is in the pool and the link refuses it`);
   for (const text of [null, '', 'warden', 'guard', 'Captain', 'captain,captain', 'ghost']) assert.equal(parseBoss(text), null, `${text} was taken for a boss`);
 });
 

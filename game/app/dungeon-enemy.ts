@@ -118,6 +118,17 @@ export const bossReach = (kind: EnemyKind) => {
   return reaches.length ? Math.max(...reaches) : BESTIARY[kind].strikeRange;
 };
 
+/**
+ * The most enemy arrows a boss can have in the air at once (plan 021): its widest fan, times how many volleys can overlap in flight. Two volleys are released at least one tell plus the boss's recovery
+ * apart, and a bolt lives `flight` seconds, so that is how many are in the air together. It has to fit `ARROW_POOL` (dungeon-projectile.ts): a thirteenth arrow is silently never drawn. Zero for a body with no volley.
+ */
+export const volleyDemand = (kind: EnemyKind) => {
+  const volleys = (BESTIARY[kind].moves ?? []).flat().filter(move => move.attack === 'volley' && move.bolt);
+  if (!volleys.length) return 0;
+  const gap = Math.min(...volleys.map(move => move.tell)) + RECOVERY[kind];
+  return Math.max(...volleys.map(move => (move.bolt!.fan?.count ?? 1) * Math.ceil(move.bolt!.flight / gap)));
+};
+
 // Everything a decision reads off an enemy. The renderer's Enemy also carries a THREE.Group, a health
 // bar, a telegraph mesh and a gait phase; none of that decides anything.
 // `anchor` is fixed at spawn and never returned by an intent - it is the post a dozing body paces

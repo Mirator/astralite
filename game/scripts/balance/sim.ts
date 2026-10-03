@@ -19,7 +19,7 @@ import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-po
 import { TILE, bossOnFloor, cellKey, dealBosses, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { arenaFloor, type Floor } from '../../app/dungeon-arena.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
-import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, scatterRings, TRAIL_LENGTH, TRAIL_STEP, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
+import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, fanHeadings, ARROW_POOL, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
 import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
@@ -78,6 +78,10 @@ export type Policy = {
    * On unless it is `false`; a test switches it off to price the fire.
    */
   avoidFire?: boolean;
+  /**
+   * Plan 021: step out of a ring a boss's scatter has marked, before it lights. On unless it is `false`; a test switches it off to count the rings that light on him.
+   */
+  avoidMarks?: boolean;
   /**
    * Plan 018: go for a standing bonecaller before anything nearer. On unless it is `false`; a test switches it off to
    * watch the rattlers stand up and be cut down again, which a knight that goes straight for the caller cuts short.
@@ -173,6 +177,9 @@ export type FloorReport = {
   bossSeconds: number;
   bossHpLeft: number | null;
   phaseChanges: number;
+  /** Plan 021 Stage C: the rings a boss's scatter lit this floor, and how many of them lit with the knight standing inside - what stepping out of a marked ring (`avoidMarks`) saves. */
+  ringsLit: number;
+  ringsOnKnight: number;
   /**
    * One entry per room fought and cleared this floor: seconds from the first frame one of that room's woken
    * bodies came within REACH_RADIUS of the knight to the frame the room held nothing alive. It is the fight
@@ -310,7 +317,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const damage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
   let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0, specialCount = 0, blockedCount = 0, raisedCount = 0, reassembledCount = 0;
   // Plan 021: the boss's numbers (see FloorReport), and whatever last took vitality, which is what the knight died to if he died.
-  let phaseChanges = 0, bossHpLeft: number | null = null, bossFrom: number | null = null, bossTo: number | null = null, lastBlow: Cause | null = null;
+  let phaseChanges = 0, ringsLit = 0, ringsOnKnight = 0, bossHpLeft: number | null = null, bossFrom: number | null = null, bossTo: number | null = null, lastBlow: Cause | null = null;
   // Where the knight has been, oldest first, one sample a TRAIL_STEP: what a `scatter` marks its rings on.
   const trail: { x: number; z: number }[] = [];
   let trailTimer = 0;
@@ -463,8 +470,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   while (t < FLOOR_TIMEOUT) {
     t += DT;
     tickRun(run, DT);
-    trailTimer += DT;
-    if (trailTimer >= TRAIL_STEP) { trailTimer -= TRAIL_STEP; trail.push({ x: player.x, z: player.z }); if (trail.length > TRAIL_LENGTH) trail.shift(); }
+    trailTimer = sampleTrail(trail, trailTimer, player, DT);
     dashTime = Math.max(0, dashTime - DT);
     dashCooldown = Math.max(0, dashCooldown - DT);
 
@@ -659,6 +665,13 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       const burning = fires.find(f => poolCatches(f.pool, player.x, player.z));
       if (burning) move = unit(player.x - burning.pool.x, player.z - burning.pool.z);
     }
+    // Plan 021 (Stage C): the rings a boss's scatter has marked are stepped out of before they light, straight away from the nearest one's heart; once a ring is lit it is `avoidFire`'s. Dashing is
+    // not for it (a scatter hurts no one in its tell), and the dodge and the strike are unchanged: this only replaces where he walks, and only while he stands in a marked ring.
+    if (policy.avoidMarks !== false && dashTime <= 0) {
+      const inside = live.flatMap(b => b.marks.map(at => ({ at, radius: b.winding?.scatter?.pool.radius ?? 0, from: b }))).find(({ at, radius }) => Math.hypot(player.x - at.x, player.z - at.z) < radius);
+      // The newest ring is marked on the very spot he stands on, which has no "away" to it: he steps away from the boss that marked it instead.
+      if (inside) move = Math.hypot(player.x - inside.at.x, player.z - inside.at.z) < 0.05 ? unit(player.x - inside.from.x, player.z - inside.from.z) : unit(player.x - inside.at.x, player.z - inside.at.z);
+    }
     if (move) { facing.x = move.x; facing.z = move.z; }
     const speed = charging !== null && dashTime <= 0 ? weapon.moveSpeed * (special?.moveScale ?? 1) : playerSpeed({ dashing: dashTime > 0, attacking: attackTime > 0, weapon: swing });
     // The lunge carries him down its line for its travel window, as dungeon-game.tsx does.
@@ -774,7 +787,10 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         // nothing hurts it (`Struck.change`, read by `landBlow`).
         if (intent.phaseChange) { phaseChanges++; const push = bossPush(body, player); moveOnFloor(floor.cells, player, push.x, push.z); }
         if (intent.scatter && doing?.scatter) {
-          for (const at of body.marks) if (fires.length < HOSTILE_POOL_RINGS) fires.push({ kind: body.kind, pool: { x: at.x, z: at.z, radius: doing.scatter.pool.radius, life: doing.scatter.pool.life, damage: scaledDamage(doing.scatter.pool.damage, level), interval: doing.scatter.pool.interval, timer: 0 } });
+          for (const at of body.marks) if (fires.length < HOSTILE_POOL_RINGS) {
+            const pool = scatterPool(at, doing.scatter.pool, scaledDamage(doing.scatter.pool.damage, level));
+            fires.push({ kind: body.kind, pool }); ringsLit++; if (poolCatches(pool, player.x, player.z)) ringsOnKnight++;
+          }
           body.marks = []; body.winding = null;
         }
       }
@@ -795,7 +811,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       }
       // dungeon-game.tsx looses the same bolt on the same frame.
       const bolt = (doing ?? BESTIARY[body.kind]).bolt;
-      if (intent.loose && bolt) hostile.push({ kind: body.kind, shot: hostileBolt(body, intent.loose, bolt, strike) });
+      // A fan looses several, the aimed one first, into the same twelve arrows the game has (a thirteenth is dropped).
+      if (intent.loose && bolt) for (const heading of fanHeadings(intent.loose, bolt.fan)) if (hostile.length < ARROW_POOL) hostile.push({ kind: body.kind, shot: hostileBolt(body, heading, bolt, strike) });
     }
 
     // Bolts at the knight fly after the bodies have moved, as the game flies them.
@@ -958,7 +975,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, fights, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, fights, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

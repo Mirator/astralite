@@ -16,7 +16,7 @@
 // that the running game is wired to it; then `npm run figures` to look at it, `?arena=<kind>:3` to fight it
 // (tests/README.md, The arena), and `npm run balance:check`.
 
-export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler', 'captain'] as const;
+export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler', 'captain', 'mother'] as const;
 export type EnemyKind = typeof ENEMY_KINDS[number];
 
 /** Vitality, damage per blow, seconds of tell, and walking speed - the floor-one values. */
@@ -43,6 +43,12 @@ export type PoseStyle = 'cut' | 'overhead' | 'pounce' | 'draw' | 'spin' | 'chann
 export type Cue = { shape: 'arc' } | { shape: 'lane'; length: number; width: number } | { shape: 'ring'; radius: number };
 
 /**
+ * What a `volley` looses: units a second and seconds of flight, and for a boss's move optionally a `fan` - `count` bolts, `spread` radians apart, centred on the aim
+ * (`fanHeadings`, dungeon-projectile.ts). One bolt when absent.
+ */
+export type Bolt = { speed: number; flight: number; fan?: { count: number; spread: number } };
+
+/**
  * One thing a boss can do (plan 021). It carries what a single-attack kind keeps in its row and in `stats`: the
  * attack, the seconds of tell, the damage of a floor-one blow (`strikeDamage` in dungeon-enemy.ts scales it with
  * depth as `enemyStats` scales `stats.damage`), the reach it commits from and the reach it lands within, and the
@@ -57,7 +63,12 @@ export type Move = {
   attackRange: number;
   cue: Cue;
   cueScale: number;
-  bolt?: { speed: number; flight: number };
+  bolt?: Bolt;
+  /**
+   * Begins the instant the move before it is spent, with no recovery between and the tell it names here (a short one: a re-aim, not a fresh wind-up), from wherever the
+   * knight stands then. The Tide Hound's second pounce. The move before has to be a pounce, so there is a leap to chain from.
+   */
+  chain?: true;
   scatter?: { rings: number; pool: { radius: number; life: number; damage: number; interval: number } };
   summon?: { perTell: number };
 };
@@ -85,13 +96,14 @@ export type Archetype = {
   /** It backs away from the knight while inside this and recovering; 0 for a body that never gives ground. */
   keepAway: number;
   /** What a `volley` looses: units a second and seconds of flight. Absent for every other attack. */
-  bolt?: { speed: number; flight: number };
+  bolt?: Bolt;
   /**
    * A shield carried square to the front: a blow whose heading meets the body's facing at worse than this
    * cosine is turned aside (dungeon-hits.ts `blocks`), unless the arm staggers. It is down while the body
-   * winds up or recovers from its own swing, which is the opening.
+   * winds up or recovers from its own swing, which is the opening. A boss's carries `until`: the phase it breaks in (the shield holds
+   * while the boss's phase is below it), which is the Bastion's whole change.
    */
-  shield?: { arc: number };
+  shield?: { arc: number; until?: number };
   /** Fire it leaves where it falls, which bites the knight (dungeon-projectile.ts `deathPool`). */
   deathPool?: { radius: number; life: number; damage: number; interval: number };
   /**
@@ -299,6 +311,36 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
       death: { duration: 1.2, prone: false, weaponX: .9 }, shieldArm: false,
     },
   },
+  // The Pyre Mother (plan 021 D4): the pool's ranged boss, a pyre grown into the thing that lights them. She holds off at range (a pyre's rows of fire are hers to lay) and
+  // asks the knight to keep moving: phase one is a fan of three bolts, a fan again, and a scatter that marks two rings where he has been and lights them when the tell
+  // runs out. Below half she looses five bolts to the fan, adds a close sweep for a knight who has rushed her (she gives ground while she recovers, so it is a punish and
+  // not a place to stand), and scatters twice running, three rings a time. A fan has no gap to walk through: the answer is the dash, or being elsewhere. Steadfast like every
+  // boss: only a stagger arm breaks her tell. The numbers are D7's hypothesis (50 vitality) and Stage F's to tune; the moves are the design.
+  mother: {
+    stats: { hp: 50, damage: 12, tell: 0.8, speed: 2.1 },
+    strikeRange: 2.6, attackRange: 8, holdRange: 6, recovery: 1.4,
+    attack: 'volley', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 4,
+    boss: 'pool', title: 'The Pyre Mother', phaseNotice: ['', 'The Pyre Mother kindles'],
+    phases: [.5],
+    moves: [
+      [
+        { attack: 'volley', tell: 0.8, damage: 12, strikeRange: 9, attackRange: 8, cue: { shape: 'lane', length: 8, width: 4.6 }, cueScale: 1, bolt: { speed: 12, flight: 0.75, fan: { count: 3, spread: 0.2 } } },
+        { attack: 'volley', tell: 0.8, damage: 12, strikeRange: 9, attackRange: 8, cue: { shape: 'lane', length: 8, width: 4.6 }, cueScale: 1, bolt: { speed: 12, flight: 0.75, fan: { count: 3, spread: 0.2 } } },
+        { attack: 'scatter', tell: 0.9, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.4 }, cueScale: 1, scatter: { rings: 2, pool: { radius: 1.6, life: 2.2, damage: 8, interval: 0.6 } } },
+      ],
+      [
+        { attack: 'volley', tell: 0.7, damage: 10, strikeRange: 9, attackRange: 8, cue: { shape: 'lane', length: 8, width: 6 }, cueScale: 1, bolt: { speed: 12, flight: 0.75, fan: { count: 5, spread: 0.15 } } },
+        { attack: 'sweep', tell: 0.9, damage: 16, strikeRange: 2.6, attackRange: 2.3, cue: { shape: 'ring', radius: 2.6 }, cueScale: 1 },
+        { attack: 'scatter', tell: 0.9, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.4 }, cueScale: 1, scatter: { rings: 3, pool: { radius: 1.6, life: 2.2, damage: 8, interval: 0.6 } } },
+        { attack: 'scatter', tell: 0.9, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.4 }, cueScale: 1, scatter: { rings: 3, pool: { radius: 1.6, life: 2.2, damage: 8, interval: 0.6 } } },
+      ],
+    ],
+    look: {
+      pose: 'draw', scale: [1.5, 1.5, 1.5], cue: { shape: 'lane', length: 8, width: 4.6 }, cueScale: 1, barLift: 3.45, alertLift: 3.95, barColor: 0xff9a4a, gait: .3, blood: 1.6, heavy: true,
+      trail: { from: 'weapon', color: 0xff9a4a, width: .14, inner: [0, 0, -.4], tip: [0, 0, -1.4] },
+      death: { duration: 1.1, prone: false, weaponX: .7 }, shieldArm: false,
+    },
+  },
 };
 
 /** One field of every archetype, keyed by kind - how the per-quantity tables in dungeon-enemy.ts are read. */
@@ -307,8 +349,8 @@ export const byKind = <T>(read: (archetype: Archetype) => T) =>
 
 /**
  * The bosses a floor can deal (plan 021 D13): the pool floors one and two draw from, in the order `dealBosses`
- * (dungeon-floor.ts) indexes it. Plan 021 Stage B holds only the Captain; Stages C and D add the other three.
+ * (dungeon-floor.ts) indexes it. Stage B held only the Captain; Stage C adds the Pyre Mother and Stage D the Tide Hound and the Bastion.
  */
-export const BOSS_POOL: readonly EnemyKind[] = ['captain'];
+export const BOSS_POOL: readonly EnemyKind[] = ['captain', 'mother'];
 /** The last floor's boss. The Captain stands in for it until Stage E gives the Bone King his row. */
 export const FINAL_BOSS: EnemyKind = 'captain';

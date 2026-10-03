@@ -101,7 +101,10 @@ function skeletonSpec(kind: SkeletonKind): Node {
   // Plan 021: the Drowned Captain is the warden's plate grown huge (its scale is the bestiary's), under a wide-brimmed hat and a long drowned coat,
   // carrying an anchor in place of the hammer. `plated` is everything the two share: the plate, the wide shoulders, the greaves.
   const captain = kind === 'captain', plated = warden || captain;
-  const hooded = archer || reaper || bonecaller, bareheaded = stalker || rattler;
+  // The Pyre Mother (plan 021) is a pyre's cage and a bonecaller's hood and robe grown into one tall figure: a crown of flame about the hood, a skirt that widens to the floor, a great cage
+  // of coals on her back and a staff that ends in a brazier.
+  const mother = kind === 'mother';
+  const hooded = archer || reaper || bonecaller || mother, bareheaded = stalker || rattler;
   const rigParts: (Part | Node)[] = [];
   const weaponParts: (Part | Node)[] = [];
   const skullParts: (Part | Node)[] = [];
@@ -139,7 +142,9 @@ function skeletonSpec(kind: SkeletonKind): Node {
     // A deep hood rather than a helm: the one bareheaded-looking silhouette in the keep, peaked so its
     // outline says "not a guard" before the bow has resolved. The cowl drapes behind the skull. The reaper
     // wears it taller and further forward, the bonecaller with antlers through it.
-    rigParts.push({ name: 'hood', shape: { cone: [.31, reaper ? .62 : .44, 8] }, material: 'cloth', at: [0, reaper ? 1.7 : 1.63, reaper ? .02 : .06], rot: [reaper ? -.45 : -.3, 0, 0] });
+    rigParts.push({ name: 'hood', shape: { cone: [.31, reaper ? .62 : mother ? .58 : .44, 8] }, material: 'cloth', at: [0, reaper ? 1.7 : mother ? 1.68 : 1.63, reaper ? .02 : .06], rot: [reaper ? -.45 : -.3, 0, 0] });
+    // Six tongues of flame standing round the hood's crown, each leaning its own way and of its own height: lit like the eyes, so from across a hall she is the one head in the keep that burns.
+    if (mother) for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3 + .3, tall = [.34, .22, .4, .26, .36, .2][i]; trim(rigParts, `flame-${i}`, 'spike', 'ember', [Math.cos(a) * .27, 1.9 + tall * .3, Math.sin(a) * .27 + .02], [.07, tall, .07], [Math.sin(a) * .35, 0, -Math.cos(a) * .35]); }
     rigParts.push({ name: 'cowl', shape: { geometry: BONES.armor }, material: 'cloth', at: [0, 1.4, .12], scale: [.98, .9, .72] });
     if (bonecaller) for (const s of [-1, 1] as const) for (let i = 0; i < 2; i++) trim(rigParts, `antler-${s < 0 ? 'l' : 'r'}-${i}`, 'spike', 'crest', [s * (.2 + i * .12), 1.8 + i * .1, .02], [.05, .34 - i * .1, .05], [0, 0, s * -(.55 + i * .5)]);
   } else if (!bareheaded) {
@@ -246,6 +251,12 @@ function skeletonSpec(kind: SkeletonKind): Node {
     // room the one weapon in the keep that curls.
     weaponParts.push({ name: 'haft', shape: { geometry: BONES.haft }, material: 'iron', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.62], scale: [.8, 1.45, .8] });
     weaponParts.push({ name: 'scythe', shape: { torus: [.42, .04, 4, 12, 2.3] }, material: 'steel', at: [.36, 0, -1.5], rot: [Math.PI / 2, 0, Math.PI * .55], scale: [1, 1, 1.4] });
+  } else if (mother) {
+    // A long staff ending in a brazier: an iron bowl on the haft, a coal heaped in it and three flames standing out of the coal.
+    weaponParts.push({ name: 'staff', shape: { geometry: BONES.haft }, material: 'crest', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.62], scale: [.7, 1.45, .7] });
+    weaponParts.push({ name: 'bowl', shape: { cylinder: [.2, .1, .16, 8] }, material: 'iron', at: [0, 0, -1.4] });
+    weaponParts.push({ name: 'brazier-coal', shape: { dodeca: [.17, 0] }, material: 'ember', at: [0, .1, -1.4] });
+    for (let i = 0; i < 3; i++) weaponParts.push({ name: `brazier-flame-${i}`, shape: { cone: [.06, .3 + (i % 2) * .1, 4] }, material: 'ember', at: [(i - 1) * .08, .3, -1.4], rot: [0, 0, (i - 1) * -.25] });
   } else if (pyre) {
     // A short haft carrying a live coal, which is also the colour its death leaves on the floor.
     weaponParts.push({ name: 'haft', shape: { geometry: BONES.haft }, material: 'iron', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.3], scale: [.8, .55, .8] });
@@ -317,6 +328,18 @@ function skeletonSpec(kind: SkeletonKind): Node {
     rigParts.push({ name: 'cage-coal', shape: { dodeca: [.17, 0] }, material: 'ember', at: [0, 1.28, .3] });
     for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + Math.PI / 4; trim(rigParts, `cage-bar-${i}`, 'box', 'iron', [Math.cos(a) * .17, 1.28, .3 + Math.sin(a) * .17], [.035, .42, .035]); }
     trim(rigParts, 'cage-cap', 'box', 'iron', [0, 1.5, .3], [.36, .04, .36]);
+  } else if (mother) {
+    // A robe that widens to the floor in three panels a side, so her outline is a bell; and on her back the pyre's cage made twice the size, a coal the size of a skull in it and
+    // flames standing out of its cap.
+    trim(rigParts, 'robe-front', 'cloth', 'cloth', [0, .45, -.19], [.66, .95, 1]);
+    trim(rigParts, 'robe-back', 'cloth', 'cloth', [0, .5, .16], [.68, 1.0, 1], [0, Math.PI, 0]);
+    for (const s of [-1, 1] as const) for (let i = 0; i < 3; i++) trim(rigParts, `skirt-${s < 0 ? 'l' : 'r'}-${i}`, 'cloth', 'cloth', [s * (.26 + i * .09), .3 - i * .04, .02 + i * .04], [.34, .62 - i * .05, 1], [-.1, s * (.7 + i * .35), s * -(.2 + i * .12)]);
+    rigParts.push({ name: 'cage-coal', shape: { dodeca: [.25, 0] }, material: 'ember', at: [0, 1.3, .36] });
+    for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; trim(rigParts, `cage-bar-${i}`, 'box', 'iron', [Math.cos(a) * .27, 1.3, .36 + Math.sin(a) * .27], [.04, .62, .04]); }
+    trim(rigParts, 'cage-cap', 'box', 'iron', [0, 1.64, .36], [.5, .05, .5]);
+    trim(rigParts, 'cage-base', 'box', 'iron', [0, .96, .36], [.5, .05, .5]);
+    for (let i = 0; i < 3; i++) trim(rigParts, `cage-flame-${i}`, 'spike', 'ember', [(i - 1) * .14, 1.82 + (i % 2) * .06, .36], [.08, .3 + (i % 2) * .12, .08], [0, 0, (i - 1) * -.2]);
+    trim(rigParts, 'sash', 'box', 'brass', [0, 1.0, -.23], [.62, .06, .04], [0, 0, .5]);
   } else if (bonecaller) {
     // A robe to the floor, front and back.
     trim(rigParts, 'robe-front', 'cloth', 'cloth', [0, .45, -.17], [.56, .9, 1]);
@@ -371,6 +394,9 @@ const PALETTE: Record<SkeletonKind, { bone: number; iron: number; ironRoughness:
   reaper: { bone: 0xc2bba8, iron: 0x2a2d31, ironRoughness: 0.6, brass: 0x4a3f2e, eye: 0xff7ad9, cloth: 0x17191d, pool: .7 },
   pyre: { bone: 0x8f8676, iron: 0x35302b, ironRoughness: 0.6, brass: 0x7a5530, eye: 0xffc36a, cloth: 0x4a2b1e, pool: .58 },
   bonecaller: { bone: 0xb8b39e, iron: 0x3a3f46, ironRoughness: 0.5, brass: 0x6b5a3a, eye: 0xb9a4ff, cloth: 0x3b2d4a, pool: .6 },
+  // The Pyre Mother (plan 021): a smoked, warm bone under a robe the red-brown of a coal's edge, and eyes white-hot where the pyre's are amber - the one boss whose palette is warm, so she names
+  // her fire from across the hall before her cage has resolved. A wide pool for her skirt.
+  mother: { bone: 0xa8957f, iron: 0x3a2a24, ironRoughness: 0.6, brass: 0xa8622a, eye: 0xffe6b0, cloth: 0x7a2a18, pool: .95 },
   rattler: { bone: 0xb0aa98, iron: 0x3f4a53, ironRoughness: 0.5, brass: 0x6f6244, eye: 0xfff0a0, cloth: 0x3d3a33, pool: .42 },
 };
 

@@ -111,6 +111,9 @@ const BUDGET = {
   // Plan 021 Stage B: the stair hall of the tightest goal chamber (seed 0x86 floor three, a 45-tile crypt) with the Captain standing in it, framed 5.5 from the boss. Measured 2026-10-03 on SwiftShader:
   // 320 calls, 246,034 triangles (Stage 0's stand-in, a warden scaled to 1.8, read 317 / 245,574 in the same room). 188 calls under the 508 above. Each ceiling is the figure measured.
   'captain-chamber': { calls: 320, triangles: 246_034 },
+  // Plan 021 Stages C and D: the pool bosses in the tightest goal chamber floors one and two lay (seed 33 floor two, a 45-tile crypt), each the boss alone, held quiet, framed 5.5 from it. Measured 2026-10-03 on SwiftShader.
+  // The Pyre Mother: 291 calls, 210,062 triangles (the floor-two crypt is cheaper than the floor-three one the Captain's number was taken in), 217 under the 508 above. Each ceiling is the figure measured.
+  'mother-chamber': { calls: 291, triangles: 210_062 },
 } as const;
 
 /** Draws the staged frame, then holds its counters against the ceiling. */
@@ -289,6 +292,36 @@ test.describe('the stair hall with its boss', () => {
     await spend(game, 'captain-chamber');
   });
 });
+
+// Plan 021 Stages C and D: the pool bosses' stair halls, each in the tightest goal chamber floors one and two can lay (seed 33 floor two, a 45-tile crypt; the Captain's above is the floor-three crypt, the one
+// place the Captain stands as the last floor's boss). `?boss=` puts the boss on the floor, so no scene searches seeds for one. The boss alone, held quiet, framed 5.5 from it.
+const POOL_SCENES = [['mother', 'mother-chamber']] as const;
+for (const [kind, scene] of POOL_SCENES) {
+  test.describe(`the stair hall with the ${kind}`, () => {
+    test.use({ seeds: [0x1, 33], boss: kind });
+    test(`the ${kind} standing in a 45-tile goal chamber stays inside its budget`, async ({ game }) => {
+      await game.enter();
+      await game.buildFloor(2);
+      await game.step(0);
+      const floor = await game.floor();
+      expect(floor.seed, 'the page was not handed the seed this scenario is staged on: pick another seed').toBe(33);
+      const goal = floor.rooms[floor.goal], opening = await game.state();
+      expect(goal.shape, 'the goal chamber of this seed is no longer the tight crypt this budget was set on: pick another seed').toBe('crypt');
+      expect(floor.tiles.filter((t) => t.room === floor.goal).length, 'the goal chamber is no longer the 45-tile one this budget was set on').toBe(45);
+      const bossAt = opening.enemies.findIndex((e) => e.kind === kind && e.room === floor.goal);
+      expect(bossAt, `the goal chamber holds no ${kind}`).toBeGreaterThanOrEqual(0);
+      await game.configureCombat({ enemies: [{ index: bossAt, cooldown: 999, windup: 0 }] });
+      const spot = laneSpot(floor, opening.enemies[bossAt], 5.5);
+      await game.teleport(spot.x, spot.z);
+      await game.step(400);
+      const state = await game.state();
+      expect(state.boss?.kind, `the boss is not the ${kind}`).toBe(kind);
+      expect(state.enemies.filter((e) => !e.buried).map((e) => e.room === floor.goal), 'more than the stair hall\'s boss is in the staged chamber').toContain(true);
+      expect(state.health, 'the knight fell before the frame was drawn').toBeGreaterThan(0);
+      await spend(game, scene);
+    });
+  });
+}
 
 test.describe('the moment of contact', () => {
   test.use({ seeds: [0x1] });
