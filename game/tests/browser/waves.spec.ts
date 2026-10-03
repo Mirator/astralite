@@ -42,6 +42,8 @@ test.describe('a chamber that fights in waves', () => {
     let barred = 0;
     for (const [n, wave] of [[1, first], [2, second], [3, third]] as const) {
       const indices = wave.map(({ index }) => index);
+      // The knight walked onto a ring while the third wave's rings showed (below): he goes back to the stance the arc is staged from.
+      if (n === 3) { await game.teleport(stance.x, stance.z); await game.step(16); }
       await game.configureCombat({ enemies: indices.map((index, i) => ({ index, x: stance.slots[i].x, z: stance.slots[i].z, hp: 1, windup: 0.3, cooldown: 30, aim: { x: -stance.facing.x, z: -stance.facing.z } })) });
       await game.step(16);
       const staged = await game.state();
@@ -79,21 +81,32 @@ test.describe('a chamber that fights in waves', () => {
         await game.step(450);
         const sinking = await game.state();
         expect(sinking.corpses.filter((c) => c.visible).every((c, i, list) => c.y < lying[sinking.corpses.indexOf(list[i])]), 'a corpse did not sink while the rings showed').toBe(true);
-        // And the bodies stand on the rings, for good.
+        // And the bodies stand on the rings, for good. On the third wave the knight walks onto a ring while the rings show (D4: they are fixed when they appear, and he is never stood on): that body stands on the nearest open tile beyond the clearance.
         const rung = marked.waveMarks.map((mark) => ({ index: mark.index, x: mark.x, z: mark.z }));
-        const up = await until(game, `wave ${n + 1} standing`, (s) => bodiesOf(s, room!.id, n + 1).every(({ e }) => e.awake), 2000);
+        if (n === 2) {
+          await game.teleport(rung[0].x, rung[0].z);
+          const walked = await game.state();
+          expect(Math.hypot(walked.player.x - rung[0].x, walked.player.z - rung[0].z), 'precondition: the knight stands on a ring').toBeLessThan(0.5);
+          expect(walked.waveMarks.length, 'precondition: the rings are still showing when he steps onto one').toBe(rung.length);
+        }
+        const up = await until(game, `wave ${n + 1} standing`, (s) => bodiesOf(s, room!.id, n + 1).every(({ e }) => e.awake), 2000, n === 2 ? 10 : 50);
         expect(up.waveMarks, 'the rings stayed down after the wave stood').toHaveLength(0);
         expect(up.corpses.filter((c) => c.visible), `the dead of the waves before are still drawn when wave ${n + 1} stands`).toHaveLength(0);
         expect(up.corpses.length, 'precondition: they lie in the scene, only not drawn').toBe(lying.length);
         // Matched by place: a standing body is a snapshot entry, and the dead have left the list, so spawn indices no longer line up with it.
         const risen = bodiesOf(up, room!.id, n + 1).map(({ e }) => e), unmatched = [...risen];
         expect(risen.length, 'precondition: every ringed body stood').toBe(rung.length);
-        for (const ring of rung) {
+        // A ring under the knight is not one a body stands on.
+        const under = rung.filter((ring) => n === 2 && Math.hypot(ring.x - up.player.x, ring.z - up.player.z) < WAVE_CLEAR);
+        if (n === 2) expect(under.length, 'precondition: a ring lay inside the clearance of the knight when the wave stood').toBeGreaterThan(0);
+        for (const ring of rung.filter((r) => !under.includes(r))) {
           const at = unmatched.findIndex((e) => Math.hypot(e.x - ring.x, e.z - ring.z) < 0.6);
           expect(at, `no body rose on the ring at (${ring.x.toFixed(2)}, ${ring.z.toFixed(2)})`).toBeGreaterThanOrEqual(0);
           expect(unmatched[at].visible, 'a risen body is not drawn').toBe(true);
           unmatched.splice(at, 1);
         }
+        expect(unmatched.length, 'every body of the wave is on its ring, bar the ones moved off the knight').toBe(under.length);
+        for (const e of unmatched) expect(Math.hypot(e.x - up.player.x, e.z - up.player.z), 'a body stood on the knight who had walked onto its ring').toBeGreaterThanOrEqual(WAVE_CLEAR - 0.05);
         expect(up.chamber.sealed && up.chamber.doors.every((door) => !door.open), 'the doors opened while a wave stood').toBe(true);
       } else {
         expect(felled.chamber.sealed, 'the last wave fell and the chamber stayed sealed').toBe(false);

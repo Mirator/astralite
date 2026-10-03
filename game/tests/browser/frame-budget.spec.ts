@@ -130,8 +130,11 @@ const BUDGET = {
   // Plan 022 Stage B: the biggest chamber the waves deal (floor three, seed 0x2's hall of ten bodies in waves of 3, 3 and 4), its last wave standing. A dormant wave to come draws nothing (Stage 0: 1, 5 and 9 dormant bodies all drew 201 calls,
   // 209,882 triangles, 56 shadow calls) but a corpse stays drawn and costs a standing body's calls (about 35 a body): with the six dead of the first two waves left in frame this scene read 586 calls / 294,968 triangles, 78 over the 508 above, so the
   // floor takes the dead of the waves before back as the next wave is rung (`corpseSink`: they sink into the paving over the rings' 0.9 s and are no longer drawn), and the frame is the four standing bodies of the last wave with six corpses lying undrawn.
-  // Measured 2026-10-03 on SwiftShader, twice: 440 calls (68 under 508) and 255,930 / 255,942 triangles, 153 geometries, 28 textures. Each ceiling is the figure measured (the higher of the two for triangles); the scene fails below 60% of the calls.
-  'wave-chamber': { calls: 440, triangles: 255_942 },
+  // Measured 2026-10-03 on SwiftShader, four repeats (`--repeat-each=4`) identical: 439 calls (69 under 508), 255,774 triangles, 152 geometries, 28 textures. Each ceiling is the figure measured; the scene fails below 60% of the calls.
+  // The scene used to be drawn 400 ms after the last wave was staged and read 255,930 to 255,958 triangles from run to run (CI saw 255,946 over a ceiling of 255,942): the swings that fell the first two waves are real input, so each run reached
+  // the staging on a different frame, and a body still being eased apart (staged 0.7 apart, under the crowd's spacing) or a corpse still sinking sat in a different place and in or out of a culling sphere by a few triangles. It now waits until
+  // every body of the chamber and every corpse has stood still for a second, and the counts repeat exactly.
+  'wave-chamber': { calls: 439, triangles: 255_774 },
 } as const;
 
 /** Draws the staged frame, then holds its counters against the ceiling. */
@@ -532,7 +535,16 @@ test.describe('the biggest chamber the waves deal, at its last wave', () => {
     }
     // The last wave stands and is held quiet; the two before it lie where they fell.
     await stage(waves[2], { cooldown: 999, windup: 0 });
-    await game.step(400);
+    // Wait until the frame has stopped changing: the swings above are real input, so each run reaches this point on a slightly different frame, and a body still being eased apart by the crowd's spacing (staged 0.7 apart, under CROWD_SPACING) or a corpse still sinking sits at a different place
+    // in each run and so in or out of a culling sphere by a few triangles (255,930 to 255,958 in four runs). Held until every standing body and every corpse has stood still for a second, as the King's chamber waits for the reserve.
+    const placed = (s: typeof opening) => JSON.stringify([s.enemies.filter((e) => e.room === room!.id).map((e) => [e.x, e.z, e.visible]), s.corpses.map((c) => [c.y, c.visible]), s.waveMarks.length]);
+    let still = 0, before = '';
+    for (let waited = 0; waited < 10_000 && still < 10; waited += 100) {
+      await game.step(100);
+      const now = placed(await game.state());
+      still = now === before ? still + 1 : 0; before = now;
+    }
+    expect(still, 'the last wave and the corpses never came to rest in ten seconds').toBeGreaterThanOrEqual(10);
     const state = await game.state();
     expect(state.corpses, 'the two waves before lie dead: six corpses').toHaveLength(6);
     expect(state.corpses.filter((c) => c.visible), 'a corpse of the waves before is still drawn: the floor takes them back as the next wave is rung').toHaveLength(0);

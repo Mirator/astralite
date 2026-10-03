@@ -194,6 +194,8 @@ export type FloorReport = {
   fightEncounters: string[];
   /** Plan 022: the knight's vitality as a share of his maximum the moment he walked into the stair hall (the boss's chamber); null on a floor he never reached it on (he died first, or the floor has no door to it). */
   hpAtStair: number | null;
+  /** Plan 022: 1 if the knight died on this floor before he walked into the stair hall (`hpAtStair` null), so something other than the boss ended the run; 0 otherwise. D13 asks for a third of the default knight's deaths to be these. */
+  deathsBeforeBoss: number;
   /** Plan 022: waves the floor's chambers called (each later wave of each chamber that stood up counts once). */
   wavesRaised: number;
   /** Plan 022: `fights` of the chambers that were dealt later waves, in the same units - the fight D13 measures. */
@@ -539,6 +541,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         waveSpots(openOf(activeRoom), called.map(b => ({ x: b.x, z: b.z })), player).forEach((at, i) => waveRings.set(called[i], at));
       }
       if (due.raise !== null) {
+        // D4: a ring the knight has since walked onto moves off him, as the game moves it at the raise.
+        const rung = [...waveRings.keys()], placed = waveSpots(openOf(activeRoom), rung.map(b => waveRings.get(b)!), player);
+        rung.forEach((b, i) => waveRings.set(b, placed[i]));
         for (const [body, at] of waveRings) { body.awake = true; body.x = at.x; body.z = at.z; body.anchor = { x: at.x, z: at.z }; body.cooldown = Math.max(body.cooldown, 0.9); }
         waveRings.clear(); wavesRaised++;
       }
@@ -1028,7 +1033,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, wavesRaised, waveFights, waveBodies: bodies.filter(b => b.wave > 1).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, buried: b.buried })), shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: bodies.filter(b => b.wave > 1).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, buried: b.buried })), shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

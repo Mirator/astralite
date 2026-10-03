@@ -2112,6 +2112,8 @@ export default function DungeonGame() {
             audio.play('warn');
           }
           if (due.raise !== null) {
+            // D4: the knight is never stood on. A ring is fixed when it appears, so one he has since walked onto moves, as it did at the call, to the nearest open tile beyond the clearance (`waveSpots`); a ring already clear stays.
+            waveSpots(roomTiles(floor, activeRoom).map(t => ({ x: t.x * TILE, z: t.z * TILE })), waveMarks.map(mark => mark.at), { x: player.position.x, z: player.position.z }).forEach((at, i) => { waveMarks[i].at = at; });
             for (const mark of waveMarks) {
               const body = mark.enemy;
               body.awake = true; body.group.visible = true; body.group.position.set(mark.at.x, .03, mark.at.z); body.anchor = { x: mark.at.x, z: mark.at.z }; body.cooldown = Math.max(body.cooldown, .9);

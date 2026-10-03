@@ -296,3 +296,19 @@ test('the sim deals a floor its later waves, calls each only after the one befor
   assert.ok(cleared >= 4, `only ${cleared} of six floors were cleared with waves in them: the knight is stuck waiting for a wave that never stands`);
   assert.ok(seconds > plainSeconds * 1.1, `six floors took ${seconds.toFixed(0)} s with waves and ${plainSeconds.toFixed(0)} s without: a wave should add fights, not nothing`);
 });
+
+test('a floor the knight died on says whether it was before the stair hall (plan 022 carry-over)', () => {
+  const weak = policy({ dodge: 0, reaction: 0.6 });
+  // Read off the boss, which the report observes on its own: a knight who died before the stair hall never met it.
+  const early = simulateRun(0x3ddf, weak).floors.find(f => f.outcome === 'died');
+  const late = simulateRun(0x7bbd, weak).floors.find(f => f.outcome === 'died');
+  assert.ok(early && late, 'seeds 0x3ddf and 0x7bbd no longer each end in a death with the weak knight: pick other seeds');
+  assert.equal(early.bossDamage + early.bossSeconds, 0, 'precondition: the boss never met the knight who died on this floor');
+  assert.equal(early.hpAtStair, null, 'precondition: he never reached the stair hall');
+  assert.equal(early.deathsBeforeBoss, 1, 'a death before the stair hall is not counted as one');
+  assert.ok(late.bossDamage > 0 && late.hpAtStair !== null, 'precondition: this knight died to the boss in the stair hall');
+  assert.equal(late.deathsBeforeBoss, 0, 'a death in the stair hall is counted as one before it');
+  const won = simulateRun(0x51ed, policy()).floors.find(f => f.outcome === 'cleared');
+  assert.ok(won, 'precondition: the default knight clears a floor on seed 0x51ed');
+  assert.equal(won.deathsBeforeBoss, 0, 'a floor that was cleared counts a death before the boss');
+});
