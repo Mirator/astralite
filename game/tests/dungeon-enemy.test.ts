@@ -301,6 +301,7 @@ test('bodies grow with the floor: vitality by one blade a floor, damage by fifte
     rattler: { hp: 1 * HIT, damage: 5, tell: 0.38, speed: 3.6 },
     captain: { hp: 15 * HIT, damage: 24, tell: 0.8, speed: 1.8 },
     mother: { hp: 12.5 * HIT, damage: 12, tell: 0.8, speed: 2.1 },
+    hound: { hp: 11.25 * HIT, damage: 18, tell: 0.7, speed: 3.0 },
   });
   // Floor one is exactly the base table, so every browser fixture pinned to floor one still holds.
   for (const kind of ENEMY_KINDS) assert.deepEqual(enemyStats(kind, 1), BASE_STATS[kind]);

@@ -52,6 +52,8 @@ export const CUTAWAY_ELLIPSE: Record<SlotOwner, { radii: [number, number]; yOffs
   captain: { radii: [1.2, 1.76], yOffset: 1.65 },
   // The Pyre Mother is the pyre's window (0.65 x 1.0, centre 1.0) at her 1.5, and the pool bosses after her are each their base kind's at theirs.
   mother: { radii: [0.98, 1.5], yOffset: 1.5 },
+  // The Tide Hound is the stalker's window (0.65 x 1.0) at 1.6, lowered a little for the way it carries its head.
+  hound: { radii: [1.04, 1.6], yOffset: 1.35 },
 };
 
 // ------------------------------------------------------------------------------- shader injection

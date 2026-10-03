@@ -114,6 +114,8 @@ const BUDGET = {
   // Plan 021 Stages C and D: the pool bosses in the tightest goal chamber floors one and two lay (seed 33 floor two, a 45-tile crypt), each the boss alone, held quiet, framed 5.5 from it. Measured 2026-10-03 on SwiftShader.
   // The Pyre Mother: 291 calls, 210,062 triangles (the floor-two crypt is cheaper than the floor-three one the Captain's number was taken in), 217 under the 508 above. Each ceiling is the figure measured.
   'mother-chamber': { calls: 291, triangles: 210_062 },
+  // The Tide Hound: 253 calls, 210,696 triangles (a leaner figure than the Mother's by calls, a hair heavier by triangles), 255 under the 508 above.
+  'hound-chamber': { calls: 253, triangles: 210_696 },
 } as const;
 
 /** Draws the staged frame, then holds its counters against the ceiling. */
@@ -295,7 +297,7 @@ test.describe('the stair hall with its boss', () => {
 
 // Plan 021 Stages C and D: the pool bosses' stair halls, each in the tightest goal chamber floors one and two can lay (seed 33 floor two, a 45-tile crypt; the Captain's above is the floor-three crypt, the one
 // place the Captain stands as the last floor's boss). `?boss=` puts the boss on the floor, so no scene searches seeds for one. The boss alone, held quiet, framed 5.5 from it.
-const POOL_SCENES = [['mother', 'mother-chamber']] as const;
+const POOL_SCENES = [['mother', 'mother-chamber'], ['hound', 'hound-chamber']] as const;
 for (const [kind, scene] of POOL_SCENES) {
   test.describe(`the stair hall with the ${kind}`, () => {
     test.use({ seeds: [0x1, 33], boss: kind });

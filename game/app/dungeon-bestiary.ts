@@ -16,7 +16,7 @@
 // that the running game is wired to it; then `npm run figures` to look at it, `?arena=<kind>:3` to fight it
 // (tests/README.md, The arena), and `npm run balance:check`.
 
-export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler', 'captain', 'mother'] as const;
+export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler', 'captain', 'mother', 'hound'] as const;
 export type EnemyKind = typeof ENEMY_KINDS[number];
 
 /** Vitality, damage per blow, seconds of tell, and walking speed - the floor-one values. */
@@ -341,6 +341,34 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
       death: { duration: 1.1, prone: false, weaponX: .7 }, shieldArm: false,
     },
   },
+  // The Tide Hound (plan 021 D4): a stalker grown huge and quick, the pool's lane-dodging boss. Phase one is pounce, swing, pounce, each pounce a long lane drawn on the floor and a
+  // leap that bills what it runs through; below half the tells shorten and the pounces come two at a time: the second begins the instant the first leap ends, with no
+  // recovery between and a short re-aim of its own, from wherever the knight stands then (`chain`, dungeon-bestiary.ts). A dash out of the first lane is not the answer to the
+  // second. Steadfast like every boss. The numbers are D7's hypothesis (45 vitality) and Stage F's to tune; the moves are the design.
+  hound: {
+    stats: { hp: 45, damage: 18, tell: 0.7, speed: 3.0 },
+    strikeRange: 2.6, attackRange: 6.5, holdRange: 1.8, recovery: 1.3,
+    attack: 'pounce', steadfast: true, advanceBelow: 0.9, firstFloor: Infinity, keepAway: 0,
+    boss: 'pool', title: 'The Tide Hound', phaseNotice: ['', 'The Tide Hound howls'],
+    phases: [.5],
+    moves: [
+      [
+        { attack: 'pounce', tell: 0.7, damage: 18, strikeRange: 5, attackRange: 6.5, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1 },
+        { attack: 'swing', tell: 0.5, damage: 16, strikeRange: 2.6, attackRange: 2.2, cue: { shape: 'arc' }, cueScale: 1.75 },
+        { attack: 'pounce', tell: 0.7, damage: 18, strikeRange: 5, attackRange: 6.5, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1 },
+      ],
+      [
+        { attack: 'pounce', tell: 0.5, damage: 18, strikeRange: 5, attackRange: 6.5, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.3, damage: 18, strikeRange: 5, attackRange: 9, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1, chain: true },
+        { attack: 'swing', tell: 0.4, damage: 16, strikeRange: 2.6, attackRange: 2.2, cue: { shape: 'arc' }, cueScale: 1.75 },
+      ],
+    ],
+    look: {
+      pose: 'pounce', scale: [1.6, 1.6, 1.6], cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1, barLift: 3.1, alertLift: 3.6, barColor: 0x8fd0ff, gait: .5, blood: 1.6, heavy: true,
+      trail: { from: 'claws', color: 0xb0e8ff, width: .14, inner: [0, -.72, -.12], tip: [0, -.87, -.5] },
+      death: { duration: .95, prone: true, weaponX: .53 }, shieldArm: false,
+    },
+  },
 };
 
 /** One field of every archetype, keyed by kind - how the per-quantity tables in dungeon-enemy.ts are read. */
@@ -351,6 +379,6 @@ export const byKind = <T>(read: (archetype: Archetype) => T) =>
  * The bosses a floor can deal (plan 021 D13): the pool floors one and two draw from, in the order `dealBosses`
  * (dungeon-floor.ts) indexes it. Stage B held only the Captain; Stage C adds the Pyre Mother and Stage D the Tide Hound and the Bastion.
  */
-export const BOSS_POOL: readonly EnemyKind[] = ['captain', 'mother'];
+export const BOSS_POOL: readonly EnemyKind[] = ['captain', 'mother', 'hound'];
 /** The last floor's boss. The Captain stands in for it until Stage E gives the Bone King his row. */
 export const FINAL_BOSS: EnemyKind = 'captain';

@@ -324,7 +324,8 @@ export function fallOf(bodies: readonly Bound[], index: number): { reassembles: 
  * far for is skipped for the next that fits, and one that fits is never skipped. A boss that finds none closes in.
  */
 const pickMove = (moves: readonly Move[], from: number, distance: number) => {
-  for (let k = 0; k < moves.length; k++) { const at = (from + k) % moves.length; if (distance <= moves[at].attackRange) return at; }
+  // A `chain` move follows the pounce before it and nothing else: it is taken when it is the one the rotation stands on, and never skipped to.
+  for (let k = 0; k < moves.length; k++) { const at = (from + k) % moves.length; if (distance <= moves[at].attackRange && !(k > 0 && moves[at].chain)) return at; }
   return -1;
 };
 
@@ -385,7 +386,9 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
     const aim = volley && windup > AIM_LOCK ? unit(toX, toZ, distance) : rest.aim;
     if (windup > 0) return { ...rest, act: 'windup', windup, aim, distance };
     // The blow is spent here and the boss's rotation moves on - except a pounce, whose leap is still to come (above).
-    const recovered = { ...rest, act: 'windup' as const, windup: 0, aim, cooldown: RECOVERY[enemy.kind], distance, ...(moves && !pounce ? { move: (slot + 1) % moves.length } : null) };
+    // A move the next one is chained to has no recovery: the pounce's leap hands straight to it (`Move.chain`).
+    const chained = !!moves && !!moves[(slot + 1) % moves.length].chain;
+    const recovered = { ...rest, act: 'windup' as const, windup: 0, aim, cooldown: chained ? 0 : RECOVERY[enemy.kind], distance, ...(moves && !pounce ? { move: (slot + 1) % moves.length } : null) };
     if (attack === 'summon') return { ...recovered, raise: true, sound: 'warn' };
     if (attack === 'scatter') return { ...recovered, scatter: true, sound: 'warn' };
     // A sweep has no aim to step around: everything within reach, on every side, that no wall shelters.

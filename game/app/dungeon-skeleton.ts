@@ -92,7 +92,9 @@ function trim(target: (Part | Node)[], name: string, geom: Geom, material: strin
 function skeletonSpec(kind: SkeletonKind): Node {
   // The one place a kind is still a name rather than a row: this is each body's own geometry, authored
   // part by part, and a new kind's figure is new parts rather than new numbers.
-  const stalker = kind === 'stalker', warden = kind === 'warden', archer = kind === 'archer';
+  // Plan 021: the Tide Hound is the stalker grown huge (its scale is the bestiary's) - the same crouched, long-armed, bareheaded, clawed body - with a ruff, barnacles, a long jaw and a tail of kelp of its own.
+  const hound = kind === 'hound';
+  const stalker = kind === 'stalker' || hound, warden = kind === 'warden', archer = kind === 'archer';
   // The arena-only kinds. Each borrows what it can from the four above - the guard's kit, the archer's
   // hood, the stalker's cloak - and adds the one part its silhouette is read by: the shieldbearer's tower
   // shield, the reaper's scythe, the pyre's fire cage, the bonecaller's staff and antlers, the
@@ -169,6 +171,8 @@ function skeletonSpec(kind: SkeletonKind): Node {
   trim(skullParts, 'chin', 'joint', 'shadow', [0, -.043, -.244], [.043, .05, .018]);
   trim(skullParts, 'muzzle', 'box', 'bone', [0, -.17, -.13], [.31, .075, .18]);
   for (let i = 0; i < 5; i++) trim(skullParts, `tooth-${i}`, 'box', 'bone', [(i - 2) * .049, -.128, -.22], [.03, .055, .045]);
+  // The hound's long jaw: a snout out in front of the stalker's muzzle and two fangs hanging from it.
+  if (hound) { trim(skullParts, 'snout', 'box', 'bone', [0, -.2, -.34], [.26, .1, .32]); for (const s of [-1, 1] as const) trim(skullParts, `fang-${s < 0 ? 'l' : 'r'}`, 'spike', 'bone', [s * .08, -.3, -.4], [.035, .16, .035], [Math.PI, 0, 0]); }
   if (stalker) for (const s of [-1, 1] as const) {
     trim(skullParts, `horn-${s < 0 ? 'l' : 'r'}`, 'spike', 'bone', [s * .18, -.2, -.19], [.045, .19, .045], [Math.PI, 0, s * -.12]);
     trim(skullParts, `horn-shade-${s < 0 ? 'l' : 'r'}`, 'spike', 'shadow', [s * .2, .17, .04], [.1, .24, .1], [0, 0, s * -.25]);
@@ -346,6 +350,13 @@ function skeletonSpec(kind: SkeletonKind): Node {
     trim(rigParts, 'robe-back', 'cloth', 'cloth', [0, .5, .14], [.58, .95, 1], [0, Math.PI, 0]);
   } else if (rattler) {
     trim(rigParts, 'loincloth', 'cloth', 'cloth', [0, .5, -.16], [.32, .3, 1]);
+  } else if (hound) {
+    // The stalker's spine and cloak, bigger, and over them a ruff of bone spikes round the neck, a row of coral barnacles down the back and three strands of kelp for a tail.
+    for (let i = 0; i < 5; i++) trim(rigParts, `spine-spike-${i}`, 'spike', 'bone', [0, .8 + i * .135, .13], [.085, (.3 + i * .05) * 1.25, .085], [.8, 0, 0]);
+    for (const s of [-1, 1] as const) trim(rigParts, `cloak-${s < 0 ? 'l' : 'r'}`, 'cloth', 'cloth', [s * .2, .67, .12], [.34, .8, 1], [-.3, s * .5, s * -.25]);
+    for (let i = 0; i < 9; i++) { const a = i * Math.PI * 2 / 9; trim(rigParts, `ruff-${i}`, 'spike', 'bone', [Math.cos(a) * .3, 1.3, Math.sin(a) * .3 - .02], [.07, .38 + (i % 3) * .08, .07], [Math.sin(a) * .9, 0, -Math.cos(a) * .9]); }
+    for (let i = 0; i < 5; i++) trim(rigParts, `barnacle-${i}`, 'joint', 'crest', [(i % 2 - .5) * .16, .85 + i * .12, .2], [.08 + (i % 3) * .02, .06, .08]);
+    for (let i = 0; i < 3; i++) trim(rigParts, `tail-${i}`, 'cloth', 'cloth', [(i - 1) * .13, .42 - i % 2 * .06, .38], [.15, .85 - i * .08, 1], [.9, (i - 1) * .35, 0]);
   } else if (stalker) {
     for (let i = 0; i < 5; i++) trim(rigParts, `spine-spike-${i}`, 'spike', 'bone', [0, .8 + i * .135, .13], [.065, (.23 + i * .04) * 1.25, .065], [.8, 0, 0]);
     for (const s of [-1, 1] as const) trim(rigParts, `cloak-${s < 0 ? 'l' : 'r'}`, 'cloth', 'cloth', [s * .2, .67, .12], [.32, .69, 1], [-.3, s * .5, s * -.25]);
@@ -392,6 +403,9 @@ const PALETTE: Record<SkeletonKind, { bone: number; iron: number; ironRoughness:
   // the pyre's, whose warmth is the fire it carries.
   shieldbearer: { bone: 0x9aa19a, iron: 0x4a5560, ironRoughness: 0.45, brass: 0x7a6a44, eye: 0xffb347, cloth: 0x3a4458, pool: .62 },
   reaper: { bone: 0xc2bba8, iron: 0x2a2d31, ironRoughness: 0.6, brass: 0x4a3f2e, eye: 0xff7ad9, cloth: 0x17191d, pool: .7 },
+  // The Tide Hound (plan 021): drowned grey-blue bone, the keep's coldest, in kelp-dark cloth, with eyes the white of a lantern fish: nothing else in the keep is blue-white-eyed and low, so it names itself
+  // by the way it carries its head before its lane is drawn.
+  hound: { bone: 0x6a7f8c, iron: 0x2c3a42, ironRoughness: 0.55, brass: 0x5c6e6a, eye: 0xe6f6ff, cloth: 0x234050, pool: .85 },
   pyre: { bone: 0x8f8676, iron: 0x35302b, ironRoughness: 0.6, brass: 0x7a5530, eye: 0xffc36a, cloth: 0x4a2b1e, pool: .58 },
   bonecaller: { bone: 0xb8b39e, iron: 0x3a3f46, ironRoughness: 0.5, brass: 0x6b5a3a, eye: 0xb9a4ff, cloth: 0x3b2d4a, pool: .6 },
   // The Pyre Mother (plan 021): a smoked, warm bone under a robe the red-brown of a coal's edge, and eyes white-hot where the pyre's are amber - the one boss whose palette is warm, so she names

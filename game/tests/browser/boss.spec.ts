@@ -335,6 +335,50 @@ test('with the knight\'s own fire on the ground she marks no more rings than are
   expect(state.hostileRings, 'the rings showing are not the pools burning and the rings marked').toBe(state.hostilePools.length + state.scatterMarks.length);
 });
 
+test('the Tide Hound is wired: a lane drawn for its pounce, the bar names it, and below half its second pounce follows the first with no recovery between', async ({ game, page }) => {
+  await arena(game, page, 'hound');
+  const floor = await game.floor();
+  const opening = await game.state();
+  expect(opening.enemies.map((e) => e.kind)).toEqual(['hound']);
+  const spot = laneSpot(floor, { x: opening.enemies[0].x, z: opening.enemies[0].z }, 4);
+  await game.teleport(spot.x, spot.z);
+  const first = await nextTell(game);
+  expect([first.attack, first.cue.visible, first.cue.shape, first.bar], 'its first move was not a pounce drawn as a lane, with no floating bar').toEqual(['pounce', true, 'lane', false]);
+  const bar = page.locator('.boss-bar');
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveAttribute('aria-label', 'The Tide Hound');
+  await expect(bar).toHaveAttribute('aria-valuemax', '45');
+  // Below half: the threshold is 22.5, so 22 is under it. The change is wired (the notice, the second phase) and the Hound's tells are the shorter ones.
+  await game.step(1500);
+  await game.configureCombat({ health: 100, enemies: [{ index: 0, hp: 22 }] });
+  const calm = await settleBoss(game);
+  expect(calm.phase, 'it did not change phase under half').toBe(1);
+  await expect(page.locator('.chamber-notice')).toContainText('The Tide Hound howls');
+  // The chain, as the running game plays it: a pounce's tell, its leap, and the next tell begins straight off the leap, in the chained slot. An unchained pounce would recover for the Hound's
+  // whole recovery (1.3 s) first. The knight is brought back into its reach and kept alive, so it keeps coming at him.
+  const hold = async () => { await game.configureCombat({ health: 100 }); await game.teleport(spot.x, spot.z); };
+  await hold();
+  let boss = await tellOf(game, 'pounce', hold);
+  expect([boss.phase, boss.move], 'the pounce it opened with is not phase two\'s first').toEqual([1, 0]);
+  const opened = boss.windup;
+  expect(opened, 'phase two\'s pounce tell is not the shortened one').toBeLessThan(BESTIARY.hound.moves![0][0].tell);
+  // Step by hand through the tell and the leap, counting the frames with no tell running, until the next tell begins.
+  let quiet = 0, chained: typeof boss | null = null;
+  for (let waited = 0; waited < 2500 && !chained; waited += 16) {
+    await game.step(16);
+    boss = await bossOf(game);
+    if (boss.windup === 0) quiet++;
+    else if (quiet > 0) chained = boss;
+  }
+  expect(chained, 'no second tell followed the pounce').not.toBeNull();
+  expect([chained!.attack, chained!.move], 'the second tell was not the chained pounce').toEqual(['pounce', 1]);
+  expect(chained!.windup, 'the chained pounce\'s tell is not the short re-aim').toBeLessThan(opened);
+  expect(quiet * 16, `the chained pounce began ${quiet * 16} ms after the first tell ended: the leap (320 ms) is all that should lie between`).toBeLessThan(320 + 160);
+  // The knight stood in the lane, so the leap ended on him: it ran between the two tells and cost him what a pounce costs.
+  expect(quiet, 'precondition: the first leap ran between the two tells').toBeGreaterThan(0);
+  expect((await game.state()).health, 'precondition: the first pounce connected').toBeLessThanOrEqual(100 - BESTIARY.hound.moves![1][0].damage);
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 360, height: 740 }, hasTouch: true, isMobile: true });
 
