@@ -6,6 +6,7 @@ import { generateFloor } from '../app/dungeon-floor.ts';
 import type { EnemyKind } from '../app/dungeon-bestiary.ts';
 import { weaponById } from '../app/dungeon-weapon.ts';
 import { freshMeta, type Meta } from '../app/dungeon-meta.ts';
+import { SHRINE } from '../app/dungeon-sim.ts';
 import { hurledBlow } from '../app/dungeon-combat.ts';
 import { landBlow } from '../app/dungeon-hits.ts';
 import { asReaper, TEST_BOSS, TEST_SCATTERER } from './fixtures/test-boss.ts';
@@ -256,4 +257,21 @@ test('the rings a scatter marks become fire that bites the knight and bills the 
     for (const r of reports) assert.equal(r.damage.reaper, r.poolDamage.reaper, 'a scatterer dealt damage that was not fire');
     assert.equal(total(reports, r => r.bossDamage), total(reports, r => r.poolDamage.reaper), 'the fire was not billed to the boss');
   });
+});
+
+test('a sanctuary\'s shrine mends a hurt knight once, as the game does (plan 022 Stage 0)', () => {
+  // dungeon-game.tsx has always healed SHRINE the first frame the knight stands hurt within reach of an unused shrine; the sim did not, which is the parity gap this closes.
+  let mends = 0, whole = 0;
+  for (const seed of Array.from({ length: 30 }, (_, i) => 1 + i * 7919)) {
+    const run = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
+    for (const floor of run.floors) {
+      const sanctuaries = new Set(generateFloor(seed + floor.level - 1, floor.level).rooms.filter(room => room.id !== 0 && room.encounter === 'sanctuary').map(room => room.id));
+      assert.equal(new Set(floor.shrineMends.map(m => m.room)).size, floor.shrineMends.length, `seed ${seed} floor ${floor.level}: a shrine mended the knight twice`);
+      for (const mend of floor.shrineMends) {
+        assert.ok(sanctuaries.has(mend.room), `seed ${seed} floor ${floor.level}: a chamber that is no sanctuary mended the knight`);
+        assert.ok(mend.healed > 0 && mend.healed <= SHRINE, `seed ${seed} floor ${floor.level}: a shrine mended ${mend.healed}, and heals at most ${SHRINE}`); mends++; if (mend.healed === SHRINE) whole++;
+      }
+    }
+  }
+  assert.ok(mends >= 5 && whole >= 1, `precondition: only ${mends} shrine mends over 30 runs (${whole} of the full ${SHRINE}), so the shrine was barely exercised`);
 });

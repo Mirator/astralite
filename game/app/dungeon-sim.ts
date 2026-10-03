@@ -31,6 +31,9 @@ export const XP_PER_BOSS = 100;
 export const XP_CACHE = 60;
 export const MEND = 30;
 export const TOP_UP = 12;
+// A shrine's one healing (the Stillwater Shrine of a sanctuary chamber): taken once, on the first step within SHRINE_REACH of it with vitality to mend. The game and the balance sim read this one number.
+export const SHRINE = 35;
+export const SHRINE_REACH = 1.5;
 // Each rank costs more than the last, so a full three-floor descent pays out five or six boons.
 export const rankCost = (rank: number) => 200 + (rank - 1) * 150;
 

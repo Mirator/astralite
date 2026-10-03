@@ -40,7 +40,7 @@ import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, migrateStored, readBest, readMeta, readRuns, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
 import { bank, buyArm, buyUpgrade, chooseArm, freshMeta, pearlsFor, runStart as metaRunStart, UPGRADES, type Meta } from './dungeon-meta';
-import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, SHRINE, SHRINE_REACH, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
 import { beginMove, dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, THREAT, type Enemy, type EnemyKind } from './dungeon-enemy-view';
@@ -1862,7 +1862,7 @@ export default function DungeonGame() {
             // frame however much better the shrine looks. At this strength the
             // inverse square has the light spent by the time it reaches him.
             if (!feature.used) ember.bid(crystal.position, near, 4.4 + Math.sin(t*2)*.7, 0x71f4c4);
-            if (!feature.used && feature !== stage.altar && near < 1.5 && run.hp < run.maxHp) { feature.used = true; heal(run, 35); setHealth(run.hp); audio.play('clear'); burst(player.position,0x71f4c4,20); setNotice('+35 vitality'); noticeTime = 2; }
+            if (!feature.used && feature !== stage.altar && near < SHRINE_REACH && run.hp < run.maxHp) { feature.used = true; heal(run, SHRINE); setHealth(run.hp); audio.play('clear'); burst(player.position,0x71f4c4,20); setNotice(`+${SHRINE} vitality`); noticeTime = 2; }
           } else {
             const wasFiring = feature.phase > 2.6;
             feature.phase = (t + feature.room*.7) % 3.6;

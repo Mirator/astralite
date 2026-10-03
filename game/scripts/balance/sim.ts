@@ -21,7 +21,7 @@ import { arenaFloor, type Floor } from '../../app/dungeon-arena.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, fanHeadings, ARROW_POOL, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
-import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
+import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, SHRINE, SHRINE_REACH, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
 export const FLOORS = 3;
@@ -189,6 +189,12 @@ export type FloorReport = {
    * room before anything closes records no fight for it, so read this column for the melee arms.
    */
   fights: number[];
+  /** Plan 022: the encounter of the room each entry of `fights` was fought in (`watch`, `ambush`, `gauntlet`), in the same order, so a fight length can be read per kind of chamber. */
+  fightEncounters: string[];
+  /** Plan 022: the knight's vitality as a share of his maximum the moment he walked into the stair hall (the boss's chamber); null on a floor he never reached it on (he died first, or the floor has no door to it). */
+  hpAtStair: number | null;
+  /** Plan 022: each mend a shrine made, by the chamber it stands in and the vitality it gave (at most `SHRINE`, the first time the knight stood hurt within reach of it). */
+  shrineMends: { room: number; healed: number }[];
   hpAfter: number;
   maxHpAfter: number;
   rankAfter: number;
@@ -364,6 +370,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     ? [-2.5, 0, 2.5].map(offset => ({ x: room.x * TILE + offset, z: room.z * TILE, room: room.id, burned: false }))
     : []);
 
+  // dungeon-floor-scene.ts lays a shrine on the heart of every sanctuary chamber but the gate; dungeon-game.tsx heals SHRINE the first frame the knight is within SHRINE_REACH of an unused one with vitality to mend.
+  // Plan 022 Stage 0: the sim did not model it, so a knight who walked into a quiet chamber was never mended there. A knight who stands in a sanctuary hurt walks to the shrine before the door.
+  const shrines = floor.rooms.filter(room => room.id !== 0 && room.encounter === 'sanctuary').map(room => ({ room: room.id, x: room.x * TILE, z: room.z * TILE, cell: { x: room.x, z: room.z }, used: false }));
   const player = { x: floor.rooms[0].x * TILE, z: floor.rooms[0].z * TILE };
   const facing = { x: 0, z: 1 };
   let attackFacing = { x: 0, z: 1 };
@@ -393,11 +402,12 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const fires: { pool: Pool; kind: EnemyKind }[] = [];
   const cleared = new Set<number>([0]);
   // Plan 016 fight duration: when each room's fight started, and how long each finished one took.
-  const fightStart = new Map<number, number>(), fights: number[] = [];
+  const fightStart = new Map<number, number>(), fights: number[] = [], fightEncounters: string[] = [];
+  let hpAtStair: number | null = null; const shrineMends: { room: number; healed: number }[] = [];
   const clearRoom = (room: number) => {
     cleared.add(room);
     const began = fightStart.get(room);
-    if (began !== undefined) { fights.push(+(t - began).toFixed(2)); fightStart.delete(room); }
+    if (began !== undefined) { fights.push(+(t - began).toFixed(2)); fightEncounters.push(floor.rooms[room].encounter); fightStart.delete(room); }
   };
 
   const goal = floor.rooms[floor.goal];
@@ -643,14 +653,16 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       // Nothing awake in reach. A sealed chamber is fought out first: walk at whatever is left alive in it.
       // Once it is clear the stair, in the warden hall, or else the chosen door, and through it.
       const quarry = bodies.filter(b => !b.dead && !b.buried && b.room === chamber).sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z))[0];
-      const door = !quarry && chamber !== floor.goal ? chooseDoor(chamber) : undefined;
+      const shrine = !quarry ? shrines.find(shrine => shrine.room === chamber && !shrine.used && run.hp < run.maxHp) : undefined;
+      const door = !quarry && !shrine && chamber !== floor.goal ? chooseDoor(chamber) : undefined;
       if (door && cleared.has(chamber) && Math.hypot(door.x * TILE - player.x, door.z * TILE - player.z) < DOOR_RADIUS) {
         // The swap key, pressed the frame it arrives: the next chamber's near wall, and nothing carried over.
         const next = floor.rooms[door.to];
         chamber = next.id; player.x = next.entry.x * TILE; player.z = next.entry.z * TILE; fields.clear();
+        if (next.id === floor.goal && hpAtStair === null) hpAtStair = run.hp / run.maxHp * 100;
         shots.length = 0; hostile.length = 0; pools.length = 0; fires.length = 0;
       } else {
-        const field = quarry ? fieldTo(Math.round(quarry.x / TILE), Math.round(quarry.z / TILE)) : door ? fieldTo(door.x, door.z) : goalField;
+        const field = quarry ? fieldTo(Math.round(quarry.x / TILE), Math.round(quarry.z / TILE)) : shrine ? fieldTo(shrine.cell.x, shrine.cell.z) : door ? fieldTo(door.x, door.z) : goalField;
         const here = field.get(packKey(cellX, cellZ));
         const next = ([[cellX + 1, cellZ], [cellX - 1, cellZ], [cellX, cellZ + 1], [cellX, cellZ - 1]] as [number, number][])
           .filter(([x, z]) => floor.cells.has(cellKey(x, z)))
@@ -658,6 +670,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         const ahead = next ? field.get(packKey(next[0], next[1])) ?? Infinity : Infinity;
         if (next && (here === undefined || ahead < here)) move = unit(next[0] * TILE - player.x, next[1] * TILE - player.z);
         else if (quarry) move = unit(quarry.x - player.x, quarry.z - player.z);
+        else if (shrine) move = unit(shrine.x - player.x, shrine.z - player.z);
         else if (door) move = unit(door.x * TILE - player.x, door.z * TILE - player.z);
         else if (stairClear()) move = unit(stair.x - player.x, stair.z - player.z);
       }
@@ -933,6 +946,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     const crowd: CrowdBody[] = bodies.map(b => ({ x: b.x, z: b.z, windup: b.windup, dead: b.dead || !b.awake }));
     separateCrowd(floor.cells, crowd, DT).forEach((spot, i) => { if (!crowd[i].dead) { bodies[i].x = spot.x; bodies[i].z = spot.z; } });
 
+    // dungeon-game.tsx:1865 (`SHRINE`): the first step within reach of an unused shrine, with vitality to mend, mends it for good.
+    for (const shrine of shrines) if (!shrine.used && Math.hypot(shrine.x - player.x, shrine.z - player.z) < SHRINE_REACH && run.hp < run.maxHp) { shrine.used = true; shrineMends.push({ room: shrine.room, healed: heal(run, SHRINE) }); }
+
     // --- the keep's own teeth ------------------------------------------------------------------
     // dungeon-game.tsx:855: one 3.6s cycle per room, firing in its last second, one tick per flare.
     for (const ring of hazards) {
@@ -979,7 +995,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }
