@@ -272,7 +272,7 @@ Implement:
 - the boss bar (D8), the notice and the snapshot field;
 - the boss-kill reward (D10).
 
-Until Stages C–E land, the pool holds only the Captain, so `dealBosses` deals
+Until Stages C and D land, the pool holds only the Captain, so `dealBosses` deals
 it on both floors; the no-repeat rule is tested once the pool has two. Floor 3
 deals the Captain as a stand-in until Stage E.
 
