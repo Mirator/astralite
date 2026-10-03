@@ -1,7 +1,7 @@
 // Between-run memory is a nicety, never a dependency. Storage is absent in a webview, throws in
 // Safari private mode and can hold anything a previous version (or a user) left behind, so every
 // value that comes back is re-validated and every failure degrades to "nothing remembered".
-import { ENEMY_KINDS, type EnemyKind } from './dungeon-bestiary.ts';
+import { BESTIARY, ENEMY_KINDS, type EnemyKind } from './dungeon-bestiary.ts';
 import { ARM_ORDER, freshMeta, PEARL_CAP, UPGRADES, type Meta } from './dungeon-meta.ts';
 import { STARTING_WEAPON, type WeaponId } from './dungeon-weapon.ts';
 
@@ -16,8 +16,11 @@ export type BestRun = { floor: number; xp: number; kills: number; won: boolean }
 // Plan 019 added the last three, because runs on different meta levels are not comparable: `arm` is the arm
 // the run was fought with, `upgrades` the ranks held when it began (id to rank, only ids above zero) and
 // `pearls` what it paid. A record from before then reads as a Tideblade run on no upgrades that paid nothing.
+//
+// Plan 021 added `bosses` (how many bosses the run felled; 0 on a record from before) and `bossKinds`, the boss each floor the run reached
+// held, in floor order, so a playtest report can say which bosses a run met. A record from before has no `bossKinds` and keeps none.
 export type RunCause = EnemyKind | 'hazard';
-export type RunEnd = { at: number; floor: number; won: boolean; cause: RunCause | null; seconds: number; rank: number; xp: number; kills: number; boons: string[]; seed: number; arm: WeaponId; upgrades: Meta['upgrades']; pearls: number };
+export type RunEnd = { at: number; floor: number; won: boolean; cause: RunCause | null; seconds: number; rank: number; xp: number; kills: number; boons: string[]; seed: number; arm: WeaponId; upgrades: Meta['upgrades']; pearls: number; bosses: number; bossKinds?: EnemyKind[] };
 
 // What the player has asked the game to be, as opposed to what one run left behind. Every default here
 // reproduces the game exactly as it shipped, so a blank, blocked or corrupt cell is not a different game:
@@ -155,7 +158,9 @@ export const parseRun = (value: unknown): RunEnd | null => {
   const boons = Array.isArray(end.boons) ? end.boons.filter((id): id is string => typeof id === 'string').slice(0, 12) : [];
   // Plan 019 fields. A record from an older build has none of them, and is not thereby damaged.
   const arm = typeof end.arm === 'string' && ARM_ORDER.includes(end.arm as WeaponId) ? end.arm as WeaponId : STARTING_WEAPON;
-  return { at, floor, won, cause, seconds: whole(end.seconds) ?? 0, rank: whole(end.rank) || 1, xp: whole(end.xp) ?? 0, kills: whole(end.kills) ?? 0, boons, seed, arm, upgrades: parseUpgrades(end.upgrades), pearls: Math.min(PEARL_CAP, whole(end.pearls) ?? 0) };
+  // Plan 021 fields: a stored boss list keeps only kinds that are bosses, at most one a floor, and is left out when nothing survives.
+  const bossKinds = Array.isArray(end.bossKinds) ? end.bossKinds.filter((kind): kind is EnemyKind => typeof kind === 'string' && (ENEMY_KINDS as readonly string[]).includes(kind) && !!BESTIARY[kind as EnemyKind].boss).slice(0, 3) : [];
+  return { at, floor, won, cause, seconds: whole(end.seconds) ?? 0, rank: whole(end.rank) || 1, xp: whole(end.xp) ?? 0, kills: whole(end.kills) ?? 0, boons, seed, arm, upgrades: parseUpgrades(end.upgrades), pearls: Math.min(PEARL_CAP, whole(end.pearls) ?? 0), bosses: Math.min(3, whole(end.bosses) ?? 0), ...(bossKinds.length ? { bossKinds } : null) };
 };
 
 // A log that is not a list is not a log. A list keeps exactly the entries that survive re-validation,

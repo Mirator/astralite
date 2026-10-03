@@ -37,6 +37,15 @@ test('a run pays a pearl a kill, 15 a floor behind him and 25 for getting out', 
   assert.equal(pearlsFor({ floor: 3, won: true, kills: 76 }), 76 + 45 + 25);
 });
 
+// Plan 021 (D10): ten pearls for every boss felled, on top of a pearl a kill (a boss is also a kill), and a run that dies to a boss still pays for the bosses behind it.
+test('every boss felled pays ten pearls, however many other bodies fell', () => {
+  assert.equal(pearlsFor({ floor: 2, won: false, kills: 20, bosses: 1 }), 20 + 15 + 10, 'a boss on floor one is ten pearls, not ten for each of the twenty kills');
+  assert.equal(pearlsFor({ floor: 3, won: false, kills: 50, bosses: 2 }), 50 + 30 + 20, 'a death to the last boss pays for the two behind it');
+  assert.equal(pearlsFor({ floor: 3, won: true, kills: 76, bosses: 3 }), 76 + 45 + 25 + 30);
+  assert.equal(pearlsFor({ floor: 2, won: false, kills: 20 }), pearlsFor({ floor: 2, won: false, kills: 20, bosses: 0 }), 'a record with no boss count pays what it always paid');
+  assert.equal(bank(rich({ pearls: 5 }), { floor: 2, won: false, kills: 20, bosses: 1 }).pearls, 5 + 45, 'banking leaves the boss pearls out');
+});
+
 test('banking adds exactly what the run paid, to a new meta, and never touches the old one', () => {
   const before = rich({ pearls: 40, upgrades: { lungs: 1 }, arms: ['tideblade', 'maul'], arm: 'maul' });
   const snapshot = JSON.parse(JSON.stringify(before)) as Meta;

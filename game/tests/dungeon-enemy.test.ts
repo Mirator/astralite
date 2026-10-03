@@ -299,6 +299,7 @@ test('bodies grow with the floor: vitality by one blade a floor, damage by fifte
     pyre: { hp: 1.5 * HIT, damage: 8, tell: 0.5, speed: 2.4 },
     bonecaller: { hp: 2 * HIT, damage: 0, tell: 1.2, speed: 2.2 },
     rattler: { hp: 1 * HIT, damage: 5, tell: 0.38, speed: 3.6 },
+    captain: { hp: 15 * HIT, damage: 24, tell: 0.8, speed: 1.8 },
   });
   // Floor one is exactly the base table, so every browser fixture pinned to floor one still holds.
   for (const kind of ENEMY_KINDS) assert.deepEqual(enemyStats(kind, 1), BASE_STATS[kind]);
@@ -497,9 +498,12 @@ const BEFORE_PLAN_021: Record<string, Omit<Recorded, 'neutral'>> = {
 };
 
 test('an archetype without moves produces exactly the intents it produced before plan 021, and leaves the boss fields idle', () => {
-  assert.deepEqual(Object.keys(BEFORE_PLAN_021).sort(), [...ENEMY_KINDS].sort(), 'a kind has no recorded sequence');
-  for (const kind of ENEMY_KINDS) {
-    assert.equal(BESTIARY[kind].moves, undefined, `${kind} has moves, so it is a boss and not an ordinary kind`);
+  // Plan 021 Stage B: a kind with moves is a boss (the Captain), and the recording is of every kind without them.
+  const ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].moves);
+  for (const kind of ENEMY_KINDS) if (BESTIARY[kind].moves) assert.ok(BESTIARY[kind].boss, `${kind} has moves but is not marked a boss`);
+  assert.ok(ordinary.length === 9 && ordinary.length < ENEMY_KINDS.length, 'precondition: the nine kinds that existed before plan 021 are ordinary and a boss is not among them');
+  assert.deepEqual(Object.keys(BEFORE_PLAN_021).sort(), [...ordinary].sort(), 'a kind has no recorded sequence');
+  for (const kind of ordinary) {
     const got = recordSequence(kind), { neutral, ...rest } = got;
     // The fight has to have made the kind do something, or equal digests prove nothing.
     assert.ok(got.windups >= 6, `${kind}: the scripted fight started only ${got.windups} tells, too few to say anything about its intents`);

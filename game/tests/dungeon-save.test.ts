@@ -5,7 +5,7 @@ import { freshMeta, PEARL_CAP, type Meta } from '../app/dungeon-meta.ts';
 
 const run = (floor: number, xp: number): BestRun => ({ floor, xp, kills: 0, won: false });
 // A plausible death on floor 2, which every history test varies one field of.
-const end = (over: Partial<RunEnd> = {}): RunEnd => ({ at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 0, ...over });
+const end = (over: Partial<RunEnd> = {}): RunEnd => ({ at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 0, bosses: 0, ...over });
 const won = (over: Partial<RunEnd> = {}): RunEnd => end({ floor: 3, won: true, cause: null, ...over });
 
 test('the best run is the deepest, with XP only breaking a tie on the same floor', () => {
@@ -82,7 +82,7 @@ test('an entry is kept only if it still says where and how the run ended', () =>
   assert.equal(parseRun({ ...end(), won: true }), null);
   assert.equal(parseRun({ ...won(), won: false }), null);
   // Fields that only colour an entry degrade to a floor rather than sinking it.
-  assert.deepEqual(parseRun({ at: 9, floor: 2, won: false, cause: 'warden', seed: 3 }), { at: 9, floor: 2, won: false, cause: 'warden', seconds: 0, rank: 1, xp: 0, kills: 0, boons: [], seed: 3, arm: 'tideblade', upgrades: {}, pearls: 0 });
+  assert.deepEqual(parseRun({ at: 9, floor: 2, won: false, cause: 'warden', seed: 3 }), { at: 9, floor: 2, won: false, cause: 'warden', seconds: 0, rank: 1, xp: 0, kills: 0, boons: [], seed: 3, arm: 'tideblade', upgrades: {}, pearls: 0, bosses: 0 });
   assert.deepEqual(parseRun({ ...end(), boons: ['edge', 7, null, 'ward'] })?.boons, ['edge', 'ward']);
   assert.deepEqual(parseRun({ ...end(), boons: 'edge' })?.boons, []);
   assert.deepEqual(parseRun({ ...end(), boons: Array(30).fill('edge') })?.boons.length, 12);
@@ -158,9 +158,26 @@ const PRE_019 = { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', s
 
 test('a record from before the meta save parses, with the Tideblade, no upgrades and no pearls', () => {
   assert.ok(!('arm' in PRE_019) && !('upgrades' in PRE_019) && !('pearls' in PRE_019), 'precondition: the fixture really lacks the new fields');
-  assert.deepEqual(parseRun(PRE_019), { ...PRE_019, arm: 'tideblade', upgrades: {}, pearls: 0 }, 'a pre-019 record was not read as a Tideblade run on no upgrades');
+  assert.deepEqual(parseRun(PRE_019), { ...PRE_019, arm: 'tideblade', upgrades: {}, pearls: 0, bosses: 0 }, 'a pre-019 record was not read as a Tideblade run on no upgrades, felling no boss');
   // And a whole old log keeps every entry, rather than dropping the lot for the missing fields.
   assert.deepEqual(parseRuns(JSON.stringify([PRE_019, { ...PRE_019, at: 2 }])).map(run => run.at), [1_700_000_000_000, 2]);
+});
+
+// Plan 021: a run records the bosses it felled and the boss each floor it reached held. Older records have neither and keep none.
+test('an old record parses with no bosses felled and no boss list, and a new one keeps both', () => {
+  const old = parseRun(PRE_019)!;
+  assert.equal(old.bosses, 0, 'an old record did not read as felling no boss');
+  assert.ok(!('bossKinds' in old), 'an old record grew a boss list');
+  const kept = parseRun({ ...PRE_019, bosses: 2, bossKinds: ['captain', 'captain'] })!;
+  assert.deepEqual([kept.bosses, kept.bossKinds], [2, ['captain', 'captain']]);
+  // Only boss kinds survive, and a count that is not a whole number is none.
+  assert.deepEqual(parseRun({ ...PRE_019, bossKinds: ['guard', 'captain', 7, 'ghost'] })!.bossKinds, ['captain']);
+  assert.ok(!('bossKinds' in parseRun({ ...PRE_019, bossKinds: ['guard', 'ghost'] })!), 'a list of no bosses was kept');
+  assert.equal(parseRun({ ...PRE_019, bosses: -1 })!.bosses, 0);
+  assert.equal(parseRun({ ...PRE_019, bosses: 'two' })!.bosses, 0);
+  // Written back and read again, a record is the same.
+  const written = JSON.stringify(kept);
+  assert.deepEqual(parseRun(JSON.parse(written)), kept);
 });
 
 test('the new record fields are kept when sane and defaulted one by one when not', () => {

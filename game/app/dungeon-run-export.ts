@@ -14,14 +14,14 @@ export const buildRunExport = (runs: readonly RunEnd[], now: Date): RunExport =>
 
 export const serialiseRunExport = (runs: readonly RunEnd[], now: Date): string => JSON.stringify(buildRunExport(runs, now), null, 1);
 
-// Plan 019 added `arm`, `upgrades` and `pearls`. An export written before then has none of the three, and
+// Plan 021 added `bosses` (and an optional `bossKinds`, which an older record simply lacks). Plan 019 added `arm`, `upgrades` and `pearls`. An export written before then has none of the three, and
 // `parseRun` fills them in; so a record is held to "survives the parse unchanged" after the same defaults
 // are appended to it, in the order `parseRun` writes them. A record that has some of them, or has them
 // wrong, still differs and still rejects the paste.
 const withDefaults = (record: unknown, parsed: RunEnd) => {
   if (!record || typeof record !== 'object') return record;
   const out: Record<string, unknown> = { ...record };
-  for (const key of ['arm', 'upgrades', 'pearls'] as const) if (!Object.hasOwn(out, key)) out[key] = parsed[key];
+  for (const key of ['arm', 'upgrades', 'pearls', 'bosses'] as const) if (!Object.hasOwn(out, key)) out[key] = parsed[key];
   return out;
 };
 

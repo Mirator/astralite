@@ -48,6 +48,8 @@ export const CUTAWAY_ELLIPSE: Record<SlotOwner, { radii: [number, number]; yOffs
   pyre: { radii: [0.65, 1.0], yOffset: 1.0 },
   bonecaller: { radii: [0.65, 1.05], yOffset: 1.05 },
   rattler: { radii: [0.5, 0.75], yOffset: 0.72 },
+  // Plan 021: the Captain is the warden at 1.7 over its 1.3, so the warden's window grown by that ratio (1.3077): wide enough to take a body that fills the lens.
+  captain: { radii: [1.2, 1.76], yOffset: 1.65 },
 };
 
 // ------------------------------------------------------------------------------- shader injection

@@ -17,15 +17,16 @@ import { getFlagstoneTexturesSteps, getMasonryTexturesSteps } from './dungeon-te
 import { createDungeonAudio } from './dungeon-audio';
 import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidate } from './dungeon-occlusion';
 import { animateCloth } from './dungeon-motion';
-import { altarHall, canStand, gateRacks, generateFloor, hasClearPath, moveOnFloor, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
+import { altarHall, canStand, dealBosses, gateRacks, generateFloor, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
+import { FINAL_BOSS } from './dungeon-bestiary';
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
 import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import SlotPicker from './dungeon-slot-picker';
 import AltarPanel, { type AltarKind } from './dungeon-altar-panel';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
 import { DASH_BUFFER, dashImmune, dragToward, hurledBlow, lineContacts, specialAvailable, specialGate, specialMayCut, specialSpends, swordContacts, vaultLanding, vaultTarget } from './dungeon-combat';
-import { ALERT_STAGGER, BESTIARY, decideEnemy, fallOf, nearbyDozers, raiseSpot, separateCrowd, type Wakeable } from './dungeon-enemy';
-import { awayFrom, burn as burnBody, landBlow } from './dungeon-hits';
+import { ALERT_STAGGER, BESTIARY, decideEnemy, fallOf, moveOf, NOTICE_TIME, nearbyDozers, raiseSpot, scaledDamage, separateCrowd, type Wakeable } from './dungeon-enemy';
+import { awayFrom, bossPush, burn as burnBody, landBlow } from './dungeon-hits';
 import { chargePose } from './dungeon-attack-pose';
 import { chainLength, chargeLevel, chargeReleases, devStartingArm, drawDamage, drawn, lungeStep, specialSwing, STARTING_WEAPON, TIDEBLADE, vaultHeight, vaultLanded, vaultStep, weaponById, type Special, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
@@ -39,10 +40,10 @@ import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, migrateStored, readBest, readMeta, readRuns, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
 import { bank, buyArm, buyUpgrade, chooseArm, freshMeta, pearlsFor, runStart as metaRunStart, UPGRADES, type Meta } from './dungeon-meta';
-import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
-import { dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, type Enemy, type EnemyKind } from './dungeon-enemy-view';
+import { beginMove, dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, type Enemy, type EnemyKind } from './dungeon-enemy-view';
 import { createFloorStage, doorSign, doorSignOf, raiseFloor, type DoorSign, type FloorArt } from './dungeon-floor-scene';
 import { createMood } from './dungeon-mood';
 import { driveSliced as driveSlicedSteps, linkedPrograms, pollProgramsReady as pollPrograms, precompilePost } from './dungeon-warmup';
@@ -97,6 +98,8 @@ export default function DungeonGame() {
   const mountRef = useRef<HTMLDivElement>(null);
   const [experience, setExperience] = useState(0);
   const [xpReward, setXpReward] = useState(0);
+  // Plan 021 (D8): the boss bar, present only while a boss is awake and alive; the world closure sets it when what it shows changes.
+  const [bossBar, setBossBar] = useState<{ name: string; hp: number; maxHp: number; phases: number[]; phase: number } | null>(null);
   const [health, setHealth] = useState(100);
   const [defeated, setDefeated] = useState(0);
   const [floorLevel, setFloorLevel] = useState(1);
@@ -361,6 +364,8 @@ export default function DungeonGame() {
     // is what makes the logged duration, boon list and replay seed describe the whole run and not its
     // last floor. `runStart` is the moment the keep was entered, not the moment the page mounted.
     let runStart = 0, firstSeed = 0, boonsTaken: string[] = [];
+    // Plan 021 (D13): the boss each floor of this run holds, dealt from floor one's seed when floor one is charted (or all one kind under the dev `?boss=`, D14), and recorded in the run's log entry.
+    let runBosses: EnemyKind[] = [], bossKey = '';
     // Plan 019. A run is dealt from the save at every run start (D11), never from a copy kept since mount: the pooled
     // reset clears storage and a second tab may have spent. `dealt` is the save the live run was dealt from, so the
     // first ENTER can tell a run `restart` just dealt from the mount-time default; `runUpgrades` and `runArm` are what
@@ -416,7 +421,8 @@ export default function DungeonGame() {
       const fall = fallOf(stage.enemies, stage.enemies.indexOf(enemy));
       if (fall.reassembles) { rebury(enemy, stage.enemies[enemy.summoner]); return; }
       enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind); dropMarks(enemy);
-      award(resolveKill(run)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
+      award(resolveKill(run, enemy.kind)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
+      if (BESTIARY[enemy.kind].boss) { setBossBar(null); bossKey = ''; }
       // A pyre leaves its fire where it fell (dungeon-projectile's `deathPool`), which bites the knight.
       const fire = deathPool(enemy.kind, enemy.group.position), ring = fire ? hostilePoolMeshes.find(mesh => !mesh.visible) : undefined;
       if (fire && ring) { ring.visible = true; ring.position.set(fire.x, .07, fire.z); ring.scale.setScalar(fire.radius); hostilePools.push({ pool: fire, mesh: ring, kind: enemy.kind }); burst(enemy.group.position, 0xff8c38, 18); }
@@ -484,7 +490,10 @@ export default function DungeonGame() {
       // began, and the log is cheap enough to reread once per run that guessing is not worth it.
       const end: RunEnd = { at: Date.now(), floor: level, won: !cause, cause, seconds: Math.max(0, Math.round(elapsed - runStart)), rank: run.rankLevel, xp: run.totalXp, kills: run.kills, boons: [...boonsTaken], seed: firstSeed,
         // Plan 019: the arm the run began holding, the ranks it began with and what it earns (D3). An arena pays nothing.
-        arm: runArm, upgrades: { ...runUpgrades }, pearls: arena ? 0 : pearlsFor({ floor: level, won: !cause, kills: run.kills }) };
+        arm: runArm, upgrades: { ...runUpgrades }, pearls: arena ? 0 : pearlsFor({ floor: level, won: !cause, kills: run.kills, bosses: run.bosses }),
+        // Plan 021: the bosses felled, and which boss each floor the run reached held.
+        bosses: run.bosses, ...(runBosses.length ? { bossKinds: runBosses.slice(0, level) } : null) };
+      setBossBar(null); bossKey = '';
       setEnded(end);
       if (arena) return;
       const log = appendRun(readRuns(activeSlot), end);
@@ -949,7 +958,14 @@ export default function DungeonGame() {
     // test hooks - names its own destination.
     const skipHall = process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('hall') === 'skip';
     const startsInHall = () => !skipHall && !arena;
-    const chart = (seed: number | undefined, nextLevel: number): Floor => wantHall ? altarHall() : arena ? arenaFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel, arena.roster) : generateFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
+    // Plan 021 (D14): `?boss=<kind>` (development only, ignored by a production build) puts that boss on floors one and two, for a playtest or a test that needs a particular one.
+    const devBoss = process.env.NODE_ENV !== 'production' ? parseBoss(new URLSearchParams(window.location.search).get('boss')) : null;
+    // A run's bosses are dealt when its floor one is charted, from that floor's seed; every later floor reads them back, so a restart on a seed meets the same bosses.
+    const bossedFloor = (seed: number, nextLevel: number): Floor => {
+      if (nextLevel === 1) { const dealt = dealBosses(seed); runBosses = [devBoss ?? dealt[0], devBoss ?? dealt[1], FINAL_BOSS]; }
+      return generateFloor(seed, nextLevel, { boss: runBosses[nextLevel - 1] ?? FINAL_BOSS });
+    };
+    const chart = (seed: number | undefined, nextLevel: number): Floor => wantHall ? altarHall() : arena ? arenaFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel, arena.roster) : bossedFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
     // A frame boundary the browser has painted: a rAF callback runs before its own frame's paint, so
     // it takes two. A hidden tab runs no animation frames, and a build must not wait on it. Nor does a
     // build under a driver's clock (`advanceTime` stopped the frame loop): the stages then only have to
@@ -1107,6 +1123,7 @@ export default function DungeonGame() {
       floorGroup = new THREE.Group(); world.add(floorGroup);
       // endSpecial first: a spear in the air is one of the shots, and dropping it without it leaves the arm out of hand.
       swingHits.clear();slash.clear();endSpecial();clearShots();blood.clear();posePlayer(0);
+      setBossBar(null); bossKey = '';
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
       reached = 0; activeRoom = 0; pathCell = ''; distances.clear(); overDoor = null; crossing = null; if (crossFade.current) crossFade.current.style.opacity = '0';
       // The floor itself - paving, flood, parapets, atmosphere, the walking-surface index, hazards, shrines,
@@ -1760,7 +1777,7 @@ export default function DungeonGame() {
           if (!visited.has(roomId)) { visited.add(roomId); setVisitedCount(visited.size); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#6a9995'); }
           // Only the trunk counts as progress; a dead end must never read as ground gained.
           if (spineRooms.has(currentRoom.id) && currentRoom.depth > reached) { reached = currentRoom.depth; setAdvance(reached); }
-          if (currentRoom.id === floor.goal && !stairClear()) { setNotice(`${goalRoom().name} · wardens bar the stair`); noticeTime = 4; }
+          if (currentRoom.id === floor.goal && !stairClear()) { const holder = stage.enemies.find(e => e.room === floor.goal && !e.dead && BESTIARY[e.kind].boss); setNotice(`${goalRoom().name} · ${holder ? BESTIARY[holder.kind].title : 'wardens'} bars the stair`); noticeTime = 4; }
           // Plan 017: a chamber with nobody in it has nothing to hold the knight for, so its ways on are
           // open the moment he arrives. Any other seals behind him until its last body falls.
           if (!cleared.has(roomId) && !stage.enemies.some(e => e.room === roomId)) { cleared.add(roomId); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#a8d5b0'); }
@@ -2010,6 +2027,8 @@ export default function DungeonGame() {
               const hit = landBlow(floor.cells, enemy, enemy.group.position, { ...pc.swing, damage: pc.swing.damage + run.strike }, awayFrom(player.position, enemy.group.position), facingOf(enemy));
               // Turned aside by a shield: a clang of sparks and a short freeze, and none of the wound below.
               if (hit.blocked) { enemy.blocked++; audio.play('warn'); burst(enemy.group.position, 0xdfe6ea, 10); shake = 0.05; pc.hitStop = 0.04; return; }
+              // A boss in its phase change takes nothing (plan 021 D3): a few pale sparks and no wound, flash or shove.
+              if ('immune' in hit) { burst(enemy.group.position, 0x9ff0e6, 6); return; }
               if (hit.broke) {enemy.attackAge=Infinity;enemy.trails.forEach(trail=>trail.effect.clear());}
               burst(enemy.group.position, 0xffb24a, 3);
               // Plan 014 round 2: a blade landing was amber sparks alone, which is a spark's colour and
@@ -2062,7 +2081,9 @@ export default function DungeonGame() {
           // Everything about where this body goes and whether its blow lands is decided in dungeon-enemy;
           // what is left here is the part a node test could never see — poses, sound, flashes, particles.
           const previousWindup=enemy.windup;
-          const intent = decideEnemy({ kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z, room: enemy.room, cooldown: enemy.cooldown, hitFlash: enemy.hitFlash, windup: enemy.windup, lunge: enemy.lunge, tell: enemy.tell, speed: enemy.speed, aim: enemy.aim, anchor: enemy.anchor, notice: enemy.notice, hp: enemy.hp, maxHp: enemy.maxHp, move: 0, phase: 0, change: 0 }, player.position, enemyWorld, dt); // plan 021: a boss's move, phase and change are threaded here in Stage B; nothing is dealt a boss yet
+          // Plan 021: the move this frame's blow belongs to is the one the body went into the frame on (the rotation moves on in the very intent that spends it), and a boss's blow and bolt cost what that move says; scripts/balance/sim.ts reads it the same way.
+          const doing = moveOf(enemy.kind, enemy.bossPhase, enemy.move), strike = doing ? scaledDamage(doing.damage, level) : enemy.damage;
+          const intent = decideEnemy({ kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z, room: enemy.room, cooldown: enemy.cooldown, hitFlash: enemy.hitFlash, windup: enemy.windup, lunge: enemy.lunge, tell: enemy.tell, speed: enemy.speed, aim: enemy.aim, anchor: enemy.anchor, notice: enemy.notice, hp: enemy.hp, maxHp: enemy.maxHp, move: enemy.move, phase: enemy.bossPhase, change: enemy.change }, player.position, enemyWorld, dt);
           const startedNoticing = enemy.notice <= 0 && intent.notice > 0;
           enemy.cooldown = intent.cooldown; enemy.hitFlash = intent.hitFlash; enemy.notice = intent.notice;
           if (Number.isFinite(enemy.attackAge)) enemy.attackAge+=dt;
@@ -2080,17 +2101,32 @@ export default function DungeonGame() {
           if(previousWindup>0&&enemy.windup===0)enemy.attackAge=0;
           else if(previousWindup<=0&&enemy.windup>0)enemy.attackAge=Infinity;
           enemy.group.position.x = intent.x; enemy.group.position.z = intent.z;
+          if (BESTIARY[enemy.kind].moves) {
+            enemy.move = intent.move; enemy.bossPhase = intent.phase; enemy.change = intent.change;
+            // A tell beginning takes the move's own cue, length and pose; a phase change (D3) cancels what was winding, rings at its feet, and pushes the knight out of its reach (`bossPush`, which walls stop).
+            if (previousWindup <= 0 && intent.windup > 0) { const began = moveOf(enemy.kind, intent.phase, intent.move); if (began) beginMove(enemy, began); }
+            if (intent.phaseChange) {
+              enemy.attackAge = Infinity; enemy.trails.forEach(trail => trail.effect.clear());
+              const push = bossPush({ kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z }, player.position); moveOnFloor(floor.cells, player.position, push.x, push.z);
+              setNotice(BESTIARY[enemy.kind].phaseNotice?.[intent.phase] ?? `${BESTIARY[enemy.kind].title} changes`); noticeTime = 3.5;
+              audio.play('warn'); shake = .16; burst(enemy.group.position, 0x58ffd0, 26);
+            }
+          }
           if (intent.sound) audio.play(intent.sound);
-          if (intent.hit) hurtBy(enemy.kind, enemy.damage);
+          if (intent.hit) hurtBy(enemy.kind, strike);
           // A volley becomes a bolt in the air; whether it finds the knight is decided as it flies, below.
-          const bolt = BESTIARY[enemy.kind].bolt, arrow = intent.loose && bolt ? arrowPool.find(a => !a.visible) : undefined;
+          const bolt = (doing ?? BESTIARY[enemy.kind]).bolt, arrow = intent.loose && bolt ? arrowPool.find(a => !a.visible) : undefined;
           if (intent.loose && bolt && arrow) {
             arrow.visible = true; arrow.position.set(enemy.group.position.x, .95, enemy.group.position.z); arrow.rotation.y = Math.atan2(-intent.loose.x, -intent.loose.z);
-            hostile.push({ mesh: arrow, kind: enemy.kind, shot: hostileBolt(enemy.group.position, intent.loose, bolt, enemy.damage) });
+            hostile.push({ mesh: arrow, kind: enemy.kind, shot: hostileBolt(enemy.group.position, intent.loose, bolt, strike) });
           }
           // What the decision looks like: pose, gait, the landed blow's flash and its trails (dungeon-enemy-view).
           poseEnemy(enemy, intent, dt, t, elapsed);
         });
+        // Plan 021 (D8): the boss bar - on while a boss has noticed the knight and still stands, off the moment it falls or he does (`fell`, `endRun`). React hears of it only when what it shows changes.
+        const shown = stage.enemies.find(e => !e.dead && e.awake && !e.buried && BESTIARY[e.kind].boss && e.notice >= NOTICE_TIME);
+        const barKey = shown ? `${shown.kind}:${Math.max(0, Math.ceil(shown.hp))}:${shown.bossPhase}` : '';
+        if (barKey !== bossKey) { bossKey = barKey; setBossBar(shown ? { name: BESTIARY[shown.kind].title ?? shown.kind, hp: Math.max(0, Math.ceil(shown.hp)), maxHp: shown.maxHp, phases: BESTIARY[shown.kind].phases ?? [], phase: shown.bossPhase } : null); }
         // Separate bodies without moving a guard during its committed windup; the rule itself lives in
         // dungeon-enemy, and only the write back into the scene graph belongs here.
         const spread = separateCrowd(floor.cells, stage.enemies.map(e => ({ x: e.group.position.x, z: e.group.position.z, windup: e.windup, dead: e.dead || e.buried })), dt);
@@ -2165,6 +2201,7 @@ export default function DungeonGame() {
               const blow = thrown ? thrown.blow : { ...pc.weapon, damage: live.shot.damage };
               const hit = landBlow(floor.cells, enemy, enemy.group.position, blow, { x: live.shot.dx, z: live.shot.dz }, facingOf(enemy));
               if (hit.blocked) { enemy.blocked++; audio.play('warn'); burst(enemy.group.position, 0xdfe6ea, 8); continue; }
+              if ('immune' in hit) { burst(enemy.group.position, 0x9ff0e6, 6); continue; }
               if (hit.broke) { enemy.attackAge = Infinity; enemy.trails.forEach(trail => trail.effect.clear()); }
               if (drags && hurled?.hurl && harpoon) {
                 harpoon.dragged = true;
@@ -2415,6 +2452,9 @@ export default function DungeonGame() {
         stair: !!stage.stairRing && stage.stairRing.parent === floorGroup,
       } : null,
       arena: arena ? { roster: [...arena.roster], level: arena.level } : null,
+      // Plan 021: the live boss body, if one stands on this floor - its vitality and phase, the move it is in, whether it is taking damage, and what it is drawing (the cue's shape read off the mesh, and whether its own floating bar shows).
+      boss: (() => { const body = stage.enemies.find(e => !e.dead && !e.buried && BESTIARY[e.kind].boss); if (!body) return null; const shape = body.cue.geometry as THREE.BufferGeometry & { type: string; parameters: { thetaLength?: number } };
+        return { kind: body.kind, hp: body.hp, maxHp: body.maxHp, phase: body.bossPhase, move: body.move, unhittable: body.change > 0, change: body.change, awake: body.awake, windup: body.windup, attack: body.doing?.attack ?? null, cue: { visible: body.cue.visible, shape: shape.type === 'PlaneGeometry' ? 'lane' : (shape.parameters.thetaLength ?? 0) > 6 ? 'ring' : 'arc', scale: body.cue.scale.x }, bar: body.bar.visible, surge: body.surge?.visible ?? false }; })(),
       // Plan 019: what the live run was dealt, read off the run itself once it was dealt (not off the meta table).
       run: { start: { ...began }, armLocked },
       health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: pc.weapon.special ?? null }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), hostilePools: hostilePools.map(h => ({ kind: h.kind, x: h.pool.x, z: h.pool.z, radius: h.pool.radius, life: h.pool.life, damage: h.pool.damage })), boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: stage.enemies.filter(e => !e.dead && !e.buried).length,
@@ -2423,7 +2463,7 @@ export default function DungeonGame() {
       stair: { x: stage.stairSpot.x, z: stage.stairSpot.z, radius: STAIR_RADIUS },
       // Plan 019: read off the scene - where each rack's group really stands and whether it is attached to the floor - not off the layout that placed it.
       racks: racks.map(rack => ({ x: rack.group.position.x, z: rack.group.position.z, kind: rack.kind, radius: PICKUP_RADIUS, over: rack === overRack, inScene: rack.group.parent === floorGroup, offered: rack === overRack && offered && offered !== 'stair' && offered !== 'altar' && offered !== 'down' && !offered.startsWith('door:') ? offered : null })),
-      experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
+      experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, perBoss: XP_PER_BOSS, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, shadow: post.shadow, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: pointLightCount(scene), programs: linkedPrograms(renderer), warmUp, quality: post.quality },
       effects: { impacts: impacts.active, sparks: sparks.active, shock: impacts.shock, flares: flares.length, lane: lane.visible ? { length: lane.scale.y * 1.15, opacity: lane.material.opacity } : null, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
@@ -2589,7 +2629,7 @@ export default function DungeonGame() {
   // press, or for any floor build the player has asked for since.
   const veil = displayFailed || fault ? null : loading ?? (entering ? 'Waking the keep' : null);
   return (
-    <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}${ready ? ' world-ready' : ''}${plainVeil ? ' plain-chrome' : ''}`}>
+    <main className={`game-shell${mapOpen ? ' map-expanded' : ''}${displayFailed ? ' no-display' : ''}${bossBar ? ' boss-on' : ''}${cardOpen ? ' card-open' : ''}${!started ? ' pre-start' : ''}${ready ? ' world-ready' : ''}${plainVeil ? ' plain-chrome' : ''}`}>
       <div ref={mountRef} className="game-canvas" aria-label="Procedural isometric dungeon floor" />
       {/* Plan 017: the dark a door is taken behind. Driven imperatively from the frame loop, never by React. */}
       <div ref={crossFade} className="chamber-fade" aria-hidden="true" />
@@ -2602,6 +2642,9 @@ export default function DungeonGame() {
       {/* oxlint-disable-next-line next/no-img-element */}
       {!started && <img className="keep-backdrop" src="./keep-backdrop.jpg" alt="" aria-hidden="true" decoding="async" fetchPriority="low" />}
       <header className="game-title"><span className="sigil" aria-hidden="true" /><div className="title-text"><b>{hallOn ? roomName : `${floorLevel} / ${FLOORS} · ${roomName}`}</b><i>{hallOn ? 'Spend, choose an arm, take the way down' : roomName === goalName ? 'Take the stair down' : `Reach ${goalName}`}</i></div></header>
+      {/* Plan 021 (D8): present only while a boss is awake and alive. Its name, its vitality and a tick at each phase threshold; a hand-set role for the same reason the vitality track has one. */}
+      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+      {bossBar && <div className="boss-bar" role="progressbar" aria-label={bossBar.name} aria-valuemin={0} aria-valuemax={bossBar.maxHp} aria-valuenow={bossBar.hp} data-phase={bossBar.phase}><b>{bossBar.name}</b><span className="boss-track"><i style={{ width: `${Math.max(0, bossBar.hp / bossBar.maxHp * 100)}%` }} />{bossBar.phases.map(share => <u key={share} style={{ left: `${share * 100}%` }} />)}</span></div>}
       <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || paused || status !== 'playing' || boonChoice.length > 0 || altarShow} aria-label="Pause game">☰</button></nav>
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}

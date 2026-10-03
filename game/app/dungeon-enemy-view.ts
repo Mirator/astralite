@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { advanceDeath, type DeathAnimation } from './dungeon-death';
-import { BESTIARY, enemyStats, NOTICE_TIME, type EnemyIntent, type EnemyKind } from './dungeon-enemy';
-import { enemyPose } from './dungeon-enemy-pose';
+import type { Cue, Move } from './dungeon-bestiary';
+import { BESTIARY, BOSS_PUSH_MARGIN, bossReach, enemyStats, NOTICE_TIME, PHASE_CHANGE, type EnemyIntent, type EnemyKind } from './dungeon-enemy';
+import { enemyPose, poseStyleOf } from './dungeon-enemy-pose';
 import type { Spawn } from './dungeon-floor';
 import { BONES, makeSkeleton } from './dungeon-skeleton';
 import { weaponTrail } from './dungeon-weapon-trail';
@@ -20,6 +21,9 @@ export type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: n
   // Whether this body is still a summoner's buried reserve, and which spawn index raises it (-1 for none);
   // and how many blows its shield has turned aside, which only diagnostics read.
   buried: boolean; summoner: number; blocked: number;
+  // Plan 021, a boss's: its rotation slot, its phase (`phase` above is the gait's), the seconds of phase change left and the move whose tell last began - what the
+  // tell, the cue and the pose are drawn for - plus the ring a phase change plays at its feet and the cue textures a move's shape picks from. Zero and null on every other body.
+  move: number; bossPhase: number; change: number; doing: Move | null; surge: THREE.Mesh | null; art: EnemyArt | null;
   // Every lit material on the body, found once at spawn: the flare and the tell are written to these
   // each frame rather than by walking the whole rig to find them again.
   skins: THREE.MeshStandardMaterial[] };
@@ -52,6 +56,17 @@ export const makeArrow = () => {
   head.rotation.x = -Math.PI / 2; head.position.z = -.44; group.add(head);
   group.position.y = .95; group.visible = false;
   return group;
+};
+
+/** One telegraph's geometry: an arc, a lane or a ring. */
+const cueShape = (cue: Cue) => cue.shape === 'lane' ? new THREE.PlaneGeometry(cue.length,cue.width).translate(cue.length/2,0,0) : cue.shape === 'ring' ? new THREE.RingGeometry(cue.radius*.84,cue.radius,48) : BONES.cue;
+// A boss changes its telegraph from move to move, so its cue swaps geometry; those are built once for the page and shared, never disposed with a floor.
+const sharedCues = new Map<string, THREE.BufferGeometry>();
+const sharedCue = (cue: Cue) => {
+  const key = cue.shape === 'lane' ? `lane:${cue.length}:${cue.width}` : cue.shape === 'ring' ? `ring:${cue.radius}` : 'arc';
+  let geometry = sharedCues.get(key);
+  if (!geometry) { geometry = cueShape(cue); geometry.userData.shared = true; sharedCues.set(key, geometry); }
+  return geometry;
 };
 
 /** The shared art every body on a floor is drawn with. */
@@ -93,7 +108,8 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   // carrying a deadline may not do: be dimmer than the furniture. `toneMapped: false` buys the
   // headroom and the opacity was giving it straight back.
   // A sweep's mark is the whole circle it reaches, which no arc can say.
-  const cueGeometry = look.cue.shape === 'lane' ? new THREE.PlaneGeometry(look.cue.length,look.cue.width).translate(look.cue.length/2,0,0) : look.cue.shape === 'ring' ? new THREE.RingGeometry(look.cue.radius*.84,look.cue.radius,48) : BONES.cue;
+  const boss = !!BESTIARY[kind].moves;
+  const cueGeometry = boss ? sharedCue(look.cue) : cueShape(look.cue);
   // Plan 014 round 2: toneMapped is true here now (it was false). `THREAT` was drawn
   // above the tone-mapped range on purpose while the mark was an opaque slab that had to win
   // against any floor under it; translucent, it only needs to read as red, and a
@@ -116,16 +132,31 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   const alert = new THREE.Sprite(art.alert);alert.scale.set(.55,.55,1);alert.visible=false;alert.renderOrder=10;group.add(alert);
   const anchors:THREE.Object3D[]=look.trail.from==='claws'?body.userData.limbs.slice(0,2):[body.userData.weapon];
   const trails=anchors.map(anchor=>{const effect=weaponTrail(look.trail.color,look.trail.width);group.add(effect.mesh);return {effect,anchor,inner:new THREE.Vector3(...look.trail.inner),tip:new THREE.Vector3(...look.trail.tip)};});
+  // A boss's phase change plays a ring at its feet: pale where the telegraph is red, so it reads as the tide drawing in and not as a blow to dodge.
+  const surge = boss ? new THREE.Mesh(new THREE.RingGeometry(.84,1,48),new THREE.MeshBasicMaterial({color:0x9ff0e6,map:art.telegraph,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,fog:false})) : null;
+  if (surge) { surge.rotation.x=-Math.PI/2; surge.renderOrder=9; surge.visible=false; group.add(surge); }
   const skins: THREE.MeshStandardMaterial[] = [];
   body.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial && !skins.includes(o.material)) skins.push(o.material); });
-  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush && !spawn.buried, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity, buried:!!spawn.buried, summoner:spawn.summoner ?? -1, blocked:0 };
+  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush && !spawn.buried, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity, buried:!!spawn.buried, summoner:spawn.summoner ?? -1, blocked:0, move:0, bossPhase:0, change:0, doing:null, surge, art: boss ? art : null };
+};
+
+/**
+ * A boss's tell begins (plan 021): the cue takes the move's shape and size, the tell its length, and the pose its style. `doing` stays set once the move is
+ * spent, so the recovery is drawn in the style of the blow that was thrown and not of the move the rotation has moved on to.
+ */
+export const beginMove = (enemy: Enemy, move: Move) => {
+  enemy.doing = move; enemy.tell = move.tell;
+  const geometry = sharedCue(move.cue), ghost = enemy.cue.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>, skin = enemy.cue.material as THREE.MeshBasicMaterial;
+  enemy.cue.geometry = geometry; ghost.geometry = geometry;
+  const map = move.cue.shape === 'lane' ? enemy.art?.lane ?? skin.map : enemy.art?.telegraph ?? skin.map;
+  if (skin.map !== map) { skin.map = map; ghost.material.map = map; }
 };
 
 /** A body that has gone quiet, whether dormant or unrendered this frame: no mark, no bar, no glyph. */
-export const hideMarks = (enemy: Enemy) => { enemy.cue.visible = false; enemy.bar.visible = false; enemy.alert.visible = false; enemy.trails.forEach(trail=>trail.effect.clear()); };
+export const hideMarks = (enemy: Enemy) => { enemy.cue.visible = false; enemy.bar.visible = false; enemy.alert.visible = false; if (enemy.surge) enemy.surge.visible = false; enemy.trails.forEach(trail=>trail.effect.clear()); };
 
 /** Stops drawing everything a living body wears, for the frame it dies on. */
-export const dropMarks = (enemy: Enemy) => { enemy.cue.visible = enemy.bar.visible = enemy.alert.visible = false; enemy.trails.forEach(trail => trail.effect.clear()); };
+export const dropMarks = (enemy: Enemy) => { enemy.cue.visible = enemy.bar.visible = enemy.alert.visible = false; if (enemy.surge) enemy.surge.visible = false; enemy.trails.forEach(trail => trail.effect.clear()); };
 
 const barLift = new THREE.Vector3(), alertLift = new THREE.Vector3(), barRight = new THREE.Vector3();
 
@@ -135,7 +166,7 @@ const barLift = new THREE.Vector3(), alertLift = new THREE.Vector3(), barRight =
  * its fall from here on; returns false for one, so the caller skips the decision.
  */
 export const markEnemy = (enemy: Enemy, camera: THREE.Camera, dt: number) => {
-  enemy.cue.visible = !enemy.dead && (enemy.windup > 0 || enemy.lunge > 0); enemy.bar.visible = !enemy.dead && enemy.hp < enemy.maxHp;
+  enemy.cue.visible = !enemy.dead && (enemy.windup > 0 || enemy.lunge > 0); enemy.bar.visible = !enemy.dead && enemy.hp < enemy.maxHp && !BESTIARY[enemy.kind].boss;
   enemy.bar.position.copy(enemy.group.position).add(barLift.set(0,BESTIARY[enemy.kind].look.barLift,0)); enemy.bar.quaternion.copy(camera.quaternion); const fill = Math.max(.001, enemy.hp / enemy.maxHp); enemy.bar.scale.x = fill;
   // Left-anchored: the fill shifts left as it shrinks, and its frame child is counter-scaled and
   // counter-shifted so it stays put at full width.
@@ -156,7 +187,8 @@ export const markEnemy = (enemy: Enemy, camera: THREE.Camera, dt: number) => {
   // body reads as closing at all, and the fade underneath was doing what the whole rewrite exists
   // to stop doing. The mark arrives at full strength and the only thing that changes is its size.
   const close = enemy.windup > 0 ? 1 - enemy.windup / enemy.tell : 1;
-  enemy.cue.scale.setScalar(BESTIARY[enemy.kind].look.cueScale * (1.9 - .9 * close));
+  const cueScale = enemy.doing?.cueScale ?? BESTIARY[enemy.kind].look.cueScale;
+  enemy.cue.scale.setScalar(cueScale * (1.9 - .9 * close));
   enemy.cue.position.copy(enemy.group.position); enemy.cue.position.y = 0.055; enemy.cue.rotation.z = Math.atan2(-enemy.aim.z,enemy.aim.x);
   const cueSkin = enemy.cue.material as THREE.MeshBasicMaterial;
   // Plan 014 round 2: this was 1 - a fully opaque slab, drawn for the whole tell, wide enough
@@ -166,6 +198,12 @@ export const markEnemy = (enemy: Enemy, camera: THREE.Camera, dt: number) => {
   cueSkin.opacity = .92; cueSkin.color.setHex(THREAT);
   const cueGhost = enemy.cue.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   cueGhost.material.opacity = .16; cueGhost.material.color.setHex(THREAT);
+  // The phase change's ring: it opens from the boss's feet out to the edge of where the knight is left (`bossPush`) over the first half of the change and fades over the rest.
+  if (enemy.surge) {
+    const age = 1 - enemy.change / PHASE_CHANGE, on = !enemy.dead && enemy.change > 0, skin = enemy.surge.material as THREE.MeshBasicMaterial;
+    enemy.surge.visible = on;
+    if (on) { enemy.surge.position.copy(enemy.group.position); enemy.surge.position.y = .075; enemy.surge.scale.setScalar((bossReach(enemy.kind) + BOSS_PUSH_MARGIN) * (.3 + .7 * Math.min(1, age * 2))); skin.opacity = Math.min(1, (1 - age) * 1.6) * .9; }
+  }
   if (enemy.dead) { if(enemy.death)advanceDeath(enemy.death,dt);return false; }
   return true;
 };
@@ -176,7 +214,11 @@ export const markEnemy = (enemy: Enemy, camera: THREE.Camera, dt: number) => {
  * not touch, which the flare is stamped against.
  */
 export const poseEnemy = (enemy: Enemy, intent: EnemyIntent, dt: number, t: number, elapsed: number) => {
-  const pose=enemyPose(enemy.kind,enemy.windup,enemy.tell,enemy.cooldown,enemy.lunge,enemy.attackAge);
+  const styled=enemy.doing?poseStyleOf(enemy.kind,enemy.doing.attack):BESTIARY[enemy.kind].look.pose;
+  const posed=enemyPose(enemy.kind,enemy.windup,enemy.tell,enemy.cooldown,enemy.lunge,enemy.attackAge,styled);
+  // A boss in its phase change rears back with its weapon raised, whatever it was doing, and draws no ribbon.
+  const rear=enemy.change>0?Math.min(1,(1-enemy.change/PHASE_CHANGE)*4):0;
+  const pose=rear>0?{...posed,pitch:-.14*rear,height:0,weapon:1.2*rear,arms:2.2*rear,recovery:0,weaponYaw:0,weaponRoll:0,bodyYaw:0,trail:false}:posed;
   if(!pose.trail)enemy.group.rotation.y=intent.face??enemy.group.rotation.y;
   const walking=intent.act==='dozing'||(intent.act==='ready'&&intent.distance>1.15&&enemy.hitFlash<=0&&pose.recovery===0);
   const gait=walking?Math.sin(t*enemy.speed*5+enemy.phase)*BESTIARY[enemy.kind].look.gait:0;
@@ -192,7 +234,7 @@ export const poseEnemy = (enemy: Enemy, intent: EnemyIntent, dt: number, t: numb
   // Landed. The mark is at its tightest already, so the last thing it does is stop being the
   // warning and become the blow: one frame of `COMMIT` on the floor while the body carries the
   // same flare above it, then out inside a tenth of a second.
-  if(enemy.windup<=0){const fade=Math.max(0,1-enemy.attackAge/.09);const skin=enemy.cue.material as THREE.MeshBasicMaterial;skin.color.setHex(COMMIT);skin.opacity=fade;const gh=enemy.cue.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;gh.material.color.setHex(COMMIT);gh.material.opacity=fade*.34;enemy.cue.scale.setScalar(BESTIARY[enemy.kind].look.cueScale);}
+  if(enemy.windup<=0){const fade=Math.max(0,1-enemy.attackAge/.09);const skin=enemy.cue.material as THREE.MeshBasicMaterial;skin.color.setHex(COMMIT);skin.opacity=fade;const gh=enemy.cue.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;gh.material.color.setHex(COMMIT);gh.material.opacity=fade*.34;enemy.cue.scale.setScalar(enemy.doing?.cueScale ?? BESTIARY[enemy.kind].look.cueScale);}
   enemy.trails.forEach(trail=>trail.effect.update(dt,pose.trail,trail.anchor,trail.inner,trail.tip));
   // A struck body flares for two frames and is back to its own colour inside six. The flat 0.8
   // this replaced held an orange tint for the whole 0.2s of hitFlash, which is fifteen frames of
@@ -231,6 +273,6 @@ export const poseEnemy = (enemy: Enemy, intent: EnemyIntent, dt: number, t: numb
   // term, and round 3's own halving of it was still an order of magnitude too hot for a body
   // standing this close to a real light source. Cut hard, not halved again: legible as a tint,
   // not a wash, on the frame it peaks.
-  const glow = struck > 0 ? COMMIT : enemy.windup > 0 ? THREAT : 0x000000, strength = struck > 0 ? 0.015 + struck * 0.05 : enemy.windup > 0 ? 0.01 + closing * 0.06 : 0.5;
+  const glow = struck > 0 ? COMMIT : enemy.windup > 0 ? THREAT : enemy.change > 0 ? 0x58ffd0 : 0x000000, strength = struck > 0 ? 0.015 + struck * 0.05 : enemy.windup > 0 ? 0.01 + closing * 0.06 : enemy.change > 0 ? 0.08 : 0.5;
   for (const skin of enemy.skins) { skin.emissive.setHex(glow); skin.emissiveIntensity = strength; }
 };

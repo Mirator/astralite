@@ -16,7 +16,7 @@
 // that the running game is wired to it; then `npm run figures` to look at it, `?arena=<kind>:3` to fight it
 // (tests/README.md, The arena), and `npm run balance:check`.
 
-export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler'] as const;
+export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler', 'captain'] as const;
 export type EnemyKind = typeof ENEMY_KINDS[number];
 
 /** Vitality, damage per blow, seconds of tell, and walking speed - the floor-one values. */
@@ -115,6 +115,10 @@ export type Archetype = {
   phases?: number[];
   /** `pool` bosses are dealt to floors one and two from a pool; the `final` one is the last floor's. Absent for everything else. */
   boss?: 'pool' | 'final';
+  /** A boss's name, as the boss bar and the goal chamber's notice say it (plan 021 Stage B). Absent for everything else. */
+  title?: string;
+  /** What the notice says as each later phase begins, one for each of `phases`. */
+  phaseNotice?: string[];
   /** What the renderer needs to draw it - plain numbers, so this file stays free of three.js. */
   look: {
     pose: PoseStyle;
@@ -267,8 +271,44 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
       death: { duration: .5, prone: true, weaponX: .45 }, shieldArm: false,
     },
   },
+  // The Drowned Captain (plan 021 D4): a huge warden, the first floor's boss until the pool grows. Phase one is two heavy
+  // swings and a sweep that takes everything round it; below half it adds a pounce across the room, and then goes round
+  // swing, pounce, sweep. Steadfast like the warden it is grown from: only a stagger arm breaks a tell. The numbers are
+  // D7's hypothesis (60 vitality) and Stage F's to tune; the moves are the design.
+  captain: {
+    stats: { hp: 60, damage: 24, tell: 0.8, speed: 1.8 },
+    strikeRange: 3.2, attackRange: 2.7, holdRange: 2.4, recovery: 1.5,
+    attack: 'swing', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    boss: 'pool', title: 'The Drowned Captain', phaseNotice: ['', 'The Captain draws the tide'],
+    phases: [.5],
+    moves: [
+      [
+        { attack: 'swing', tell: 0.8, damage: 24, strikeRange: 3.2, attackRange: 2.7, cue: { shape: 'arc' }, cueScale: 2.13 },
+        { attack: 'swing', tell: 0.7, damage: 24, strikeRange: 3.2, attackRange: 2.7, cue: { shape: 'arc' }, cueScale: 2.13 },
+        { attack: 'sweep', tell: 1.1, damage: 20, strikeRange: 3.6, attackRange: 2.6, cue: { shape: 'ring', radius: 3.6 }, cueScale: 1 },
+      ],
+      [
+        { attack: 'swing', tell: 0.7, damage: 24, strikeRange: 3.2, attackRange: 2.7, cue: { shape: 'arc' }, cueScale: 2.13 },
+        { attack: 'pounce', tell: 0.7, damage: 20, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.4 }, cueScale: 1 },
+        { attack: 'sweep', tell: 1.0, damage: 20, strikeRange: 3.6, attackRange: 2.6, cue: { shape: 'ring', radius: 3.6 }, cueScale: 1 },
+      ],
+    ],
+    look: {
+      pose: 'overhead', scale: [1.7, 1.7, 1.7], cue: { shape: 'arc' }, cueScale: 2.13, barLift: 3.5, alertLift: 4.1, barColor: 0x7fe0c8, gait: .24, blood: 1.8, heavy: true,
+      trail: { from: 'weapon', color: 0x9fe8d6, width: .16, inner: [0, 0, -.24], tip: [0, 0, -1.5] },
+      death: { duration: 1.2, prone: false, weaponX: .9 }, shieldArm: false,
+    },
+  },
 };
 
 /** One field of every archetype, keyed by kind - how the per-quantity tables in dungeon-enemy.ts are read. */
 export const byKind = <T>(read: (archetype: Archetype) => T) =>
   Object.fromEntries(ENEMY_KINDS.map(kind => [kind, read(BESTIARY[kind])])) as Record<EnemyKind, T>;
+
+/**
+ * The bosses a floor can deal (plan 021 D13): the pool floors one and two draw from, in the order `dealBosses`
+ * (dungeon-floor.ts) indexes it. Plan 021 Stage B holds only the Captain; Stages C and D add the other three.
+ */
+export const BOSS_POOL: readonly EnemyKind[] = ['captain'];
+/** The last floor's boss. The Captain stands in for it until Stage E gives the Bone King his row. */
+export const FINAL_BOSS: EnemyKind = 'captain';

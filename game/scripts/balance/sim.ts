@@ -16,7 +16,7 @@ import { canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineConta
 import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, fallOf, moveOf, nearbyDozers, raiseSpot, scaledDamage, separateCrowd, type CrowdBody, type EnemyKind, type EnemyView, type Move, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { bossPush, landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
-import { TILE, cellKey, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
+import { TILE, bossOnFloor, cellKey, dealBosses, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { arenaFloor, type Floor } from '../../app/dungeon-arena.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, scatterRings, TRAIL_LENGTH, TRAIL_STEP, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
@@ -272,20 +272,22 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
   const floors: FloorReport[] = [];
   let elapsed = 0, cause: Cause | null = null;
 
+  // Plan 021 (D13): the run's bosses are dealt as the game deals them, from floor one's seed, and each floor is laid with its own.
+  const dealt = dealBosses(seed);
   for (let level = 1; level <= FLOORS; level++) {
-    const report = simulateFloor(seed + level - 1, level, run, policy, nerve, draft);
+    const report = simulateFloor(seed + level - 1, level, run, policy, nerve, draft, generateFloor(seed + level - 1, level, { boss: bossOnFloor(dealt, level) }));
     floors.push(report);
     elapsed += report.seconds;
     if (report.outcome !== 'cleared') {
       // Whatever took the last of the vitality is what the run log would record.
       const damage = report.damage;
       cause = (Object.keys(damage) as Cause[]).filter(k => damage[k] > 0).sort((a, b) => damage[b] - damage[a])[0] ?? null;
-      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills }), floors };
+      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills, bosses: run.bosses }), floors };
     }
     // Descending restores a quarter of the bar, as the results card promises.
     if (level < FLOORS) heal(run, Math.round(run.maxHp * 0.25));
   }
-  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills }), floors };
+  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills, bosses: run.bosses }), floors };
 }
 
 /**
@@ -437,7 +439,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     body.dead = true;
     // A boss's fall, read before this kill's draught or the room's top-up can touch his vitality (plan 021 D9).
     if (BESTIARY[body.kind].boss) { bossHpLeft = run.hp / run.maxHp * 100; bossTo = t; }
-    resolveKill(run);
+    resolveKill(run, body.kind);
     const fire = deathPool(body.kind, body);
     if (fire && fires.length < HOSTILE_POOL_RINGS) fires.push({ pool: fire, kind: body.kind });
     for (const at of fall.crumble) bodies[at].dead = true;

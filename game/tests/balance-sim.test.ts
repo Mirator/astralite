@@ -203,15 +203,18 @@ test('the sim offers as many cards as the run it plays is owed', () => {
 });
 
 test('a run report says what banking it would pay', () => {
-  // Written out, not recomputed: a pearl a kill, 15 a floor behind him, 25 for getting out.
+  // Written out, not recomputed: a pearl a kill, 15 a floor behind him, 25 for getting out, and (plan 021) ten for each boss the floors say fell.
+  const felled = (report: ReturnType<typeof simulateRun>) => report.floors.filter(floor => floor.bossHpLeft !== null).length;
   const won = simulateRun(0x1, policy());
   assert.equal(won.outcome, 'escaped', 'precondition: the default knight escapes this seed');
-  assert.equal(won.pearls, won.kills + 3 * 15 + 25, 'an escaped run report does not carry what a win pays');
-  // Seeds 15839 and 158381 are lost by the weak knight on floors 2 and 3 (bands.json's `weak` policy).
-  for (const [seed, floor] of [[15839, 2], [158381, 3]] as const) {
+  assert.equal(felled(won), 3, 'precondition: the escape went through three bosses');
+  assert.equal(won.pearls, won.kills + 3 * 15 + 25 + 3 * 10, 'an escaped run report does not carry what a win pays');
+  // Seeds 159 and 158381 are lost by the weak knight on floors 2 and 3. Plan 021 Stage B re-picked the first: with a boss on every floor the old floor-2 seed (15839) is lost on floor 3.
+  for (const [seed, floor] of [[159, 2], [158381, 3]] as const) {
     const lost = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
     assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
-    assert.equal(lost.pearls, lost.kills + (floor - 1) * 15, `a run lost on floor ${floor} does not report what a death pays`);
+    assert.equal(felled(lost), floor - 1, `precondition: a run lost on floor ${floor} felled the ${floor - 1} bosses behind it`);
+    assert.equal(lost.pearls, lost.kills + (floor - 1) * 15 + (floor - 1) * 10, `a run lost on floor ${floor} does not report what a death pays`);
   }
 });
 

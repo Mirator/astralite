@@ -1,4 +1,4 @@
-import { BESTIARY, type EnemyKind } from './dungeon-bestiary.ts';
+import { BESTIARY, BOSS_POOL, FINAL_BOSS, type EnemyKind } from './dungeon-bestiary.ts';
 import { FOUND_WEAPONS, PICKUP_RADIUS, STARTING_WEAPON, type WeaponId } from './dungeon-weapon.ts';
 
 export const TILE = 1.48;
@@ -60,6 +60,22 @@ export const buryReserves = (spawns: readonly Spawn[]): Spawn[] => {
   });
   return all;
 };
+
+/**
+ * Which pool boss floors one and two meet on a run that began on `runSeed` (plan 021 D13): a pure hash of the seed with its own mixing, so it
+ * never touches the generator's stream, and the second floor is dealt from the pool without the first's pick, so a run never meets the same
+ * boss twice. Every pool boss is equally likely on each floor. While the pool holds one kind (Stage B) both floors get it; the no-repeat rule
+ * is exercised with a pool of two or more, which is why `pool` is a parameter.
+ */
+export const dealBosses = (runSeed: number, pool: readonly EnemyKind[] = BOSS_POOL): [EnemyKind, EnemyKind] => {
+  const mix = (n: number) => { let h = (runSeed ^ Math.imul(n, 0x9e3779b1)) >>> 0; h = Math.imul(h ^ h >>> 16, 0x85ebca6b) >>> 0; h = Math.imul(h ^ h >>> 13, 0xc2b2ae35) >>> 0; return (h ^ h >>> 16) >>> 0; };
+  const first = pool[mix(1) % pool.length], rest = pool.filter(kind => kind !== first);
+  return [first, rest.length ? rest[mix(2) % rest.length] : first];
+};
+/** The dev `?boss=` link (plan 021 D14): the name of a pool boss, or null for anything else - an unknown kind is ignored whole, as a bad arena link is. */
+export const parseBoss = (text: string | null): EnemyKind | null => text !== null && BOSS_POOL.includes(text as EnemyKind) ? text as EnemyKind : null;
+/** The boss a floor of this run holds: the dealt pair's, or the last floor's. */
+export const bossOnFloor = (dealt: readonly [EnemyKind, EnemyKind], level: number): EnemyKind => level >= 3 ? FINAL_BOSS : dealt[level - 1] ?? dealt[0];
 
 /**
  * Where a chamber's pack comes from. The rule `roster` deals by, named so the census can count the chambers that
@@ -125,7 +141,13 @@ export const ARRIVAL_CLEAR = 3.5;
 // chamber behind it is clear. Chambers stand in layers - the gate, then two or three per layer, then the
 // stair hall - and every door leads one layer on, so every path down is the same length and a choice
 // between doors is a choice between what the chambers behind them pay.
-export function generateFloor(seed: number, level = 1) {
+//
+// Plan 021 (D5, D13): the stair hall holds its boss and nobody else. `options.boss` names it; without one the Captain stands there, so every
+// caller and fixture that never heard of bosses still lays a valid floor (floor three gets `FINAL_BOSS`, which is the Captain until the Bone
+// King has a row). The goal chamber still draws every placement it drew when it held two or three wardens - the boss takes the first body's
+// spot and the others are placed and then not emitted - so no prop, weapon drop or other chamber's pack moves with it.
+export type FloorOptions = { boss?: EnemyKind };
+export function generateFloor(seed: number, level = 1, options: FloorOptions = {}) {
   let state = seed >>> 0;
   const random = () => { state += 0x6d2b79f5; let t=state; t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return ((t^t>>>14)>>>0)/4294967296; };
   const int = (a:number,b:number) => a+Math.floor(random()*(b-a+1));
@@ -257,12 +279,13 @@ export function generateFloor(seed: number, level = 1) {
   const tiles=[...cells].map(key=>{const [x,z]=key.split(',').map(Number);return {x,z,room:ownership.get(key)??-1};});
   const goal=layers[goalLayer][0];
   const spawns:Spawn[]=[];
-  const menace=(level-1)*.3;
+  const menace=(level-1)*.3,boss:EnemyKind=options.boss??(level>=3?FINAL_BOSS:'captain');
   const roster=(room:Room):Spawn['kind'][]=>{
     const progress=room.layer/goalLayer+menace,pick=(count:number,mix:PackMix):Spawn['kind'][]=>oneCaller(Array.from({length:count},()=>drawKind(mix,level,random())));
     // The former arm chamber is dealt as it was when its reward read `arm` (never a hoard), so its pack and every draw after it stay put.
     const source=packSource(room===armRoom?{...room,reward:null}:room,level,goalLayer);
-    if(room.role==='goal')return (level>=3?['warden','warden','warden']:['warden','warden']) as Spawn['kind'][];
+    // The wardens that used to stand here are the placement draws the boss keeps: only the first is ever emitted (below).
+    if(room.role==='goal')return [boss,...(level>=3?['warden','warden']:['warden'])] as Spawn['kind'][];
     if(source==='none')return [];
     if(source==='fixed')return ['stalker','stalker'];
     if(source==='ambush')return pick(int(3,4),PACK_MIX.ambush);
@@ -285,6 +308,12 @@ export function generateFloor(seed: number, level = 1) {
       spawns.push({x:t.x,z:t.z,kind,room:room.id,ambush});break;
     }
   }
+  // The goal chamber's other placed bodies were only there to spend their draws and to keep the first one's neighbours honest: the boss alone stands.
+  // A chamber too tight to place even the first (none is, over every sweep) gets the boss on its tile farthest from the way in, which draws nothing.
+  const bossAt=spawns.findIndex(s=>s.room===goal.id);
+  for(let i=spawns.length-1;i>=0;i--)if(spawns[i].room===goal.id&&i!==bossAt)spawns.splice(i,1);
+  if(bossAt>=0)spawns[bossAt].kind=boss;
+  else{const t=(tilesByRoom.get(goal.id)??[]).filter(t=>Math.hypot(t.x-goal.x,t.z-goal.z)>=2).sort((a,b)=>Math.hypot(b.x-goal.entry.x,b.z-goal.entry.z)-Math.hypot(a.x-goal.entry.x,a.z-goal.entry.z))[0];if(t)spawns.push({x:t.x,z:t.z,kind:boss,room:goal.id,ambush:false});}
   // Buried under the callers after everything standing; makes no draw, so the drop below is unaffected.
   const standing=spawns.length,everyone=buryReserves(spawns);
   const dropKind = FOUND_WEAPONS[int(0, FOUND_WEAPONS.length - 1)];

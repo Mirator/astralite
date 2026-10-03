@@ -4,12 +4,12 @@ import { buildRunExport, parseRunExport, RUN_EXPORT_FORMAT, RUN_EXPORT_VERSION, 
 import { RUN_LOG_CAP, type RunEnd } from '../app/dungeon-save.ts';
 
 const NOW = new Date('2026-09-29T10:15:30.000Z');
-const FIELDS = ['arm', 'at', 'boons', 'cause', 'floor', 'kills', 'pearls', 'rank', 'seconds', 'seed', 'upgrades', 'won', 'xp'];
+const FIELDS = ['arm', 'at', 'boons', 'bosses', 'cause', 'floor', 'kills', 'pearls', 'rank', 'seconds', 'seed', 'upgrades', 'won', 'xp'];
 // A varied log: deaths to different causes on different floors, a win, empty and full boon lists.
 const log = (): RunEnd[] => [
-  { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 31 },
-  { at: 1_700_000_500_000, floor: 1, won: false, cause: 'guard', seconds: 31, rank: 1, xp: 20, kills: 2, boons: [], seed: 7, arm: 'spear', upgrades: { lungs: 1 }, pearls: 2 },
-  { at: 1_700_001_000_000, floor: 3, won: true, cause: null, seconds: 402, rank: 6, xp: 1290, kills: 44, boons: ['edge', 'ward', 'swift'], seed: 0xffffffff, arm: 'maul', upgrades: { lungs: 3, whet: 1, eye: 1, tide: 1 }, pearls: 119 },
+  { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 31, bosses: 0 },
+  { at: 1_700_000_500_000, floor: 1, won: false, cause: 'guard', seconds: 31, rank: 1, xp: 20, kills: 2, boons: [], seed: 7, arm: 'spear', upgrades: { lungs: 1 }, pearls: 2, bosses: 0 },
+  { at: 1_700_001_000_000, floor: 3, won: true, cause: null, seconds: 402, rank: 6, xp: 1290, kills: 44, boons: ['edge', 'ward', 'swift'], seed: 0xffffffff, arm: 'maul', upgrades: { lungs: 3, whet: 1, eye: 1, tide: 1 }, pearls: 119, bosses: 0 },
 ];
 
 test('a realistic log survives the export and the parse-back unchanged', () => {
@@ -67,7 +67,7 @@ test('an empty log exports as an empty, valid list', () => {
 
 // An export copied before plan 019 has no `arm`, `upgrades` or `pearls` on its records. It is still a good
 // export, and it reads as Tideblade runs on no upgrades that paid nothing.
-const pre019 = () => log().map(({ arm: _arm, upgrades: _upgrades, pearls: _pearls, ...old }) => old);
+const pre019 = () => log().map(({ arm: _arm, upgrades: _upgrades, pearls: _pearls, bosses: _bosses, ...old }) => old);
 const envelope = (runs: unknown[]) => JSON.stringify({ format: RUN_EXPORT_FORMAT, version: RUN_EXPORT_VERSION, exported: NOW.toISOString(), runs });
 
 test('an export from before the meta save still parses, and its records read as Tideblade runs on no upgrades', () => {
@@ -75,7 +75,7 @@ test('an export from before the meta save still parses, and its records read as 
   assert.ok(old.length === 3 && old.every(record => !('arm' in record) && !('upgrades' in record) && !('pearls' in record)), 'precondition: the fixture lacks the new fields');
   const doc = parseRunExport(envelope(old));
   assert.notEqual(doc, null, 'a pre-019 export was rejected');
-  assert.deepEqual(doc?.runs, old.map(record => ({ ...record, arm: 'tideblade', upgrades: {}, pearls: 0 })), 'old records did not read as Tideblade runs on no upgrades');
+  assert.deepEqual(doc?.runs, old.map(record => ({ ...record, arm: 'tideblade', upgrades: {}, pearls: 0, bosses: 0 })), 'old records did not read as Tideblade runs on no upgrades');
   // And the version stays 1: the fields only add.
   assert.equal(RUN_EXPORT_VERSION, 1);
 });

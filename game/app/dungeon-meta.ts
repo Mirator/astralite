@@ -76,14 +76,17 @@ export const maxedMeta = (): Meta =>
 /**
  * What a finished run pays (D3): a pearl a kill, 15 a floor behind him, 25 for getting out. A death on
  * floor 2 has one floor behind it; a win has all of them. Rattlers never count as kills, so they never pay.
+ * Plan 021 (D10): ten more for every boss felled, so a run that dies to the boss on floor 3 still pays for the two behind it.
+ * `bosses` is optional so a record from before bosses reads as none.
  */
-export const pearlsFor = (end: Pick<RunEnd, 'floor' | 'won' | 'kills'>) => {
+export const BOSS_PEARLS = 10;
+export const pearlsFor = (end: Pick<RunEnd, 'floor' | 'won' | 'kills'> & Partial<Pick<RunEnd, 'bosses'>>) => {
   const floorsCompleted = end.won ? FLOORS : Math.max(0, end.floor - 1);
-  return Math.max(0, end.kills) + 15 * floorsCompleted + (end.won ? 25 : 0);
+  return Math.max(0, end.kills) + 15 * floorsCompleted + (end.won ? 25 : 0) + BOSS_PEARLS * Math.max(0, end.bosses ?? 0);
 };
 
 /** A new `Meta` with the run's earnings added. Never touches its input. */
-export const bank = (meta: Meta, end: Pick<RunEnd, 'floor' | 'won' | 'kills'>): Meta =>
+export const bank = (meta: Meta, end: Pick<RunEnd, 'floor' | 'won' | 'kills'> & Partial<Pick<RunEnd, 'bosses'>>): Meta =>
   ({ ...meta, pearls: Math.min(PEARL_CAP, meta.pearls + pearlsFor(end)), upgrades: { ...meta.upgrades }, arms: [...meta.arms] });
 
 /** The next rank, or null when it cannot be had: unknown id, already at the top, or too few pearls. */

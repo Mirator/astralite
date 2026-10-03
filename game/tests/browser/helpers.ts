@@ -242,6 +242,16 @@ export type Snapshot = {
   run: { start: { arm: string; maxHp: number; strike: number; draftSize: number; defiance: number }; /** Plan 019 (D9), plan 020 (D7): the run's arm is settled - true on every floor but the hall (and the dev arena). */ armLocked: boolean };
   /** The development arena this page is charting floors as, or null for an ordinary keep. */
   arena: { roster: EnemyKind[]; level: number } | null;
+  /**
+   * Plan 021: the live boss body on this floor, or null. `phase` is its place in its `phases`, `move` its slot in the phase's rotation, `unhittable` and `change` the phase change in
+   * progress, `attack` the move whose tell last began; `cue` is what its telegraph mesh is drawing, the shape read off the geometry on the mesh, and `bar` whether its own floating
+   * health bar shows (it must not: the boss bar replaces it); `surge` is the ring a phase change plays at its feet.
+   */
+  boss: {
+    kind: EnemyKind; hp: number; maxHp: number; phase: number; move: number; unhittable: boolean; change: number; awake: boolean; windup: number;
+    attack: 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon' | 'scatter' | null;
+    cue: { visible: boolean; shape: 'arc' | 'ring' | 'lane'; scale: number }; bar: boolean; surge: boolean;
+  } | null;
   /** Fire a pyre left where it fell, burning the knight. */
   hostilePools: { kind: EnemyKind; x: number; z: number; radius: number; life: number; damage: number }[];
   /** Bolts loosed at the knight, still in the air. */
@@ -300,6 +310,8 @@ export type Snapshot = {
   experience: {
     total: number;
     perEnemy: number;
+    /** Plan 021 (D10): what felling a boss pays. */
+    perBoss: number;
     intoRank: number;
     rankCost: number;
     resetsOnNewRun: boolean;
@@ -537,6 +549,12 @@ export const ARROW_KEYS: Record<ScreenDirection, string> = {
 // is intercepted for the single Uint32Array `buildFloor` draws, so the real
 // generator still runs; only its entropy is pinned.
 export const DEFAULT_SEEDS = [0x1, 0x7, 0xc];
+/**
+ * Plan 021 (D14): the boss every page boots asking for (`?boss=captain`, development only), as it boots with `boot=eager` and `hall=skip`. Floors one and two then hold the Captain
+ * whatever `dealBosses` makes of the pinned seeds, so a scenario that needs a known boss does not search seeds for one and the suite does not move when the pool grows.
+ * `test.use({ boss: null })` boots without the link, on a page of its own, and meets whatever the run was dealt.
+ */
+export const DEFAULT_BOSS = 'captain';
 
 /** Distance the knight keeps while lining a strike up: inside 1.8, with slack. */
 export const STRIKE_STANCE = 1.05;
@@ -637,6 +655,8 @@ export class Game {
     readonly seeds: number[],
     /** Whether this page boots into the Tide Altar's hall (`test.use({ hall: true })`) and not into floor 1 (`?hall=skip`, the default). */
     readonly hall = false,
+    /** Plan 021 (D14): the `?boss=` link the page booted with, or null for none. Every page boots with the Captain, so the bosses a floor holds do not depend on the deal. */
+    readonly boss: string | null = DEFAULT_BOSS,
   ) {}
 
   /**
@@ -646,8 +666,8 @@ export class Game {
    * so the listeners belong to the pool, which re-points them at each scenario in turn. Attaching
    * them here too would go on charging a page's whole life to a object nobody holds any more.
    */
-  static async open(page: Page, info: TestInfo, seeds: number[], watch = true, hall = false) {
-    const game = new Game(page, info, seeds, hall);
+  static async open(page: Page, info: TestInfo, seeds: number[], watch = true, hall = false, boss: string | null = DEFAULT_BOSS) {
+    const game = new Game(page, info, seeds, hall, boss);
     if (watch) {
       page.on('pageerror', (error) => game.pageErrors.push(String(error)));
       page.on('console', (message) => {
@@ -670,7 +690,7 @@ export class Game {
     // itself (loading.spec.ts) drives its own `page.goto` on the plain URL instead of going through `Game`.
     // Plan 020 (D11): `hall=skip` keeps today's flow - the boot builds floor 1 and ENTER enters it - for the 138 callers of `game.enter()`. A scenario that is
     // about the hall opts out with `test.use({ hall: true })`, which boots the page the way a player's is: into the Tide Altar's hall.
-    await page.goto(`${CAPTURING ? '/?quality=full&' : '/?'}boot=eager${hall ? '' : '&hall=skip'}`);
+    await page.goto(`${CAPTURING ? '/?quality=full&' : '/?'}boot=eager${hall ? '' : '&hall=skip'}${boss === null ? '' : `&boss=${boss}`}`);
     // The hooks go up as soon as floor 1 exists, before the cold compile - but a fresh page on CI
     // shares its cores with a sibling worker's software-rasterised frames, and the 25 s default has
     // timed out here on three isolated specs in one run. This is a boot, so it gets the boot's budget.
@@ -1311,6 +1331,7 @@ class Pool {
 const needsOwnPage = (options: {
   isolate: boolean;
   hall: boolean;
+  boss: string | null;
   hasTouch: boolean;
   isMobile: boolean;
   storageState: unknown;
@@ -1319,6 +1340,7 @@ const needsOwnPage = (options: {
   ISOLATED ||
   options.isolate ||
   options.hall ||
+  options.boss !== DEFAULT_BOSS ||
   options.hasTouch ||
   options.isMobile ||
   options.storageState !== undefined ||
@@ -1326,7 +1348,7 @@ const needsOwnPage = (options: {
   options.viewport?.height !== 700;
 
 export const test = base.extend<
-  { seeds: number[]; isolate: boolean; hall: boolean; game: Game },
+  { seeds: number[]; isolate: boolean; hall: boolean; boss: string | null; game: Game },
   { pool: Pool }
 >({
   seeds: [DEFAULT_SEEDS, { option: true }],
@@ -1341,6 +1363,8 @@ export const test = base.extend<
    * only coverage of the product's default flow, so they stay on the PR gate.
    */
   hall: [false, { option: true }],
+  /** Plan 021 (D14): the `?boss=` link the page boots with; `null` boots with none, and such a scenario has its own page. */
+  boss: [DEFAULT_BOSS as string | null, { option: true }],
   pool: [
     async ({ browser }, runWorker) => {
       const pool = new Pool(browser);
@@ -1353,12 +1377,12 @@ export const test = base.extend<
   // the two have to be the same object. A scenario that needs its own gets a context built here from
   // the options it asked for; the rest are handed the worker's.
   page: async (
-    { browser, pool, isolate, hall, hasTouch, isMobile, storageState, viewport },
+    { browser, pool, isolate, hall, boss, hasTouch, isMobile, storageState, viewport },
     runTest,
     info,
   ) => {
     if (
-      !needsOwnPage({ isolate, hall, hasTouch, isMobile, storageState, viewport })
+      !needsOwnPage({ isolate, hall, boss, hasTouch, isMobile, storageState, viewport })
     ) {
       const pooled = await pool.take(info);
       pool.adopted = false;
@@ -1381,20 +1405,21 @@ export const test = base.extend<
   },
   // Named `runTest`, not `use`: a bare `use` reads as a React hook to the linter.
   game: async (
-    { page, pool, seeds, isolate, hall, hasTouch, isMobile, storageState, viewport },
+    { page, pool, seeds, isolate, hall, boss, hasTouch, isMobile, storageState, viewport },
     runTest,
     info,
   ) => {
     const own = needsOwnPage({
       isolate,
       hall,
+      boss,
       hasTouch,
       isMobile,
       storageState,
       viewport,
     });
     const game = own
-      ? await Game.open(page, info, seeds, true, hall)
+      ? await Game.open(page, info, seeds, true, hall, boss)
       : await Game.adopt(page, info, seeds, pool);
     await runTest(game);
     if (!own) await game.prove(pool);
@@ -1634,3 +1659,20 @@ export const veilSeen = (page: Page) => page.evaluate(() => {
 
 /** How many floor seeds the page has drawn from the pinned handle (`pinSeeds`): a build that took none left it where it was. */
 export const pinnedDraws = (page: Page) => page.evaluate(() => (window as unknown as { __pinnedSeeds: { index: number } }).__pinnedSeeds.index);
+
+/**
+ * Plan 021: waits out every phase change a boss is in or about to enter, with the clock stepped by hand. A boss left under a threshold (a fixture's `hp: 1`) changes
+ * phase, one at a time, before it can be struck, and a blow in that window lands nothing: so a scenario that stages a boss one blow from death settles it first, and swings
+ * after. Returns the boss as it stands once it has held still and hittable for two reads in a row, or throws - a boss that never settles is a finding, not a timeout.
+ */
+export const settleBoss = async (game: Game) => {
+  let calm = 0;
+  for (let waited = 0; waited < 8000; waited += 50) {
+    await game.step(50);
+    const boss = (await game.state()).boss;
+    if (!boss) throw new GameError('there is no boss to settle');
+    calm = boss.unhittable ? 0 : calm + 1;
+    if (calm >= 2) return boss;
+  }
+  throw new GameError('the boss was still changing phase after eight seconds');
+};
