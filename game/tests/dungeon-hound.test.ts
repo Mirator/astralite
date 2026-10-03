@@ -46,8 +46,8 @@ test('the Tide Hound is a pool boss with D4\'s rotation: pounce, swing, pounce, 
   assert.ok(hound.phaseNotice![1].length > 0);
   assert.ok(BOSS_POOL.includes('hound'), 'the Hound is not in the pool, so nothing deals it');
   assert.ok(ENEMY_KINDS.includes('hound'));
-  assert.equal(enemyStats('hound', 1).hp, 45);
-  assert.equal(enemyStats('hound', 2).hp, 45 + HIT, 'a pool boss on floor two takes the usual extra blade of vitality');
+  assert.equal(enemyStats('hound', 1).hp, 260);
+  assert.equal(enemyStats('hound', 2).hp, 260 + HIT, 'a pool boss on floor two takes the usual extra blade of vitality');
   assert.ok(CAUSE_LABELS.hound.length > 0 && CUTAWAY_ELLIPSE.hound.radii[0] > CUTAWAY_ELLIPSE.stalker.radii[0], 'its cause label, and a cutaway window larger than the stalker\'s');
 });
 

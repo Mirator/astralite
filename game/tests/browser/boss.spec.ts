@@ -77,12 +77,12 @@ test('the fight is wired: the Captain winds up its moves in order with each move
   expect(opening.enemies.map((e) => e.kind)).toEqual(['captain']);
   const captain = { x: opening.enemies[0].x, z: opening.enemies[0].z };
   // Hurt, so an ordinary body would be wearing its floating bar: the bar being hidden then says something.
-  await game.configureCombat({ enemies: [{ index: 0, hp: 50 }] });
+  await game.configureCombat({ enemies: [{ index: 0, hp: 250 }] });
   const spot = laneSpot(floor, captain, 2.4);
   await game.teleport(spot.x, spot.z);
   const first = await nextTell(game);
-  expect(first.hp, 'precondition: the Captain is hurt, so a floating bar would show').toBe(50);
-  expect(first.maxHp).toBe(60);
+  expect(first.hp, 'precondition: the Captain is hurt, so a floating bar would show').toBe(250);
+  expect(first.maxHp).toBe(290);
   expect([first.attack, first.cue.visible, first.cue.shape], 'its first move was not a swing drawn as an arc').toEqual(['swing', true, 'arc']);
   expect(first.bar, 'its own floating bar was showing beside the boss bar').toBe(false);
   // The bar at the top of the screen: its name, its vitality as the boss has it, and a tick at the phase threshold.
@@ -90,8 +90,8 @@ test('the fight is wired: the Captain winds up its moves in order with each move
   await expect(bar).toBeVisible();
   await expect(bar).toHaveAttribute('role', 'progressbar');
   await expect(bar).toHaveAttribute('aria-label', 'The Drowned Captain');
-  await expect(bar).toHaveAttribute('aria-valuenow', '50');
-  await expect(bar).toHaveAttribute('aria-valuemax', '60');
+  await expect(bar).toHaveAttribute('aria-valuenow', '250');
+  await expect(bar).toHaveAttribute('aria-valuemax', '290');
   await expect(bar.locator('u')).toHaveCount(1);
   const ticked = await bar.evaluate((node) => (node.querySelector('u') as HTMLElement).style.left);
   expect(ticked, 'the tick is not at the half way phase').toBe('50%');
@@ -106,17 +106,17 @@ test('the phase is wired: a real strike takes it below half, it is unhittable fo
   const floor = await game.floor();
   const stance = stageFor(floor, floor.start, 3.6);
   // One blow above the threshold, and the Captain held quiet (and moved where the push has room to show) so nothing it does is in the way of the strike.
-  await game.configureCombat({ enemies: [{ index: 0, x: stance.boss.x, z: stance.boss.z, hp: 31, windup: 0, cooldown: 5 }] });
+  await game.configureCombat({ enemies: [{ index: 0, x: stance.boss.x, z: stance.boss.z, hp: 146, windup: 0, cooldown: 5 }] });
   await game.teleport(stance.x, stance.z);
   await game.step(16); // it turns to face him
   const before = await bossOf(game);
-  expect([before.phase, before.unhittable, before.hp]).toEqual([0, false, 31]);
+  expect([before.phase, before.unhittable, before.hp]).toEqual([0, false, 146]);
   const damage = (await game.state()).weapon.strikeDamage;
-  expect(31 - damage, 'precondition: one blow of this arm carries it under half of 60').toBeLessThan(30);
+  expect(146 - damage, 'precondition: one blow of this arm carries it under half of 290').toBeLessThan(145);
   await strike(page, stance.key);
   let boss = await bossOf(game);
   for (let waited = 0; waited < 600 && boss.phase === 0; waited += 16) { await game.step(16); boss = await bossOf(game); }
-  expect(boss.hp, 'the blow never landed, so no phase was crossed by it').toBeLessThan(30);
+  expect(boss.hp, 'the blow never landed, so no phase was crossed by it').toBeLessThan(145);
   expect(boss.phase, 'it fell below half and did not change phase').toBe(1);
   await game.step(32); // the ring is drawn from the frame after the one that decides the change
   boss = await bossOf(game);
@@ -232,7 +232,7 @@ test('the Pyre Mother is wired: a lane drawn for her fan, the bar names her, the
   const bar = page.locator('.boss-bar');
   await expect(bar).toBeVisible();
   await expect(bar).toHaveAttribute('aria-label', 'The Pyre Mother');
-  await expect(bar).toHaveAttribute('aria-valuemax', '50');
+  await expect(bar).toHaveAttribute('aria-valuemax', '215');
   // The fan, as it flies: every bolt of it is an arrow on the screen, the aimed one and then the two either side.
   const fanOf = (phase: number) => BESTIARY.mother.moves![phase][0].bolt!.fan!;
   const bolts = async () => {
@@ -244,9 +244,9 @@ test('the Pyre Mother is wired: a lane drawn for her fan, the bar names her, the
   expect(fanOf(0).count, 'precondition: phase one looses a fan of more than one').toBeGreaterThan(1);
   expect(state.hostileBolts.map((b) => b.kind), 'the fan was not all in the air at once').toEqual(Array(fanOf(0).count).fill('mother'));
   expect(state.arrowsDrawn, 'a bolt of the fan has no arrow drawn').toBe(fanOf(0).count);
-  // Below half: one blow short of the threshold is hp 25 and she changes phase on 24. Her densest volley is then the whole fan, and the twelve-arrow pool holds all of it.
+  // Below half: the threshold is 107.5, so 107 is under it. Her densest volley is then the whole fan, and the twelve-arrow pool holds all of it.
   await game.step(2500);
-  await game.configureCombat({ health: 100, enemies: [{ index: 0, hp: 24 }] });
+  await game.configureCombat({ health: 100, enemies: [{ index: 0, hp: 107 }] });
   const calm = await settleBoss(game);
   expect(calm.phase, 'she did not change phase under half').toBe(1);
   await expect(page.locator('.chamber-notice')).toContainText('The Pyre Mother kindles');
@@ -310,7 +310,7 @@ test('with the knight\'s own fire on the ground she marks no more rings than are
   const opening = await game.state();
   const spots = standingSpots(floor, { x: opening.enemies[0].x, z: opening.enemies[0].z }, 3);
   // Below half she scatters three rings, twice running: the second is marked while the first three still burn, and the knight's own flask then takes one of the six.
-  await game.configureCombat({ enemies: [{ index: 0, hp: 24 }] });
+  await game.configureCombat({ enemies: [{ index: 0, hp: 107 }] });
   await settleBoss(game);
   const pace = pacing(game, spots);
   await tellOf(game, 'scatter', pace);
@@ -347,10 +347,10 @@ test('the Tide Hound is wired: a lane drawn for its pounce, the bar names it, an
   const bar = page.locator('.boss-bar');
   await expect(bar).toBeVisible();
   await expect(bar).toHaveAttribute('aria-label', 'The Tide Hound');
-  await expect(bar).toHaveAttribute('aria-valuemax', '45');
-  // Below half: the threshold is 22.5, so 22 is under it. The change is wired (the notice, the second phase) and the Hound's tells are the shorter ones.
+  await expect(bar).toHaveAttribute('aria-valuemax', '260');
+  // Below half: the threshold is 130, so 129 is under it. The change is wired (the notice, the second phase) and the Hound's tells are the shorter ones.
   await game.step(1500);
-  await game.configureCombat({ health: 100, enemies: [{ index: 0, hp: 22 }] });
+  await game.configureCombat({ health: 100, enemies: [{ index: 0, hp: 129 }] });
   const calm = await settleBoss(game);
   expect(calm.phase, 'it did not change phase under half').toBe(1);
   await expect(page.locator('.chamber-notice')).toContainText('The Tide Hound howls');
@@ -393,7 +393,7 @@ test('the Bastion is wired: a swing\'s arc, the bar names it, a real strike is t
   const bar = page.locator('.boss-bar');
   await expect(bar).toBeVisible();
   await expect(bar).toHaveAttribute('aria-label', 'The Bastion');
-  await expect(bar).toHaveAttribute('aria-valuemax', '70');
+  await expect(bar).toHaveAttribute('aria-valuemax', '240');
   // Phase one: held between its blows and facing him, a real strike from the front is turned aside and wounds nothing.
   const stance = strikeStance(floor, anchor);
   const hold = async () => {
@@ -409,9 +409,9 @@ test('the Bastion is wired: a swing\'s arc, the bar names it, a real strike is t
   const turned = (await game.state()).enemies[0];
   expect(turned.blocked, 'the strike never reached the shield, so nothing was tested').toBe(before.blocked + 1);
   expect(turned.hp, 'a frontal strike wounded a raised shield').toBe(before.hp);
-  // Below half (35 of 70 is the threshold; 34 is under it): the shield breaks, the notice says so, and the mesh is gone from its arm.
+  // Below half (120 of 240 is the threshold; 119 is under it): the shield breaks, the notice says so, and the mesh is gone from its arm.
   await game.step(600);
-  await game.configureCombat({ enemies: [{ index: 0, hp: 34 }] });
+  await game.configureCombat({ enemies: [{ index: 0, hp: 119 }] });
   const calm = await settleBoss(game);
   expect([calm.phase, calm.shield], 'in phase two it was still behind a shield').toEqual([1, false]);
   await expect(page.locator('.chamber-notice')).toContainText('The Bastion\'s shield breaks');

@@ -11,7 +11,8 @@ import { buryReserves, cellKey, generateFloor } from '../app/dungeon-floor.ts';
 import { CAUSE_LABELS } from '../app/dungeon-run-summary.ts';
 import { CUTAWAY_ELLIPSE } from '../app/dungeon-occlusion.ts';
 import { sweepSeeds } from '../scripts/balance/census.ts';
-import { DEFAULT_POLICY, simulateLevel } from '../scripts/balance/sim.ts';
+import { buildPolicy } from '../scripts/balance/bands.ts';
+import { simulateLevel } from '../scripts/balance/sim.ts';
 
 const king = BESTIARY.king;
 const DT = 1 / 60;
@@ -53,8 +54,8 @@ test('the Bone King is the final boss with D4\'s phases: summon, swing, volley, 
   assert.equal(king.phaseNotice?.length, king.moves!.length, 'a notice for each phase');
   assert.ok(king.phaseNotice!.slice(1).every(notice => notice.length > 0));
   assert.ok(ENEMY_KINDS.includes('king'));
-  assert.equal(enemyStats('king', 1).hp, 80);
-  assert.equal(enemyStats('king', 3).hp, 88, 'the last floor\'s boss takes the usual extra blade of vitality a floor, twice');
+  assert.equal(enemyStats('king', 1).hp, 500);
+  assert.equal(enemyStats('king', 3).hp, 508, 'the last floor\'s boss takes the usual extra blade of vitality a floor, twice');
   assert.ok(CAUSE_LABELS.king.length > 0 && CUTAWAY_ELLIPSE.king.radii[0] > CUTAWAY_ELLIPSE.warden.radii[0], 'its cause label and a cutaway window larger than the warden\'s');
 });
 
@@ -153,11 +154,11 @@ test('felling the King crumbles everything he called, standing or buried, and a 
 });
 
 test('the sim fells the King and the stair opens: every body in the stair hall falls with him, so the floor is cleared and not stuck', () => {
-  // A floor-three keep fought by the default knight. A reserve that was left standing or buried would hold the stair hall open for ever, and the report would be `stuck`.
-  const seed = sweepSeeds(3)[0], floor = generateFloor(seed, 3), report = simulateLevel(seed, 3, DEFAULT_POLICY, floor);
+  // A floor-three keep fought by the knight with every upgrade bought (a fresh default knight dies to the tuned King). A reserve that was left standing or buried would hold the stair hall open for ever, and the report would be `stuck`.
+  const seed = sweepSeeds(3)[0], floor = generateFloor(seed, 3), report = simulateLevel(seed, 3, buildPolicy({ meta: 'max' }), floor);
   assert.equal(report.bossKind, 'king', 'the floor\'s boss is not the King');
   assert.notEqual(report.outcome, 'stuck', 'the floor hit its timeout: something he called was left to hold the stair shut');
-  assert.equal(report.outcome, 'cleared', 'the default knight did not clear the floor, so the King was not felled');
+  assert.equal(report.outcome, 'cleared', 'the knight did not clear the floor, so the King was not felled');
   assert.ok(report.bossHpLeft !== null, 'the King was never felled');
   assert.ok(report.raised > 0, 'the King summoned nothing, so there was nothing to crumble');
 });

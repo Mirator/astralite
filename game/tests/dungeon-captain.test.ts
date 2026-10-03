@@ -42,13 +42,13 @@ test('the Captain is a pool boss with D4\'s phases: swing, swing, sweep, and bel
   assert.ok(captain.phaseNotice![1].length > 0);
 });
 
-test('the Captain leads the pool, in every table that has a row per kind, and on floor one has 60 vitality', () => {
+test('the Captain leads the pool, in every table that has a row per kind, and on floor one has 290 vitality (Stage F)', () => {
   assert.equal(BOSS_POOL[0], 'captain', 'the Captain leads the pool, so a deal indexed into it stays where Stage B put it');
   assert.notEqual(FINAL_BOSS, 'captain', 'the Captain is a pool boss: the final floor holds the Bone King (Stage E)');
   assert.ok(!BOSS_POOL.includes(FINAL_BOSS), 'the last floor\'s boss is never dealt from the pool');
   assert.ok(ENEMY_KINDS.includes('captain'));
-  assert.equal(enemyStats('captain', 1).hp, 60);
-  assert.equal(enemyStats('captain', 2).hp, 64, 'a pool boss on floor two takes the usual extra blade of vitality');
+  assert.equal(enemyStats('captain', 1).hp, 290);
+  assert.equal(enemyStats('captain', 2).hp, 294, 'a pool boss on floor two takes the usual extra blade of vitality');
   assert.ok(CAUSE_LABELS.captain.length > 0 && CUTAWAY_ELLIPSE.captain.radii[0] > CUTAWAY_ELLIPSE.warden.radii[0], 'its cause label and a cutaway window larger than the warden\'s');
 });
 

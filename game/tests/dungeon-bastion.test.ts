@@ -46,8 +46,8 @@ test('the Bastion is a pool boss with D4\'s rotation: swing, swing, sweep behind
   assert.ok(bastion.phaseNotice![1].length > 0);
   assert.ok(BOSS_POOL.includes('bastion'), 'the Bastion is not in the pool, so nothing deals it');
   assert.ok(ENEMY_KINDS.includes('bastion'));
-  assert.equal(enemyStats('bastion', 1).hp, 70);
-  assert.equal(enemyStats('bastion', 2).hp, 70 + HIT, 'a pool boss on floor two takes the usual extra blade of vitality');
+  assert.equal(enemyStats('bastion', 1).hp, 240);
+  assert.equal(enemyStats('bastion', 2).hp, 240 + HIT, 'a pool boss on floor two takes the usual extra blade of vitality');
   assert.ok(CAUSE_LABELS.bastion.length > 0 && CUTAWAY_ELLIPSE.bastion.radii[0] > CUTAWAY_ELLIPSE.shieldbearer.radii[0], 'its cause label, and a cutaway window larger than the shieldbearer\'s');
 });
 
@@ -114,13 +114,11 @@ test('its shield turns a frontal blow aside in phase one, and in phase two it do
 });
 
 test('in the balance sim the Bastion\'s shield turns blows aside while it holds and not after it breaks', () => {
-  // The knight takes the Bastion down in about ten seconds, so it holds 200 here, long enough to be struck behind its shield and then past its change.
-  const stats = BESTIARY.bastion.stats, was = stats.hp;
-  stats.hp = 200;
-  try {
+  // It holds 240 (Stage F), long enough to be struck behind its shield and then past its change.
+  {
     const reports = [1, 2, 3, 4].map(seed => simulateArena(seed, 1, ['bastion'], { ...DEFAULT_POLICY, dodge: 0.8 }));
     assert.ok(reports.every(r => r.phaseChanges === 1), `precondition: every Bastion changed phase once (${reports.map(r => r.phaseChanges).join(', ')})`);
     assert.ok(reports.reduce((sum, r) => sum + r.blocked, 0) > 0, 'precondition: the shield turned a blow aside in phase one');
     for (const r of reports) assert.equal(r.blockedLate, 0, `the Bastion's shield turned ${r.blockedLate} blows aside after it broke`);
-  } finally { stats.hp = was; }
+  }
 });

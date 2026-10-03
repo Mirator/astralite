@@ -46,8 +46,8 @@ test('the Pyre Mother is a pool boss with D4\'s rotation: volley, volley, scatte
   assert.ok(mother.phaseNotice![1].length > 0);
   assert.ok(BOSS_POOL.includes('mother'), 'she is not in the pool, so nothing deals her');
   assert.ok(ENEMY_KINDS.includes('mother'));
-  assert.equal(enemyStats('mother', 1).hp, 50);
-  assert.equal(enemyStats('mother', 2).hp, 50 + HIT, 'a pool boss on floor two takes the usual extra blade of vitality');
+  assert.equal(enemyStats('mother', 1).hp, 215);
+  assert.equal(enemyStats('mother', 2).hp, 215 + HIT, 'a pool boss on floor two takes the usual extra blade of vitality');
   assert.ok(CAUSE_LABELS.mother.length > 0 && CUTAWAY_ELLIPSE.mother.radii[0] > CUTAWAY_ELLIPSE.pyre.radii[0], 'her cause label, and a cutaway window larger than the pyre\'s');
 });
 
@@ -121,12 +121,9 @@ test('a fan looses its aimed bolt first and then outward, evenly, and her denses
 });
 
 test('the knight stepping out of a marked ring is what keeps the fire off him: switched off, more rings light on him', () => {
-  // The knight kills her in about five seconds, before her first scatter: she holds 300 here, so the fight runs long enough to see rings lit.
-  const stats = BESTIARY.mother.stats, was = stats.hp;
   const run = (avoidMarks: boolean) => {
     const policy: Policy = { ...DEFAULT_POLICY, dodge: 0, avoidMarks };
-    stats.hp = 300;
-    const reports = (() => { try { return [1, 2, 3, 4, 5, 6, 7, 8].map(seed => simulateArena(seed, 1, ['mother'], policy)); } finally { stats.hp = was; } })();
+    const reports = [1, 2, 3, 4, 5, 6, 7, 8].map(seed => simulateArena(seed, 1, ['mother'], policy));
     return { lit: reports.reduce((sum, r) => sum + r.ringsLit, 0), onKnight: reports.reduce((sum, r) => sum + r.ringsOnKnight, 0), seconds: reports.reduce((sum, r) => sum + r.bossSeconds, 0) };
   };
   const steps = run(true), stands = run(false);
