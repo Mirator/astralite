@@ -258,6 +258,16 @@ enemy also reports `blocked` (blows a shieldbearer turned aside); `hostilePools`
 It is the quickest way to look at a new kind in the game rather than on the bench. Only the link ships:
 `npm run build:check` fails if the menu page's event name or its menu label reaches the production bundle.
 
+### Bosses
+
+Plan 021: every stair hall holds a boss and nobody else, dealt per run from floor one's seed (`dealBosses` in `app/dungeon-floor.ts`; floor three is `FINAL_BOSS`). Stage B has one, the Drowned Captain (`captain`: moves and phases in `app/dungeon-bestiary.ts`), so every floor deals it for now; `?arena=captain:1` stages it alone.
+
+- **`?boss=<kind>`** (development only, ignored by a production build, which `npm run build:check` holds) puts that pool boss on floors one and two. **The harness passes `boss=captain` on every `goto`** it makes, as it passes `boot=eager` and `hall=skip`, so the bosses a scenario meets do not depend on the deal and do not move when the pool grows. `test.use({ boss: null })` boots without the link, on a page of its own.
+- `render_game_to_text().boss` is the live boss body or null: `{ kind, hp, maxHp, phase, move, unhittable, change, awake, windup, attack, cue: { visible, shape, scale }, bar, surge }`. `phase` is its place in its `phases`, `move` its slot in that phase's rotation, `unhittable` and `change` the phase change in progress (nothing hurts it, and the knight is pushed out of its reach), `attack` the move whose tell last began; `cue.shape` is read off the telegraph mesh's geometry (`arc`, `ring` or `lane`), `bar` is whether its own floating health bar shows (it never does: the boss bar replaces it) and `surge` the ring a phase change plays at its feet. `experience.perBoss` is what felling one pays.
+- The **boss bar** is DOM: `.boss-bar` (`role="progressbar"`, named for the boss, one `u` tick at each phase threshold), present only while a boss has noticed the knight and still stands. On a phone it takes the title's row for the fight.
+- `settleBoss(game)` in `helpers.ts` waits out a boss's phase changes. A boss a fixture leaves at `hp: 1` is under every threshold it has, so it changes phase (unhittable for a second, the knight pushed out of reach) before a blow can land; a scenario that stages one waits that out, and puts the knight back, before it swings.
+- `tests/browser/boss.spec.ts`: the fight is wired (moves, cues, bar), the phase is wired (a real strike, the window, the push), the stair on a generated floor, and the bar on a phone. The rules are in `tests/dungeon-captain.test.ts`, `dungeon-enemy.test.ts`, `dungeon-floor.test.ts`, `dungeon-sim.test.ts` and `dungeon-meta.test.ts`.
+
 ### Staging a fight
 
 `window.dungeonTest.configureCombatFixture({ health, enemies: [{ index, x, z, hp, windup, cooldown, aim }] })`

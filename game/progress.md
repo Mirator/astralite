@@ -4538,3 +4538,105 @@ and the one game line passes the new fields; CI on the draft PR runs it. Nothing
 - The frame-cost numbers are SwiftShader, six goal rooms, floor 3; a GPU was not used.
 - The goal-room fit uses stand-in reaches (D4 gives none); the real ones are measured against the 5.6 and 28% envelope when they exist.
 - The sim's marked-ring dodge and the "away from a sweep" refinement are deferred, as above.
+
+## 2026-10-03 - Plan 021 Stage B: the Drowned Captain, the deal, the boss bar and the boss reward
+
+Branch `claude/beautiful-gauss-5o0cw4`. Every stair hall now holds a boss and nobody else; the pool holds one, the Captain, so every floor deals it (floor three stands it in for the Bone King until Stage E). Nothing was
+tuned: the Captain's numbers are D7's hypothesis, Stage F's to tune. No stop rule tripped.
+
+### What changed
+
+- `app/dungeon-bestiary.ts`: the `captain` row (60 vitality, damage 24, speed 1.8, steadfast, `boss: 'pool'`, scale 1.7), phases `[.5]`; phase one is swing (tell .8, reach 3.2), swing (.7), sweep (1.1, reach 3.6, drawn as a 3.6 ring); phase two is swing, pounce
+  (tell .7, a 5 x 2.4 lane, begins from 5.5), sweep (1.0). Swing and sweep both begin from 2.7 and 2.6, so a boss walking in meets the swing first. `title`, `phaseNotice` (new optional archetype fields), `BOSS_POOL`, `FINAL_BOSS`.
+- `app/dungeon-floor.ts`: `generateFloor(seed, level, { boss })`: the goal roster is `[boss, warden, (warden)]`, so every placement draw is made as before, and every goal body but the first is dropped before the reserve is buried (the boss takes the first body's
+  spot; nothing draws a number, and a chamber too tight to place any gets the boss on its tile farthest from the way in, which no sweep ever needed). `dealBosses(runSeed, pool)` (a pure hash with its own mixing; floor two is dealt from the pool less floor one's pick),
+  `bossOnFloor`, `parseBoss` (the dev link).
+- `app/dungeon-enemy-pose.ts`, `dungeon-enemy-view.ts`: a boss is posed in the style of the move it last began (`poseStyleOf`: swing overhead, sweep spin, pounce crouch and leap), its telegraph swaps shape and size per move (`beginMove`; three shared, never-disposed
+  geometries), a phase change rears the body back and plays a pale ring (`surge`) at its feet out to where the knight is left, and its floating bar is hidden. `dungeon-skeleton.ts`: the Captain's figure (the warden's plate, a wide teal hat tilted back off its face, a coat and kelp,
+  an anchor for a weapon, sea-green eyes), its palette; `dungeon-occlusion.ts` its cutaway; `dungeon-run-summary.ts` its cause label.
+- `app/dungeon-game.tsx`: the real `move`, `phase` and `change` are fed to `decideEnemy` and stored back; a move's own damage and bolt are used (read before the intent advances the rotation, as the sim does); a tell beginning calls `beginMove`; a phase change cancels the trails,
+  pushes the knight with `bossPush` (walls stop it), raises the notice ("The Captain draws the tide"), shakes and bursts; a blow or a bolt on a boss in its change shows sparks and lands nothing (`landBlow`'s `immune`). The boss bar is DOM (`.boss-bar`, `role="progressbar"`, named for the boss, a tick at each
+  threshold), shown while a boss has noticed the knight and stands, cleared in `fell`, `endRun` and a floor build. The goal notice names the boss. `?boss=` is read only under `NODE_ENV !== 'production'`. The deal is made when floor one is charted and every later floor reads it back.
+  Snapshot: `boss` (see `tests/README.md`), `experience.perBoss`. `fell` pays `resolveKill(run, kind)`.
+- `app/dungeon-sim.ts`: `XP_PER_BOSS` 100, `Run.bosses`, `resolveKill(run, kind?)`. `app/dungeon-meta.ts`: `BOSS_PEARLS` 10, `pearlsFor` and `bank` take an optional `bosses`. `app/dungeon-save.ts`: `RunEnd.bosses` (0 on an old record) and an optional `bossKinds` (the boss each floor the run reached held, floor
+  order; absent on an old record, kept only of boss kinds); `app/dungeon-run-export.ts` fills `bosses` on a pre-boss export.
+- `scripts/balance/sim.ts`: floors are laid with `dealBosses(seed)`'s bosses, kills are paid with the kind, the report's pearls count bosses. `scripts/build/leaks.ts`: `?boss=` is a dev-only marker.
+- `app/globals.css`: `.boss-bar`.
+
+### Interpretations
+
+- **`bossKinds` is the boss of each floor the run reached**, floors 1 to the floor it ended on, not only the bosses it fought: a run that died on floor 2 names two. `bosses` is how many fell.
+- **The harness boots every page with `?boss=captain`** (like `boot=eager` and `hall=skip`; `test.use({ boss: null })` opts out onto a page of its own), so floors one and two hold the Captain whatever the deal makes of the pinned seeds, and the suite does not move when Stage C grows the pool. The dev link accepts a pool boss only.
+- **A boss "awake" is a boss that has noticed the knight** (`notice` at its full beat); that is when the bar appears, and it goes if the boss falls back to dozing. A boss one blow from death (a fixture's `hp: 1`) is under every threshold, so it changes phase first; `settleBoss` in `helpers.ts` waits that out.
+- **The sweep begins from 2.6, under the swing's 2.7**, so a Captain walking in meets the swing first and phase one is swing, swing, sweep as D4 writes it; with the sweep at 3.0 the boss began the sweep first when the knight stood at 5.9 (found in the first screenshot run). Phase two is swing, pounce, sweep: a knight out of the swing's reach is met with the pounce, which is what the phase adds.
+- **The boss bar on a phone replaces the title row for the fight** (at 900 px and under, the title is hidden while the bar shows and the chamber notice moves down), because the vitality column, the minimap and the menu leave no other clear row at 360 x 740. At 901 px and over it is centred between the title and the options.
+- **The Captain's scatter, summon and volley are not applied in the game** (it has none); the game applies `scatter`, `raise` and `loose` as before for ordinary kinds. A Stage C scatter needs its cue and pools in the game, as the plan says.
+- The Heavy Bolt scenario was restaged in the arena (two wardens and a guard) rather than on a second pinned seed: it stages by kind, like every other scenario in `special.spec.ts`.
+
+### The frame numbers
+
+`frame-budget.spec.ts` gains `captain-chamber`: the tightest goal chamber (seed 0x86 floor three, a 45-tile crypt) with the Captain standing, framed 5.5 from it, boss alone. Measured 2026-10-03 on SwiftShader, twice, identical: **320 calls, 246,034 triangles**, 130 geometries, 28 textures (Stage 0's stand-in, a warden at 1.8 in the same room, read 317 / 245,574: the Captain's figure is 3 calls and 460 triangles dearer). 188 calls under the 508 ceiling. Ceilings are the figures; the floors are the helper's 60% and 20%.
+
+### Balance, before and after
+
+`npm run balance:check`, 30 runs from seed 1, run twice on the final tree (the first red on the weak knight's two minimums, the second green after the update; 487 s and 538 s). Escape / death by floor / median vitality left by floor / seconds. Before is Stage 0's table.
+
+| policy | escape | deaths f1 / f2 / f3 | HP left f1 / f2 / f3 | seconds |
+| --- | --- | --- | --- | --- |
+| default | 100 (100) | 0 / 0 / 0 | 100 / 100 / 100 (same) | 155.1 (149.0) |
+| weak | 90.0 (83.3) | 0 / 0 / 6.9 (0 / 3.3 / 10.7) | 70.0 / 69.6 / 74.4 (86.4 / 82.0 / 73.6) | 134.1 (127.9) |
+| special | 100 | 0 / 0 / 0 | 99 / 100 / 100 (100 / 100 / 100) | 150.7 (146.3) |
+| special-fangs | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 144.4 (142.7) |
+| special-cleaver | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 174.4 (168.8) |
+| special-crossbow | 90.0 (93.3) | 0 / 0 / 10.0 (0 / 0 / 6.7) | 100 / 100 / 100 | 232.7 (222.8) |
+| special-flask | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 208.8 (196.7) |
+| meta-max | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 150.9 (145.7) |
+| weak-meta-max | 100 | 0 / 0 / 0 | 79.7 / 75.5 / 79.4 (89.7 / 85.2 / 78.7) | 128.4 (123.8) |
+
+Why: the stair hall's two or three wardens (20 damage a swing) became one Captain (24 a swing, a sweep, a pounce below half). The bots that dodge never meet its blows (the default bot took **0** boss damage in the median fight); the weak one, which never dodges, takes 48 in the median
+fight and ends with 56% of its vitality at the Captain's fall. Boss fights, over the 30 runs: default median **6.1 s** and 100% vitality left; weak median **5.3 s**. That is far under D9's 25 to 60 s: **the Captain lowers HP and kills almost no bot yet**, and fighting a bot for six seconds is the finding Stage F tunes HP and damage against;
+it is reported, not retuned. Two bands no longer held and moved (weak `floor1.medianHpLeft` 78 to 60, `floor2.medianHpLeft` 70 to 60), with a Stage B note in `bands.json`; `measured` was re-taken for every policy. The escape moves (weak 83.3 to 90.0, special-crossbow 93.3 to 90.0) are one or two runs
+at 30 runs and inside their bands; the weak knight's floor-2 death and a floor-3 death changed hands, and the old pinned seeds in `balance-sim.test.ts` (15839 died on floor 2) died on floor 3 now, so that test's floor-2 seed is 159.
+
+### Restaged (the Stage 0 exposure list)
+
+- `progression.spec.ts`: `stairEnemies` leaves out buried bodies and expects exactly the Captain; `fightStair` waits the phase changes out (`settleBoss`) after leaving it at `hp: 1`; the card's tally is one boss and its XP is `experience.perBoss` (100), not 25 a warden; the rank-up is lined to one boss's 100.
+- `special.spec.ts`, the Maul slam: stages the boss alone on the ring, waits out the change, puts the knight back at the heart (the push moved him) and re-stages, then primes the rank to the boss's 100. The Heavy Bolt scenario: staged in the arena (`warden, warden, guard`).
+- `shots.spec.ts` (`@capture`): the assertions hold with a boss standing; reworded and noted; the reference frame `sealed-warden-chamber` now shows one Captain and needs regenerating through the `captures` input.
+- `hall.spec.ts`: lays the comparison floor with the boss the run was dealt; the message names the boss.
+- `dungeon-floor.test.ts`: "the stair is guarded by wardens" is "by its boss alone" on all three floors; the 017 fixture test compares every body outside the stair hall as before and the stair hall as one boss on the first recorded warden's spot (all 90 floors); "deeper floors are meaner" holds unchanged.
+- The "any warden" finders: unchanged and still finding a warden outside the goal room on their seeds (no spec was found to use a goal-room warden other than the two above); `tests/README.md` has the new harness link, `settleBoss` and the snapshot field. `run-export.spec`, `slots.spec`, `meta.spec`, `death.spec`, `arena-kinds.spec` and `dealt-kinds.spec` run clean with the new `bosses` field.
+
+### Tests, and the bugs planted in them
+
+New node tests (415 of 415 pass; was 402 after Stage A): `dungeon-captain.test.ts` (5), the goal-room and deal tests in `dungeon-floor.test.ts` (4 new, 2 rewritten), `pearlsFor`, the old-record parse, `resolveKill` and the `?boss=` leak. Browser: `boss.spec.ts` (4) and the Captain's chamber. Each planted in the code, run against its own test, restored (`git status` clean after each):
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| the 017 fixture: goal room holds only its boss, every other body, prop and the drop unchanged | the goal roster drops the kept draws (`[boss]` only) | `level 1 seed 1: a prop or the weapon drop moved, so a random draw was added or removed` |
+| a boss the floor is given moves nothing else it lays | the boss option draws from the generator's `random` | `seed 1 level 1: the boss option changed something outside the stair hall, so it drew from the generator's stream` |
+| `dealBosses` is a pure hash | the deal keeps a call counter | `the deal changed with what was called before it` |
+| a run never meets the same boss twice | floor two dealt from the whole pool | `seed 15838 dealt captain to both floors` |
+| every boss pays ten pearls | pay per kill instead | `a boss on floor one is ten pearls, not ten for each of the twenty kills` (235 !== 45) |
+| an old record parses with no bosses and no list | the parse always writes a list / defaults bosses to 1 | `an old record grew a boss list` / `an old record did not read as felling no boss` (1 !== 0) |
+| a felled boss pays 100 and is counted | pays 25 / not counted | `a boss did not pay 100` / a deep-equal of `[kills, bosses, xp]` |
+| the dev boss link is dev-only | the marker removed from `findLeaks` | the reported-leak list differs (`['?boss=']` missing) |
+| (build) | `?boss=` read without the `NODE_ENV` guard, then `npm run build` and `build:check` | `development-only code reached the production bundle: ?boss=` |
+| the Captain's phases | phase two loses the pounce | the attack lists differ (and the phase-two pounce test fails) |
+| the Captain's reach fits the smallest chamber | the sweep reaches 6 | `a 6 sweep does not fit the 45-tile crypt` |
+| the Captain's rotation | the sweep first | the rotation differs (`swing, swing, sweep` against the sweep first) |
+| browser 1, the fight is wired | the floating bar shown beside the boss bar | `its own floating bar was showing beside the boss bar` |
+| browser 2, the phase is wired | no push | `the change left the knight inside the Captain's reach` (1.15 against 4.15) |
+| browser 2 | the change clock never stored | `the change showed no ring at its feet, or left it hittable` ([false, false]) |
+| browser 3, it bars the stair | `stairClear` ignores bosses | the stair opens at once: the notice reads `The stair opens` where `The Drowned Captain bars the stair` was expected |
+| browser 4, the phone | a fixed 420 px bar | `the bar is 420px wide and runs off a 360px screen` (436 against 360) |
+| frame budget, the Captain's chamber | sixty extra joints on the figure | `captain-chamber pushes more triangles than the budget allows` (255,634 against 246,034) |
+
+Two things the plants taught. The first draft of browser 2 had no stance with room behind the knight in the arena's crypt (a push cannot be seen against a wall), so the fixture moves the boss to the first tile that has one; and the ring is drawn from the frame after the one that decides the change, so the scenario steps one more before it reads it.
+
+### Not done / not verified
+
+- The full browser suite was not run locally (the operator's speed rule); CI on #87 is the gate. Specs run locally with `GAME_TEST_WORKERS=2`: `boss` (4), `progression` (2), `hall` (2), `special` (the slam, the Heavy Bolt and two neighbours), `shots` (the warden chamber), `run-export` (3), `slots` (5), `meta` and `death` (7), `arena-kinds` (3), `dealt-kinds` (1), and the frame-budget Captain scene (twice). All pass.
+- `bossHpLeft` before the goal chamber's top-up: the sim reads it at the boss's fall (Stage A), and the sim's floors now do have a goal chamber with a top-up, so it is proved there: the default bot's median `bossHpLeft` is 100 and the weak bot's 56, against 70 and 74 a floor after the top-up. The game has no such field.
+- The scatter, summon and volley moves in the game, the Pyre Mother and everything after Stage B, are untouched. The figure was judged on the bench (`npm run figures`) and in two arena screenshots (1000 x 700 and 360 x 740), on SwiftShader; not on a GPU, and not by an operator.
+- Nothing pushed. A production build was made and checked (`build:check`: 11 hooks, none shipped).
