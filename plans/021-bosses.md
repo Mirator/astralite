@@ -3,7 +3,8 @@
 > Executor: read this entire file before editing. It is self-contained and does
 > not need the conversation that produced it. Implement only this plan.
 >
-> Planned against `main` at `86c7e8d`, 2026-10-03, after plan 020 merged
+> Planned against `main` at `86c7e8d`, 2026-10-03 (revised the same day for the
+> operator's five-boss pool), after plan 020 merged
 > (PR #86). Source was read; nothing was measured while writing it. Line numbers
 > drift; search for the names. Decisions marked **(operator)** use the
 > recommendation unless the operator overturns them before Stage A starts.
@@ -98,14 +99,16 @@ for the bosses alone (D9) and leaves the rest to that pass.
 | D1 | What a boss is | **An `Archetype` with an optional move list and phases.** A move is one of the existing attack kinds (`swing`, `pounce`, `volley`, `sweep`, `summon`) with its own tell, damage, range and cue, plus one new kind, `scatter` (D6). A phase is an HP threshold that switches to another move list. Ordinary enemies keep their single `attack` and behave exactly as today. | Every move reuses a tell and hazard the player already reads, and every rule stays in `decideEnemy`, so the balance sim gets bosses for free. The only new engine pieces are a move selector and an HP-aware phase. |
 | D2 | How a boss picks its next move | **A fixed rotation per phase,** advanced each time a move completes. Range gates a move: if the knight is out of a move's range, the boss closes or skips to the next move that fits. It makes no random draw. | Hades bosses are learnable patterns. Determinism keeps the sim reproducible and the tests honest. |
 | D3 | Phase change | Crossing a threshold (D7) **cancels the current windup.** For 1.0 s the boss is unhittable and plays a ring cue at its feet that knocks the knight back out of its reach, so the knight cannot burst through a phase. Then it starts the new phase's first move. The arena notice names the phase ("The Captain draws the tide"). | The knight has to see the change, and damage spilling over a threshold would skip phases. The knockback is the first time an enemy pushes the knight; it lives in pure `dungeon-hits`, beside `landBlow`. |
-| D4 | The three bosses **(operator)** | Floor 1, **The Drowned Captain**: a big warden. Phase 1 is swing, swing, sweep. Phase 2, below 50%, adds a pounce lunge across the room. Floor 2, **The Pyre Mother**: ranged. Phase 1 is volley, volley, scatter (D6). Phase 2, below 50%, adds a sweep when the knight is close, and the scatter fires twice. Floor 3, **The Bone King**: a summoner with a shield. Phase 1 is summon, swing, swing, with its shield up front (`shield` arc) while not winding up. Phase 2, below 60%, drops the shield and adds a sweep and a pounce. Phase 3, below 25%, summons on every second move. | Each boss tests what its floor introduced: floor 1 dodging melee tells, floor 2 the ranged kinds and pyres, floor 3 the bonecaller and shieldbearer. Names and themes are placeholders for the operator. |
-| D5 | Who stands in the goal chamber | **The boss alone**, plus its own buried summon reserve on floor 3. No wardens. The roster keeps every placement draw it makes today (two or three bodies' tries), places the boss on the first body's spot, and does not emit the others. So `dropKind` and every other room's spawns, props and drop stay exactly as in `spawns-017.json`. | A boss fight is a duel. Adds come only from its own moves, so they are part of the pattern. Keeping the draws keeps every fixture outside the goal room valid, the same technique plans 019 and 020 used. |
+| D4 | The bosses (operator, 2026-10-03) | **Five bosses.** Floors 1 and 2 each deal one boss from a **pool of four**. Floor 3 always deals the fifth. The pool: **The Drowned Captain**, a huge warden: phase 1 is swing, swing, sweep; below 50% it adds a pounce lunge across the room. **The Pyre Mother**, ranged: phase 1 is volley, volley, scatter (D6); below 50% she adds a close sweep and scatters twice. **The Tide Hound**, a stalker grown huge: phase 1 is pounce, swing, pounce; below 50% its pounces chain two at a time and its tell shortens. **The Bastion**, a shieldbearer: phase 1 holds a frontal shield (`shield` arc) while not winding up, with swing, swing, sweep; below 50% the shield breaks and a charging pounce joins. The floor-3 boss is **The Bone King**: phase 1 is summon, swing, volley; below 60% he adds a sweep and a pounce; below 25% he summons on every second move. | The operator's call. Each pool boss tests a different answer: the Captain melee timing, the Mother space and range, the Hound lane dodging, the Bastion stagger and flanking. The fixed King is the run's final exam and draws on every one of them. The shield belongs to the Bastion alone, so the King and the Bastion do not overlap. Names are placeholders. |
+| D13 | Which pool boss a floor gets | **Dealt per run from the run's first-floor seed by a pure `dealBosses(runSeed)`**, which uses its own hash and never draws from the generator's stream. **Floors 1 and 2 never get the same boss in one run.** All four pool bosses are equally likely on each floor. A pool boss on floor 2 is the same boss with `enemyStats`' usual floor scaling (one more hit of HP, +15% damage). `generateFloor` takes the boss kind as an option. Its default is the Captain, so every existing caller and fixture keeps a valid floor. | Variety between runs, which is the point of a pool, without making the floor generator's output depend on anything but its seed. Not repeating within a run is what a player expects of a pool. |
+| D14 | Choosing a boss on purpose | A dev-only `?boss=<kind>` (like `?arm=`) overrides the deal for floors 1 and 2, for playtesting and for tests that need a particular boss on a pinned seed. `build:check` fails if it reaches the production bundle, as it does for `?hall=skip`. | Playtesting four pool bosses by luck is slow, and tests must not search seeds for a boss. |
+| D5 | Who stands in the goal chamber | **The boss alone**, plus the Bone King's buried summon reserve on floor 3. No wardens. The roster keeps every placement draw it makes today (two or three bodies' tries), places the boss on the first body's spot, and does not emit the others. So `dropKind` and every other room's spawns, props and drop stay exactly as in `spawns-017.json`. | A boss fight is a duel. Adds come only from its own moves, so they are part of the pattern. Keeping the draws keeps every fixture outside the goal room valid, the same technique plans 019 and 020 used. |
 | D6 | The one new mechanic | **`scatter`: a volley that marks one to three ground rings at the knight's last positions.** After the tell each ring becomes a fire pool, reusing `deathPool`, `poolStep` and `poolCatches` and drawn by the fire-ring meshes. The pool count is capped so the boss never needs more than `HOSTILE_POOL_RINGS` (6) live rings, counting pools from the knight's own flask. | Fire on the ground is the floor-2 pyre's identity. Making it a boss move gives the Pyre Mother a way to control space without a new hazard system. The cap is a stated rule with a test, because overflow today fails silently. |
-| D7 | HP and thresholds (hypothesis) | Captain 60 HP, Mother 50, King 80, in the same quarter-hit grain as other enemies. Floor scaling stays as `enemyStats` applies it. The thresholds are the D4 percentages. Stage E tunes **HP and damage only**, never the move lists, against D9. | The move lists are the design. HP and damage are the dials. |
-| D8 | The boss bar **(operator)** | **A bar at the top of the screen, shown only while a boss is awake and alive.** It shows the boss's name and HP, with tick marks at the phase thresholds. It replaces the floating bar over that body, and it goes the moment the boss falls or the knight dies. | Hades shows one. It is not a persistent overlay (AGENTS.md): it exists only during the fight. The ticks tell the player a change is coming. |
-| D9 | Targets: what bosses must do to runs (operator, recommended values) | Measured by `balance:check` at 30 runs: **default bot**: escape 75–90%, and at least half its deaths to a boss. **Weak bot**: escape 30–55%. **weak-meta-max**: escape 55–80%. Boss fights last 25–60 s for the default bot. HP left after a boss fight must be measured before the goal chamber's top-up (`bands.ts:50` measures after it; add a `bossHpLeft` field). | Bosses should end runs, mostly the weaker bots' runs, and the shop's upgrades should still visibly help. These are bot numbers. Stage G (playtest) is the real judge, and if bots and the human disagree, the human wins. |
-| D10 | Rewards | Felling a boss pays **100 XP** and counts in a new `RunEnd.bosses` field. `pearlsFor` adds **10 pearls per boss felled**. A run that dies to a boss still pays for the bosses behind it. | Hades pays for a boss. Ten is about 20% of a typical run's earnings, so a boss kill feels worth it without moving plan 019's 900-pearl price arithmetic much. Stage E re-checks D6 of plan 019. |
-| D11 | Figures | Built from the existing skeleton parts at a larger `look.scale` (Captain 1.7, Mother 1.5, King 1.8), each with its own crown or prop silhouette and palette, through `skeletonSpec`, `PALETTE`, `CUTAWAY_ELLIPSE` and `CAUSE_LABELS`. No new art pipeline. | Boss figures need to read as bosses, not to introduce a new art style. The bench (`npm run figures`) shows them beside the others. |
+| D7 | HP and thresholds (hypothesis) | Captain 60 HP, Mother 50, Hound 45, Bastion 70, King 80, in the same quarter-hit grain as other enemies. Floor scaling stays as `enemyStats` applies it. The thresholds are the D4 percentages. Stage F tunes **HP and damage only**, never the move lists, against D9. | The move lists are the design. HP and damage are the dials. |
+| D8 | The boss bar (operator, agreed) | **A bar at the top of the screen, shown only while a boss is awake and alive.** It shows the boss's name and HP, with tick marks at the phase thresholds. It replaces the floating bar over that body, and it goes the moment the boss falls or the knight dies. | Hades shows one. It is not a persistent overlay (AGENTS.md): it exists only during the fight. The ticks tell the player a change is coming. |
+| D9 | Targets: what bosses must do to runs (operator, agreed) | Measured by `balance:check` at 30 runs: **default bot**: escape 75–90%, and at least half its deaths to a boss. **Weak bot**: escape 30–55%. **weak-meta-max**: escape 55–80%. Boss fights last 25–60 s for the default bot. **Pool fairness:** in a per-boss duel report (the sim's arena, 30 seeds per boss per floor), no pool boss kills the weak bot more than twice as often as another on the same floor. HP left after a boss fight must be measured before the goal chamber's top-up (`bands.ts:50` measures after it; add a `bossHpLeft` field). | Bosses should end runs, mostly the weaker bots' runs, and the shop's upgrades should still visibly help. These are bot numbers. Stage G (playtest) is the real judge, and if bots and the human disagree, the human wins. |
+| D10 | Rewards | Felling a boss pays **100 XP** and counts in a new `RunEnd.bosses` field. `pearlsFor` adds **10 pearls per boss felled**. A run that dies to a boss still pays for the bosses behind it. | Hades pays for a boss. Ten is about 20% of a typical run's earnings, so a boss kill feels worth it without moving plan 019's 900-pearl price arithmetic much. Stage F re-checks D6 of plan 019. |
+| D11 | Figures | Built from the existing skeleton parts at a larger `look.scale` (Captain 1.7, Mother 1.5, Hound 1.6, Bastion 1.7, King 1.8), each with its own crown or prop silhouette and palette, through `skeletonSpec`, `PALETTE`, `CUTAWAY_ELLIPSE` and `CAUSE_LABELS`. No new art pipeline. | Boss figures need to read as bosses, not to introduce a new art style. The bench (`npm run figures`) shows them beside the others. |
 | D12 | Sim before dealing | Stage A adds moves and phases to `decideEnemy` and the sim's bookkeeping while nothing deals a boss. `balance:check` must print exactly its current values. | The same proof plan 018 used (its D10): structure first, then measure. |
 
 ## Design
@@ -116,8 +119,9 @@ for the bosses alone (D9) and leaves the rest to that pass.
   - `Archetype` gains `moves?: Move[][]`, one list per phase, and
     `phases?: number[]`, the HP fractions where each later phase begins.
   - A `Move` is `{ attack, tell, damage, strikeRange, attackRange, cue, cueScale, bolt?, scatter?, summon? }`.
-  - The three boss rows. Their `firstFloor` is `Infinity` (never dealt by
-    `PACK_MIX`), and a new `boss: 1 | 2 | 3` field names their floor.
+  - The five boss rows. Their `firstFloor` is `Infinity` (never dealt by
+    `PACK_MIX`). A new `boss: 'pool' | 'final'` field marks them, and
+    `BOSS_POOL` lists the four pool kinds in a fixed order.
   - `ENEMY_KINDS` includes them, so the arena can stage them.
 - **`dungeon-enemy.ts`.**
   - `EnemyView` gains `hp`, `maxHp`, `move` (an index) and `phase`.
@@ -133,8 +137,12 @@ for the bosses alone (D9) and leaves the rest to that pass.
   returns at most `HOSTILE_POOL_RINGS - live` ring spots. The pools themselves
   are `deathPool`.
 - **`dungeon-floor.ts`.**
-  - `roster()` for the goal room keeps its placement draws and emits only the
-    floor's boss (D5).
+  - `generateFloor(seed, level, { boss })`: `roster()` for the goal room keeps
+    its placement draws and emits only the given boss (D5). Level 3 always
+    gets the King, and floors 1 and 2 default to the Captain.
+  - `dealBosses(runSeed)` returns two distinct pool kinds for floors 1 and 2
+    (D13). It is a pure hash of the seed and never touches the generator's
+    random stream.
   - `buryReserves` gives the Bone King its rattler reserve. The reserve must
     cover phase 3's summons, so Stage A sizes it from the move list, not from
     `summons.count`.
@@ -144,6 +152,10 @@ for the bosses alone (D9) and leaves the rest to that pass.
 
 ### Game (`dungeon-game.tsx`, edit in place; do not reformat)
 
+- Deal the run's bosses with `dealBosses(firstSeed)` (or the dev `?boss=`,
+  D14) when floor 1 is built, and pass each floor its boss. Record both in
+  the run record, as `RunEnd.bossKinds`, so a playtest report names which
+  bosses a run met.
 - Apply the new intents:
   - the phase change: cancel, unhittable for 1.0 s, ring cue, `bossPush`,
     notice;
@@ -169,7 +181,13 @@ Mirror the game's bookkeeping, with the game's line beside each:
 - the boss bar's numbers as report fields.
 
 Add report fields: `bossDamage`, `bossDeaths`, `bossSeconds` and
-`bossHpLeft` (HP when the boss falls, before any top-up), per floor.
+`bossHpLeft` (HP when the boss falls, before any top-up), per floor, each
+naming the boss.
+
+The sim deals bosses with the same `dealBosses`. A new `npm run balance:bosses`
+reports per-boss duels: `simulateArena` for each boss on each floor it can
+appear on, 30 seeds, default and weak policies, recording death rate, fight
+seconds and HP left. That is D9's pool-fairness check.
 
 ### What stays
 
@@ -208,7 +226,7 @@ only that test, and records the failure message in `game/progress.md`
 3. **Frame cost.** Stage a warden scaled to 1.8 alone in a goal room (a
    throwaway hook, reverted) and record calls, triangles and shadow calls next
    to the 508 ceiling. **Stop rule:** a boss chamber with its full summon
-   reserve standing must fit under 508 calls, or be reported before Stage D.
+   reserve standing must fit under 508 calls, or be reported before Stage B.
 4. **Exposure list.** List every spec and node test that depends on
    goal-room wardens:
    - `progression.spec.ts:105-281`
@@ -245,19 +263,29 @@ Node tests (`dungeon-enemy.test.ts`, `balance-sim.test.ts`):
 **Gate specific to this stage:** `balance:check` prints exactly Stage 0's
 values (D12).
 
-### Stage B — The Drowned Captain (floor 1)
+### Stage B — The Drowned Captain, the deal and the bar
 
 Implement:
 - the Captain's row, figure, palette, cutaway and cause label;
-- `roster()` dealing it on floor 1 (D5), keeping the draws;
+- `generateFloor`'s `boss` option, `dealBosses` (D13) and the dev `?boss=`
+  with its `build:check` guard (D14);
 - the boss bar (D8), the notice and the snapshot field;
 - the boss-kill reward (D10).
 
+Until Stages C–E land, the pool holds only the Captain, so `dealBosses` deals
+it on both floors; the no-repeat rule is tested once the pool has two. Floor 3
+deals the Captain as a stand-in until Stage E.
+
 Node tests:
-- Floor 1's goal room holds exactly the Captain. Every other room's spawns,
-  props and the weapon drop are identical to `spawns-017.json`.
+- Floor 1's goal room holds exactly its boss. Every other room's spawns, props
+  and the weapon drop are identical to `spawns-017.json`.
   - Plant: drop the kept draws.
-- `pearlsFor` pays 10 per boss, and an old record parses with `bosses: 0`.
+- `dealBosses` is deterministic per seed and never touches the generator's
+  stream: generate a floor, call `dealBosses`, then generate again and compare
+  the second floor with a fresh one.
+  - Plant: draw from the generator's `random`.
+- `pearlsFor` pays 10 per boss, and an old record parses with `bosses: 0` and
+  no `bossKinds`.
   - Plant: pay per kill instead.
 
 Browser scenarios (`tests/browser/boss.spec.ts`; real input for the fight,
@@ -270,55 +298,78 @@ hooks only to stage):
    says phase 2, it is unhittable for its window (assert a blow during it
    lands nothing), and the knight is pushed out.
    - Plant: no push.
-3. **It gates the stair on a generated floor.** On a pinned floor-1 seed,
-   teleport into the goal room. The stair is sealed while the Captain stands
-   and opens when it falls. The floor card counts it.
+3. **It gates the stair on a generated floor.** On a pinned floor-1 seed with
+   `?boss=captain`, teleport into the goal room. The stair is sealed while the
+   Captain stands and opens when it falls. The floor card counts it.
    - Plant: `stairClear` ignores bosses.
 4. **The bar fits a phone.** At 360 × 740 it does not overlap the vitality
    row.
    - Plant: a fixed 420 px bar.
 
 Add the Captain's chamber to `frame-budget.spec.ts`, bounded on both sides
-from this stage's measurement. Restage the Stage 0 step 4 scenarios for
-floor 1.
+from this stage's measurement. Restage the Stage 0 step 4 scenarios, using
+`?boss=` where a test needs a known boss.
 
-### Stage C — The Pyre Mother (floor 2)
+### Stage C — The Pyre Mother and `scatter`
 
-Implement the Mother and `scatter` in the game (cues, pools from the shared
-rings).
+Implement the Mother, `scatter` in the game (cues, and pools from the shared
+rings), and add her to `BOSS_POOL`.
 
 Tests:
 - In the arena, a scatter marks rings at the knight's last positions, and the
   rings become pools that bite a knight standing in them and not one outside.
   - Plant: pools at the boss's feet.
 - With the knight's own flask pools on the ground, the Mother never asks for
-  more rings than are free, and every ring it marks is drawn.
+  more rings than are free, and every ring she marks is drawn.
   - Plant: ignore live pools, so a seventh pool silently fails.
+- Her densest volley pattern never needs more than the twelve-arrow pool:
+  count the bolts drawn.
+  - Plant: a pattern of thirteen.
+- `dealBosses` never deals the same boss to floors 1 and 2, over 1,000 seeds,
+  and deals both pool bosses on each floor. Assert both counts are non-zero,
+  as the precondition.
+  - Plant: deal floor 2 independently.
 
-Restage floor-2 goal-room dependents.
+### Stage D — The Tide Hound and the Bastion
 
-### Stage D — The Bone King (floor 3)
+Implement both and add them to `BOSS_POOL`.
 
-Implement the King, its summon reserve sized for phase 3, its shield in
-phase 1, and three phases.
+Tests:
+- **Hound:** in phase 2 a pounce chains a second pounce without a fresh tell,
+  and a single dash clears both lanes only when timed between them. Assert
+  the chained pounce fired, as the precondition.
+  - Plant: no chain.
+- **Bastion:** the shield turns frontal steel in phase 1 and not in phase 2
+  (the phase is the precondition). A stagger arm or a flank gets through in
+  phase 1.
+  - Plant: keep the shield in phase 2.
+- With four pool bosses, every pool boss appears on each floor in a sweep of
+  seeds, and the deal's distribution is roughly even (each between 15% and
+  35% per floor over 1,000 seeds).
+  - Plant: weight one boss double.
+
+### Stage E — The Bone King (floor 3)
+
+Implement the King, its summon reserve sized for phase 3, and three phases.
+Floor 3 always deals it.
 
 Tests:
 - The reserve covers every summon its move list can call, and the generated
   floor buries exactly that many.
   - Plant: bury `summons.count`.
-- The shield blocks frontal steel in phase 1 and not in phase 2. Assert the
-  phase is the precondition.
-  - Plant: keep the shield in phase 2.
+- Phase 3 summons on every second move (move count is the precondition).
+  - Plant: summon every third move.
 - Felling the King crumbles everything it called, and the stair opens. That
   is the win on floor 3, through the real card.
   - Plant: leave the reserve standing.
 
-Stage 0 step 3's ceiling applies: the King's chamber with its reserve
-standing must stay under 508 calls.
+Stage 0 step 3's ceiling applies to every boss chamber: the King's chamber
+with its reserve standing must stay under 508 calls.
 
-### Stage E — Tuning against D9
+### Stage F — Tuning against D9
 
-1. Run `balance:check` for every policy and record per floor:
+1. Run `balance:check` for every policy and `balance:bosses` for every boss,
+   and record per floor:
    `bossDamage`, `bossDeaths`, `bossSeconds`, `bossHpLeft`, escape rate and
    cause of death.
 2. Tune **HP and damage only** (D7) until D9 holds. Record each tuning step's
@@ -326,36 +377,39 @@ standing must stay under 508 calls.
 3. **Stop rules.**
    - If D9 cannot be met without one boss accounting for more than 70% of
      all deaths, report it. A single wall is not a curve.
+   - If D9's pool-fairness check fails after tuning HP and damage, report
+     which boss and why. Some move lists may simply be harder.
    - If meeting D9 needs a move list change, report it: that is a design
      decision, not tuning.
 4. Re-check plan 019's price arithmetic with D10's boss pearls, and say
    whether D6 (twenty runs to buy everything) still holds.
 
-### Stage F — Documents
+### Stage G — Documents
 
 - `GAME_OVERVIEW.md`: the bosses, the end of each floor, the boss bar.
 - `README.md`: one line.
 - `game/tests/README.md`: the boss snapshot field, arena kinds, and
   `boss.spec.ts`.
 - `dungeon-bestiary.ts` header: how to add a boss (moves, phases, reserve
-  sizing).
+  sizing, the pool, `?boss=`).
 - `plans/README.md` row, and the `game/progress.md` entries.
 
-### Stage G — Operator playtest
+### Stage H — Operator playtest
 
-On a real GPU, five runs or more. Per boss:
+On a real GPU, ten runs or more, so each pool boss appears at least twice
+(use `?boss=` for any that don't). Per boss:
 - Did each move read before it landed?
 - Did the phase change read?
 - Did the bar help or clutter?
 - Did it feel fair when it killed you?
 
-Record the run log. D7 and D9 are re-decided here.
+Record the run log, including `bossKinds`. D4, D7 and D9 are re-decided here.
 
 ## Risks
 
 - **Bot numbers are not player numbers.** A bot dodges every tell it
   recognises and none it doesn't. A boss tuned against bots can be trivial or
-  unfair for a person. D9 is only a starting point; Stage G decides.
+  unfair for a person. D9 is only a starting point; Stage H decides.
 - **Goal rooms vary from 45 to 222 tiles.** A pattern that is fair in a court
   can be a trap in a crypt. Stage 0 step 2 measures the worst case and its
   stop rule decides whether to constrain the generator.
@@ -368,6 +422,14 @@ Record the run log. D7 and D9 are re-decided here.
   counts the bolts drawn.
 - **Test churn.** Every spec that depends on goal-room wardens moves. Stage 0
   sizes the list.
+- **A random pool adds variance.** Two runs on different seeds meet
+  different bosses, so a run's outcome depends partly on the deal. The pool
+  fairness check (D9) bounds it, and `bossKinds` in the run log lets a
+  playtest report say which bosses killed whom.
+- **Floor-1 bosses that teach floor-2 ideas.** The Mother brings fire and the
+  Bastion a shield to floor 1, before pyres and shieldbearers appear there.
+  The playtest judges whether that reads as unfair. The fix would be keeping
+  them on floor 2, which narrows floor 1's pool.
 - **Difficulty stays partly unaddressed.** If bosses meet D9 but runs still
   feel easy before them, that is the separate difficulty pass, not this
   plan's failure.
