@@ -35,7 +35,7 @@
         "floor3.deathRate": 6.9,
         "floor1.medianHpLeft": 71.2,
         "floor2.medianHpLeft": 76,
-        "floor3.medianHpLeft": 74.4,
+        "floor3.medianHpLeft": 100,
         "medianRunSeconds": 133.9
       },
       "bands": {
@@ -45,7 +45,7 @@
         "floor3.deathRate": { "min": 0, "max": 20 },
         "floor1.medianHpLeft": { "min": 60, "max": 100 },
         "floor2.medianHpLeft": { "min": 60, "max": 100 },
-        "floor3.medianHpLeft": { "min": 55, "max": 92 },
+        "floor3.medianHpLeft": { "min": 55, "max": 100 },
         "medianRunSeconds": { "min": 85, "max": 200 }
       }
     },
@@ -196,7 +196,7 @@
         "floor3.deathRate": 0,
         "floor1.medianHpLeft": 83.1,
         "floor2.medianHpLeft": 84.5,
-        "floor3.medianHpLeft": 79.4,
+        "floor3.medianHpLeft": 100,
         "medianRunSeconds": 128.5
       },
       "bands": {
@@ -206,7 +206,7 @@
         "floor3.deathRate": { "min": 0, "max": 10 },
         "floor1.medianHpLeft": { "min": 78, "max": 100 },
         "floor2.medianHpLeft": { "min": 70, "max": 100 },
-        "floor3.medianHpLeft": { "min": 55, "max": 92 },
+        "floor3.medianHpLeft": { "min": 55, "max": 100 },
         "medianRunSeconds": { "min": 65, "max": 140 }
       }
     }

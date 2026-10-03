@@ -56,6 +56,8 @@ export const CUTAWAY_ELLIPSE: Record<SlotOwner, { radii: [number, number]; yOffs
   hound: { radii: [1.04, 1.6], yOffset: 1.35 },
   // The Bastion is a shieldbearer's window (0.72 x 1.05, centre 1.0) at 1.7, wider for the shield it stands behind.
   bastion: { radii: [1.3, 1.8], yOffset: 1.7 },
+  // The Bone King is the bonecaller's window (0.65 x 1.05, centre 1.05) at his 1.8, taller still for the crown.
+  king: { radii: [1.2, 1.95], yOffset: 1.9 },
 };
 
 // ------------------------------------------------------------------------------- shader injection

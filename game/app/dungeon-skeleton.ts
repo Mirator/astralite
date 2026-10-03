@@ -108,6 +108,8 @@ function skeletonSpec(kind: SkeletonKind): Node {
   // The Pyre Mother (plan 021) is a pyre's cage and a bonecaller's hood and robe grown into one tall figure: a crown of flame about the hood, a skirt that widens to the floor, a great cage
   // of coals on her back and a staff that ends in a brazier.
   const mother = kind === 'mother';
+  // The Bone King (plan 021) is the bonecaller's skeleton crowned and grown huge: no hood and no helm, a tall crown of brass spikes, a mantle and a long royal cloak, and a sceptre that is the bonecaller's staff in gold.
+  const king = kind === 'king';
   const hooded = archer || reaper || bonecaller || mother, bareheaded = stalker || rattler;
   const rigParts: (Part | Node)[] = [];
   const weaponParts: (Part | Node)[] = [];
@@ -160,6 +162,11 @@ function skeletonSpec(kind: SkeletonKind): Node {
     if (mother) for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3 + .3, tall = [.34, .22, .4, .26, .36, .2][i]; trim(rigParts, `flame-${i}`, 'spike', 'ember', [Math.cos(a) * .27, 1.9 + tall * .3, Math.sin(a) * .27 + .02], [.07, tall, .07], [Math.sin(a) * .35, 0, -Math.cos(a) * .35]); }
     rigParts.push({ name: 'cowl', shape: { geometry: BONES.armor }, material: 'cloth', at: [0, 1.4, .12], scale: [.98, .9, .72] });
     if (bonecaller) for (const s of [-1, 1] as const) for (let i = 0; i < 2; i++) trim(rigParts, `antler-${s < 0 ? 'l' : 'r'}-${i}`, 'spike', 'crest', [s * (.2 + i * .12), 1.8 + i * .1, .02], [.05, .34 - i * .1, .05], [0, 0, s * -(.55 + i * .5)]);
+  } else if (king) {
+    // A crown of brass: a broad band, and seven spikes of uneven height standing out of it, each leaning its own way - from across a hall the one head in the keep with a crown that is taller than the skull is wide.
+    const spikes: Part[] = [];
+    for (let i = 0; i < 7; i++) { const a = i * Math.PI * 2 / 7 + .2, tall = [2.6, 1.7, 3.2, 2.0, 2.9, 1.5, 2.3][i]; spikes.push({ name: `king-spike-${i}`, shape: { geometry: BONES.crownTooth }, material: 'brass', at: [Math.cos(a) * .27, .06 + tall * .09, Math.sin(a) * .27], scale: [1.4, tall, 1.4], rot: [Math.sin(a) * .22, 0, -Math.cos(a) * .22] }); }
+    rigParts.push({ name: 'crown', shape: { geometry: BONES.crown }, material: 'brass', at: [0, 1.62, .02], scale: [1.05, 1.5, 1.05], parts: spikes });
   } else if (!bareheaded) {
     // Plan 014 round B: the helmet sat .2 low and .13 behind the skull's centre, so its lower faces cut
     // straight through the cranium and the face read as a black block wedged into the bone. It now caps
@@ -282,6 +289,12 @@ function skeletonSpec(kind: SkeletonKind): Node {
     // A short haft carrying a live coal, which is also the colour its death leaves on the floor.
     weaponParts.push({ name: 'haft', shape: { geometry: BONES.haft }, material: 'iron', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.3], scale: [.8, .55, .8] });
     weaponParts.push({ name: 'coal', shape: { dodeca: [.13, 0] }, material: 'ember', at: [0, 0, -.72] });
+  } else if (king) {
+    // The bonecaller's staff in gold: a heavy haft capped in brass, a skull on it with a crown of its own, and the caller's light in its sockets.
+    weaponParts.push({ name: 'staff', shape: { geometry: BONES.haft }, material: 'brass', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.55], scale: [1.1, 1.3, 1.1] });
+    weaponParts.push({ name: 'staff-skull', shape: { geometry: BONES.skull }, material: 'bone', at: [0, 0, -1.42], scale: .7 });
+    weaponParts.push({ name: 'staff-eye', shape: { geometry: BONES.socket }, material: 'eye', at: [0, .08, -1.6], scale: 1.8 });
+    for (const s of [-1, 1] as const) weaponParts.push({ name: `staff-horn-${s < 0 ? 'l' : 'r'}`, shape: { cone: [.05, .3, 4] }, material: 'brass', at: [s * .16, .14, -1.42], rot: [0, 0, s * -.7] });
   } else if (bonecaller) {
     // A staff crowned with a skull whose sockets carry the caller's own light.
     weaponParts.push({ name: 'staff', shape: { geometry: BONES.haft }, material: 'crest', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.5], scale: [.7, 1.2, .7] });
@@ -378,6 +391,16 @@ function skeletonSpec(kind: SkeletonKind): Node {
     trim(rigParts, 'cage-base', 'box', 'iron', [0, .96, .36], [.5, .05, .5]);
     for (let i = 0; i < 3; i++) trim(rigParts, `cage-flame-${i}`, 'spike', 'ember', [(i - 1) * .14, 1.82 + (i % 2) * .06, .36], [.08, .3 + (i % 2) * .12, .08], [0, 0, (i - 1) * -.2]);
     trim(rigParts, 'sash', 'box', 'brass', [0, 1.0, -.23], [.62, .06, .04], [0, 0, .5]);
+  } else if (king) {
+    // A mantle of royal cloth over both shoulders, a cloak that falls to the floor behind in two panels, a robe before, spikes of bone standing off the shoulders and a chain of brass across the chest.
+    for (const s of [-1, 1] as const) {
+      const side = s < 0 ? 'l' : 'r';
+      trim(rigParts, `mantle-${side}`, 'cloth', 'cloth', [s * .3, 1.12, .03], [.46, .56, 1], [-.1, s * .3, s * -.5]);
+      trim(rigParts, `cloak-${side}`, 'cloth', 'cloth', [s * .22, .52, .15], [.46, 1.1, 1], [-.16, s * .4, s * -.12]);
+      for (let i = 0; i < 2; i++) trim(rigParts, `shoulder-spike-${side}-${i}`, 'spike', 'bone', [s * (.4 + i * .14), 1.3 + i * .05, 0], [.06, .3 - i * .08, .06], [0, 0, s * -(.9 + i * .4)]);
+    }
+    trim(rigParts, 'robe-front', 'cloth', 'cloth', [0, .45, -.18], [.6, .92, 1]);
+    trim(rigParts, 'chain', 'box', 'brass', [0, 1.05, -.24], [.5, .05, .03], [0, 0, .35]);
   } else if (bonecaller) {
     // A robe to the floor, front and back.
     trim(rigParts, 'robe-front', 'cloth', 'cloth', [0, .45, -.17], [.56, .9, 1]);
@@ -448,6 +471,9 @@ const PALETTE: Record<SkeletonKind, { bone: number; iron: number; ironRoughness:
   // The Pyre Mother (plan 021): a smoked, warm bone under a robe the red-brown of a coal's edge, and eyes white-hot where the pyre's are amber - the one boss whose palette is warm, so she names
   // her fire from across the hall before her cage has resolved. A wide pool for her skirt.
   mother: { bone: 0xa8957f, iron: 0x3a2a24, ironRoughness: 0.6, brass: 0xa8622a, eye: 0xffe6b0, cloth: 0x7a2a18, pool: .95 },
+  // The Bone King (plan 021): old ivory bone under a cloak of deep royal violet, bright brass for the crown and sceptre, and eyes a deeper violet than the bonecaller's lilac - the one boss that is gold and purple, so he is a king
+  // from across the hall, and the widest pool of them all for his cloak.
+  king: { bone: 0xd2c9b0, iron: 0x2a2630, ironRoughness: 0.55, brass: 0xc29a3c, eye: 0xc07bff, cloth: 0x3a1d5a, pool: 1.05 },
   rattler: { bone: 0xb0aa98, iron: 0x3f4a53, ironRoughness: 0.5, brass: 0x6f6244, eye: 0xfff0a0, cloth: 0x3d3a33, pool: .42 },
 };
 

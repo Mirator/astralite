@@ -19,6 +19,7 @@ export const CAUSE_LABELS: Record<RunCause, string> = {
   mother: 'Burned by the Pyre Mother',
   hound: 'Run down by the Tide Hound',
   bastion: 'Crushed by the Bastion',
+  king: 'Struck down by the Bone King',
   hazard: 'Burned by the keep\u2019s embers',
 };
 

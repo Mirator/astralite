@@ -16,7 +16,7 @@
 // that the running game is wired to it; then `npm run figures` to look at it, `?arena=<kind>:3` to fight it
 // (tests/README.md, The arena), and `npm run balance:check`.
 
-export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler', 'captain', 'mother', 'hound', 'bastion'] as const;
+export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler', 'captain', 'mother', 'hound', 'bastion', 'king'] as const;
 export type EnemyKind = typeof ENEMY_KINDS[number];
 
 /** Vitality, damage per blow, seconds of tell, and walking speed - the floor-one values. */
@@ -399,6 +399,48 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
       death: { duration: 1.2, prone: false, weaponX: .9 }, shieldArm: true,
     },
   },
+  // The Bone King (plan 021 D4): floor three's boss, always, a bonecaller crowned and grown huge. He answers with every kind of move the pool bosses use one of. Phase one is summon, swing, volley: two
+  // rattlers stand up from the reserve at his feet, a heavy swing for a knight who has reached him, a single bolt for one who keeps away. Below 60% a sweep (everything round him) and a pounce (a lane across the
+  // room) join the round, and below 25% he summons on every second move, one rattler a tell and four tells a round. The reserve is sized from that list (`reserveSize`, the most any one phase's round can raise), not from
+  // `summons.count`, which this row keeps only as what a lone summon is worth. Felling him crumbles everything he called, standing or buried. Steadfast like every boss. The numbers are D7's hypothesis (80 vitality)
+  // and Stage F's to tune; the moves are the design.
+  king: {
+    stats: { hp: 80, damage: 0, tell: 0.8, speed: 1.9 },
+    strikeRange: 3.4, attackRange: 9, holdRange: 2.6, recovery: 1.4,
+    attack: 'summon', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
+    summons: { kind: 'rattler', count: 2, perTell: 2 },
+    boss: 'final', title: 'The Bone King', phaseNotice: ['', 'The Bone King rises', 'The Bone King calls the dead'],
+    phases: [.6, .25],
+    moves: [
+      [
+        { attack: 'summon', tell: 1.2, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 2 } },
+        { attack: 'swing', tell: 0.8, damage: 22, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
+        { attack: 'volley', tell: 0.8, damage: 14, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
+      ],
+      [
+        { attack: 'summon', tell: 1.2, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 2 } },
+        { attack: 'swing', tell: 0.75, damage: 22, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
+        { attack: 'volley', tell: 0.75, damage: 14, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
+        { attack: 'sweep', tell: 1.0, damage: 18, strikeRange: 3.4, attackRange: 2.6, cue: { shape: 'ring', radius: 3.4 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.7, damage: 20, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.2 }, cueScale: 1 },
+      ],
+      [
+        { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
+        { attack: 'swing', tell: 0.7, damage: 22, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
+        { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
+        { attack: 'volley', tell: 0.7, damage: 14, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
+        { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
+        { attack: 'sweep', tell: 0.9, damage: 18, strikeRange: 3.4, attackRange: 2.6, cue: { shape: 'ring', radius: 3.4 }, cueScale: 1 },
+        { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
+        { attack: 'pounce', tell: 0.7, damage: 20, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.2 }, cueScale: 1 },
+      ],
+    ],
+    look: {
+      pose: 'overhead', scale: [1.8, 1.8, 1.8], cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, barLift: 3.7, alertLift: 4.25, barColor: 0xc9a2ff, gait: .24, blood: 1.9, heavy: true,
+      trail: { from: 'weapon', color: 0xd9c4ff, width: .16, inner: [0, 0, -.24], tip: [0, 0, -1.5] },
+      death: { duration: 1.3, prone: false, weaponX: .9 }, shieldArm: false,
+    },
+  },
 };
 
 /** One field of every archetype, keyed by kind - how the per-quantity tables in dungeon-enemy.ts are read. */
@@ -410,5 +452,18 @@ export const byKind = <T>(read: (archetype: Archetype) => T) =>
  * (dungeon-floor.ts) indexes it. Stage B held only the Captain; Stage C added the Pyre Mother and Stage D the Tide Hound and the Bastion.
  */
 export const BOSS_POOL: readonly EnemyKind[] = ['captain', 'mother', 'hound', 'bastion'];
-/** The last floor's boss. The Captain stands in for it until Stage E gives the Bone King his row. */
-export const FINAL_BOSS: EnemyKind = 'captain';
+/** The last floor's boss (plan 021 Stage E): the Bone King, always. */
+export const FINAL_BOSS: EnemyKind = 'king';
+
+/**
+ * How many bodies a summoner is buried with (plan 021 Stage E). An ordinary caller's is its `summons.count`. A boss's is sized from its move list:
+ * the most any one phase's round can raise, which is each `summon` move's `perTell` summed over that phase's rotation, for the worst phase. A body
+ * cut down while its caller stands goes back into the reserve, so a round's worth is all a phase can ever ask for at once; `summons.count` is not read.
+ * It is also what the frame budget has to stand (`tests/browser/frame-budget.spec.ts`, 29 calls a rattler against the 508-call ceiling).
+ */
+export const reserveSize = (kind: EnemyKind): number => {
+  const archetype = BESTIARY[kind];
+  if (!archetype.summons) return 0;
+  if (!archetype.moves) return archetype.summons.count;
+  return Math.max(0, ...archetype.moves.map(phase => phase.reduce((sum, move) => sum + (move.attack === 'summon' ? move.summon?.perTell ?? archetype.summons!.perTell : 0), 0)));
+};

@@ -137,7 +137,7 @@ test('guards stand on walkable floor, never inside a wall or a prop', () => {
 test('the gate is safe and the stair is guarded by its boss alone', () => {
   for (const level of [1, 2, 3]) for (const floor of floors(level)) {
     assert.equal(floor.spawns.filter((spawn) => spawn.room === 0).length, 0, `seed ${floor.seed} spawns in the gate`);
-    const stair = floor.spawns.filter((spawn) => spawn.room === floor.goal);
+    const stair = floor.spawns.filter((spawn) => spawn.room === floor.goal && !spawn.buried);
     assert.equal(stair.length, 1, `seed ${floor.seed} level ${level} stair pack: ${stair.map(s => s.kind).join(',')}`);
     assert.ok(BESTIARY[stair[0].kind].boss && !stair[0].ambush && !stair[0].buried, `seed ${floor.seed} the stair holds a ${stair[0].kind}, which is not a standing boss`);
     assert.equal(floor.spawns.filter(spawn => spawn.kind === 'warden' && spawn.room === floor.goal).length, 0, `seed ${floor.seed} a warden still stands on the stair`);
@@ -370,10 +370,10 @@ test('dealing the new kinds moves no room, prop, weapon or body: floor one is id
 
 // --- Plan 021 Stage B: the boss option and the deal ---------------------------------------------------------------
 
-test('the stair hall holds exactly the boss it is given, and the Captain when it is given none', () => {
+test('the stair hall holds exactly the boss it is given, and the Captain on floors one and two and the King on floor three when it is given none', () => {
   const stairOf = (floor: Floor) => floor.spawns.filter(s => s.room === floor.goal && !s.buried).map(s => s.kind);
   for (const level of [1, 2, 3]) for (const seed of sweepSeeds(level).slice(0, 12)) {
-    assert.deepEqual(stairOf(generateFloor(seed, level)), ['captain'], `seed ${seed} level ${level}: the default is not the Captain alone`);
+    assert.deepEqual(stairOf(generateFloor(seed, level)), [level >= 3 ? 'king' : 'captain'], `seed ${seed} level ${level}: the default is not the floor's boss alone`);
     assert.deepEqual(stairOf(generateFloor(seed, level, { boss: 'bonecaller' })), ['bonecaller'], `seed ${seed} level ${level}: the boss option was not honoured (a stand-in kind proves the option reaches the room)`);
   }
 });

@@ -310,9 +310,9 @@ export function simulateArena(seed: number, level: number, roster: readonly Enem
   return simulateFloor(seed, level, startRun(policy), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), arenaFloor(seed, level, roster), true);
 }
 
-/** One generated floor fought by a fresh knight: no earlier floors, no boons, full vitality. For a test that needs a floor and not a descent. */
-export function simulateLevel(seed: number, level: number, policy: Policy = DEFAULT_POLICY): FloorReport {
-  return simulateFloor(seed, level, startRun(policy), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b));
+/** One generated floor fought by a fresh knight: no earlier floors, no boons, full vitality. For a test that needs a floor and not a descent; `built` is a floor the test laid itself (a chosen boss). */
+export function simulateLevel(seed: number, level: number, policy: Policy = DEFAULT_POLICY, built?: Floor): FloorReport {
+  return simulateFloor(seed, level, startRun(policy), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), built);
 }
 
 function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number, built?: Floor, arena = false): FloorReport {

@@ -1,4 +1,4 @@
-import { BESTIARY, BOSS_POOL, FINAL_BOSS, type EnemyKind } from './dungeon-bestiary.ts';
+import { BESTIARY, BOSS_POOL, FINAL_BOSS, reserveSize, type EnemyKind } from './dungeon-bestiary.ts';
 import { FOUND_WEAPONS, PICKUP_RADIUS, STARTING_WEAPON, type WeaponId } from './dungeon-weapon.ts';
 
 export const TILE = 1.48;
@@ -47,7 +47,7 @@ export const oneCaller = (pack: EnemyKind[]): EnemyKind[] => {
 };
 
 /**
- * A summoner's reserve, buried at its feet (plan 018): each caller's `summons.count` bodies are appended after
+ * A summoner's reserve, buried at its feet (plan 018): each caller's `reserveSize` bodies (its `summons.count`, or for a boss the most its worst phase's round can raise) are appended after
  * **every** standing spawn on the floor, on the caller's tile, with `summoner` the caller's index in the list. The
  * standing spawns keep their indices and nothing here draws a random number, so the rooms, props and weapon drop a
  * seed lays do not move. The generator and the development arena both bury through this one rule.
@@ -56,7 +56,7 @@ export const buryReserves = (spawns: readonly Spawn[]): Spawn[] => {
   const all = [...spawns];
   spawns.forEach((caller, index) => {
     const summons = BESTIARY[caller.kind].summons;
-    for (let n = 0; n < (summons?.count ?? 0); n++) all.push({ x: caller.x, z: caller.z, kind: summons!.kind, room: caller.room, ambush: false, buried: true, summoner: index });
+    for (let n = 0; n < reserveSize(caller.kind); n++) all.push({ x: caller.x, z: caller.z, kind: summons!.kind, room: caller.room, ambush: false, buried: true, summoner: index });
   });
   return all;
 };
@@ -143,8 +143,7 @@ export const ARRIVAL_CLEAR = 3.5;
 // between doors is a choice between what the chambers behind them pay.
 //
 // Plan 021 (D5, D13): the stair hall holds its boss and nobody else. `options.boss` names it; without one the Captain stands there, so every
-// caller and fixture that never heard of bosses still lays a valid floor (floor three gets `FINAL_BOSS`, which is the Captain until the Bone
-// King has a row). The goal chamber still draws every placement it drew when it held two or three wardens - the boss takes the first body's
+// caller and fixture that never heard of bosses still lays a valid floor (floor three gets `FINAL_BOSS`, the Bone King, whose reserve is buried with the rest). The goal chamber still draws every placement it drew when it held two or three wardens - the boss takes the first body's
 // spot and the others are placed and then not emitted - so no prop, weapon drop or other chamber's pack moves with it.
 export type FloorOptions = { boss?: EnemyKind };
 export function generateFloor(seed: number, level = 1, options: FloorOptions = {}) {

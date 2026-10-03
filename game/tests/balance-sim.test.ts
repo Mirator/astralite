@@ -168,7 +168,8 @@ test('walking into a chamber that holds a bonecaller wakes nothing in its reserv
   let quiet = 0;
   for (const seed of CALLER_KEEPS) {
     assert.ok(generateFloor(seed, 3).spawns.some(s => s.kind === 'bonecaller'), `seed ${seed} no longer deals a caller: pick another seed`);
-    const report = simulateLevel(seed, 3, policy());
+    // The floor is laid with the Captain on the stair (the boss the final floor held before the Bone King), so what is counted below is the caller's reserve and not the King's.
+    const report = simulateLevel(seed, 3, policy(), generateFloor(seed, 3, { boss: 'captain' }));
     assert.notEqual(report.outcome, 'stuck', `seed ${seed}: the floor hit its timeout`);
     if (report.raised > 0) continue;
     quiet++;
@@ -209,8 +210,8 @@ test('a run report says what banking it would pay', () => {
   assert.equal(won.outcome, 'escaped', 'precondition: the default knight escapes this seed');
   assert.equal(felled(won), 3, 'precondition: the escape went through three bosses');
   assert.equal(won.pearls, won.kills + 3 * 15 + 25 + 3 * 10, 'an escaped run report does not carry what a win pays');
-  // Seeds 207 and 158381 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159.
-  for (const [seed, floor] of [[207, 2], [158381, 3]] as const) {
+  // Seeds 207 and 8 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159.
+  for (const [seed, floor] of [[207, 2], [8, 3]] as const) {
     const lost = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
     assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
     assert.equal(felled(lost), floor - 1, `precondition: a run lost on floor ${floor} felled the ${floor - 1} bosses behind it`);
