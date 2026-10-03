@@ -4376,3 +4376,165 @@ through the slots to the hall": with a seed stored in slot 1 (asserted as the pr
 button, and ENTER → slot 1 lands in the hall, not the remembered keep. Planted bug: a LAST KEEP button put back on the
 title, failing with "the title still offers LAST KEEP, a retry that skips the hall". Gates: typecheck, lint, `npm test`
 392/392; a11y, slots, arena and loading specs 20/20 (SwiftShader, 2 workers). Full suite on the PR's CI.
+
+## 2026-10-03 - Plan 021 Stage 0 and Stage A: the baseline, and moves and phases with nothing dealt
+
+Branch `claude/beautiful-gauss-5o0cw4`, on `main` at `1ae7e92`. Stage 0 measured four things and changed no game file (the throwaway frame-cost
+edit to the warden's scale was reverted before anything was committed). Stage A gave an archetype moves and phases, and nothing deals one:
+`balance:check` prints Stage 0's 72 values exactly. No stop rule tripped, but two numbers below are the envelope Stages B to E have to stay inside.
+
+### Stage 0
+
+**1. Balance baseline** (`npm run balance:check`, 30 runs a policy from seed 1; every metric inside its band; 492.7 s). Escape rate, death rate by floor
+(f1/f2/f3), median vitality left by floor, median run seconds:
+
+| policy | escape | death f1/f2/f3 | HP left f1/f2/f3 | seconds |
+| --- | --- | --- | --- | --- |
+| default | 100.0 | 0.0 / 0.0 / 0.0 | 100.0 / 100.0 / 100.0 | 149.0 |
+| weak | 83.3 | 0.0 / 3.3 / 10.7 | 86.4 / 82.0 / 73.6 | 127.9 |
+| special | 100.0 | 0.0 / 0.0 / 0.0 | 100.0 / 100.0 / 100.0 | 146.3 |
+| special-fangs | 100.0 | 0.0 / 0.0 / 0.0 | 100.0 / 100.0 / 100.0 | 142.7 |
+| special-cleaver | 100.0 | 0.0 / 0.0 / 0.0 | 100.0 / 100.0 / 100.0 | 168.8 |
+| special-crossbow | 93.3 | 0.0 / 0.0 / 6.7 | 100.0 / 100.0 / 100.0 | 222.8 |
+| special-flask | 100.0 | 0.0 / 0.0 / 0.0 | 100.0 / 100.0 / 100.0 | 196.7 |
+| meta-max | 100.0 | 0.0 / 0.0 / 0.0 | 100.0 / 100.0 / 100.0 | 145.7 |
+| weak-meta-max | 100.0 | 0.0 / 0.0 / 0.0 | 89.7 / 85.2 / 78.7 | 123.8 |
+
+**2. Goal-room fit.** The goal room of every floor in the `balance:check` sweep (30 seeds x 3 floors = 90), of the pinned test seeds (15 seeds x 3 floors = 45)
+and of 1,500 further floors (500 seeds x 3). Measured off the generated floor (`generateFloor`), props and walls included. "Circle" is the largest circle of open
+floor around the room's centre (where the stair is). "Refuge" is, for the least roomy room of a set, the smallest over every place the boss could stand of the distance from
+it to the farthest floor tile: a sweep has to be shorter than that by the knight's body (0.5) for him to have somewhere outside it wherever the boss stands. "Chord" is
+the longest straight clear line in the room. Units are world units (a tile is 1.48); each figure is the least of its set.
+
+| set | floor | free tiles | circle at centre | refuge | longest chord |
+| --- | --- | --- | --- | --- | --- |
+| sweep, 90 rooms | 1 | 53 to 222 | 3.70 | 6.28 | 12.56 |
+| | 2 | 53 to 169 | 3.70 | 6.28 | 12.56 |
+| | 3 | 45 to 197 | 3.70 | 6.10 | 11.84 |
+| pinned seeds, 45 | 1 / 2 / 3 | 72-172 / 60-171 / 45-150 | 3.70 | 7.55 / 7.40 / 6.10 | 14.80 / 14.80 / 11.84 |
+| 1,500 floors | 1 / 2 / 3 | 45 to 222 on each | 3.70 | 6.10 | 11.84 |
+
+By shape (1,500 floors, free tiles): court 125 to 222, hall 59 to 140, gallery 63 to 130, crypt **45** to 124, cross 53 to 92, round 49 to 108. The smallest refuge
+is a crypt's or a round's (6.10); a court's is 11.56. The 3.70 circle at the centre is the prop rule (no prop within three tiles of the heart), not a wall: it is the
+same in every room. **Worst room:** a 45-tile crypt, half-extents 4 by 3, for example seed 3 floor 3 (also seeds 126707 and 304032 on floor 3, 618219 on floor 2):
+circle 3.70, refuge 6.10, diameter 12.20, longest clear chord 11.84, area 45 x 2.19 = 98.6 square units. Where bodies are placed today (500 seeds x 3 floors, every
+goal room): the first body is always placed (no goal room is without one), 3.61 tiles or more from the way in and 2.00 or more from the stair, so D5's "the boss takes
+the first body's spot" always has a spot.
+
+D4 gives the moves no numbers yet, so there is nothing to hold against this table but stand-ins taken from reaches that exist (a reaper's 2.3 sweep scaled to a
+boss's 1.7, a stalker's lane (5 long, 1.7 wide) widened likewise to 2.9, an archer's 9.1 bolt, the pyre's 1.7 ring three times over). Against the worst room: a sweep of 3.9 leaves
+the knight 2.2 of floor beyond it wherever the boss stands, **a sweep may reach 5.6 and no further** (refuge 6.10 less the 0.5 margin); a lane is clipped by stone
+(`laneLength`) and is 2.9 wide against a 7.4 inscribed diameter; a 9.1 bolt does not cross the 12.2 room; three 1.7 rings cover 27 square units, 28% of the room. **The
+stop rule did not trip**: a 45-tile crypt holds moves of those sizes with the knight able to stand outside them. It is an envelope, not a proof: a sweep above 5.6, or
+more than three rings at 1.7, does not fit it, and the plan's own figures for the real reaches are Stage B and C's to choose inside it.
+
+**3. Frame cost** (SwiftShader, level 3, seeds 0x1 round, 0x3 crypt, 0x6 cross, 0x7 gallery, 0xc hall, 0x86 crypt; the goal room framed from 4.5 to 7 units from the boss;
+throwaway edit of the warden's `look.scale` to 1.8, reverted; counters are the renderer's own and repeat exactly):
+
+| goal room (floor 3) | empty | one warden at 1.8 | three wardens (today's) |
+| --- | --- | --- | --- |
+| seed 0x3 crypt, 45 tiles | 250 / 220,734 tri / 55 shadow | 288 / 228,978 / 74 | 364 / 245,466 / 112 |
+| seed 0x1 round | 277 / 237,234 / 63 | 315 / 245,478 / 82 | 391 / 261,966 / 120 |
+| seed 0x6 cross | 252 / 222,039 / 52 | 290 / 230,283 / 71 | 366 / 246,771 / 109 |
+| seed 0x7 gallery | 253 / 224,921 / 54 | 291 / 233,165 / 73 | 331 / 241,713 / 94 |
+| seed 0xc hall | 264 / 217,379 / 63 | 302 / 225,623 / 82 | 377 / 242,003 / 120 |
+| seed 0x86 crypt | 279 / 237,330 / 66 | **317 / 245,574 / 85** | 393 / 262,062 / 123 |
+
+A warden is 38 calls and 8,244 triangles whatever its scale; the worst chamber with a boss alone is 317 calls against the 508 ceiling (`caller-chamber`), 191 to spare. A
+rattler is 29 calls (arena, level 3, warden plus k rattlers: 277, 335, 393, 451, **509**, 567 calls for k = 0, 2, 4, 6, 8, 10; +12,020 triangles and +28 shadow calls per two). So **the
+boss chamber with its reserve standing fits under 508 only up to six rattlers standing at once in the worst room measured (317 + 6 x 29 = 491; seven is 520)**; a buried
+body draws nothing. No reserve is defined before Stage E sizes the King's, so the stop rule is not tripped, and it is the figure Stage E is held to: more than six standing at once
+is reported, not absorbed. Six rooms on one renderer is a sample, not a sweep: an empty goal room costs 250 to 279 calls across it, and the 317 is built on its highest.
+
+**4. Exposure list**, and how each goes (restaged in Stage B, with `?boss=` where a test needs a known boss; nothing below was changed in these two stages):
+
+- `progression.spec.ts:105-281` (the stair scenario on floors 1 and 3, and the rank-up scenario). Both count the goal room's bodies (`stairEnemies`, `room === goal`) and
+  pay them at 25 each: the results card's tally (`results[0]` = wardens), its XP (`wardens * 25`) and `grantXp(gap - wardens * 25)`. After D5 and D10 that is one body and 100 XP.
+  `stairEnemies` must also leave out buried bodies (the King's reserve is in the goal room) or floor 3 counts them. `fightStair` leaves each warden at `hp: 1`; a boss at 1 is under
+  every threshold, so it changes phase before it can be struck (one change on the Captain, two on the King, a second each, unhittable), and the fixture has to wait the changes out
+  before swinging. Floor 3 ends in the King, not the Captain, from Stage E.
+- `special.spec.ts:564-616` (a Maul slam fells the last warden). Same dependence: `wardens.length`, `ring` of that many, `gap - wardens.length * 25`, and `hp: 1` for every body in the room.
+  With one boss it stages one body, 100 XP and a wait for the phase change before the held slam, or the slam lands in the unhittable second.
+- `shots.spec.ts:99-113` (`@capture`, "the warden chamber with the stair still sealed", seed 0x1). The assertions (`stairClear` false, stair not open) hold with a boss standing; the
+  frame does not: the reference frame `sealed-warden-chamber` shows two wardens and will show one boss. Regenerate that baseline through the `captures` workflow.
+- `hall.spec.ts:183-188`. It compares floor one's body count with `generateFloor(DEFAULT_SEEDS[0], 1).spawns` filtered to standing bodies, so a boss in place of two wardens is on both
+  sides; only the message "the stair is open before its wardens fell" is stale. Re-run it, do not assume it.
+- `dungeon-floor.test.ts:136-166`. "the stair is guarded by wardens" asserts 2 (3 on floor 3) standing bodies, all wardens: it becomes exactly one standing body that is the boss (the King
+  on level 3 with its reserve buried in the goal room). "deeper floors are meaner" counts all wardens (`wardens(3) > wardens(1) * 1.5`) and every spawn, buried included (`count(3) >
+  count(1) * 1.3`): with the goal wardens gone, floor one holds 1 of the 3 wardens it holds on seed 0x1 and floor three 6 of 9, so the ratio rises; the spawn count loses two or three bodies and
+  gains the King's reserve. Both are re-measured at Stage B, not assumed.
+- **The "any warden" finders** (`gameplay.spec.ts:151, 399, 552`; `special.spec.ts` `stage(..., 'warden')` at :37, 74, 95, 288, 312, 382, 447, 815, 904; `slash.spec.ts:74-77`): measured on every pinned
+  seed and floor. On seed 0x1 floor 1 (the default of nearly every spec) the first warden by spawn order is index 27 in room 14, not in the goal room 18, and one warden stands outside the goal room, so
+  they all still find one. Every seed in the pinned set (0x1, 0x7, 0xc, 0x86, 0x3, 0x6, 0x11, 0xb) has at least one warden outside the goal room on floor 1. **One seed does not: 0x60 floor 1 holds two
+  wardens and both are in the goal room**; the only spec on 0x60 is the light budget in `frame-budget.spec.ts`, which looks for none. **Two finders need a second warden**: the Heavy Bolt scenario
+  (`special.spec.ts:811-891`, `another(opening, index, 'warden')`) takes the first warden for the near one and a second awake warden for the far one, and on seed 0x1 floor 1 the second is a goal-room warden.
+  After D5 floor one has one warden on that seed. It restages on a seed whose floor has two wardens outside the goal room (0x7 floor 1 has 2: rooms 11 and 13; 0x86 floor 1: rooms 15 and 19) or in the arena.
+
+### Stage A
+
+What was built, file by file:
+
+- `app/dungeon-bestiary.ts`: `Attack` gains `'scatter'`; new `Cue` (the cue union, now named) and `Move` types; `Archetype` gains optional `moves` (one rotation per phase), `phases` (the vitality shares where
+  each later phase begins, falling) and `boss` (`'pool' | 'final'`). No row has any of them.
+- `app/dungeon-enemy.ts`: `EnemyView` gains `hp`, `maxHp`, `move`, `phase` and **`change`** (seconds of phase change left; the plan names the first four, and the one-second unhittable window needs a clock);
+  `EnemyIntent` gains `move`, `phase`, `change`, `phaseChange`, `scatter`. New `PHASE_CHANGE` (1.0), `BOSS_PUSH_MARGIN` (0.6), `scaledDamage`, `moveOf`, `strikeDamage`, `bossReach`. `decideEnemy`: for an archetype
+  with `moves` it picks the next move in the rotation the knight is within range of (`pickMove`), uses that move's tell, reach, attack and range, advances the rotation when the move is spent (a pounce when its leap
+  ends, not its tell), and on a threshold crossing cancels the windup and lunge, enters the next phase only (one at a time), and stands still for `PHASE_CHANGE`. Ordinary archetypes take their old path.
+- `app/dungeon-hits.ts`: `Struck.change` and `unhittable`; `landBlow` returns `{ immune: true }` and touches nothing while it runs, and `burn` does nothing; new `bossPush(boss, knight)`, the displacement that leaves the
+  knight `BOSS_PUSH_MARGIN` beyond `bossReach`.
+- `app/dungeon-projectile.ts`: `scatterRings(trail, count, live)`, `SCATTER_SPACING`, `TRAIL_STEP`, `TRAIL_LENGTH`.
+- `scripts/balance/sim.ts`: the view carries the boss fields; a body takes `move`, `phase`, `change` back; a boss's blow, bolt and raise use the move's damage, bolt and `perTell`; a phase change counts and pushes the knight
+  (`bossPush`); a scatter marks rings at the start of its tell off the knight's trail and lights them when it ends, billed to the boss; blows, fire and the Flashpoint leave a boss in its change alone; the report gains `bossKind`,
+  `bossDamage`, `bossDeaths`, `bossSeconds`, `bossHpLeft` (read at the boss's fall, before the kill's draught or the room's top-up) and `phaseChanges`.
+- `app/dungeon-game.tsx`: one line, the view handed to `decideEnemy` carries the new fields (`hp`, `maxHp` and zeros for the rest, with a comment that Stage B threads them).
+- Tests: `tests/fixtures/enemy-sequence.ts` (the ordinary-fight driver, committed on its own before any change, digests recorded at `1ae7e92`) and `tests/fixtures/test-boss.ts` (two-phase `TEST_BOSS`, three-phase `TEST_KING`,
+  one-move `TEST_SCATTERER`, stood in for the reaper by `asReaper`, which restores it and `BASE_STATS`).
+
+**Interpretations.**
+
+- **A move completes when its tell runs out, except a pounce, which completes when its leap ends.** The rotation moves on then, and the damage of the pounce's hit (landing a few frames later) still reads the move that threw it.
+- **The phase change is one `change` clock**, kept on the view like `windup`. It makes the boss still and committed to nothing while it runs; the frame it runs out is the boss's again (it may begin a tell at once).
+  A change also cancels a lunge. A threshold is crossed strictly (`hp < share * maxHp`).
+- **`Move.damage` is a floor-one figure**, scaled like `stats.damage` (`strikeDamage`, +15% a floor, rounded); `tell` is absolute. The move's `recovery` is the archetype's (the plan gives a move none).
+- **`bossReach` is the farthest `swing` or `sweep` over every phase** (a pounce and a volley are lanes). The push leaves the knight 0.6 beyond it; walls stop it (`moveOnFloor`), so a knight with his back to one can be left inside.
+- **`scatterRings(trail, count, live)` takes `live` as `{ hostile, own }`** so "counting the knight's own flask pools" (D6) is a rule the function applies and a test can plant. In the game the knight's flask pools draw
+  from their own six meshes (`poolMeshes`), separate from the six hostile ones, so counting them is conservative; the plan's rule is kept as written.
+- **A scatter's rings are chosen when its tell starts** (that is when the cue is drawn on them) and light when it ends.
+- **Not done in the sim: the dodge rules.** The plan lists "away from a sweep ring, sideways from a lane, out of a marked ring". A boss is read off the move it is winding up and dodged by the ordinary rule (sideways from
+  anything that is not a swing), which is what a reaper's sweep gets today. A marked-ring dodge was written and removed: its plant (never step out of a marked ring) survived, because the existing step out of lit fire
+  does the same work one bite later and the rate of fire taken came out equal with and without it (the knight who left the ring also stayed out of melee, so the fight ran twice as long). It belongs to Stage C, where a
+  scatter boss exists to measure it against.
+- **The arena cannot show `bossHpLeft` before a top-up**: its gate is cleared from the start and pays none. The test pins the value at the fall (the knight's vitality less what the boss dealt); that it is read before a
+  goal chamber's top-up is Stage B's to hold, where a boss stands in one.
+
+**Planted bugs** (each planted in the code, run against its own test only with `node --test`, then restored; the tree was clean after each):
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| an archetype without moves produces exactly the intents it produced before plan 021 | every archetype routed through the move selector (a one-move table made of its row, tell from the row, not the view) | `guard: its intents over the scripted fight are not what they were before plan 021 (digest, then what the fight held)`, digest `cc608b57` for `92ec2e7b` |
+| the rotation advances when a move is spent and not when it is interrupted | advance on every windup start | `a move began and the rotation had already moved on` (1 !== 0) |
+| a boss skips a move out of range for the next that fits, and skips none in range | always take the next move | `in range of the first move it did not begin the first move` (0.9 !== 0.5) |
+| crossing a threshold changes phase once, cancels the windup, nothing hurts it | allow damage during the change (`landBlow` no longer reads `change`) | `a blow took 3 off a boss in the middle of a phase change` (16 !== 19) |
+| a blow across two thresholds enters each phase in turn | jump to the lowest phase | `the first change entered phase 2: it skipped phase 1` (2 !== 1) |
+| the push leaves the knight outside the largest melee reach | push one tile | `a knight 0 from the boss on side 0 was left 1.48 from it, inside its 3.1 reach` |
+| a scatter marks at most the free rings, counting the knight's own | ignore the knight's pools | `the knight's own pools were not counted against the rings` (3 !== 2) |
+| a boss with two phases hurts the knight, changes phase once ... (sim) | never apply phaseChange in the sim (state not stored back) | `a boss with one threshold changed phase 28638 times` |
+| the same | never count or push on `intent.phaseChange` | `no boss ever changed phase: the sim never applies intent.phaseChange` |
+| a boss's blow costs what its move says, scaled by the floor | a move's damage not scaled | `a boss's move did not grow with the floor` (14 !== 18) |
+| the rings a scatter marks become fire that bills the boss | the marked rings never become pools | `the rings a scatter marked never became fire that bit the knight` |
+
+Two things the plants taught: the first draft of the ordinary-kinds test could not fail (a one-move table built from a row gives the same intents), so the driver hands each body a tell a quarter longer than its kind's and the
+digest now catches a selector that reads the row; and the sim test's first fixture boss never landed a blow, because the sim's knight breaks any non-steadfast tell with ordinary steel, so the fixture is steadfast, as a
+warden is. The interrupted half of the rotation test (a broken sweep is tried again, not the move after it) is reached only after the plant's earlier assertion, so that plant does not show it can fail on its own; it holds
+by construction (nothing but `landBlow` clears a windup without spending it, and the rotation is advanced only where a tell runs out).
+
+**Gates.** `npm run typecheck` clean; `npm run lint` clean; `npm test` 402 of 402 (was 392: ten new). `npm run balance:check` prints all 72 values identical to Stage 0's and every metric inside its band
+(run twice: 478.8 s on the tree before the last sim edit, 472.0 s on the final tree, both diffed row by row against the baseline). The browser suite was not run locally (the operator's speed rule): nothing browser-visible changed,
+and the one game line passes the new fields; CI on the draft PR runs it. Nothing pushed.
+
+### Not done / not verified
+
+- Stage B onward is untouched; the exposure list above is a list, nothing in it was restaged.
+- The frame-cost numbers are SwiftShader, six goal rooms, floor 3; a GPU was not used.
+- The goal-room fit uses stand-in reaches (D4 gives none); the real ones are measured against the 5.6 and 28% envelope when they exist.
+- The sim's marked-ring dodge and the "away from a sweep" refinement are deferred, as above.

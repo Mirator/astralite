@@ -446,3 +446,25 @@ Record the run log, including `bossKinds`. D4, D7 and D9 are re-decided here.
 Fill in per stage: gates, Stage 0's room-fit and frame numbers, the exposure
 list and how each item was restaged, the tuning table, and the planted bug for
 each new test with the message it failed with.
+
+Filled in 2026-10-03 (`claude/beautiful-gauss-5o0cw4`, Stages 0 and A); the full record, with every number and each planted bug and the message it
+failed with, is the 2026-10-03 entry in `game/progress.md`.
+
+- **Stage 0.**
+  - Baseline: `balance:check` in band on all 72 metrics (default escape 100, weak 83.3, weak-meta-max 100, default 149.0 s a run).
+  - Goal-room fit (90 sweep rooms, 45 pinned, 1,500 further): smallest 45 free tiles (a 4 x 3 crypt, e.g. seed 3 floor 3), largest 222 (a court); refuge 6.10 in the
+    worst room, 11.56 in a court. D4 states no reaches, so the stop rule is answered against stand-ins: a 45-tile crypt holds a sweep up to 5.6, lanes (stone clips
+    them) and three 1.7 rings (28% of the room). **Not tripped**; 5.6 and 28% are the envelope the real reaches are chosen inside.
+  - Frame cost: a warden alone at 1.8 in the worst of six goal rooms is 317 calls / 245,574 triangles / 85 shadow calls against 508 (191 to spare); 38 calls a warden,
+    29 a rattler. A reserve of **six standing at once fits under 508 in that room (491), seven does not (520)**. **Not tripped**, and the figure Stage E is held to.
+  - Exposure: the five listed items need restaging in Stage B (progression, the special slam and the node stair test on count and 100 XP, the capture baseline, the hall message). The
+    "any warden" finders all still find one on their seeds (seed 0x1's first warden is room 14), with two exceptions: seed 0x60 floor 1 has both its wardens in the goal room (only the
+    light budget uses it, and needs none), and the Heavy Bolt scenario needs a second warden that on seed 0x1 floor 1 is a goal-room one.
+- **Stage A.** Gates: typecheck, lint, `npm test` 402/402 (ten new); `balance:check` prints Stage 0's 72 values exactly (diffed row by row, twice, the second on the final tree). Planted bugs and
+  their messages, one per test: ordinary intents routed through the selector (`guard: its intents over the scripted fight are not what they were before plan 021`); advance on every windup
+  start (`a move began and the rotation had already moved on`); always take the next move (`in range of the first move it did not begin the first move`); damage during the change
+  (`a blow took 3 off a boss in the middle of a phase change`); jump to the lowest phase (`the first change entered phase 2: it skipped phase 1`); push one tile (`a knight 0 from the boss on
+  side 0 was left 1.48 from it, inside its 3.1 reach`); ignore the knight's pools (`the knight's own pools were not counted against the rings`); the sim never applies the phase change
+  (`no boss ever changed phase: the sim never applies intent.phaseChange`, and, with only the stored state removed, `a boss with one threshold changed phase 28638 times`). Two bonus tests, their
+  plants too (a move's damage unscaled; scatter rings never lit). Deferred and said so: the sim's marked-ring dodge (its plant survived), and `bossHpLeft` before a top-up (the arena pays none).
+
