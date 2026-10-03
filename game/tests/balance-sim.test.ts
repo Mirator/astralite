@@ -240,15 +240,13 @@ test('a boss with two phases hurts the knight, changes phase once, and the repor
   });
 });
 
-test('a scatter marks rings the knight can step out of, and each becomes fire that bills the boss that marked it', () => {
+test('the rings a scatter marks become fire that bites the knight and bills the boss that marked them', () => {
   asReaper(TEST_SCATTERER, () => {
-    const standing = fight(['reaper'], { dodge: 0, avoidFire: false }), stepping = fight(['reaper'], { dodge: 0, avoidFire: true });
+    const reports = fight(['reaper'], { dodge: 0, avoidFire: false });
     // The boss does nothing but scatter, so every point it took off the knight came off the ground.
-    assert.ok(total(standing, r => r.poolDamage.reaper) > 0, 'the rings a scatter marked never became fire that bit the knight');
-    for (const r of standing) assert.equal(r.damage.reaper, r.poolDamage.reaper, 'a scatterer dealt damage that was not fire');
-    assert.ok(total(standing, r => r.bossDamage) === total(standing, r => r.poolDamage.reaper), 'the fire was not billed to the boss');
-    // Stepping out takes him off the boss as well, so the fight runs longer: the comparison is fire taken for each second of it.
-    const rate = (reports: typeof standing) => total(reports, r => r.poolDamage.reaper) / total(reports, r => r.bossSeconds);
-    assert.ok(rate(stepping) < rate(standing) * 0.75, `a knight who steps out of marked rings took ${rate(stepping).toFixed(1)} fire a second, one who stands in them ${rate(standing).toFixed(1)}`);
+    assert.ok(total(reports, r => r.bossSeconds) > 0, 'precondition: the boss fought');
+    assert.ok(total(reports, r => r.poolDamage.reaper) > 0, 'the rings a scatter marked never became fire that bit the knight');
+    for (const r of reports) assert.equal(r.damage.reaper, r.poolDamage.reaper, 'a scatterer dealt damage that was not fire');
+    assert.equal(total(reports, r => r.bossDamage), total(reports, r => r.poolDamage.reaper), 'the fire was not billed to the boss');
   });
 });

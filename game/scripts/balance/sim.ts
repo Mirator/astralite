@@ -514,9 +514,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     const threat = live.find(b => b.windup > 0 && b.winding?.attack !== 'scatter' && readable(b)
       && Math.hypot(b.x - player.x, b.z - player.z) < (b.winding ?? BESTIARY[b.kind]).strikeRange + ((b.winding ?? BESTIARY[b.kind]).attack === 'pounce' ? 2.6 : 0.4));
     if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, swing) && nerve() < policy.dodge) {
-      // A pounce or a bolt is out-run sideways; a swing is out-run backwards - and so, for a boss, is a sweep: away from its ring.
-      const away = unit(player.x - threat.x, player.z - threat.z), attack = (threat.winding ?? BESTIARY[threat.kind]).attack;
-      const step = (threat.winding ? attack !== 'swing' && attack !== 'sweep' : attack !== 'swing') ? { x: -away.z, z: away.x } : away;
+      // A pounce or a bolt is out-run sideways; a swing is out-run backwards. A boss is read off the move it is winding up.
+      const away = unit(player.x - threat.x, player.z - threat.z);
+      const step = (threat.winding ?? BESTIARY[threat.kind]).attack !== 'swing' ? { x: -away.z, z: away.x } : away;
       facing.x = step.x; facing.z = step.z;
       dashTime = DASH_TIME; dashCooldown = run.dashSpan; attackTime = 0; chainBeat = 0; chainIdle = Infinity; swing = weapon; swingHits.clear();
       charging = null; swingKind = 'strike';
@@ -656,12 +656,6 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     if (policy.avoidFire !== false && dashTime <= 0) {
       const burning = fires.find(f => poolCatches(f.pool, player.x, player.z));
       if (burning) move = unit(player.x - burning.pool.x, player.z - burning.pool.z);
-      // Plan 021: a ring a boss's scatter has marked is stepped out of before it becomes fire.
-      for (const b of live) {
-        const ring = b.windup > 0 ? b.marks.find(m => Math.hypot(m.x - player.x, m.z - player.z) < (b.winding?.scatter?.pool.radius ?? 0) + 0.3) : undefined;
-        // Standing on the ring's very heart (the newest mark is where he stands) has no way out of it, so go away from the boss.
-        if (ring) { const out = unit(player.x - ring.x, player.z - ring.z); move = out.x || out.z ? out : unit(player.x - b.x, player.z - b.z); }
-      }
     }
     if (move) { facing.x = move.x; facing.z = move.z; }
     const speed = charging !== null && dashTime <= 0 ? weapon.moveSpeed * (special?.moveScale ?? 1) : playerSpeed({ dashing: dashTime > 0, attacking: attackTime > 0, weapon: swing });
