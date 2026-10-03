@@ -4,6 +4,7 @@ import {
   expect,
   type Game,
   type GameWindow,
+  laneSpot,
   openSpot,
   roomCentre,
   strikeStance,
@@ -107,6 +108,9 @@ const BUDGET = {
   // Measured 2026-09-29 on d3d11 (whose counters equalled SwiftShader's on the three scenes above): 8 bodies, 508 calls,
   // 286,247 triangles, 184 shadow calls, +4.5% calls on the purse. Each ceiling is the figure measured.
   'caller-chamber': { calls: 508, triangles: 286_247 },
+  // Plan 021 Stage B: the stair hall of the tightest goal chamber (seed 0x86 floor three, a 45-tile crypt) with the Captain standing in it, framed 5.5 from the boss. Measured 2026-10-03 on SwiftShader:
+  // 320 calls, 246,034 triangles (Stage 0's stand-in, a warden scaled to 1.8, read 317 / 245,574 in the same room). 188 calls under the 508 above. Each ceiling is the figure measured.
+  'captain-chamber': { calls: 320, triangles: 246_034 },
 } as const;
 
 /** Draws the staged frame, then holds its counters against the ceiling. */
@@ -254,6 +258,35 @@ test.describe('the busiest chamber plan 018 deals', () => {
     expect(state.enemies.filter((e) => e.kind !== 'rattler').map((e) => e.kind).sort()).toEqual(['bonecaller', 'pyre', 'shieldbearer', 'warden']);
     expect(state.health, 'the knight fell before the frame was drawn').toBeGreaterThan(0);
     await spend(game, 'caller-chamber');
+  });
+});
+
+// Plan 021 Stage B: the stair hall with its boss standing. The worst goal chamber the generator lays (a 45-tile crypt: seed 0x86 on floor three, which the Stage 0 frame
+// measurement found the dearest of six) with the Captain, huge and awake, in frame from the distance a fight opens at. It holds the boss alone and nothing else, so it is a
+// third of the busiest chamber above; it is here so a boss that grows (a second figure, a reserve standing) has a number to be held to, and the King's chamber with its reserve standing is held to the 508 above (Stage E).
+test.describe('the stair hall with its boss', () => {
+  test.use({ seeds: [0x1, 0x86] });
+  test('the Captain standing in the worst goal chamber stays inside its budget', async ({ game }) => {
+    await game.enter();
+    await game.buildFloor(3);
+    await game.step(0);
+    const floor = await game.floor();
+    expect(floor.seed, 'the page was not handed the seed this scenario is staged on: pick another seed').toBe(0x86);
+    const goal = floor.rooms[floor.goal], opening = await game.state();
+    expect(goal.shape, 'the goal chamber of this seed is no longer the tight crypt this budget was set on: pick another seed').toBe('crypt');
+    const bossAt = opening.enemies.findIndex((e) => e.kind === 'captain' && e.room === floor.goal);
+    expect(bossAt, 'the goal chamber holds no Captain').toBeGreaterThanOrEqual(0);
+    const boss = opening.enemies[bossAt];
+    // Held quiet, so the frame is the standing boss and the knight lives to see it; the knight in frame, a fight's opening distance away on a clear lane.
+    await game.configureCombat({ enemies: [{ index: bossAt, cooldown: 999, windup: 0 }] });
+    const spot = laneSpot(floor, boss, 5.5);
+    await game.teleport(spot.x, spot.z);
+    await game.step(400);
+    const state = await game.state();
+    expect(state.boss?.kind, 'the boss is not the Captain').toBe('captain');
+    expect(state.enemies.filter((e) => !e.buried).map((e) => e.room === floor.goal), 'more than the stair hall\'s boss is in the staged chamber').toContain(true);
+    expect(state.health, 'the knight fell before the frame was drawn').toBeGreaterThan(0);
+    await spend(game, 'captain-chamber');
   });
 });
 
