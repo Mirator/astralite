@@ -4640,3 +4640,153 @@ Two things the plants taught. The first draft of browser 2 had no stance with ro
 - `bossHpLeft` before the goal chamber's top-up: the sim reads it at the boss's fall (Stage A), and the sim's floors now do have a goal chamber with a top-up, so it is proved there: the default bot's median `bossHpLeft` is 100 and the weak bot's 56, against 70 and 74 a floor after the top-up. The game has no such field.
 - The scatter, summon and volley moves in the game, the Pyre Mother and everything after Stage B, are untouched. The figure was judged on the bench (`npm run figures`) and in two arena screenshots (1000 x 700 and 360 x 740), on SwiftShader; not on a GPU, and not by an operator.
 - Nothing pushed. A production build was made and checked (`build:check`: 11 hooks, none shipped).
+
+## 2026-10-03 - Plan 021 Stages C and D: the Pyre Mother, the Tide Hound and the Bastion, and `scatter` in the game
+
+Branch `claude/beautiful-gauss-5o0cw4`, four commits (the Mother and scatter; the Hound; the Bastion; this log and the balance). The pool (`BOSS_POOL`) now holds four bosses, dealt per run from floor one's seed
+(`dealBosses`, floors one and two never the same); floor three still stands the Captain in until Stage E. Nothing was tuned: every number is D7's hypothesis, Stage F's to tune. No stop rule tripped.
+
+### What changed, file by file
+
+- `app/dungeon-bestiary.ts`: kinds `mother`, `hound`, `bastion`; `Bolt` (a `volley`'s bolt, with an optional `fan: { count, spread }`); `Move.chain`; `shield.until` (the phase a boss's shield breaks in); the three rows; `BOSS_POOL` is
+  captain, mother, hound, bastion.
+- `app/dungeon-enemy.ts`: `decideEnemy` gives a boss move that the next move is chained to no recovery (`chained`), and `pickMove` takes a chained move only when the rotation stands on it (never skips to it);
+  `volleyDemand(kind)`, the most arrows a boss can have in the air (its widest fan times the volleys that can overlap).
+- `app/dungeon-projectile.ts`: `ARROW_POOL` (12, the game's arrow count, now named), `fanHeadings(aim, fan)` (aimed bolt first, then alternately outward), `sampleTrail` (the knight's trail, shared by the game and the sim),
+  `scatterPool` (the fire a lit ring becomes).
+- `app/dungeon-hits.ts`: `blocks` reads `Struck.bossPhase` and a shield's `until`: a boss's shield is gone from the phase it breaks in.
+- `app/dungeon-game.tsx`: a scatter's tell marks its rings (`scatterRings`, off the knight's trail and the free rings, one of the six shared hostile fire-ring meshes each, in the threat colour, closing over the tell), the tell
+  running out lights each as a hostile pool where it was marked, a cut-short tell or a fall lets them go; a fan looses its bolts, the aimed one first, into the arrow pool; a boss's shield mesh is hidden in the change that breaks it;
+  snapshot `scatterMarks`, `hostilePools[].drawn`, `hostileRings`, `arrowsDrawn` and `boss.shield`.
+- `app/dungeon-skeleton.ts`, `dungeon-occlusion.ts`, `dungeon-run-summary.ts`: the three figures, palettes, cutaway windows and cause labels (below).
+- `scripts/balance/sim.ts`: the fan (into the same twelve arrows), `scatterPool`, `sampleTrail`; the knight's **marked-ring dodge** (`Policy.avoidMarks`, on unless `false`: stand in a ring a boss has marked and step straight away from its
+  heart before it lights; away from the boss when the newest ring is on his very feet); report fields `ringsLit`, `ringsOnKnight` and `blockedLate` (blows a shield turned aside after its boss changed phase); `Body.bossPhase` for `blocks`.
+- Tests: `dungeon-mother.test.ts` (6), `dungeon-hound.test.ts` (6), `dungeon-bastion.test.ts` (5), the live-pool deal in `dungeon-floor.test.ts`; `boss.spec.ts` gains four scenarios (the Mother's fan, the scatter's marks and pools, the knight's own fire against the
+  free rings, the Hound's chain, the Bastion's shield; five tests); `frame-budget.spec.ts` gains `POOL_SCENES`; `helpers.ts` types the new snapshot fields; `hall.spec.ts` lays its comparison floor with the page's boss (`DEFAULT_BOSS`), not
+  the deal's; the weak knight's floor-two seed in `balance-sim.test.ts` is 207 (was 159, which the pool of three escapes).
+- `scripts/balance/bands.json`: `measured` re-taken, no band moved (below). `tests/README.md`: the pool, the snapshot fields and the specs.
+
+### The bosses as built
+
+Every pool boss is steadfast (only a stagger arm breaks a tell), has one phase threshold at 50%, and takes the usual extra blade of vitality on floor two. `look.scale` per D11. Each row's `stats.damage` is its first move's damage, which
+`strikeDamage` and the table test read.
+
+| boss | vitality | speed | scale | phase one | below half |
+| --- | --- | --- | --- | --- | --- |
+| The Pyre Mother (`mother`) | 50 | 2.1 | 1.5 | volley (tell .8; a fan of 3 bolts .2 rad apart, 12 damage each; lane 8 x 4.6), volley, scatter (tell .9; 2 rings of radius 1.6, fire 2.2 s, 8 a bite every .6 s) | volley (tell .7; a fan of 5, .15 rad apart, 10 each; lane 8 x 6), close sweep (tell .9, reach 2.6, 16), scatter, scatter (3 rings each) |
+| The Tide Hound (`hound`) | 45 | 3.0 | 1.6 | pounce (tell .7, lane 5.4 x 2.2, 18), swing (tell .5, reach 2.6, 16), pounce | pounce (tell .5), pounce **chained** (tell .3, begins the instant the first leap ends, no recovery between), swing (tell .4) |
+| The Bastion (`bastion`) | 70 | 1.7 | 1.7 | swing (tell .7, reach 2.8, 20), swing (tell .6), sweep (tell 1.0, reach 3.2, 16) behind a frontal shield (arc .3: down while it winds up or recovers) | the shield breaks; swing (.6), swing (.5), sweep (.9), **charge** (a pounce: tell .8, lane 5.2 x 2.2, 22) |
+
+The Mother holds off at range (hold 6, gives ground inside 4 while she recovers) and has no gap in her fan to walk through, so the answer is the dash or being elsewhere; the Hound's lanes are the stalker's, the chain
+re-aims at wherever the knight stands when the first leap ends, so a dash before the first blow is met by the second lane and a dash on the first blow (its immunity takes that blow) leaves the second lane aimed at where he was.
+The Bastion's openings in phase one are its own blows, a flank (the shield is square to the front), and an arm that staggers.
+
+Figures (judged on `npm run figures`, SwiftShader, and in one arena screenshot of the Mother): the Mother is a pyre's cage and a bonecaller's hood and robe grown tall, a crown of six flames about the hood, a bell of a skirt, a cage of coals the size of a
+skull on her back and a staff ending in a brazier, in smoked bone, red-brown cloth and white-hot eyes; the Hound is the stalker's crouched body huge, with a ruff of bone spikes, coral barnacles down the spine, a long jaw with two fangs and a kelp tail, in the
+keep's coldest grey-blue with lantern-white eyes; the Bastion is the warden's plate under a flat-topped great helm with a brass ridge and a visor slit, a tower shield with a brass rim, cross and rivets, a flanged mace, in steel-blue plate, brass and crimson.
+Cutaway windows (0.98 x 1.5, 1.04 x 1.6, 1.3 x 1.8) and cause labels ("Burned by the Pyre Mother", "Run down by the Tide Hound", "Crushed by the Bastion").
+
+### The frame numbers
+
+Measured 2026-10-03 on SwiftShader, twice each, identical, in the tightest goal chamber floors one and two can lay (seed 33 floor two, a 45-tile crypt), the boss alone and held quiet, framed 5.5 from it; every ceiling is the figure measured and each scene is
+bounded below by the helper's 60% and 20%. The Captain's number (floor three's crypt) is unchanged.
+
+| scene | calls | triangles | geometries | calls under 508 |
+| --- | --- | --- | --- | --- |
+| `captain-chamber` (seed 0x86 floor 3) | 320 | 246,034 | 130 | 188 |
+| `mother-chamber` | 291 | 210,062 | 123 | 217 |
+| `hound-chamber` | 253 | 210,696 | 104 | 255 |
+| `bastion-chamber` | 273 | 212,962 | 113 | 235 |
+
+Every boss chamber is under the 508-call ceiling (`caller-chamber`).
+
+### Balance, before and after
+
+`npm run balance:check`, 30 runs from seed 1, on the tree after the Bastion (517 s): every metric inside its band, so no band moved; `measured` was re-taken. Escape / death by floor / median vitality left by floor / seconds; Stage B's number in brackets where it moved.
+
+| policy | escape | deaths f1 / f2 / f3 | HP left f1 / f2 / f3 | seconds |
+| --- | --- | --- | --- | --- |
+| default | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 154.6 (155.1) |
+| weak | 90 | 0 / 0 / 6.9 | 71.2 (70) / 76 (69.6) / 74.4 | 133.9 (134.1) |
+| special | 100 | 0 / 0 / 0 | 100 (99) / 100 / 100 | 150.3 (150.7) |
+| special-fangs | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 146.4 (144.4) |
+| special-cleaver | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 175.3 (174.4) |
+| special-crossbow | 80 (90) | 3.3 (0) / 6.9 (0) / 11.1 (10) | 96 (100) / 96 (100) / 100 | 237.8 (232.7) |
+| special-flask | 100 | 0 / 0 / 0 | 100 / 100 / 100 | 211.6 (208.8) |
+| meta-max | 96.7 (100) | 0 / 0 / 0 | 100 / 100 / 100 | 151.3 (150.9) |
+| weak-meta-max | 100 | 0 / 0 / 0 | 83.1 (79.7) / 84.5 (75.5) / 79.4 | 128.5 (128.4) |
+
+What moved and why: **the Bastion is the crossbow's wall.** Three of the crossbow special's six non-escapes were the Bastion (seeds 23758 on floor 1, 71272 and 190057 on floor 2): its shield turns the bolts aside from the front and a ranged arm that keeps its distance has no flank. That is
+the design, and the band [60, 100] holds it. **meta-max's 96.7%** is one run (seed 182138) stuck on floor two for the whole 480 s, with the Mother alive and untouched: she and the knight stand 19 units apart in an open court, each on a cell boundary (x = 91.0, cell 61.5), and each
+frame the flip of the other's cell flips a pursuit tie (`pursuitStep` and the sim's flood both break ties by candidate order), so neither takes a step in z. It is an artifact of the sim's knight, not of the Mother (any pursuer would do the same to a still knight on a boundary), reported and not fixed; a human does not stand
+on a cell boundary exactly. The weak knight's other non-escape on seed 1 (stuck on floor two, the boss never reached) does not involve a boss. The default knight still escapes 100% with 100% vitality left, and the weak knight 90%.
+
+Duels (a fresh knight, the sim's arena, 30 seeds per boss per floor; a throwaway script, `balance:bosses` is Stage F's): no bot died in any duel. Median fight seconds and the vitality the weak knight (never dodges, reaction .6) has left when the boss falls, floor one / floor two:
+
+| boss | default knight s | weak knight s | weak knight vitality left |
+| --- | --- | --- | --- |
+| Captain | 9.1 / 8.8 | 6.0 / 6.4 | 52 / 44 |
+| Mother | 6.5 / 6.4 | 5.6 / 6.0 | 78 / 74 |
+| Hound | 7.3 / 7.5 | 5.0 / 5.5 | 46 / 37 |
+| Bastion | 11.4 / 11.8 | 7.9 / 7.7 | 40 / 31 |
+
+D9's pool-fairness check (no boss kills the weak bot more than twice as often as another) holds, but vacuously: nothing kills a duel bot. Where the bosses part is damage: the Mother is the softest (22 to 26 of the weak knight's vitality in a median fight, her fan hitting a knight who walks straight at her only
+at the end), the Bastion the hardest (60 to 69). **Every fight is still 5 to 12 s against D9's 25 to 60 s.** Stage F tunes HP and damage; it is the same finding as Stage B.
+
+### Interpretations
+
+- **"A pounce chains a second without a fresh tell"**: the second pounce has no recovery before it and begins the instant the first leap ends, but it has a tell of its own, a short re-aim (0.3 s, drawn as its lane) aimed at where the knight stands then. A pounce with no tell at all
+  would be unreadable. "One dash clears both lanes only when timed between them" is held as: a dash begun on the first blow's frame (its immunity takes that blow, and the second lane is aimed at where he was) clears both; one begun as the first leap begins is caught by the second.
+- **A chained move is taken only when the rotation stands on it** (after its pounce); skipped to for a knight beyond the first pounce's reach, it would be a lone pounce with a 0.3 s tell. Tested.
+- **Scatter rings reserve their meshes when marked.** The six shared hostile fire-ring meshes are the cap, and a mark takes one at the start of the tell, so every ring marked is drawn and none can be missing at lighting. The free-ring count subtracts the knight's own flask pools too (as D6 writes it), though they draw
+  from their own six meshes (conservative, as in Stage A). A ring's fire lasts 2.2 s: longer than the Mother's recovery (1.4, so the cap counts it when the next scatter marks) and shorter than the gap to the next lighting (tell .9 + 1.4, so the Mother alone never holds more than one scatter's rings, at most three, 24% of the smallest chamber, inside Stage 0's 28%).
+- **A fan is one lane on the floor.** The cue is a single rectangle wide enough for the outer bolt at its full length (4.6 and 6 wide against bolts that run 2.2 and 3.0 off the line at 8), so it overstates the fan near the Mother. Her five-bolt fan needs 5 of the 12 arrows (`volleyDemand`); the aimed bolt is loosed first, so a pool that ran short would drop the outermost.
+- **The plan's "phase 1" and "phase 2" are phases 0 and 1 in the code.** The Bastion's shield holds while `bossPhase` is below `until` (1).
+- **The Mother's close sweep is skipped for a knight out of its reach**, as every move is (D2), so below half she scatters twice running at range and sweeps only a knight at her feet; she gives ground while she recovers, so it is a punish and not a place to stand.
+- **The dash and stagger answers to the Bastion are held in node, not in the running game**: the browser scenario holds the frontal strike turned aside and then landing; the flank, the stagger arm and the openings are `dungeon-bastion.test.ts`.
+- **Floor-two chambers for the frame scenes**: the Captain's number was taken on floor three's crypt (the only place the Captain stood as the last floor's boss); the pool bosses stand on floors one and two, so their scenes use seed 33 floor two, a 45-tile crypt, through `?boss=`.
+
+### Planted bugs
+
+Each planted in the code, run against its own test only, then restored (the tree was clean after each). Message is the test's own.
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| the Mother's rotation | phase two loses the sweep | `she swept a knight standing at her feet only 0 times in eight moves` (and the rotation list differs; `precondition: her one close sweep is her whole melee reach`) |
+| her densest volley fits the arrows (node) | a fan of thirteen | `her volleys need 13 arrows and the pool holds 12` (and `the outer bolt of a fan of 13 runs 6.89 off the line, outside a lane 6 wide`) |
+| her densest volley, in the game | the same, then the boss.spec fan scenario | `her densest volley is 13 bolts and 12 were loosed` |
+| rings within D6 and Stage 0 | four rings a scatter | `a scatter marks 4 rings, not one to three (D6)` |
+| the sim's marked-ring dodge | never step out of a ring | `a knight who steps out of a marked ring had 8 of 8 light on him, no fewer than the 8 of 8 for one who never does` (16 lit and 8 on him with the dodge, 8 and 8 without: the dodge halves it and the fight runs twice as long) |
+| the deal never repeats | floor two dealt independently | `run seed 7932 dealt captain to both floors` |
+| the deal is even | one boss weighted double | `captain was dealt to 41.7% of floor 1s, not within 60% to 140% of an even 25.0%` |
+| the scatter's pools (browser) | pools lit at the boss's feet | `a pool burns at 5.92, 0.00, where no ring was marked` |
+| the knight's own fire (browser) | scatterRings ignores live pools (first draft: the knight stood still and was given one ring to mark, so the plant survived; the scenario now keeps him walking) | `she marked 3 rings with only 2 free` |
+| the Mother's chamber | sixty extra cage bars | `mother-chamber pushes more triangles than the budget allows` (211,502 against 210,062) |
+| the Hound's chain (node) | no `chain` on the row | `the second pounce began 62 frames after the first leap, not at once`; `a dash spent before the first blow was hit 0 times: the chain should have caught him once`; `only phase two's second pounce is chained to the one before it` |
+| the same | a chain that keeps its recovery | `the second pounce began 62 frames after the first leap, not at once` |
+| a chain is never skipped to | `pickMove` skips to it | `the chained pounce was begun alone, for a knight beyond the first pounce's reach` |
+| the Hound's chain (browser) | no `chain` on the row | `the chained pounce began 1312 ms after the first tell ended: the leap (320 ms) is all that should lie between` |
+| the Hound's chamber | sixty extra ruff spikes | `hound-chamber pushes more triangles than the budget allows` (211,656 against 210,696) |
+| the Bastion's shield by phase (node) | `until` removed from the row / `blocks` ignores the phase | `the shield held in phase two` |
+| the same, in the sim | `Body.bossPhase` always 0 / the same | `the Bastion's shield turned 6 blows aside after it broke` |
+| a stagger arm gets through | `blocks` ignores `stagger` | `a stagger arm was turned aside by the shield` |
+| the Bastion's rotation | the charge removed from phase two | `the charge did not join the round below half` (and the rotation list differs) |
+| the Bastion's shield (browser) | `until` removed | `in phase two it was still behind a shield` |
+| the same | `blocks` ignores the phase, the mesh still breaks | `a strike was turned aside in phase two, with the shield broken` |
+| the Bastion's chamber | sixty extra rivets on the shield | `bastion-chamber pushes more triangles than the budget allows` (222,562 against 212,962) |
+
+Two things the plants taught. The first draft of the own-fire scenario could not fail (a knight who stands still leaves a trail of one place, so a scatter marks one ring whatever the cap), and the first draft of the Hound's dash test started the dash the frame after the first blow, so it was hit (the frame of the
+blow is the frame to press on, and the test now takes it from a fight run without the dash). The sim's marked-ring dodge, the plant that survived in Stage A, now fails with its own message because the Mother's fights are long enough to have rings lit on a knight who stands in them (the arena Mother holds 300 vitality in that test, as the bot kills her in five seconds).
+
+### Gates
+
+`npm run typecheck`, `npm run lint` clean; `npm test` 436 of 436 (was 415 after Stage B). `npm run balance:check` green (above). Browser specs run locally with `GAME_TEST_WORKERS=2`: `boss` (all 9), `frame-budget` (the four boss chambers), `bench` (2), `arena-kinds` (3), `hall` (2), `progression`
+(2), `dealt-kinds` (1); all pass. The full browser suite was not run locally (the operator's speed rule): CI on #87 is the gate. Nothing pushed.
+
+### Not done / not verified
+
+- The Bone King and floor three's reserve (Stage E), tuning (Stage F: `balance:bosses` is not built; the duel table above is a throwaway script), the documents beyond `tests/README.md` (Stage G) and the playtest (Stage H) are untouched.
+- The figures were judged on the bench and in one arena screenshot on SwiftShader, not on a GPU and not by an operator. One thing the screenshot shows: a marked ring and a lit pool are both red discs (the threat colour and the flask fire's); they differ in the flicker and in the marked ring closing over its tell, which may need
+  telling apart harder (an outline for the mark) after a playtest.
+- The Hound's and Bastion's fights were run in the sim and in the arena, not on a generated floor: the stair-gating scenario (`boss.spec`, "it bars the stair") is the Captain's, on a pinned floor, and `?boss=` puts any of the three there; a scenario per boss was not written.
+- The `balance:check` stuck run (meta-max, seed 182138) is a sim artifact and is not fixed; a hysteresis in the sim's pursuit would, and so would the same for `pursuitStep` if a body ever stood still on a boundary in the game (nothing suggests it does).
