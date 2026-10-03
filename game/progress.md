@@ -4915,3 +4915,122 @@ the fit, tuning, `?boss=`), the `plans/README.md` row, the plan's Evidence for S
 - weak-meta-max (D9) is not met; the fairness check is met only trivially (items 1 and 2 above); the crossbow special is shut out of the bosses (item 4). The three hard bands that moved (default, weak and weak-meta-max) are the operator's to re-decide after the playtest.
 - The sim's King: the bot goes for the King first (a caller is the target before anything nearer) and has no dodge rule of its own for a summon. The reserve's damage to the weak knight in a duel is 49 to 56 of its 100.
 - The pearls arithmetic above rests on a human-earnings guess; no human run log exists.
+
+## 2026-10-03 - Plan 022 Stages 0, A and B: the baseline, waves as structure, and waves dealt
+
+Branch `claude/beautiful-gauss-5o0cw4`, six commits on `main` + the plan (`2fa0546`): Stage 0 (shrine parity, baseline), Stage A (structure), Stage B in three (rules and sim; game; the corpses). Stage C onward is untouched. No stop rule tripped; one plan assumption was wrong and is fixed (corpses, below).
+
+### Stage 0: the baseline (`bands.json` `measured` at 30 runs from seed 1, reproduced exactly by the sim with the three new report fields)
+
+| policy | escape | deaths f1 / f2 / f3 | median run s | median watch / ambush / gauntlet fight s | hpAtStair f1 / f2 / f3 (median; least) |
+| --- | --- | --- | --- | --- | --- |
+| default | 80.0 | 13.3 / 7.7 / 0.0 | 208.5 | 3.4 / 3.9 / 2.6 | 100 (79) / 100 (100) / 100 (81) |
+| weak | 33.3 | 30.0 / 19.0 / 37.5 | 136.6 | 2.5 / 3.1 / 1.7 | 100 (64) / 100 (57) / 100 (13) |
+| special | 100.0 | 0 / 0 / 0 | 209.1 | 3.6 / 4.0 / 2.5 | 100 (76) / 100 (92) / 100 (80) |
+| special-fangs | 100.0 | 0 / 0 / 0 | 189.2 | 3.5 / 4.1 / 2.6 | 100 (90) / 100 (72) / 100 (92) |
+| special-cleaver | 83.3 | 10.0 / 7.4 / 0.0 | 239.3 | 4.1 / 4.7 / 3.3 | 100 (71) / 100 (92) / 100 (90) |
+| special-crossbow | 3.3 | 43.3 / 35.3 / 90.9 | 205.3 | 3.8 / 4.4 / 2.2 | 100 (84) / 100 (49) / 100 (23) |
+| special-flask | 96.7 | 0 / 3.3 / 0 | 291.6 | 4.6 / 4.0 / 2.9 | 100 (88) / 100 (92) / 100 (66) |
+| meta-max | 100.0 | 0 / 0 / 0 | 209.2 | 3.5 / 3.9 / 2.6 | 100 (82) / 100 (81) / 100 (85) |
+| weak-meta-max | 100.0 | 0 / 0 / 0 | 173.5 | 2.8 / 3.0 / 1.8 | 100 (71) / 100 (81) / 100 (34) |
+
+Deaths by cause (30 runs): default f1 Pyre Mother x4, f2 Mother x2 (all six); weak f1 Bastion 3, Mother 3, Captain 3, f2 stalker 3, Mother 1, Hound 1, f3 warden 4, rattler 1, stalker 1; special-cleaver Mother x5; special-crossbow King 5, Mother 10, Bastion 8, guard 3, Captain 1, archer 1, rattler 1; special-flask Mother x1. Deaths before the stair hall (`hpAtStair` null): default 0 of 6, weak 4 of 19, everyone else 0. **The finding: every policy walks into every stair hall at a median 100% vitality**, because every clear heals 12 and a mend door 30; D10's target (40-80%) is far from where it starts. The median watch fight is 3.4 s for the default knight against D13's 12-40 s.
+
+**Hidden-body draw calls (step 2): a dormant body costs nothing.** A temporary hook (not committed) put 1, 5 and 9 arena bodies (level 3) into the dormant state a wave body starts in (`awake` false, `group.visible` false): 201 calls, 209,882 triangles, 56 shadow calls each time; the same bodies awake cost 240, 364 and 504 calls (about 35 a body). So D2's caps count the largest *single wave*, not every wave. **But the plan's other assumption was wrong: a dead body does not leave the scene.** A corpse stays drawn for the life of the floor and costs a standing body's calls: the ten-body chamber (3, 3 and 4 in three waves) read 586 calls with the first two waves lying dead in frame, 78 over the 508 every scene is held to. Fixed in the game (below), not by raising a ceiling.
+
+**Shrine parity (separate commit `510cc01`).** The game heals `SHRINE` 35 on the first step within `SHRINE_REACH` 1.5 of an unused shrine in a sanctuary chamber; the sim did not. Both now read the constants in `dungeon-sim.ts`, and a hurt knight in a sanctuary walks to its shrine before the door. Shifts at 30 runs (no band moved): weak escape 33.3 -> 36.7, weak run 136.6 -> 163.1 s (a weak knight mended in a quiet chamber goes on to a later floor), weak deaths f1 30 -> 26.7 and f3 37.5 -> 35.3, special floor-3 vitality 91 -> 87.8, meta-max floor-1 vitality 84.8 -> 86.7, special-crossbow floor-2 vitality 72 -> 74.4; the default knight's escape stays 80.0. `bands.json` `measured` re-taken by editing the text (a script that rewrites only the numbers of each `measured` block; a 16-line diff).
+
+### Stage A: waves as structure, nothing dealt
+
+`app/dungeon-waves.ts` (pure): `dealWaves(floor, seed, level, table)`, `wavedFloor`, `waveDue`, `waveSpots`, `springing` and `calledIn` (the ambush-spring and bot-target filters, which skip later waves; the game and the sim both read them), `WAVE_TABLE` (empty in Stage A). `Spawn.wave` (absent is the first wave). The snapshot gained `wave` and `maxHp` on every enemy and `chamber.wave` `{ at, of, marked }`. With the table empty **the 9 policies' reports are identical, run by run, to the shrine-parity baseline** (compared as JSON), and `npm run balance:check` printed the Stage 0 values and held every band (624.5 s).
+
+### Stage B: waves dealt
+
+**How they are dealt (as built; every number is in `dungeon-waves.ts`).** A chamber is dealt later waves only if it is a `path` chamber with `layer > 2` whose pack source is:
+
+| source | wave 2 | wave 3 |
+| --- | --- | --- |
+| middle fight | 2-3 from the `late` mix | none |
+| late fight | 2-3 from `late` | 1-2 from `late` plus a warden |
+| purse (hoard) | 2-3 from `hoard` | none |
+| opening, ambush, gauntlet, shrine, stair hall | none | none |
+
+Floors two and three add one body (from the same mix) to the last wave; a wave is at most 5 bodies and a chamber at most 10 standing (wave one included); a second caller in one wave is a guard; each chamber has its own hash stream (`stream(seed, level, room)`), so changing one source's rule moves no other chamber. A caller dealt into a wave buries its own reserve after all the wave bodies. A wave body is `ambush: true` with `wave` 2 or 3, so it starts `awake: false, visible: false` by the path an ambush body already takes; its tile is drawn from the chamber's own floor, at least 3.5 from the arrival, 2.5 from a door and 2.2 tiles from every other body. Over 450 floors (three levels) the append-only rule holds with the King's buried reserve among the spawns that keep their place, and a 900-floor digest of what `generateFloor` dealt is pinned (`b6b55432...`, recorded at `2fa0546`).
+
+**The call and the telegraph.** `waveDue(bodies, room, clock, dt)`: the next wave is called when every body of every earlier wave is down (a reserve under a standing caller is not), after `WAVE_PAUSE` 0.5 s `mark` fires once, and `WAVE_MARK` 0.9 s later `raise` fires once; never by time alone. The game draws rings on five meshes of its own (the fire ring's art, `makePoolMesh`) in the threat colour, closing and flickering as the scatter's do, on `waveSpots` (a spot within 2.5 of the knight moves to the nearest open tile beyond it); then the bodies stand on the rings in the burst `raise` plays, with the ambush's opening cooldown. `audio.play('warn')`, no text. `settleRoom` already counts a dormant body, so the doors stay barred until the last wave falls.
+
+**Interpretations.**
+- The rings use five meshes of their own, not the six hostile fire rings: a pyre's fire lasting 3.5 s would otherwise take rings from a wave. The same ring art.
+- The third wave's mix is `late` (D2 says "1-2 plus a warden" and no mix); the "one more body" on floors two and three is drawn from the wave's own mix.
+- A pinned warden placed in a crowded chamber takes the open tile farthest from the rest (at least 1.2 tiles) instead of being lost; a wave none of whose bodies could be placed closes up, so a chamber's waves are 2, or 2 and 3.
+- Rings are fixed when they appear (D4 says "when the marks appear"): a knight who walks onto one has bodies stand on him.
+- `?waves=off` (D14) is built in Stage B, where waves are, not Stage C; `build:check` holds it out of the bundle.
+- **The harness boots every page with `?waves=off`** (`DEFAULT_WAVES`), as it boots with the Captain: some fifty scenarios count a chamber's pack, kill it and expect doors, purse and rank (`combat.spec.ts`'s "two kills in one swing" is one), and I cannot run the whole suite locally. `waves.spec.ts` and the wave frame-budget scene opt in with `test.use({ waves: null })`. This means **no existing scenario runs with waves on**; the CI run on the PR is the first look at that, and turning it on for the whole suite is the follow-up.
+- The sim holds its ground (no walk to the door) while a chamber's next wave is still to come, and a raised body notices as an ambush body does.
+- The sim's "agreement" with the game is held on what each stood on a floor (the game's scene against `simulateLevel`'s bodies, floors one to three), not on a play-through.
+- `waveFights` is the fights of chambers that held later waves; `deathsBeforeBoss` is read as `outcome 'died'` with `hpAtStair` null.
+- The band for special-crossbow's floor-3 vitality is removed (no run of it clears floor 3 now; `floor3.deathRate` holds the fact) rather than widened.
+
+**Corpses (the fix).** When a chamber marks its next wave, the fallen of the waves before sink into the paving over the rings' 0.9 s and are then not drawn (`corpsesDue`, `corpseSink`, pure; the game applies the sink after the death animation, which writes a corpse's height each frame until it settles). Draw only: the sim never asks. The last wave's dead lie where they fell.
+
+**Frame numbers (SwiftShader, 2026-10-03).** The wave-chamber scene (floor three, seed 0x2's hall of ten bodies in waves of 3, 3 and 4, the last wave standing with a warden, the knight in its arc): **586 calls / 294,968 triangles** with the six dead left in frame (three runs, triangles 294,932 to 294,968), **440 calls / 255,930 to 255,942 triangles** with the floor taking them back (68 under 508; ceilings are the figures measured, floors the helper's 60% and 20%). The biggest single wave D2 deals is four bodies (3 and a warden), so the 5-body cap is not reached by the table.
+
+**Balance, before and after waves** (30 runs, `npm run balance:check` 727.6 s, every metric inside its band; Stage 0 after the shrine fix, then Stage B). Nothing is tuned; Stage E does that.
+
+| policy | escape | deaths f1 / f2 / f3 | median run s | median watch fight s | died before the stair hall |
+| --- | --- | --- | --- | --- | --- |
+| default | 80.0 (80.0) | 16.7 / 4.0 / 0.0 (13.3 / 7.7 / 0) | 237.8 (209) | 5.7 (3.4) | 0 of 6 (0 of 6) |
+| weak | 36.7 (36.7) | 33.3 / 10.0 / 38.9 (26.7 / 18.2 / 35.3) | 160.9 (163.1) | 4.3 (2.5) | 5 of 19 (4 of 19) |
+| special | 96.7 (100) | 0 / 3.3 / 0 | 236.8 (209.1) | 5.5 (3.6) | 0 of 1 |
+| special-fangs | 100 (100) | 0 / 0 / 0 | 215.7 (189.3) | 5.6 (3.5) | - |
+| special-cleaver | 86.7 (83.3) | 10 / 3.7 / 0 (10 / 7.4 / 0) | 276.1 (241.2) | 6.6 (4.1) | 0 of 4 |
+| special-crossbow | 0 (3.3) | 40 / 27.8 / 100 (43.3 / 35.3 / 90.9) | 250.8 (205.3) | 6.6 (3.8) | 3 of 30 (0 of 29) |
+| special-flask | 96.7 (96.7) | 0 / 0 / 3.3 | 340.1 (291.6) | 7.3 (4.6) | 0 of 1 |
+| meta-max | 100 (100) | 0 / 0 / 0 | 239.3 (209.2) | 5.7 (3.5) | - |
+| weak-meta-max | 100 (100) | 0 / 0 / 0 | 198.3 (173.5) | 4.6 (2.8) | - |
+
+Median vitality entering the stair hall is still 100% for every policy on every floor (least: default 84 / 90 / 92; weak 76 / 42 / 37): a wave heals nothing, and the 12-point top-up still does. The waves add about 25-50 s to a run and 2 s to a watch fight. Against D13 (default bot): escape 80 (55-80, at the top), deaths before the stair hall 0 of 6 (needs a third; not met), vitality at floor 1's stair hall 100 (40-80; not met, D10 is Stage D), median run 238 s (300-600; not met), watch fight 5.7 s (12-40; not met); weak 36.7 (10-35; just above). Six run-length bands moved to hold what was measured (default, special, meta-max 220 -> 250; special-cleaver 260 -> 290; special-flask 300 -> 360; weak-meta-max 190 -> 210) and the crossbow band above was removed; `measured` was re-taken in full, with a note in `bands.json`.
+
+### Tests, and the bugs planted
+
+New node tests (the node suite is 474 of 474): `tests/dungeon-waves.test.ts` (21), three in `balance-sim.test.ts`, three assertions in `build-leaks.test.ts`. Browser: `waves.spec.ts` (3), the wave-chamber scene. Each planted in the code, run against its own test, restored (`git status` clean of them after each).
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| generateFloor deals what it dealt before waves, 900 floors | an extra `random()` in the generator | `generateFloor no longer deals the floors plan 022 started from: a wave rule reached into the generator...` |
+| dealWaves only appends, reserves included | a wave body inserted before the buried reserve | `a wave body was dealt among the spawns generateFloor laid, which moves an index and with it every summoner link` |
+| springing | later waves kept | deep-equal failure of the sprung list |
+| waveDue | called on the first death | `the rings came at 1.50 s, before the last body fell at 3 s plus the pause` |
+| caps | no wave cap / no chamber cap | `wave 2 holds 7, over the cap of 5` / `16 standing bodies, over the cap of 10` |
+| last-wave extra | `LAST_WAVE_EXTRA` 0 | `floor 2: [[2,284],[1,14]] - a last wave of two stalkers should stand 3` |
+| rings keep clear of the knight | the clearance dropped in `waveSpots` | `a ring stands 0.00 from the knight` |
+| a cap cuts the drawn bodies, not the warden | the warden cut | `a warden pinned to a wave of three, with room for two` |
+| shipped table is D2 | a row changed / removed | `the shipped table is not D2: ...` |
+| a pinned warden is not lost; waves close up | no fallback; not renumbered | `a third wave without its warden` / `waves 3 - a chamber is dealt wave 2, or waves 2 and 3` |
+| the shrine mends once | never heals / never marked used | `only 0 shrine mends over 30 runs` / `a shrine mended the knight twice` |
+| the sim deals, calls and clears a waved floor | no waves / springs later waves / never raises | `0 waves were dealt over six floors and 0 stood` / `25 waves were dealt ... and 0 stood` (twice) |
+| corpses | `corpseSink` never done | `a corpse is not gone, and as deep as the floor takes it, when the wave stands` |
+| browser: a three-wave chamber, real blows | doors open after wave one | `the chamber opened when wave 1 fell, with wave 2 still to come` |
+| the same | clearance dropped in the game | `a ring lands within the clearance of the knight` |
+| the same | the spring wakes later waves | `a later wave woke when the knight walked in` |
+| the same | bodies not raised on their rings | `no body rose on the ring at (51.80, 99.16)` |
+| the same | rings never shown | `a ring is not showing, or is for the wrong wave` |
+| the same | corpses never put on the sinking list | `a corpse did not sink while the rings showed` |
+| browser: the page deals the first wave only | `?waves=off` not read | `the harness page dealt a wave: ?waves=off is not reaching the game` |
+| browser: the sim and the game deal the same waves | the game deals none | `precondition: floor 1 of the page holds no later wave` |
+| frame budget, wave chamber | an extra mesh on every figure | `wave-chamber draws more often than the budget allows` (596 against 586) |
+| frame budget, wave chamber | corpses never hidden | `a corpse of the waves before is still drawn` |
+| `?waves=` leak | read without the `NODE_ENV` guard, then `npm run build` and `build:check` | `development-only code reached the production bundle: ?waves=` |
+
+Things the plants taught: a first plant of the ring clearance (the constant set to 0) tripped the test's own precondition instead of its assertion, so it was planted in the rule; the first fight scenario lost a warden at the arc's edge, so the bodies are staged 0.7 apart and mid-windup; the door pass is frozen under the boon draft that nine kills (225 XP) open, so the scenario takes a card before it reads the doors.
+
+### Gates
+
+`npm run typecheck`, `npm run lint` clean; `npm test` 474 of 474; `npm run balance:check` green at Stage A (624.5 s, the Stage 0 values) and Stage B (727.6 s); `npm run build` + `build:check` clean (11 hooks, none shipped). Browser specs run locally with `GAME_TEST_WORKERS=2` (SwiftShader): `waves` (3), the wave frame-budget scene, `chambers` (the door), `combat` ("two kills in one swing"), `smoke`; every plant above against its own test. The full suite was not run locally; CI on the PR is the gate. Nothing pushed by this session.
+
+### Not done / not verified
+
+- Stage C onward. Nothing is tuned: pack sizes, rates and bands are Stage E's.
+- The full browser suite (the harness keeps it on `?waves=off`; see above). No GPU run; the frame numbers are SwiftShader.
+- The sound cue is the existing `warn`; whether a wave's arrival reads before it lands is Stage G's.
+- `deathsBeforeBoss`, `eliteKills` are not report fields yet (the first is derivable; elites are Stage C).

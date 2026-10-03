@@ -277,4 +277,18 @@ D2, D7, D10 and D13 are re-decided here.
 
 ## Evidence
 
-(Filled in by each stage.)
+(Filled in by each stage. The full record, with every table, is the 2026-10-03 entry "Plan 022 Stages 0, A and B" in `game/progress.md`.)
+
+### Stage 0 (2026-10-03)
+
+- Baseline at 30 runs (`bands.json` `measured`, reproduced exactly): default escape 80.0%, deaths 13.3 / 7.7 / 0.0 by floor (all six the Pyre Mother's), median run 208.5 s, median watch fight 3.4 s (ambush 3.9, gauntlet 2.6); weak escape 33.3%, run 136.6 s, watch fight 2.5 s. **Median vitality entering every stair hall is 100% for every policy on every floor.**
+- Hidden bodies: **a dormant body costs no draw calls** (1, 5 and 9 dormant bodies: 201 calls, 209,882 triangles, 56 shadow calls each; awake ones about 35 calls a body), so D2's caps count the largest single wave. **A dead body does stay in the scene and costs a standing body's calls**: the ten-body chamber read 586 calls with its dead in frame, 78 over 508, so the floor now takes back the dead of the waves before as the next wave is rung (Stage B).
+- Shrine +35 added to the sim as its own commit (`510cc01`); `measured` re-taken as text. Weak escape 33.3 -> 36.7, weak run 136.6 -> 163.1 s; default unchanged at 80.0%.
+
+### Stage A (2026-10-03)
+
+`dungeon-waves.ts`, `Spawn.wave`, `waveDue`, `springing`/`calledIn` in the game and the sim, the snapshot fields. With the table empty the nine policies' reports are identical run by run to Stage 0's; `balance:check` printed Stage 0's values. Tests and their plants are in `game/progress.md`.
+
+### Stage B (2026-10-03)
+
+D2's table is dealt (middle: a second wave of 2-3 from `late`; late: a second of 2-3 and a third of 1-2 with a warden; purse: a second of 2-3 from `hoard`; +1 on the last wave on floors 2 and 3; caps 5 and 10), the rings drawn for 0.9 s before the bodies stand, the doors barred to the last wave. `generateFloor` is byte-identical over 900 floors. Wave-chamber frame: 440 calls / 255,942 triangles on SwiftShader (586 before the dead sink). Balance (nothing tuned): default escape 80.0 -> 80.0, run 209 -> 238 s, watch fight 3.4 -> 5.7 s; six run-length bands moved, one removed. D13 is far from met (vitality at the stair hall 100%, watch fight 5.7 s, run 238 s): Stages D and E. Interpretations (the harness boots with `?waves=off`; five ring meshes of their own; `late` for the third wave) are listed in `game/progress.md`.
