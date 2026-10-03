@@ -1,5 +1,5 @@
 import { BESTIARY, reserveSize, type EnemyKind } from './dungeon-bestiary.ts';
-import { ARRIVAL_CLEAR, carves, drawKind, oneCaller, packSource, TILE, type Floor, type PackMix, type PackSource, type Spawn } from './dungeon-floor.ts';
+import { ARRIVAL_CLEAR, carves, drawKind, oneCaller, PACK_MIX, packSource, TILE, type Floor, type PackMix, type PackSource, type Spawn } from './dungeon-floor.ts';
 
 // Waves (plan 022): a chamber that fights in waves is dealt its first wave by `generateFloor` exactly as it always was (the pack it has always held),
 // and its later waves by `dealWaves` here, which `generateFloor` never calls. A later wave stands in the chamber from the first frame, dormant and
@@ -36,6 +36,8 @@ export const LAST_WAVE_EXTRA = 1;
 const WAVE_SPACING = 2.2;
 /** World units two relocated spots keep apart (a tile and a bit): bodies are never raised on one another. */
 const SPOT_APART = 1.5;
+/** Tiles a pinned warden keeps from the bodies already standing when its chamber has no tile left at `WAVE_SPACING`: one body's width. */
+const PINNED_SPACING = 1.2;
 /** Placement attempts per body, as the generator's own. */
 const TRIES = 40;
 
@@ -46,7 +48,11 @@ export type WaveTable = Partial<Record<PackSource, readonly WaveRule[]>>;
  * Plan 022 D2 (hypotheses until Stage E has tuned them). Wave one is today's pack and is not in this table. A middle fight gets a second wave from the
  * `late` mix; a late fight a second from `late` and a third of one or two with a warden; a purse chamber (`hoard`) a second wave from the hoard's own mix.
  */
-export const WAVE_TABLE: WaveTable = {};
+export const WAVE_TABLE: WaveTable = {
+  middle: [{ count: [2, 3], mix: PACK_MIX.late }],
+  late: [{ count: [2, 3], mix: PACK_MIX.late }, { count: [1, 2], mix: PACK_MIX.late, warden: true }],
+  hoard: [{ count: [2, 3], mix: PACK_MIX.hoard }],
+};
 
 /**
  * The bodies of one wave once the caps are applied: at most `space` of them, and when the rule pins a warden to the wave it is the drawn bodies that go, never the warden. The warden
@@ -88,18 +94,31 @@ export const dealWaves = (floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'spaw
     const open = roomTiles(floor, room.id).filter(t => Math.hypot(t.x - entry.x, t.z - entry.z) >= ARRIVAL_CLEAR && doors.every(d => Math.hypot(d.x - t.x, d.z - t.z) >= 2.5));
     const here = floor.spawns.filter(s => s.room === room.id && !s.buried);
     let standing = here.length;
+    // A wave whose bodies could not be placed (a crowded chamber) is not dealt, and the waves after it close up: a chamber's waves are always 2, then 3.
+    let called = 0;
     rules.forEach((rule, i) => {
       const last = i === rules.length - 1, space = Math.min(WAVE_CAP, CHAMBER_CAP - standing);
       if (space <= 0) return;
       const wanted = int(rule.count[0], rule.count[1]) + (last && level >= 2 ? LAST_WAVE_EXTRA : 0);
       const pack = oneCaller(Array.from({ length: wanted }, () => drawKind(rule.mix, level, random())));
       const kinds = fitWave(pack, !!rule.warden, space);
-      for (const kind of kinds) for (let tries = 0; tries < TRIES; tries++) {
-        const t = open[int(0, open.length - 1)];
-        if ([...here, ...dealt].some(other => other.room === room.id && Math.hypot(other.x - t.x, other.z - t.z) < WAVE_SPACING)) continue;
-        dealt.push({ x: t.x, z: t.z, kind, room: room.id, ambush: true, wave: i + 2 }); standing++;
-        break;
+      let placed = 0;
+      for (const kind of kinds) {
+        const neighbours = () => [...here, ...dealt].filter(other => other.room === room.id);
+        let at: { x: number; z: number } | undefined;
+        for (let tries = 0; tries < TRIES && !at; tries++) {
+          const t = open[int(0, open.length - 1)];
+          if (!neighbours().some(other => Math.hypot(other.x - t.x, other.z - t.z) < WAVE_SPACING)) at = t;
+        }
+        // A pinned warden is never lost to a crowded chamber: failing the spacing, it takes the open tile farthest from everything standing, so long as it is not on top of it.
+        if (!at && rule.warden && kind === 'warden') {
+          const gap = (t: { x: number; z: number }) => Math.min(...neighbours().map(other => Math.hypot(other.x - t.x, other.z - t.z)), Infinity);
+          const best = [...open].sort((a, b) => gap(b) - gap(a))[0];
+          if (best && gap(best) >= PINNED_SPACING) at = best;
+        }
+        if (at) { dealt.push({ x: at.x, z: at.z, kind, room: room.id, ambush: true, wave: called + 2 }); standing++; placed++; }
       }
+      if (placed) called++;
     });
   }
   const first = spawns.length;

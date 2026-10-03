@@ -18,7 +18,7 @@ import { bossPush, landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, bossOnFloor, cellKey, dealBosses, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { arenaFloor, type Floor } from '../../app/dungeon-arena.ts';
-import { calledIn, springing } from '../../app/dungeon-waves.ts';
+import { calledIn, idleClock, roomTiles, springing, waveDue, wavedFloor, waveSpots, type WaveClock } from '../../app/dungeon-waves.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, fanHeadings, ARROW_POOL, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
@@ -194,6 +194,12 @@ export type FloorReport = {
   fightEncounters: string[];
   /** Plan 022: the knight's vitality as a share of his maximum the moment he walked into the stair hall (the boss's chamber); null on a floor he never reached it on (he died first, or the floor has no door to it). */
   hpAtStair: number | null;
+  /** Plan 022: waves the floor's chambers called (each later wave of each chamber that stood up counts once). */
+  wavesRaised: number;
+  /** Plan 022: `fights` of the chambers that were dealt later waves, in the same units - the fight D13 measures. */
+  waveFights: number[];
+  /** Plan 022: every body of a later wave the sim stood on this floor (read off the bodies it ran), by chamber and wave, reserves included: what the game's scene is held against. */
+  waveBodies: { room: number; wave: number; kind: EnemyKind; buried: boolean }[];
   /** Plan 022: each mend a shrine made, by the chamber it stands in and the vitality it gave (at most `SHRINE`, the first time the knight stood hurt within reach of it). */
   shrineMends: { room: number; healed: number }[];
   hpAfter: number;
@@ -295,7 +301,7 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
   // Plan 021 (D13): the run's bosses are dealt as the game deals them, from floor one's seed, and each floor is laid with its own.
   const dealt = dealBosses(seed);
   for (let level = 1; level <= FLOORS; level++) {
-    const report = simulateFloor(seed + level - 1, level, run, policy, nerve, draft, generateFloor(seed + level - 1, level, { boss: bossOnFloor(dealt, level) }));
+    const report = simulateFloor(seed + level - 1, level, run, policy, nerve, draft, wavedFloor(generateFloor(seed + level - 1, level, { boss: bossOnFloor(dealt, level) }), seed + level - 1, level));
     floors.push(report);
     elapsed += report.seconds;
     if (report.outcome !== 'cleared') {
@@ -325,7 +331,8 @@ export function simulateLevel(seed: number, level: number, policy: Policy = DEFA
 }
 
 function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number, built?: Floor, arena = false): FloorReport {
-  const floor = built ?? generateFloor(seed, level);
+  // Plan 022: a floor the sim lays itself is dealt its later waves as the game's is (`wavedFloor`); one a test hands in is its own.
+  const floor = built ?? wavedFloor(generateFloor(seed, level), seed, level);
   const weapon = policy.weapon;
   const damage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
   let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0, specialCount = 0, blockedCount = 0, raisedCount = 0, reassembledCount = 0;
@@ -406,11 +413,11 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const cleared = new Set<number>([0]);
   // Plan 016 fight duration: when each room's fight started, and how long each finished one took.
   const fightStart = new Map<number, number>(), fights: number[] = [], fightEncounters: string[] = [];
-  let hpAtStair: number | null = null; const shrineMends: { room: number; healed: number }[] = [];
+  let hpAtStair: number | null = null, wavesRaised = 0; const waveFights: number[] = [], shrineMends: { room: number; healed: number }[] = [];
   const clearRoom = (room: number) => {
     cleared.add(room);
     const began = fightStart.get(room);
-    if (began !== undefined) { fights.push(+(t - began).toFixed(2)); fightEncounters.push(floor.rooms[room].encounter); fightStart.delete(room); }
+    if (began !== undefined) { fights.push(+(t - began).toFixed(2)); fightEncounters.push(floor.rooms[room].encounter); fightStart.delete(room); if (bodies.some(b => b.room === room && b.wave > 1)) waveFights.push(fights[fights.length - 1]); }
   };
 
   const goal = floor.rooms[floor.goal];
@@ -433,6 +440,11 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     return [...ways].sort((a, b) => pays(a) - pays(b))[0];
   };
   let chamber = 0;
+  // Plan 022 (dungeon-waves.ts): the wave clock of the chamber the knight is in, and where each body of the wave whose rings show will stand (dungeon-game.tsx keeps the same clock and the same rings).
+  let waveClock: WaveClock = idleClock();
+  const waveRings = new Map<Body, { x: number; z: number }>();
+  const openTiles = new Map<number, { x: number; z: number }[]>();
+  const openOf = (room: number) => { let open = openTiles.get(room); if (!open) { open = roomTiles(floor, room).map(t => ({ x: t.x * TILE, z: t.z * TILE })); openTiles.set(room, open); } return open; };
 
   let playerCell = '';
   let pursuit = new Map<number, number>();
@@ -516,6 +528,21 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     // dungeon-game.tsx:826 springs a room's ambush the moment the knight is inside it.
     // Plan 022: never a later wave - `springing` (dungeon-waves.ts) is the filter the game reads too.
     if (activeRoom >= 0) for (const body of springing(bodies, activeRoom)) { body.awake = true; body.cooldown = Math.max(body.cooldown, 0.9); }
+
+    // Plan 022 (D3, D4; dungeon-game.tsx asks the same rule): the chamber calls its next wave when every body before it is down - after the pause the rings go down where the bodies will stand
+    // (a spot within the clearance of the knight moves), and when they have shown long enough the bodies stand, awake, with the ambush's opening cooldown.
+    if (activeRoom >= 0) {
+      const due = waveDue(bodies, activeRoom, waveClock, DT);
+      waveClock = due.clock;
+      if (due.mark !== null) {
+        const called = bodies.filter(b => b.room === activeRoom && b.wave === due.mark && !b.dead && !b.buried);
+        waveSpots(openOf(activeRoom), called.map(b => ({ x: b.x, z: b.z })), player).forEach((at, i) => waveRings.set(called[i], at));
+      }
+      if (due.raise !== null) {
+        for (const [body, at] of waveRings) { body.awake = true; body.x = at.x; body.z = at.z; body.anchor = { x: at.x, z: at.z }; body.cooldown = Math.max(body.cooldown, 0.9); }
+        waveRings.clear(); wavesRaised++;
+      }
+    }
 
     // A room the knight stands in with nothing left alive is done with, even if it never held a body to
     // kill. The reward itself is paid on the killing blow, as the game pays it; this only stops the
@@ -656,13 +683,17 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       // Once it is clear the stair, in the warden hall, or else the chosen door, and through it.
       const quarry = bodies.filter(b => !b.dead && !b.buried && b.room === chamber && calledIn(b)).sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z))[0];
       const shrine = !quarry ? shrines.find(shrine => shrine.room === chamber && !shrine.used && run.hp < run.maxHp) : undefined;
-      const door = !quarry && !shrine && chamber !== floor.goal ? chooseDoor(chamber) : undefined;
+      // Plan 022: a chamber whose next wave has not been called yet is not clear - he holds his ground for the rings instead of walking at the door.
+      const waiting = !quarry && bodies.some(b => b.room === chamber && !b.dead && !b.buried && !calledIn(b));
+      const door = !quarry && !shrine && !waiting && chamber !== floor.goal ? chooseDoor(chamber) : undefined;
       if (door && cleared.has(chamber) && Math.hypot(door.x * TILE - player.x, door.z * TILE - player.z) < DOOR_RADIUS) {
         // The swap key, pressed the frame it arrives: the next chamber's near wall, and nothing carried over.
         const next = floor.rooms[door.to];
         chamber = next.id; player.x = next.entry.x * TILE; player.z = next.entry.z * TILE; fields.clear();
         if (next.id === floor.goal && hpAtStair === null) hpAtStair = run.hp / run.maxHp * 100;
         shots.length = 0; hostile.length = 0; pools.length = 0; fires.length = 0;
+      } else if (waiting) {
+        // holds: nothing to walk at until the rings have shown and the wave has stood
       } else {
         const field = quarry ? fieldTo(Math.round(quarry.x / TILE), Math.round(quarry.z / TILE)) : shrine ? fieldTo(shrine.cell.x, shrine.cell.z) : door ? fieldTo(door.x, door.z) : goalField;
         const here = field.get(packKey(cellX, cellZ));
@@ -997,7 +1028,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, wavesRaised, waveFights, waveBodies: bodies.filter(b => b.wave > 1).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, buried: b.buried })), shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

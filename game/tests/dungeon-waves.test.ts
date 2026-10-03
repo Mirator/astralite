@@ -75,7 +75,8 @@ test('later waves stand only in watch and purse chambers past the first two figh
       assert.ok(roomTiles(floor, room.id).some(t => t.x === spawn.x && t.z === spawn.z), `${where}: a wave body stands off its chamber's own floor`);
       assert.ok(Math.hypot(spawn.x - room.entry.x, spawn.z - room.entry.z) >= ARRIVAL_CLEAR, `${where}: a wave body stands on the arrival`);
       assert.ok(floor.doors.filter(d => d.from === room.id).every(d => Math.hypot(d.x - spawn.x, d.z - spawn.z) >= 2.5), `${where}: a wave body stands in a doorway`);
-      for (const other of extra) if (other !== spawn && other.room === spawn.room) assert.ok(Math.hypot(other.x - spawn.x, other.z - spawn.z) >= 2.2, `${where}: two wave bodies stand ${Math.hypot(other.x - spawn.x, other.z - spawn.z).toFixed(2)} tiles apart`);
+      // 2.2 tiles apart, as the generator keeps a pack; only a pinned warden, in a chamber with no such tile left, stands closer (1.2).
+      for (const other of extra) if (other !== spawn && other.room === spawn.room) assert.ok(Math.hypot(other.x - spawn.x, other.z - spawn.z) >= (spawn.kind === 'warden' || other.kind === 'warden' ? 1.2 : 2.2), `${where}: two wave bodies stand ${Math.hypot(other.x - spawn.x, other.z - spawn.z).toFixed(2)} tiles apart`);
       checked++;
     }
   }
@@ -286,13 +287,23 @@ test('a ring already clear of the knight stays where it was dealt', () => {
   assert.deepEqual(waveSpots(open, spots, knight), spots);
 });
 
-test('the shipped table deals nothing beyond the first wave (plan 022 Stage A), and the hash stream is the same on every call', () => {
-  assert.deepEqual(WAVE_TABLE, {});
-  for (const level of LEVELS) for (const seed of SEEDS.slice(0, 40)) {
-    const floor = generateFloor(seed, level);
-    assert.deepEqual(dealWaves(floor, seed, level), floor.spawns, `seed ${seed} floor ${level}: the shipped table dealt a wave`);
-    assert.deepEqual(dealWaves(floor, seed, level, D2), dealWaves(floor, seed, level, D2));
+test('the shipped table is the one the plan decided (D2), and deals what it says over 450 floors', () => {
+  assert.deepEqual(WAVE_TABLE, D2, 'the shipped table is not D2: middle fights a second wave of 2-3 from the late mix; late fights a second of 2-3 and a third of 1-2 with a warden; purse chambers a second of 2-3 from the hoard mix');
+  let middle = 0, late = 0, purse = 0;
+  for (const level of LEVELS) for (const seed of SEEDS) {
+    const floor = generateFloor(seed, level), out = dealWaves(floor, seed, level), dealt = out.slice(floor.spawns.length).filter(s => !s.buried);
+    assert.deepEqual(dealWaves(floor, seed, level), out, 'the same floor dealt twice differs');
+    const waves = new Map<number, Set<number>>();
+    for (const spawn of dealt) waves.set(spawn.room, new Set([...(waves.get(spawn.room) ?? []), spawn.wave!]));
+    for (const [room, set] of waves) {
+      const seen = [...set].sort((a, b) => a - b);
+      assert.deepEqual(seen, seen.length === 2 ? [2, 3] : [2], `seed ${seed} floor ${level} room ${room}: waves ${seen.join(', ')} - a chamber is dealt wave 2, or waves 2 and 3`);
+      if (seen.length === 2) { late++; assert.ok(dealt.some(s => s.room === room && s.wave === 3 && s.kind === 'warden'), `seed ${seed} floor ${level} room ${room}: a third wave without its warden`); }
+      else if (floor.rooms[room].reward === 'cache') purse++; else middle++;
+    }
+    for (const spawn of dealt) assert.ok(floor.rooms[spawn.room].encounter === 'watch' && floor.rooms[spawn.room].layer > 2, `seed ${seed}: a wave in an ambush, a gauntlet, a shrine, the stair hall or one of the first two fights`);
   }
+  assert.ok(middle > 30 && late > 30 && purse > 30, `precondition: ${middle} middle, ${late} late and ${purse} purse chambers were dealt waves`);
 });
 
 test('when a cap bites, the warden pinned to a wave stays and the drawn bodies are what is cut', () => {
