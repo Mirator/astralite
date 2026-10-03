@@ -242,7 +242,7 @@ export type Snapshot = {
   /** Plan 019: what the live run was dealt (arm, vitality, strike, boon cards, revives), read off the run itself. */
   run: { start: { arm: string; maxHp: number; strike: number; draftSize: number; defiance: number }; /** Plan 019 (D9), plan 020 (D7): the run's arm is settled - true on every floor but the hall (and the dev arena). */ armLocked: boolean };
   /** The development arena this page is charting floors as, or null for an ordinary keep. */
-  arena: { roster: EnemyKind[]; level: number } | null;
+  arena: { roster: EnemyKind[]; level: number; /** Plan 022 (D14): the modifier the arena was built with, when it was. */ elite?: 'hasted' | 'armoured' | 'wrathful' | 'volatile' } | null;
   /** The bodies that have fallen and lie where they fell (the snapshot's `enemies` no longer lists them). */
   corpses: { kind: EnemyKind; x: number; y: number; z: number; visible: boolean }[];
   /** Plan 022: the rings a called wave shows, read off the ring meshes: where each is drawn, whether it is showing, the body it is for (its index in the spawn list, the chamber and the wave). */
@@ -454,6 +454,10 @@ export type Snapshot = {
     /** Plan 022: 1 for the pack a chamber is dealt, 2 or more for a wave it calls once the one before is down; and the vitality it was built with. */
     wave: number;
     maxHp: number;
+    /** Plan 022 (D7, D8): the modifier the body carries, or null; the numbers it was built with and what it wears (the emissive of its first lit skin, and the colour of its eyes), read off the scene. */
+    elite: 'hasted' | 'armoured' | 'wrathful' | 'volatile' | null;
+    tell: number; speed: number; damage: number;
+    wears: { emissive: number; intensity: number; eye: number; frame: number | null };
   }[];
 };
 

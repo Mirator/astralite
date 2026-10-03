@@ -136,7 +136,7 @@ test.describe('the sim and the game', () => {
   test('deal the same waves to the same floors', async ({ game }) => {
     test.slow();
     await game.enter();
-    const seen: Record<number, string[]> = {};
+    const seen: Record<number, string[]> = {}, elites: Record<number, number> = {};
     for (const level of [1, 2, 3]) {
       if (level > 1) { await game.buildFloor(level); await game.step(0); }
       const state = await game.state();
@@ -148,6 +148,12 @@ test.describe('the sim and the game', () => {
       const run = simulateLevel(state.floor.seed, level);
       seen[level] = run.waveBodies.map((b) => `${b.room}:${b.wave}:${b.kind}:${b.buried}`).sort();
       expect(seen[level], `floor ${level} (seed ${state.floor.seed}): the sim and the game were not dealt the same waves`).toEqual(scene);
+      // And the same elites (plan 022 Stage C): each body of the scene that wears a modifier, against each one the sim stood, by chamber, wave, kind and modifier.
+      const wornBy = state.enemies.filter((e) => e.elite !== null).map((e) => `${e.room}:${e.wave}:${e.kind}:${e.elite}`).sort();
+      elites[level] = wornBy.length;
+      expect(run.eliteBodies.map((b) => `${b.room}:${b.wave}:${b.kind}:${b.elite}`).sort(), `floor ${level} (seed ${state.floor.seed}): the sim and the game were not dealt the same elites`).toEqual(wornBy);
     }
+    expect(elites[1], 'floor one dealt an elite').toBe(0);
+    expect(elites[2] + elites[3], `precondition: floors two and three of the page hold only ${elites[2] + elites[3]} elites, so the sim was not compared with any`).toBeGreaterThan(3);
   });
 });

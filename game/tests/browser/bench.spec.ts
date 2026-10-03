@@ -81,3 +81,33 @@ test('the bench honours figures= and weapon=all in the URL', async ({ page }) =>
   const result = await everyCellHasAFigure(page, Object.keys(WEAPONS).length, 8);
   expect(result.ok, `cell pixel counts (min ${result.min}): ${JSON.stringify(result.cells)}; pixels differing from the facing before: ${JSON.stringify(result.turned)}`).toBe(true);
 });
+
+// Plan 022 Stage C (D8): `?tint=` dresses every figure that can carry the modifier as the game dresses an idle elite, so the four tints can be judged on one sheet. The mean colour of what a figure drew
+// into its first cell (every pixel that is not that cell's own background) moves toward the modifier's colour: cyan takes red out of it and puts blue in, and a modifier with no effect on the sheet fails.
+const meanTone = async (page: import('@playwright/test').Page, query: string) => {
+  await page.setViewportSize({ width: 1920, height: 1200 });
+  await page.goto(`/bench?figures=guard&${query}`);
+  await page.waitForFunction(() => (window as unknown as { __bench?: string }).__bench === 'ready', { timeout: 15_000 });
+  return page.evaluate(() => {
+    const canvas = document.querySelector('canvas')!, off = document.createElement('canvas');
+    off.width = canvas.width; off.height = canvas.height;
+    const ctx = off.getContext('2d')!; ctx.drawImage(canvas, 0, 0);
+    const cell = Math.floor(canvas.width / 8), { data } = ctx.getImageData(0, 0, cell, canvas.height);
+    const ci = (3 * cell + 3) * 4, br = data[ci]!, bg = data[ci + 1]!, bb = data[ci + 2]!;
+    let n = 0, r = 0, g = 0, b = 0;
+    for (let i = 0; i < data.length; i += 4) if (Math.max(Math.abs(data[i]! - br), Math.abs(data[i + 1]! - bg), Math.abs(data[i + 2]! - bb)) > 18) { n++; r += data[i]!; g += data[i + 1]!; b += data[i + 2]!; }
+    return { n, r: r / n, g: g / n, b: b / n };
+  });
+};
+
+test('the bench dresses a figure as an elite with ?tint=, and a name that is not a modifier leaves it as it was', async ({ page }) => {
+  const plain = await meanTone(page, 'x=1'), hasted = await meanTone(page, 'tint=hasted'), wrathful = await meanTone(page, 'tint=wrathful'), unknown = await meanTone(page, 'tint=fast');
+  console.log('BENCH tone', JSON.stringify({ plain, hasted, wrathful, unknown }));
+  expect(plain.n, 'precondition: the plain guard drew into its cell').toBeGreaterThan(300);
+  // Measured 2026-10-03 on SwiftShader: blue minus red 11.8 plain and 43.9 hasted (+32.1); red minus blue -11.8 plain and 16.7 wrathful (+28.5). The floor is half the gain, the ceiling a figure that has been washed flat in the colour (the first glow tried, 0.16, was).
+  expect(hasted.b - hasted.r - (plain.b - plain.r), 'a hasted figure is no bluer against red than a plain one').toBeGreaterThan(15);
+  expect(hasted.b - hasted.r - (plain.b - plain.r), 'a hasted figure is washed flat in its colour').toBeLessThan(55);
+  expect(wrathful.r - wrathful.b - (plain.r - plain.b), 'a wrathful figure is no redder against blue than a plain one').toBeGreaterThan(15);
+  expect(wrathful.r - wrathful.b - (plain.r - plain.b), 'a wrathful figure is washed flat in its colour').toBeLessThan(55);
+  expect(unknown.r - plain.r + (unknown.g - plain.g) + (unknown.b - plain.b), 'a name that is not a modifier changed the figure').toBe(0);
+});

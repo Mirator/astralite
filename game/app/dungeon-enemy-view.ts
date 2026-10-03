@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { advanceDeath, type DeathAnimation } from './dungeon-death';
-import type { Cue, Move } from './dungeon-bestiary';
-import { BESTIARY, BOSS_PUSH_MARGIN, bossReach, enemyStats, NOTICE_TIME, PHASE_CHANGE, type EnemyIntent, type EnemyKind } from './dungeon-enemy';
+import { ELITES, type Cue, type EliteModifier, type Move } from './dungeon-bestiary';
+import { BESTIARY, BOSS_PUSH_MARGIN, bossReach, eliteStats, NOTICE_TIME, PHASE_CHANGE, type EnemyIntent, type EnemyKind } from './dungeon-enemy';
 import { enemyPose, poseStyleOf } from './dungeon-enemy-pose';
 import type { Spawn } from './dungeon-floor';
 import { BONES, makeSkeleton } from './dungeon-skeleton';
@@ -23,6 +23,8 @@ export type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: n
   buried: boolean; summoner: number; blocked: number;
   // Plan 022 (dungeon-waves.ts): 1 for every body generateFloor lays; 2 or more for a body its chamber calls once the wave before it is down.
   wave: number;
+  // Plan 022 (D7, D8): the modifier this body carries, if it is an elite: its stats are `eliteStats`', its idle glow and its eyes are the modifier's colour, its bar wears the modifier's pip, a volatile one leaves fire and every one pays double.
+  elite?: EliteModifier;
   // Plan 021, a boss's: its rotation slot, its phase (`phase` above is the gait's), the seconds of phase change left and the move whose tell last began - what the
   // tell, the cue and the pose are drawn for - plus the ring a phase change plays at its feet and the cue textures a move's shape picks from. Zero and null on every other body.
   move: number; bossPhase: number; change: number; doing: Move | null; surge: THREE.Mesh | null; art: EnemyArt | null;
@@ -74,10 +76,32 @@ const sharedCue = (cue: Cue) => {
 /** The shared art every body on a floor is drawn with. */
 export type EnemyArt = { telegraph: THREE.Texture; lane: THREE.Texture; alert: THREE.SpriteMaterial };
 
+/**
+ * An elite's health bar frame (D8): the same border plate as every body's (.88 x .15, one mesh, one draw) with a small flag on its top-left corner, drawn in the modifier's colour instead of the plate's brown - the pip.
+ * One shared geometry for all four modifiers, so an elite costs the draw calls a plain body costs. The frame is counter-scaled against the fill every frame, so the flag keeps its size as the bar drains.
+ */
+const eliteFrames: { geometry?: THREE.BufferGeometry } = {};
+const eliteFrame = () => {
+  if (!eliteFrames.geometry) {
+    const shape = new THREE.Shape();
+    shape.moveTo(-.44,-.075); shape.lineTo(.44,-.075); shape.lineTo(.44,.075); shape.lineTo(-.28,.075); shape.lineTo(-.28,.2); shape.lineTo(-.44,.2); shape.closePath();
+    eliteFrames.geometry = new THREE.ShapeGeometry(shape); eliteFrames.geometry.userData.shared = true;
+  }
+  return eliteFrames.geometry;
+};
+
+/** How bright an elite's idle glow is: a tint over the bone, kept well under the bloom threshold as the wind-up's and the struck flash's are (`poseEnemy`). */
+export const ELITE_GLOW = 0.05;
+
+/** The eyes of an elite burn in its modifier's colour (D8), past white as every eye is (dungeon-skeleton.ts): each body binds its own eye material, so this touches no other body. */
+export const tintEyes = (body: THREE.Object3D, modifier: EliteModifier) => {
+  for (const eye of body.userData.eyes as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[]) eye.material.color.setHex(ELITES[modifier].glow).multiplyScalar(1.7);
+};
+
 /** Builds one spawn's body, its marks and its trails into `group`, and returns the record the loop drives. */
 export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: THREE.Group, art: EnemyArt, tile: number): Enemy => {
   const kind = spawn.kind, look = BESTIARY[kind].look;
-  const stats = enemyStats(kind, level), maxHp = stats.hp, tell = stats.tell;
+  const stats = eliteStats(kind, level, spawn.elite), maxHp = stats.hp, tell = stats.tell;
   const body = makeSkeleton(kind); body.position.set(spawn.x * tile,0.03,spawn.z * tile); body.visible = !spawn.ambush && !spawn.buried; group.add(body);
   body.scale.set(...look.scale);
   // One colour for all three kinds. Which body is winding up is already answered by the shape —
@@ -129,7 +153,7 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   // Plan 014 round B: a framed bar - a dark border plate with a darker track behind the fill, as a
   // child of the fill counter-scaled every frame (below), so it stays full width while the fill
   // drains from the right.
-  const barFrame = new THREE.Mesh(new THREE.PlaneGeometry(.88,.15),new THREE.MeshBasicMaterial({color:0x6b5a3e,depthTest:false,toneMapped:false,fog:false}));barFrame.renderOrder=9;barFrame.position.z=-.001;
+  const barFrame = new THREE.Mesh(spawn.elite?eliteFrame():new THREE.PlaneGeometry(.88,.15),new THREE.MeshBasicMaterial({color:spawn.elite?ELITES[spawn.elite].glow:0x6b5a3e,depthTest:false,toneMapped:false,fog:false}));barFrame.renderOrder=9;barFrame.position.z=-.001;
   const barTrack = new THREE.Mesh(new THREE.PlaneGeometry(.82,.09),new THREE.MeshBasicMaterial({color:0x120b0a,depthTest:false,toneMapped:false,fog:false}));barTrack.renderOrder=9;barTrack.position.z=.0005;barFrame.add(barTrack);bar.add(barFrame);
   const alert = new THREE.Sprite(art.alert);alert.scale.set(.55,.55,1);alert.visible=false;alert.renderOrder=10;group.add(alert);
   const anchors:THREE.Object3D[]=look.trail.from==='claws'?body.userData.limbs.slice(0,2):[body.userData.weapon];
@@ -137,9 +161,10 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   // A boss's phase change plays a ring at its feet: pale where the telegraph is red, so it reads as the tide drawing in and not as a blow to dodge.
   const surge = boss ? new THREE.Mesh(new THREE.RingGeometry(.84,1,48),new THREE.MeshBasicMaterial({color:0x9ff0e6,map:art.telegraph,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false,fog:false})) : null;
   if (surge) { surge.rotation.x=-Math.PI/2; surge.renderOrder=9; surge.visible=false; group.add(surge); }
+  if (spawn.elite) tintEyes(body, spawn.elite);
   const skins: THREE.MeshStandardMaterial[] = [];
   body.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial && !skins.includes(o.material)) skins.push(o.material); });
-  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush && !spawn.buried, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity, buried:!!spawn.buried, summoner:spawn.summoner ?? -1, blocked:0, wave:spawn.wave ?? 1, move:0, bossPhase:0, change:0, doing:null, surge, art: boss ? art : null };
+  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush && !spawn.buried, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity, buried:!!spawn.buried, summoner:spawn.summoner ?? -1, blocked:0, wave:spawn.wave ?? 1, elite:spawn.elite, move:0, bossPhase:0, change:0, doing:null, surge, art: boss ? art : null };
 };
 
 /**
@@ -275,6 +300,8 @@ export const poseEnemy = (enemy: Enemy, intent: EnemyIntent, dt: number, t: numb
   // term, and round 3's own halving of it was still an order of magnitude too hot for a body
   // standing this close to a real light source. Cut hard, not halved again: legible as a tint,
   // not a wash, on the frame it peaks.
-  const glow = struck > 0 ? COMMIT : enemy.windup > 0 ? THREAT : enemy.change > 0 ? 0x58ffd0 : 0x000000, strength = struck > 0 ? 0.015 + struck * 0.05 : enemy.windup > 0 ? 0.01 + closing * 0.06 : enemy.change > 0 ? 0.08 : 0.5;
+  // Plan 022 (D8): the elite's own colour is the idle branch, because this is the branch that overwrites the emissive every frame: the struck flash, the wind-up and a boss's phase change are all ahead of it and keep winning, as the tell must.
+  const idle = enemy.elite ? ELITES[enemy.elite].glow : 0x000000;
+  const glow = struck > 0 ? COMMIT : enemy.windup > 0 ? THREAT : enemy.change > 0 ? 0x58ffd0 : idle, strength = struck > 0 ? 0.015 + struck * 0.05 : enemy.windup > 0 ? 0.01 + closing * 0.06 : enemy.change > 0 ? 0.08 : enemy.elite ? ELITE_GLOW : 0.5;
   for (const skin of enemy.skins) { skin.emissive.setHex(glow); skin.emissiveIntensity = strength; }
 };

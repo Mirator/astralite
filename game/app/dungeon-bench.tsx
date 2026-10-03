@@ -14,7 +14,9 @@ import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { makeKnight } from './dungeon-knight';
 import { makeSkeleton, type SkeletonKind } from './dungeon-skeleton';
-import { ENEMY_KINDS } from './dungeon-bestiary';
+import { ELITES, ENEMY_KINDS, elitesFor, type EliteModifier } from './dungeon-bestiary';
+import { ELITE_GLOW, tintEyes } from './dungeon-enemy-view';
+import { parseElite } from './dungeon-waves';
 import { CAMERA_OFFSET, SCREEN_DOWN, SCREEN_RIGHT } from './dungeon-aim';
 import { makeWeapon, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
 import { STARTING_WEAPON, WEAPONS, type WeaponId } from './dungeon-weapon';
@@ -80,6 +82,7 @@ export default function DungeonBench() {
     const weaponParam = parseWeapon(params.get('weapon'));
     const zoom = parseZoom(params.get('zoom'));
     const bg = parseBg(params.get('bg'));
+    const elite: EliteModifier | null = parseElite(params.get('tint'));
 
     const rows: Row[] = [];
     for (const kind of figures) {
@@ -91,7 +94,15 @@ export default function DungeonBench() {
           rows.push({ label: weaponParam === 'all' ? `knight ${id}` : 'knight', group: knight });
         }
       } else {
-        rows.push({ label: kind, group: makeSkeleton(kind) });
+        // `?tint=<modifier>` (plan 022 Stage C): every figure that can carry the modifier wears it as the game dresses an idle elite - its eyes and its idle emissive (`tintEyes`, `ELITE_GLOW`, dungeon-enemy-view.ts) - so the four tints can be judged side by side.
+        const body = makeSkeleton(kind), worn = elite && elitesFor(kind).includes(elite) ? elite : null;
+        if (worn) {
+          tintEyes(body, worn);
+          const skins: THREE.MeshStandardMaterial[] = [];
+          body.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial && !skins.includes(o.material)) skins.push(o.material); });
+          for (const skin of skins) { skin.emissive.setHex(ELITES[worn].glow); skin.emissiveIntensity = ELITE_GLOW; }
+        }
+        rows.push({ label: worn ? `${kind} ${worn}` : kind, group: body });
       }
     }
 

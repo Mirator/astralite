@@ -554,3 +554,50 @@ test.describe('the biggest chamber the waves deal, at its last wave', () => {
     await spend(game, 'wave-chamber');
   });
 });
+
+// Plan 022 Stage C (D8): an elite is a look, not a mesh. Its glow is the emissive a body already rewrites every frame, its eyes are the material they already have, and the pip on its health bar is the frame the bar already has
+// with a flag in its outline (one mesh, a handful of triangles). So a chamber of elites must draw the calls a chamber of plain bodies draws; an aura mesh on each body (D8's rejected design: a call each) must be seen here. The same
+// arena is built plain and then once for each modifier, the four bodies abreast in the knight's arc (inside every kind's hold range, so none walks) and one blow from death so every health bar is drawn, and drawn once they have
+// stopped being eased apart. The plain frame is drawn twice first to show the scene repeats exactly. The first arena built over the booted floor draws more than every one after it (an earlier seven-body version of this scene read 515 calls and then 479, plain,
+// SwiftShader, 2026-10-03; the cause was not chased), so one is built and thrown away.
+test.describe('a chamber of elites', () => {
+  test('draws the calls a chamber of plain bodies draws, and a handful of triangles more', async ({ game, page }) => {
+    test.slow();
+    const roster = ['guard', 'stalker', 'warden', 'shieldbearer'];
+    const build = async (elite?: 'hasted' | 'armoured' | 'wrathful' | 'volatile') => {
+      await page.evaluate(([kinds, modifier]) => (window as unknown as { dungeonTest: { buildArena: (r: string[], l: number, e?: string) => void } }).dungeonTest.buildArena(kinds as string[], 3, (modifier ?? undefined) as string | undefined), [roster, elite ?? null] as const);
+      await game.step(50);
+      const floor = await game.floor(), gate = floor.rooms[floor.start];
+      const stance = stanceNear(floor, { x: gate.x * TILE, z: gate.z * TILE }, 5, roster.length);
+      await game.teleport(stance.x, stance.z);
+      await game.configureCombat({ health: 100, enemies: roster.map((_, i) => ({ index: i, x: stance.slots[i].x, z: stance.slots[i].z, hp: 1, windup: 0, cooldown: 999 })) });
+      const placed = (s: Awaited<ReturnType<typeof game.state>>) => JSON.stringify(s.enemies.map((e) => [e.x, e.z]));
+      let still = 0, before = '';
+      for (let waited = 0; waited < 10_000 && still < 10; waited += 100) {
+        await game.step(100);
+        const now = placed(await game.state());
+        still = now === before ? still + 1 : 0; before = now;
+      }
+      expect(still, 'the chamber never came to rest in ten seconds').toBeGreaterThanOrEqual(10);
+      const state = await game.state();
+      expect(state.enemies.length, 'precondition: the arena stood the whole roster').toBe(roster.length);
+      expect(state.enemies.every((e) => e.hp === 1 && e.hp < e.maxHp && e.visible && e.awake), 'precondition: every body stands and is hurt, so every health bar is drawn').toBe(true);
+      expect(state.enemies.map((e) => e.elite), 'precondition: the arena is the one asked for').toEqual(roster.map(() => elite ?? null));
+      await game.step(0, true);
+      const { calls, triangles } = (await game.state()).render;
+      return { calls, triangles };
+    };
+    await game.enter();
+    await build();
+    const plain = await build(), again = await build();
+    expect(again, 'precondition: the plain arena does not draw the same twice, so nothing below can be read').toEqual(plain);
+    expect(plain.calls, 'precondition: a plain arena of four draws a real frame').toBeGreaterThan(100);
+    for (const modifier of ['hasted', 'armoured', 'wrathful', 'volatile'] as const) {
+      const elite = await build(modifier);
+      console.log(`BUDGET elites ${modifier} calls=${elite.calls}/${plain.calls} triangles=${elite.triangles}/${plain.triangles}`);
+      expect(elite.calls, `four ${modifier} bodies draw ${elite.calls - plain.calls} more calls than four plain ones: an elite must cost no draw call`).toBe(plain.calls);
+      expect(elite.triangles - plain.triangles, `four ${modifier} bodies draw more triangles than a flag on each health bar can account for`).toBeLessThanOrEqual(8 * roster.length);
+      expect(elite.triangles, `four ${modifier} bodies draw fewer triangles than plain ones`).toBeGreaterThanOrEqual(plain.triangles);
+    }
+  });
+});
