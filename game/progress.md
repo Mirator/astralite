@@ -5372,3 +5372,34 @@ A x4 crossbow would meet D3 and fell a boss in 19 s, much quicker than the defau
 The browser scenarios are in `arena-kinds.spec.ts`: the existing Bastion scenario now expects the Heavy Bolt's wound times `BOSS_BOLT`, and a new one fires the same ordinary bolt with the real key at a held Captain and a held warden and reads each one's vitality.
 
 **Gates.** `npm run typecheck`, `npm run lint` clean; `npm test` 508 of 508; `npm run balance:check` green (755.9 s). Browser (SwiftShader, `GAME_TEST_WORKERS=2`): both `arena-kinds.spec.ts` crossbow scenarios, clean and planted. The full suite was not run locally.
+
+## 2026-10-04 - Plan 023 Stage C: rooms that press (structure), and waves from the second fight
+
+**Step 1: the dials as named constants at their old values.** `RECOVERY_SCALE` (1) and `FLOOR_DAMAGE` / `BOSS_FLOOR_DAMAGE` (0.15 and 0.15) in `dungeon-enemy.ts`; `FIRST_WAVE_LAYERS` and `ELITE_RATE[1]` (0) already existed in `dungeon-waves.ts`. `RECOVERY` is now `recoveryFor(archetype)` (the bestiary's recovery times the scale for an ordinary kind, untouched for a boss), `enemyStats` reads `damageStep(kind)` (an ordinary kind's `FLOOR_DAMAGE`, a boss's own step), and `scaledDamage` takes the step as a parameter defaulting to the boss's, which is what the game's and the sim's boss-move lines still call. **Proved to change nothing:** with only these constants in, the default, weak, weak-meta-max and crossbow-special reports (30 runs each) were identical to Stage B's, summary and every run's length, so `balance:check` would print Stage B's values.
+
+**Step 2: `FIRST_WAVE_LAYERS` 2 -> 1 (D4).** The first fight past the gate (layer 1) is the tutorial beat and stays one wave; a watch fight from the second on takes waves. The effect is small and the plan's own arithmetic says why: the shipped `WAVE_TABLE` has rules for `middle`, `late` and `hoard` packs only, and a layer-2 chamber on floor one is an `opening` pack (progress under .35), so only layer-2 chambers on floors two and three, which are `middle`, are newly dealt waves. Measured (30 runs, Stage B -> C):
+
+| policy | escape | deaths f1 / f2 / f3 | median run s | median watch fight s | median vitality entering the stair hall f1 / f2 / f3 | pearls |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 83.3 -> 90 | 3.3 / 0 / 13.8 -> 3.3 / 3.4 / 3.6 | 244.2 -> 259.7 | 6.2 -> 7.6 | 100 / 100 / 100 -> 100 / 100 / 100 | 158 -> 160 |
+| weak | 10 -> 10 | 50 / 53.3 / 57.1 -> 50 / 60 / 50 | 63.5 -> 64.8 | 3.2 -> 5.2 | 90.7 / 57.2 / 100 -> 90.7 / 76.6 / 100 | 31.5 -> 31.5 |
+| special-crossbow | 10 -> 26.7 | 3.3 / 10.3 / 88.5 -> 3.3 / 3.4 / 71.4 | 323.1 -> 363.6 | 7.4 -> 11.5 | 100 / 98 / 77.6 -> 100 / 100 / 84.8 | 108 -> 109 |
+| weak-meta-max | 63.3 -> 73.3 | 0 / 3.3 / 34.5 -> 0 / 0 / 26.7 | 199.8 -> 214.7 | 4.5 -> 6.2 | 92.3 / 89.7 / 86.1 -> 92.3 / 90.2 / 87.7 | 157.5 -> 159.5 |
+
+Escapes moved by one to three runs in either direction (the default knight's 83.3 -> 90 is noise, not a softer keep): what the dial bought is longer fights on floors two and three (the weak knight's median watch fight 3.2 -> 5.2 s). The default knight still enters every stair hall at 100%, so rooms still do not hurt: that is Stage D's.
+
+**Bands.** `measured` re-taken for all nine policies; twelve bands that no longer held moved to the next five beyond what was measured and are listed in `bands.json`'s note (default floor-3 vitality min 65 -> 55 and run max 250 -> 260; weak floor-2 deaths max 55 -> 65; run maximums of special 260, special-fangs 240, special-cleaver 300, special-crossbow 365, special-flask 370, meta-max 255, weak-meta-max 215; special-flask escape min 55 -> 45 and floor-3 deaths max 45 -> 55).
+
+**Tests, and the bugs planted** (each against its own test, then restored):
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| node: the first fight past the gate is dealt no waves and the second is (a table with a rule for every source, so the table does not gate it) | `FIRST_WAVE_LAYERS` 2 | `D4: the first fight is the tutorial beat, and from the second on watch fights take waves`; with that assertion removed, `the second fight past the gate was dealt 0 wave bodies over 450 floors` |
+| node: the recovery scale reaches every ordinary kind and never a boss (held at 0.5, a value the game does not ship) | applied to a boss / not applied | `the scale reached the captain, a boss` / `a guard was not made to recover at half the time` |
+| node: floor damage scales an ordinary kind by `FLOOR_DAMAGE` and a boss by its own step | a boss takes the ordinary step | `a boss took the ordinary step` |
+| node: the same | `enemyStats` ignores the floor | `a floor-three guard does not cost two steps more` (and the old floor-growth tests) |
+| browser (arena on floor three): a floor-three body reports the floor-one blow plus two steps | `enemyStats` ignores the floor | `a floor-three guard does not cost the floor-one blow plus two floor-damage steps` (Expected 16, received 12) |
+
+`dungeon-waves.test.ts`'s older checks that read the literal 2 (layers of the first two fights) now read `FIRST_WAVE_LAYERS`. The older floor-growth test (`damage by fifteen percent`) still holds the written-out 12 / 14 / 16 of the shipped step; Stage D rewrites it with the shipped value.
+
+**A sim reporting fix the dial exposed.** `waves.spec.ts` ("the sim and the game deal the same waves") failed once `FIRST_WAVE_LAYERS` was 1: on floor three of seed 12 a layer-2 purse chamber is now dealt a bonecaller in its second wave, the sim's run woke it and raised two of its reserve, and `FloorReport.waveBodies` was read at the end of the floor, so those two read `buried: false` against the game's scene read at the start. `waveBodies` is now read off the bodies as they are built (`waveBodiesAtStart`); nothing the sim plays changed (reporting only; the nine policies' numbers above are from before and after the fix alike). The scenario passes (3 of 3) and fails again, with that diff, with the fix reverted. Gates: `npm run typecheck`, `npm run lint` clean; `npm test` 511 of 511; `npm run balance:check` green (859.9 s) with the bands above; browser `waves.spec.ts` 3 of 3 and the new `arena-kinds.spec.ts` scenario once clean and once planted.

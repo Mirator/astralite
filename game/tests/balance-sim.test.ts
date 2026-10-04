@@ -235,7 +235,7 @@ test('a run report says what banking it would pay', () => {
 });
 
 // Plan 023 (D3): the sim's knight lands his bolts through the same `landBlow` the game does, with the blow built by `boltBlow`, so a boss takes BOSS_BOLT times a bolt. The Drowned Captain is made 36 quarter-hits of vitality for this
-// (restored after) so a handful of bolts fells him: the crossbow's bolt is 9, so two bolts is 36 with the multiplier and four without. `landed` is read off what the sim did, not recomputed.
+// (restored after) so a handful of bolts fells him: the crossbow's bolt is 9, so with the multiplier it takes ceil(36 / (9 x BOSS_BOLT)) bolts and without it four. `landed` is read off what the sim did, not recomputed.
 test('the sim\'s bolts deal BOSS_BOLT times their damage to a boss (plan 023 D3)', () => {
   const had = BESTIARY.captain.stats.hp;
   try {
@@ -244,7 +244,7 @@ test('the sim\'s bolts deal BOSS_BOLT times their damage to a boss (plan 023 D3)
       const report = simulateArena(seed, 1, ['captain'], policy({ weapon: weaponById('crossbow') }));
       assert.equal(report.bossHpLeft === null, false, `precondition: seed ${seed} felled the Captain`);
       assert.ok(report.landed >= 1, `precondition: seed ${seed} landed a bolt on him`);
-      assert.ok(report.landed <= 36 / (9 * BOSS_BOLT), `seed ${seed}: the Captain needed ${report.landed} bolts of 9 to fall from 36, so a bolt did not deal ${9 * BOSS_BOLT}`);
+      assert.ok(report.landed <= Math.ceil(36 / (9 * BOSS_BOLT)), `seed ${seed}: the Captain needed ${report.landed} bolts of 9 to fall from 36, so a bolt did not deal ${9 * BOSS_BOLT}`);
     }
   } finally { BESTIARY.captain.stats.hp = had; }
 });

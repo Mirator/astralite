@@ -15,7 +15,7 @@ import { ARRIVAL_CLEAR, carves, drawKind, oneCaller, PACK_MIX, packSource, TILE,
 //   - `WAVE_CAP` (bodies in one dealt wave) and `CHAMBER_CAP` (every standing body of a chamber, wave one included) bound what the table may ask for; they exist
 //     for the frame budget (`tests/browser/frame-budget.spec.ts`, the `wave-chamber` scene is held to them) and for how much of a chamber is readable.
 //   - `WAVE_PAUSE` is the breath after the last body of a wave falls, `WAVE_MARK` how long the rings show on the floor before the bodies stand.
-//   - A chamber with `layer <= FIRST_WAVE_LAYERS` is never dealt later waves: the first two fights past the gate are the tutorial beat.
+//   - A chamber with `layer <= FIRST_WAVE_LAYERS` is never dealt later waves: the first fight past the gate is the tutorial beat (plan 023 D4; it was the first two).
 // ELITES (plan 022 Stage C) are dealt here too, by `dealElites`, after the waves, from a second stream of their own (`eliteStream`): `ELITE_RATE` is the share of a floor's eligible bodies (`eliteKind`, dungeon-bestiary.ts) that carry a modifier,
 // `ELITE_PER_WAVE` the most one wave of one chamber may hold, and floor one deals none. What a modifier does is the bestiary's `ELITES`; this file only says who gets one. A chamber's rolls are per body in spawn order and always draw the same two numbers
 // whether or not the body is eligible, so a rate change moves who is elite and never which kind a body is, and no wave rule moves an elite's draw.
@@ -31,8 +31,8 @@ export const WAVE_CLEAR = 2.5;
 /** The most bodies one dealt wave may hold, and the most standing bodies one chamber may hold in all its waves. */
 export const WAVE_CAP = 5;
 export const CHAMBER_CAP = 10;
-/** Chambers this deep or shallower fight in one wave (the first two fights past the gate). */
-export const FIRST_WAVE_LAYERS = 2;
+/** Chambers this deep or shallower fight in one wave. Plan 023 (D4): the first fight past the gate only (the tutorial beat); it was the first two through plan 022, and 54% of watch chambers sit in layers one and two, so the median fight could not move while they stayed single-wave. */
+export const FIRST_WAVE_LAYERS = 1;
 /** Bodies added to a chamber's last wave on floor two and floor three. */
 export const LAST_WAVE_EXTRA = 1;
 /** Tiles between two bodies the dealer stands in one chamber, as the generator keeps its own pack. */

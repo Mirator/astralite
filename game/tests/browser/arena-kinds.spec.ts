@@ -1,4 +1,5 @@
 import { BOSS_BOLT } from '../../app/dungeon-hits.ts';
+import { BASE_STATS, FLOOR_DAMAGE } from '../../app/dungeon-enemy.ts';
 import { expect, hold, laneSpot, press, release, strikeStance, test, TILE, type Game } from './helpers.ts';
 import type { Page } from '@playwright/test';
 
@@ -86,12 +87,12 @@ test('the Keep Crossbow\'s ordinary bolt is turned aside by the Bastion\'s shiel
   const struck = (await game.state()).enemies[0];
   expect(struck.blocked, 'the Heavy Bolt was turned aside by the shield').toBe(turned.blocked);
   // Plan 023 (D3): the Bastion is a boss, so the Heavy Bolt that goes through its shield is multiplied by BOSS_BOLT.
-  expect(struck.hp, 'the Heavy Bolt did not wound the shield from the front, twice over for a boss').toBe(before.hp - bolts * perBolt * BOSS_BOLT);
+  expect(struck.hp, 'the Heavy Bolt did not wound the shield from the front, BOSS_BOLT times for a boss').toBe(before.hp - bolts * perBolt * BOSS_BOLT);
 });
 
-// Plan 023 (D3): a shot deals twice its damage to a boss. The rule is held in node (dungeon-hits.test.ts, and the sim's own bolts in balance-sim.test.ts); this fires the same ordinary bolt with the real key at a Drowned Captain and at a warden, held still in the arena, and
-// reads what the running game did to each: the boss loses twice the bolt, the warden the bolt.
-test('the Keep Crossbow\'s ordinary bolt deals twice its damage to a boss and its own damage to a warden', async ({ game, page }) => {
+// Plan 023 (D3): a crossbow bolt deals BOSS_BOLT times its damage to a boss. The rule is held in node (dungeon-hits.test.ts, and the sim's own bolts in balance-sim.test.ts); this fires the same ordinary bolt with the real key at a Drowned Captain and at a warden, held still in the arena, and
+// reads what the running game did to each: the boss loses BOSS_BOLT times the bolt, the warden the bolt.
+test('the Keep Crossbow\'s ordinary bolt deals BOSS_BOLT times its damage to a boss and its own damage to a warden', async ({ game, page }) => {
   await arena(game, page, ['captain', 'warden']);
   await game.equip('crossbow');
   await game.step(120);
@@ -114,10 +115,24 @@ test('the Keep Crossbow\'s ordinary bolt deals twice its damage to a boss and it
   };
   const boss = await fireAt(0);
   expect(boss.after.blocked, 'precondition: the bolt was not turned aside').toBe(boss.before.blocked);
-  expect(boss.before.hp - boss.after.hp, 'a bolt on the Captain did not deal twice its damage').toBe(bolt * BOSS_BOLT);
+  expect(boss.before.hp - boss.after.hp, 'a bolt on the Captain did not deal BOSS_BOLT times its damage').toBe(bolt * BOSS_BOLT);
   await game.step(2500); // the quiver comes back
   const warden = await fireAt(1);
   expect(warden.before.hp - warden.after.hp, 'a bolt on a warden was multiplied, or never landed').toBe(bolt);
+});
+
+// Plan 023 (D5): the floor-damage step is a dial, and the game builds a body with it. The rule is held in node (dungeon-enemy.test.ts); this reads what a floor-three body of the running game reports it will cost the knight, against the floor-one damage written out.
+test('a floor-three body is built with the floor-damage step: what the snapshot reports is the floor-one blow and FLOOR_DAMAGE twice over', async ({ game, page }) => {
+  const roster = ['guard', 'stalker', 'warden', 'archer'] as const;
+  await page.evaluate((kinds) => (window as unknown as { dungeonTest: { buildArena: (roster: string[], level: number) => void } }).dungeonTest.buildArena(kinds, 3), [...roster]);
+  await game.enter();
+  const state = await game.state();
+  expect(state.enemies.map((e) => e.kind), 'precondition: the arena stood the roster on floor three').toEqual([...roster]);
+  expect(state.floor.level, 'precondition: floor three').toBe(3);
+  for (const [index, kind] of roster.entries()) {
+    expect(state.enemies[index].damage, `a floor-three ${kind} does not cost the floor-one blow plus two floor-damage steps`).toBe(Math.round(BASE_STATS[kind].damage * (1 + 2 * FLOOR_DAMAGE)));
+    expect(state.enemies[index].damage, `precondition: floor three costs more than floor one (${kind})`).toBeGreaterThan(BASE_STATS[kind].damage);
+  }
 });
 
 test('a pyre leaves fire where it falls, and the fire burns the knight standing in it', async ({ game, page }) => {

@@ -146,8 +146,8 @@ test('the push that opens a boss\'s phase change leaves the knight outside its l
 
 // Plan 023 (D3): the Keep Crossbow works in the chambers and was shut out of the bosses, whose vitality is in the hundreds against about five damage a second of sustained fire. A shot deals BOSS_BOLT times its damage to a boss, and
 // nothing else about it changes. The blows are built the way the game and the balance sim build them (`boltBlow`, and `hurledBlow` for a special's shot), so a shot that is not marked as one fails here.
-test('a bolt deals twice its damage to a boss and its own damage to anything else, and steel is never multiplied (plan 023 D3)', () => {
-  assert.equal(BOSS_BOLT, 2, 'D3 asks for twice');
+test('a bolt deals BOSS_BOLT times its damage to a boss and its own damage to anything else, and steel is never multiplied (plan 023 D3)', () => {
+  assert.ok(BOSS_BOLT >= 2 && BOSS_BOLT <= 4 && Number.isInteger(BOSS_BOLT), `BOSS_BOLT is ${BOSS_BOLT}: D3 allows a whole multiplier from 2 to 4`);
   const crossbow = weaponById('crossbow'), cells = floor(5, 5), at = { x: 2 * TILE, z: 2 * TILE }, from = { x: 1, z: 0 };
   const bosses = [...BOSS_POOL, FINAL_BOSS], ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].boss);
   assert.ok(bosses.length === 5 && bosses.every(kind => BESTIARY[kind].boss), 'precondition: five kinds are bosses');
@@ -169,7 +169,7 @@ test('a bolt deals twice its damage to a boss and its own damage to anything els
   }
 });
 
-test('the Heavy Bolt is multiplied on a boss as well, and the same bolt on a warden is not (plan 023 D3)', () => {
+test('the Heavy Bolt is multiplied by BOSS_BOLT on a boss as well, and the same bolt on a warden is not (plan 023 D3)', () => {
   const heavy = weaponById('crossbow').special!, cells = floor(5, 5), at = { x: 2 * TILE, z: 2 * TILE }, from = { x: 1, z: 0 };
   const special = hurledBlow(heavy, { harpoon: false, damage: 36 }, { free: true, steadfast: true }).blow;
   const boss = body('king', { hp: 650 }), warden = body('warden', { hp: 650 });

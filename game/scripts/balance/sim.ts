@@ -202,7 +202,7 @@ export type FloorReport = {
   wavesRaised: number;
   /** Plan 022: `fights` of the chambers that were dealt later waves, in the same units - the fight D13 measures. */
   waveFights: number[];
-  /** Plan 022: every body of a later wave the sim stood on this floor (read off the bodies it ran), by chamber and wave, reserves included: what the game's scene is held against. */
+  /** Plan 022: every body of a later wave the sim stood on this floor (read off the bodies as built, before the run raised any reserve), by chamber and wave, reserves included: what the game's scene is held against. */
   waveBodies: { room: number; wave: number; kind: EnemyKind; buried: boolean }[];
   /** Plan 022 (D7): every elite the sim stood on this floor (read off the bodies it ran), with the vitality it was built with: what the game's scene is held against. */
   eliteBodies: { room: number; wave: number; kind: EnemyKind; elite: EliteModifier; hp: number }[];
@@ -387,6 +387,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity,
     };
   });
+
+  // Plan 023 Stage C: what the floor was dealt, read off the bodies as they are built and not as the run leaves them: a bonecaller's reserve that the run raised is `buried: false` by its end, and the game's scene is read at the start.
+  const waveBodiesAtStart = bodies.filter(b => b.wave > 1).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, buried: b.buried }));
 
   // dungeon-game.tsx:578 lays three ember rings across a gauntlet, offset along x from the room's heart.
   const hazards = floor.rooms.flatMap(room => room.id !== 0 && room.encounter === 'gauntlet'
@@ -1046,7 +1049,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: bodies.filter(b => b.wave > 1).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, buried: b.buried })), eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }
