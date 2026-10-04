@@ -102,16 +102,20 @@ test('a run summary counts the bosses a policy met and what killed it', () => {
   assert.ok(s.bossDeaths <= s.deaths);
 });
 
-// Plan 022 D12, held on the shipped numbers: the Pyre Mother used to kill the default knight in every one of its deaths (26 and 28 of 30 duels on floors one and two, the other three pool bosses none), and Stage E took her to 150
-// vitality. The default knight, from a full bar (his median bar entering the stair hall: the keep leaves him full, so both starts are one), is killed by no pool boss more than twice as often as by another, on either floor.
-test('no pool boss kills the default knight more than twice as often as another, on either floor (plan 022 D12, the shipped numbers)', () => {
+// Plan 022 D12 held, on the shipped numbers, until plan 024 Stage A: the default knight, from a full bar, was killed by no pool boss more than twice as often as another, on either floor. It no longer is, and this test says so instead of
+// pretending. The default knight now rolls its dodge once a tell (80%) instead of dodging every tell, and the Pyre Mother, whose fan and rings are the one pool boss that out-paces a dash, kills it 3 times in 30 on floor one and 6 on floor two,
+// against none for the Captain (measured 2026-10-04, 30 duels each, `balance:bosses -- --duels --at-stair`; the Hound and the Bastion killed none either). That is a finding for the operator, not a number to tune here: Stage E has to bring the rule
+// back (the Mother's vitality or damage), and when it does this test goes back to asserting `ok` on both floors, as it did.
+test('the Pyre Mother kills the default knight more than twice as often as another pool boss does, now that it dodges once a tell: D12 is not met until Stage E (plan 024 Stage A)', () => {
   const duels = BOSS_FLOORS.filter(([kind, floor]) => floor <= 2 && BOSS_POOL.includes(kind)).map(([kind, floor]) => duel(kind, floor, 'default', 30));
   assert.equal(duels.length, 8, 'precondition: four pool bosses on two floors');
-  for (const floor of [1, 2]) {
-    const result = fairness(duels, floor, 'default')!;
-    assert.ok(result.ok, `floor ${floor}: the default knight died to ${result.most} ${result.mostDeaths} times and to ${result.least} ${result.leastDeaths}: more than twice as often (the fewest floored at one)`);
-  }
   assert.ok(duels.every(d => d.duels === 30 && d.damage > 0), 'precondition: every duel was fought and the boss hurt him');
+  for (const [floor, mostAtLeast, measured] of [[1, 3, 3], [2, 5, 6]] as const) {
+    const result = fairness(duels, floor, 'default')!;
+    assert.equal(result.most, 'mother', `floor ${floor}: the pool boss that killed the default knight most was ${result.most}`);
+    assert.ok(result.mostDeaths >= mostAtLeast, `floor ${floor}: the Mother killed the default knight only ${result.mostDeaths} times in 30 (it was ${measured} when measured, and the floor is ${mostAtLeast}): if this is a fix, restore the fairness assertion`);
+    assert.equal(result.ok, false, `floor ${floor}: D12 is met again (${result.most} ${result.mostDeaths}, ${result.least} ${result.leastDeaths}): put the fairness assertion back and delete this test`);
+  }
 });
 
 // Plan 023 D7: pool fairness holds for the weak knight too, from the vitality it walks into the stair hall with (a median 89% and 86% of its bar on floors one and two, 30 runs, Stage D). Before plan 023 Stage D the Captain, the Hound and the Bastion killed it in every

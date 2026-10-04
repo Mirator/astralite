@@ -28,6 +28,31 @@
         "medianPearls": { "min": 80, "max": 130 }
       }
     },
+    "skilled": {
+      "policy": { "dodge": 0.95, "reaction": 0.18 },
+      "measured": {
+        "escapeRate": 93.3,
+        "floor1.deathRate": 0,
+        "floor2.deathRate": 0,
+        "floor3.deathRate": 6.7,
+        "floor1.medianHpLeft": 78.6,
+        "floor2.medianHpLeft": 89.2,
+        "floor3.medianHpLeft": 72.8,
+        "medianRunSeconds": 270.1,
+        "medianPearls": 107
+      },
+      "bands": {
+        "escapeRate": { "min": 75, "max": 100 },
+        "floor1.deathRate": { "min": 0, "max": 20 },
+        "floor2.deathRate": { "min": 0, "max": 10 },
+        "floor3.deathRate": { "min": 0, "max": 15 },
+        "floor1.medianHpLeft": { "min": 70, "max": 100 },
+        "floor2.medianHpLeft": { "min": 75, "max": 100 },
+        "floor3.medianHpLeft": { "min": 60, "max": 100 },
+        "medianRunSeconds": { "min": 100, "max": 280 },
+        "medianPearls": { "min": 85, "max": 135 }
+      }
+    },
     "weak": {
       "policy": { "dodge": 0, "reaction": 0.6 },
       "measured": {

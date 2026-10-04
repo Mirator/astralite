@@ -8,7 +8,7 @@
 // dungeon-game.tsx it mirrors, because that is the seam where this harness can silently go stale.
 //
 // The knight is a policy, not a player: it walks the flood toward the stair, engages what wakes, and
-// dodges a tell it has had time to read. It is a consistent yardstick for comparing builds against each
+// dodges, one roll a tell, a tell it has had time to read (plan 024). It is a consistent yardstick for comparing builds against each
 // other, not a claim about how well a human plays.
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
@@ -38,11 +38,12 @@ export type Policy = {
   /** Seconds of a tell that must have elapsed before the knight reacts to it. Human-ish is 0.2-0.25. */
   reaction: number;
   /**
-   * Fraction of readable tells it actually dodges, 0..1. The response is not monotonic and is not
-   * meant to be read as a skill dial: a dodge cancels the swing it interrupts and spends a 1.35s
-   * cooldown, so a knight that dodges everything draws fights out and eats more tells than one that
-   * dodges selectively. Hold it fixed across a comparison rather than reading a single batch as
-   * "this is how hard the game is at skill X".
+   * Fraction of tells it dodges, 0..1, decided ONCE per tell (plan 024 D1): the roll is taken the first frame a body's tell is readable to the knight
+   * (`reaction` seconds in), kept on the body for the tell's whole length and cleared when it ends. A tell it rolled "no" for is not dodged, though ordinary
+   * movement may still take him out of its reach. Until plan 024 the roll was taken afresh every frame, so a tell readable for 17 frames was missed with probability 0.2^17
+   * at `dodge` 0.8: the policy read as "dodges 80%" and dodged everything. A dodge is also gated by the dash cooldown (`run.dashSpan`, 0.8 s, 0.56 s with Quick Step),
+   * and it cancels the swing it interrupts, so a knight that dodges everything draws fights out and eats more tells than one that dodges selectively.
+   * Not a skill dial: hold it fixed across a comparison rather than reading a single batch as "this is how hard the game is at skill X".
    */
   dodge: number;
   /** Take the door that pays - a purse, else a mending - over the first one offered (plan 017). */
@@ -94,7 +95,7 @@ export type Policy = {
    * still `weapon`, because a policy names the arm it measures.
    */
   meta?: Meta;
-  /** Which card to take from a draft. Defaults to the first offered. */
+  /** Which card to take from a draft. Absent, the knight draws one from the offer with the run's own seeded `pick` stream (plan 024 D1; it took the first offered until then, which is no choice at all once a run holds every card). */
   pickBoon?: (offer: Boon[], run: Run) => string;
 };
 
@@ -213,6 +214,12 @@ export type FloorReport = {
    * (`fightChamber`: a path chamber that is not a sanctuary), so no hazard, no pool (a pyre's fire, a volatile body's, a boss's rings) and no boss is in it, and neither is anything a boss's reserve dealt in the stair hall.
    * `chambersEntered` is the fight chambers he stood in at all, cleared or not, and `ordinaryDamagePerChamber` the first over the second (0 when he entered none): the direct measure of whether a fight room costs him anything.
    */
+  /** Plan 024 D1: the cards he took on this floor, in the order he took them, and the size of the offer each was drawn from (`pickBoon`, or by default a draw of the run's own `pick` stream). */
+  boons: string[];
+  offers: number[];
+  /** Plan 024 D1: tells whose dodge was rolled this floor (one a tell, the first frame it was readable to him), and the tells he dashed at: what `dodge` is measured against. */
+  tellsRolled: number;
+  tellsDodged: number;
   ordinaryDamage: number;
   chambersEntered: number;
   ordinaryDamagePerChamber: number;
@@ -266,6 +273,8 @@ type Body = {
   // dungeon-game.tsx:1335-ish carries the identical bookkeeping so the two sims agree on when a room
   // wakes together rather than one body at a time.
   alertIn: number;
+  // Plan 024 (D1). The one roll of this body's tell: null until the tell is readable to the knight (and again once it has ended), then whether he dodges this tell; and whether he has dashed at it.
+  dodgeRoll: boolean | null; dodged: boolean;
 };
 
 /** Seconds spent with no woken body this close counts as idle - see FloorReport.idle. */
@@ -300,18 +309,44 @@ const rng = (seed: number) => {
   return () => { state += 0x6d2b79f5; let t = state; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 };
 
+/**
+ * A gauntlet's ember grate (dungeon-game.tsx:1889): one 3.6 s cycle a room, offset by 0.7 s a room, warming for `EMBER_CHARGE` seconds and then flaring for the rest; a flare ticks once, for anything within `EMBER_REACH`.
+ * `EMBER_MARGIN` is the slack the knight keeps outside that ring when he steps clear of one, so a stride that overshoots the edge does not put him back on it.
+ */
+const EMBER_CYCLE = 3.6, EMBER_CHARGE = 2.6, EMBER_REACH = 1.8, EMBER_MARGIN = 0.4;
+/** Where in its cycle a room's grates are at time `t`: past `EMBER_CHARGE` they are flaring. */
+const ember = (t: number, room: number) => (t + room * 0.7) % EMBER_CYCLE;
+/**
+ * Plan 024 (D1): where a knight who avoids fire walks to keep off the grates. Every grate that is flaring, or will flare within `reaction` seconds, and has him within its reach (and the margin) counts; he takes the heading, of sixteen, that
+ * leaves him furthest from the nearest of them a stride (one unit) on, so a row of overlapping grates is left across the row and not along it. Ties go to the first heading. Null when no grate is asking anything of him.
+ * The grate's own charge is 2.6 s of warming tiles before its 1 s flare, so `reaction` seconds of warning is what he gets to leave in; a swing in the way (the arm's slower walk) can still cost him the tick.
+ */
+export const emberStep = (t: number, grates: readonly { x: number; z: number; room: number }[], at: { x: number; z: number }, reaction: number) => {
+  const asking = grates.filter(ring => ember(t, ring.room) > EMBER_CHARGE - reaction && Math.hypot(ring.x - at.x, ring.z - at.z) < EMBER_REACH + EMBER_MARGIN);
+  if (!asking.length) return null;
+  let best = { x: 1, z: 0 }, bestGap = -Infinity;
+  for (let i = 0; i < 16; i++) {
+    const heading = { x: Math.cos(i * Math.PI / 8), z: Math.sin(i * Math.PI / 8) };
+    const gap = Math.min(...asking.map(ring => Math.hypot(at.x + heading.x - ring.x, at.z + heading.z - ring.z)));
+    if (gap > bestGap + 1e-9) { best = heading; bestGap = gap; }
+  }
+  return best;
+};
+
 const unit = (x: number, z: number) => { const length = Math.hypot(x, z) || 1; return { x: x / length, z: z / length }; };
 
 const startRun = (policy: Policy) => createRun(policy.meta && runStart(policy.meta));
 
 /** One descent, start to stair or to death. */
 export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunReport {
-  // Two streams, deliberately. The knight's dodge rolls are consumed per frame, so a change of skill
+  // Separate streams, deliberately. The knight's dodge rolls are consumed a tell at a time (a frame at a time before plan 024), so a change of skill
   // changes how many numbers have been drawn — and if the draft shared the stream, raising `dodge`
   // would silently deal a different set of boons. That confound made a skill sweep read non-monotonic
   // here before the streams were split: the clumsier knight was simply being handed better cards.
   const nerve = rng(seed ^ 0x9e3779b9);
   const draft = rng(seed ^ 0x85ebca6b);
+  // Plan 024 (D1): a third, for the knight's choice among the cards - separate again so that taking a different card never changes how many numbers the draft or the dodge has drawn.
+  const pick = rng(seed ^ 0xc2b2ae35);
   const run = startRun(policy);
   const floors: FloorReport[] = [];
   let elapsed = 0, cause: Cause | null = null;
@@ -319,7 +354,7 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
   // Plan 021 (D13): the run's bosses are dealt as the game deals them, from floor one's seed, and each floor is laid with its own.
   const dealt = dealBosses(seed);
   for (let level = 1; level <= FLOORS; level++) {
-    const report = simulateFloor(seed + level - 1, level, run, policy, nerve, draft, wavedFloor(generateFloor(seed + level - 1, level, { boss: bossOnFloor(dealt, level) }), seed + level - 1, level));
+    const report = simulateFloor(seed + level - 1, level, run, policy, nerve, draft, pick, wavedFloor(generateFloor(seed + level - 1, level, { boss: bossOnFloor(dealt, level) }), seed + level - 1, level));
     floors.push(report);
     elapsed += report.seconds;
     if (report.outcome !== 'cleared') {
@@ -343,15 +378,15 @@ export function simulateArena(seed: number, level: number, roster: readonly Enem
   // Plan 022: `start` is the share of his maximum vitality the knight begins on (1 is a full bar): the duel the stair hall really is, from what the keep leaves of him (scripts/balance/bosses.ts `--at-stair`).
   const run = startRun(policy);
   run.hp = Math.max(1, Math.round(run.maxHp * Math.min(1, Math.max(0, start))));
-  return simulateFloor(seed, level, run, policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), arenaFloor(seed, level, roster), true);
+  return simulateFloor(seed, level, run, policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), rng(seed ^ 0xc2b2ae35), arenaFloor(seed, level, roster), true);
 }
 
 /** One generated floor fought by a fresh knight: no earlier floors, no boons, full vitality. For a test that needs a floor and not a descent; `built` is a floor the test laid itself (a chosen boss). */
 export function simulateLevel(seed: number, level: number, policy: Policy = DEFAULT_POLICY, built?: Floor): FloorReport {
-  return simulateFloor(seed, level, startRun(policy), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), built);
+  return simulateFloor(seed, level, startRun(policy), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), rng(seed ^ 0xc2b2ae35), built);
 }
 
-function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number, built?: Floor, arena = false): FloorReport {
+function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number, pick: () => number, built?: Floor, arena = false): FloorReport {
   // Plan 022: a floor the sim lays itself is dealt its later waves as the game's is (`wavedFloor`); one a test hands in is its own.
   const floor = built ?? wavedFloor(generateFloor(seed, level), seed, level);
   const weapon = policy.weapon;
@@ -392,7 +427,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       aim: { x: 0, z: 0 }, room: spawn.room, awake: !spawn.ambush && !spawn.buried, dead: false,
       face: 0, buried: !!spawn.buried, summoner: spawn.summoner ?? -1, maxHp: stats.hp, wave: spawn.wave ?? 1,
       move: 0, phase: 0, change: 0, winding: null, marks: [], get bossPhase() { return this.phase; },
-      anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity,
+      anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity, dodgeRoll: null, dodged: false,
     };
   });
 
@@ -438,7 +473,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   // Plan 016 fight duration: when each room's fight started, and how long each finished one took.
   const fightStart = new Map<number, number>(), fights: number[] = [], fightEncounters: string[] = [];
   const eliteKills: Partial<Record<EliteModifier, number>> = {};
-  let ordinaryDamage = 0;
+  let ordinaryDamage = 0, tellsRolled = 0, tellsDodged = 0;
+  const boonsTaken: string[] = [], offersSeen: number[] = [];
   // Plan 024 Stage 0: a blow or a bolt from a body that is not a boss, landed with the knight in a fight chamber. A pool's bite never comes through here (`poolDamage` has it).
   const ordinaryBlow = (kind: EnemyKind, dealt: number, room: number) => { if (dealt && !BESTIARY[kind].boss && room >= 0 && fightChamber(floor.rooms[room])) ordinaryDamage += dealt; };
   let hpAtStair: number | null = null, wavesRaised = 0; const waveFights: number[] = [], shrineMends: { room: number; healed: number }[] = [];
@@ -593,10 +629,16 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (!bolt) return b.tell - b.windup >= policy.reaction;
       return b.windup <= AIM_LOCK && AIM_LOCK - b.windup + Math.hypot(b.x - player.x, b.z - player.z) / bolt.speed >= policy.reaction;
     };
-    // A scatter's tell is not a blow he can dash: its rings are stepped out of instead (below).
-    const threat = live.find(b => b.windup > 0 && b.winding?.attack !== 'scatter' && readable(b)
+    // Plan 024 (D1): the dodge is one roll per tell, taken the first frame the tell is readable to him and kept on the body until the tell ends. It used to be rolled afresh every frame, which at `dodge` 0.8 is a miss with probability 0.2^17 over a
+    // guard's 17 readable frames: the bot dodged everything. A scatter's tell is not a blow he can dash (its rings are stepped out of, below), so it is never rolled.
+    for (const b of live) {
+      if (b.windup <= 0) { b.dodgeRoll = null; b.dodged = false; }
+      else if (b.winding?.attack !== 'scatter' && readable(b)) { if (b.dodgeRoll === null) { b.dodgeRoll = nerve() < policy.dodge; tellsRolled++; } }
+    }
+    const threat = live.find(b => b.windup > 0 && b.dodgeRoll === true && b.winding?.attack !== 'scatter' && readable(b)
       && Math.hypot(b.x - player.x, b.z - player.z) < (b.winding ?? BESTIARY[b.kind]).strikeRange + ((b.winding ?? BESTIARY[b.kind]).attack === 'pounce' ? 2.6 : 0.4));
-    if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, swing) && nerve() < policy.dodge) {
+    if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, swing)) {
+      if (!threat.dodged) { threat.dodged = true; tellsDodged++; }
       // A pounce or a bolt is out-run sideways; a swing is out-run backwards. A boss is read off the move it is winding up.
       const away = unit(player.x - threat.x, player.z - threat.z);
       const step = (threat.winding ?? BESTIARY[threat.kind]).attack !== 'swing' ? { x: -away.z, z: away.x } : away;
@@ -741,6 +783,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       }
     }
 
+    // Plan 024 (D1): a gauntlet grate that is flaring, or will flare within his reaction time, is stepped out of like a pool (`emberStep`). Dashing is not for it, and the dodge and the strike are unchanged.
+    // Lower priority than a pyre's fire and a marked ring, which come after and replace it.
+    if (policy.avoidFire !== false && dashTime <= 0) move = emberStep(t, hazards, player, policy.reaction) ?? move;
     // Plan 018: standing in a pyre's fire, walk out of it - straight away from its heart. The dodge and the strike
     // above are unchanged; this only replaces where he walks, and only while a fire is under him.
     if (policy.avoidFire !== false && dashTime <= 0) {
@@ -849,6 +894,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       const intent = decideEnemy(view, player, { ...world, activeRoom }, DT);
       const startedNoticing = body.notice <= 0 && intent.notice > 0;
       body.cooldown = intent.cooldown; body.hitFlash = intent.hitFlash; body.windup = intent.windup;
+      if (view.windup <= 0 && intent.windup > 0) { body.dodgeRoll = null; body.dodged = false; }
       body.lunge = intent.lunge; body.aim = intent.aim; body.notice = intent.notice;
       body.x = intent.x; body.z = intent.z;
       if (intent.face !== null) body.face = intent.face;
@@ -1017,9 +1063,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     // --- the keep's own teeth ------------------------------------------------------------------
     // dungeon-game.tsx:855: one 3.6s cycle per room, firing in its last second, one tick per flare.
     for (const ring of hazards) {
-      const phase = (t + ring.room * 0.7) % 3.6, firing = phase > 2.6;
+      const firing = ember(t, ring.room) > EMBER_CHARGE;
       if (!firing) { ring.burned = false; continue; }
-      if (ring.burned || Math.hypot(ring.x - player.x, ring.z - player.z) >= 1.8) continue;
+      if (ring.burned || Math.hypot(ring.x - player.x, ring.z - player.z) >= EMBER_REACH) continue;
       const dealt = hurt(run, 10, { dashing: dashImmune(dashTime) });
       if (dealt) { ring.burned = true; damage.hazard += dealt; lastBlow = 'hazard'; if (run.hp <= 0) return endFloor('died'); }
     }
@@ -1028,7 +1074,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     if (run.pendingRanks > 0) {
       run.choosing = true;
       const offer = draftBoons(run, draft, run.draftSize);
-      takeBoon(run, policy.pickBoon ? policy.pickBoon(offer, run) : offer[0].id);
+      const taking = policy.pickBoon ? policy.pickBoon(offer, run) : offer[Math.min(offer.length - 1, Math.floor(pick() * offer.length))].id;
+      boonsTaken.push(taking); offersSeen.push(offer.length);
+      takeBoon(run, taking);
     }
 
     // An arena has no stair to walk to: it ends when its roster is dead.
@@ -1061,7 +1109,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, ordinaryDamage, chambersEntered, ordinaryDamagePerChamber: +(chambersEntered ? ordinaryDamage / chambersEntered : 0).toFixed(2), hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, boons: boonsTaken, offers: offersSeen, tellsRolled, tellsDodged, ordinaryDamage, chambersEntered, ordinaryDamagePerChamber: +(chambersEntered ? ordinaryDamage / chambersEntered : 0).toFixed(2), hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }
