@@ -54,8 +54,8 @@ test('the Bone King is the final boss with D4\'s phases: summon, swing, volley, 
   assert.equal(king.phaseNotice?.length, king.moves!.length, 'a notice for each phase');
   assert.ok(king.phaseNotice!.slice(1).every(notice => notice.length > 0));
   assert.ok(ENEMY_KINDS.includes('king'));
-  assert.equal(enemyStats('king', 1).hp, 650, 'plan 022 Stage E: 650, up from 500');
-  assert.equal(enemyStats('king', 3).hp, 658, 'the last floor\'s boss takes the usual extra blade of vitality a floor, twice');
+  assert.equal(enemyStats('king', 1).hp, 630, 'plan 023 Stage D: 630 (650 at plan 022 Stage E, up from 500), off the weak knight\'s knife-edge');
+  assert.equal(enemyStats('king', 3).hp, 638, 'the last floor\'s boss takes the usual extra blade of vitality a floor, twice');
   assert.ok(CAUSE_LABELS.king.length > 0 && CUTAWAY_ELLIPSE.king.radii[0] > CUTAWAY_ELLIPSE.warden.radii[0], 'its cause label and a cutaway window larger than the warden\'s');
 });
 
@@ -155,7 +155,8 @@ test('felling the King crumbles everything he called, standing or buried, and a 
 
 test('the sim fells the King and the stair opens: every body in the stair hall falls with him, so the floor is cleared and not stuck', () => {
   // A floor-three keep fought by the knight with every upgrade bought (a fresh default knight dies to the tuned King). A reserve that was left standing or buried would hold the stair hall open for ever, and the report would be `stuck`.
-  const seed = sweepSeeds(3)[0], floor = generateFloor(seed, 3), report = simulateLevel(seed, 3, buildPolicy({ meta: 'max' }), floor);
+  // The second sweep seed: plan 023 Stage D (a King of 630) moved the first to a death.
+  const seed = sweepSeeds(3)[1], floor = generateFloor(seed, 3), report = simulateLevel(seed, 3, buildPolicy({ meta: 'max' }), floor);
   assert.equal(report.bossKind, 'king', 'the floor\'s boss is not the King');
   assert.notEqual(report.outcome, 'stuck', 'the floor hit its timeout: something he called was left to hold the stair shut');
   assert.equal(report.outcome, 'cleared', 'the knight did not clear the floor, so the King was not felled');

@@ -21,8 +21,10 @@ test.describe('through the hall', () => {
     game,
     page,
   }) => {
-    // 160 held going in, so the bank has to add to a balance it read from the save, not replace it.
-    await game.setMeta({ ...NOTHING, pearls: 160 });
+    // 200 held going in, so the bank has to add to a balance it read from the save, not replace it. Plan 023 Stage D: a death on floor 2 with no chamber cleared pays only the floor behind it (5), so the held balance has to cover Deep Lungs and Whetted Start (170) by itself
+    // and still leave Keen Eye (70) out of reach after them (200 + 5 - 170 = 35).
+    const HELD = 200;
+    await game.setMeta({ ...NOTHING, pearls: HELD });
     await game.enter();
     expect((await game.state()).hall, 'precondition: the page starts in the hall').toBe(true);
     await game.takeWayDown();
@@ -43,8 +45,8 @@ test.describe('through the hall', () => {
     const earned = pearlsFor(logged);
     expect(earned, 'precondition: the run earned something, or a bank that adds nothing would pass').toBeGreaterThan(0);
     expect(logged.pearls, 'the run record does not carry what the run earned').toBe(earned);
-    expect((await game.meta()).pearls, 'the earnings were not banked into the save').toBe(160 + earned);
-    await expect(page.locator('.result-card .run-pearls')).toHaveText(`+${earned} pearls · ${160 + earned} held`);
+    expect((await game.meta()).pearls, 'the earnings were not banked into the save').toBe(HELD + earned);
+    await expect(page.locator('.result-card .run-pearls')).toHaveText(`+${earned} pearls · ${HELD + earned} held`);
 
     // RETURN TO THE ALTAR: the hall, and the finished run is not on screen. The balance is in the shop the altar opens with the swap key.
     await page.getByRole('button', { name: 'RETURN TO THE ALTAR' }).click();
@@ -59,7 +61,7 @@ test.describe('through the hall', () => {
     await press(page, 'swap');
     await game.step(16);
     await expect(page.getByRole('heading', { name: /Spend what/ })).toBeVisible();
-    await expect(page.locator('.altar-purse'), 'the shop does not show the pearls the run banked').toHaveText(`${160 + earned} pearls held`);
+    await expect(page.locator('.altar-purse'), 'the shop does not show the pearls the run banked').toHaveText(`${HELD + earned} pearls held`);
     await expect(page.locator('.altar-panel'), 'the shop still says arms are chosen at the Tide Gate').toContainText('chosen on the racks of this hall');
 
     // The Altar, by keyboard: every row is reachable with Tab, in order, whether or not it can be bought.
@@ -81,7 +83,7 @@ test.describe('through the hall', () => {
     await expect(page.locator('.altar-note')).toHaveText('Whetted Start bought.');
     const spent = await game.meta();
     expect(spent.upgrades).toEqual({ lungs: 1, whet: 1 });
-    expect(spent.pearls, 'the purchases were not charged at the Altar\'s prices').toBe(160 + earned - firstRank('lungs') - firstRank('whet'));
+    expect(spent.pearls, 'the purchases were not charged at the Altar\'s prices').toBe(HELD + earned - firstRank('lungs') - firstRank('whet'));
     expect(spent.pearls, 'precondition: Keen Eye must be out of reach, or the refusal below cannot happen').toBeLessThan(firstRank('eye'));
     // A purchase that cannot be made says why and charges nothing. The row is aria-disabled, which Playwright
     // counts as not enabled, so the click is forced: a player's click on it lands all the same.

@@ -299,23 +299,23 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   // The Drowned Captain (plan 021 D4): a huge warden, the first floor's boss until the pool grows. Phase one is two heavy
   // swings and a sweep that takes everything round it; below half it adds a pounce across the room, and then goes round
   // swing, pounce, sweep. Steadfast like the warden it is grown from: only a stagger arm breaks a tell. The numbers are
-  // Stage F's (290 vitality, damage ×0.5 of D7's hypothesis); the moves are the design.
+  // Stage F's (290 vitality, damage ×0.5 of D7's hypothesis) and plan 023 Stage D's (damage a further ×0.57 in all, rounded to whole numbers: the weak knight lost every duel to it from a full bar and none to the Mother, which no pool-fairness rule allows, D7); the moves are the design.
   captain: {
-    stats: { hp: 290, damage: 12, tell: 0.8, speed: 1.8 },
+    stats: { hp: 290, damage: 7, tell: 0.8, speed: 1.8 },
     strikeRange: 3.2, attackRange: 2.7, holdRange: 2.4, recovery: 1.5,
     attack: 'swing', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
     boss: 'pool', title: 'The Drowned Captain', phaseNotice: ['', 'The Captain draws the tide'],
     phases: [.5],
     moves: [
       [
-        { attack: 'swing', tell: 0.8, damage: 12, strikeRange: 3.2, attackRange: 2.7, cue: { shape: 'arc' }, cueScale: 2.13 },
-        { attack: 'swing', tell: 0.7, damage: 12, strikeRange: 3.2, attackRange: 2.7, cue: { shape: 'arc' }, cueScale: 2.13 },
-        { attack: 'sweep', tell: 1.1, damage: 10, strikeRange: 3.6, attackRange: 2.6, cue: { shape: 'ring', radius: 3.6 }, cueScale: 1 },
+        { attack: 'swing', tell: 0.8, damage: 7, strikeRange: 3.2, attackRange: 2.7, cue: { shape: 'arc' }, cueScale: 2.13 },
+        { attack: 'swing', tell: 0.7, damage: 7, strikeRange: 3.2, attackRange: 2.7, cue: { shape: 'arc' }, cueScale: 2.13 },
+        { attack: 'sweep', tell: 1.1, damage: 5, strikeRange: 3.6, attackRange: 2.6, cue: { shape: 'ring', radius: 3.6 }, cueScale: 1 },
       ],
       [
-        { attack: 'swing', tell: 0.7, damage: 12, strikeRange: 3.2, attackRange: 2.7, cue: { shape: 'arc' }, cueScale: 2.13 },
-        { attack: 'pounce', tell: 0.7, damage: 10, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.4 }, cueScale: 1 },
-        { attack: 'sweep', tell: 1.0, damage: 10, strikeRange: 3.6, attackRange: 2.6, cue: { shape: 'ring', radius: 3.6 }, cueScale: 1 },
+        { attack: 'swing', tell: 0.7, damage: 7, strikeRange: 3.2, attackRange: 2.7, cue: { shape: 'arc' }, cueScale: 2.13 },
+        { attack: 'pounce', tell: 0.7, damage: 5, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.4 }, cueScale: 1 },
+        { attack: 'sweep', tell: 1.0, damage: 5, strikeRange: 3.6, attackRange: 2.6, cue: { shape: 'ring', radius: 3.6 }, cueScale: 1 },
       ],
     ],
     look: {
@@ -357,23 +357,23 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   // The Tide Hound (plan 021 D4): a stalker grown huge and quick, the pool's lane-dodging boss. Phase one is pounce, swing, pounce, each pounce a long lane drawn on the floor and a
   // leap that bills what it runs through; below half the tells shorten and the pounces come two at a time: the second begins the instant the first leap ends, with no
   // recovery between and a short re-aim of its own, from wherever the knight stands then (`chain`, dungeon-bestiary.ts). A dash out of the first lane is not the answer to the
-  // second. Steadfast like every boss. The numbers are Stage F's (260 vitality, damage ×0.5 of D7's hypothesis); the moves are the design.
+  // second. Steadfast like every boss. The numbers are Stage F's (260 vitality, damage ×0.5 of D7's hypothesis) and plan 023 Stage D's (damage a further ×0.55 in all, rounded to whole numbers, for pool fairness); the moves are the design.
   hound: {
-    stats: { hp: 260, damage: 9, tell: 0.7, speed: 3.0 },
+    stats: { hp: 260, damage: 5, tell: 0.7, speed: 3.0 },
     strikeRange: 2.6, attackRange: 6.5, holdRange: 1.8, recovery: 1.3,
     attack: 'pounce', steadfast: true, advanceBelow: 0.9, firstFloor: Infinity, keepAway: 0,
     boss: 'pool', title: 'The Tide Hound', phaseNotice: ['', 'The Tide Hound howls'],
     phases: [.5],
     moves: [
       [
-        { attack: 'pounce', tell: 0.7, damage: 9, strikeRange: 5, attackRange: 6.5, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1 },
-        { attack: 'swing', tell: 0.5, damage: 8, strikeRange: 2.6, attackRange: 2.2, cue: { shape: 'arc' }, cueScale: 1.75 },
-        { attack: 'pounce', tell: 0.7, damage: 9, strikeRange: 5, attackRange: 6.5, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.7, damage: 5, strikeRange: 5, attackRange: 6.5, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1 },
+        { attack: 'swing', tell: 0.5, damage: 4, strikeRange: 2.6, attackRange: 2.2, cue: { shape: 'arc' }, cueScale: 1.75 },
+        { attack: 'pounce', tell: 0.7, damage: 5, strikeRange: 5, attackRange: 6.5, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1 },
       ],
       [
-        { attack: 'pounce', tell: 0.5, damage: 9, strikeRange: 5, attackRange: 6.5, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1 },
-        { attack: 'pounce', tell: 0.3, damage: 9, strikeRange: 5, attackRange: 9, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1, chain: true },
-        { attack: 'swing', tell: 0.4, damage: 8, strikeRange: 2.6, attackRange: 2.2, cue: { shape: 'arc' }, cueScale: 1.75 },
+        { attack: 'pounce', tell: 0.5, damage: 5, strikeRange: 5, attackRange: 6.5, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.3, damage: 5, strikeRange: 5, attackRange: 9, cue: { shape: 'lane', length: 5.4, width: 2.2 }, cueScale: 1, chain: true },
+        { attack: 'swing', tell: 0.4, damage: 4, strikeRange: 2.6, attackRange: 2.2, cue: { shape: 'arc' }, cueScale: 1.75 },
       ],
     ],
     look: {
@@ -385,9 +385,9 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   // The Bastion (plan 021 D4): a shieldbearer grown huge, the pool's boss for the knight who has learned to hit what is open. Phase one holds a tower shield square to the front
   // whenever it is not winding up or recovering (`shield`, the shieldbearer's rule, dungeon-hits.ts `blocks`), and goes swing, swing, sweep: the opening is its own blow, or a flank,
   // or an arm that staggers. Below half the shield breaks (`until: 1`) and a charge, a pounce, joins the round: swing, swing, sweep, charge. Steadfast like every boss. The numbers are
-  // Stage F's (240 vitality, damage ×0.55 of D7's hypothesis); the moves are the design.
+  // Stage F's (240 vitality, damage ×0.55 of D7's hypothesis) and plan 023 Stage D's (damage a further ×0.57 in all, rounded to whole numbers, for pool fairness); the moves are the design.
   bastion: {
-    stats: { hp: 240, damage: 11, tell: 0.7, speed: 1.7 },
+    stats: { hp: 240, damage: 6, tell: 0.7, speed: 1.7 },
     strikeRange: 2.8, attackRange: 2.4, holdRange: 2.1, recovery: 1.5,
     attack: 'swing', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
     shield: { arc: 0.3, until: 1 },
@@ -395,15 +395,15 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
     phases: [.5],
     moves: [
       [
-        { attack: 'swing', tell: 0.7, damage: 11, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
-        { attack: 'swing', tell: 0.6, damage: 11, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
-        { attack: 'sweep', tell: 1.0, damage: 9, strikeRange: 3.2, attackRange: 2.4, cue: { shape: 'ring', radius: 3.2 }, cueScale: 1 },
+        { attack: 'swing', tell: 0.7, damage: 6, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
+        { attack: 'swing', tell: 0.6, damage: 6, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
+        { attack: 'sweep', tell: 1.0, damage: 5, strikeRange: 3.2, attackRange: 2.4, cue: { shape: 'ring', radius: 3.2 }, cueScale: 1 },
       ],
       [
-        { attack: 'swing', tell: 0.6, damage: 11, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
-        { attack: 'swing', tell: 0.5, damage: 11, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
-        { attack: 'sweep', tell: 0.9, damage: 9, strikeRange: 3.2, attackRange: 2.4, cue: { shape: 'ring', radius: 3.2 }, cueScale: 1 },
-        { attack: 'pounce', tell: 0.8, damage: 12, strikeRange: 5, attackRange: 6, cue: { shape: 'lane', length: 5.2, width: 2.2 }, cueScale: 1 },
+        { attack: 'swing', tell: 0.6, damage: 6, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
+        { attack: 'swing', tell: 0.5, damage: 6, strikeRange: 2.8, attackRange: 2.4, cue: { shape: 'arc' }, cueScale: 1.9 },
+        { attack: 'sweep', tell: 0.9, damage: 5, strikeRange: 3.2, attackRange: 2.4, cue: { shape: 'ring', radius: 3.2 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.8, damage: 7, strikeRange: 5, attackRange: 6, cue: { shape: 'lane', length: 5.2, width: 2.2 }, cueScale: 1 },
       ],
     ],
     look: {
@@ -416,9 +416,9 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   // rattlers stand up from the reserve at his feet, a heavy swing for a knight who has reached him, a single bolt for one who keeps away. Below 60% a sweep (everything round him) and a pounce (a lane across the
   // room) join the round, and below 25% he summons on every second move, one rattler a tell and four tells a round. The reserve is sized from that list (`reserveSize`, the most any one phase's round can raise), not from
   // `summons.count`, which this row keeps only as what a lone summon is worth. Felling him crumbles everything he called, standing or buried. Steadfast like every boss. The numbers are Stage F's (500 vitality,
-  // damage ×0.6 of D7's hypothesis) and plan 022 Stage E's (650 vitality and damage ×1.45 of that: the last floor is where the default bot is made to die, since no earlier boss may kill it more than twice as often as another); the moves are the design.
+  // damage ×0.6 of D7's hypothesis) and plan 022 Stage E's (650 vitality and damage ×1.45 of that: the last floor is where the default bot is made to die, since no earlier boss may kill it more than twice as often as another) and plan 023 Stage D's (630 vitality: the weak knight's escape fell from 16.7% to 0 between 650 and 670, so 650 sat on a knife-edge; at 630 no policy's escape moves by more than 10 points across 610 to 650, D6); the moves are the design.
   king: {
-    stats: { hp: 650, damage: 0, tell: 0.8, speed: 1.9 },
+    stats: { hp: 630, damage: 0, tell: 0.8, speed: 1.9 },
     strikeRange: 3.4, attackRange: 9, holdRange: 2.6, recovery: 1.4,
     attack: 'summon', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
     summons: { kind: 'rattler', count: 2, perTell: 2 },

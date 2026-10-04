@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { ARM_ORDER, ARM_PRICES, bank, buyArm, buyUpgrade, CHAMBER_PEARLS, chooseArm, ELITE_PEARLS, FLOORS, freshMeta, maxedMeta, pearlsFor, PEARL_CAP, PRICE_TOTAL, rankOf, runStart, UPGRADES, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
+import { ARM_ORDER, ARM_PRICES, bank, buyArm, buyUpgrade, CHAMBER_PEARLS, chooseArm, ELITE_PEARLS, FLOOR_PEARLS, FLOORS, freshMeta, maxedMeta, pearlsFor, PEARL_CAP, PRICE_TOTAL, rankOf, runStart, UPGRADES, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
 import { FLOORS as SIM_FLOORS } from '../scripts/balance/sim.ts';
 import { STRIKE_BONUS } from '../app/dungeon-sim.ts';
 import { FOUND_WEAPONS } from '../app/dungeon-weapon.ts';
@@ -30,15 +30,15 @@ test('the floor count the earnings rule uses is the one the sim and the game pla
 
 // Plan 023 (D1): a run is paid for the fight chambers it cleared, not for the bodies it felled. Waves roughly doubled the kills a floor holds, and a pearl a kill took the 900-pearl shop from about twenty
 // runs to about four and a half; a chamber's count is fixed by the floor's layers, so a bigger wave table cannot move the economy again.
-test('a run pays CHAMBER_PEARLS a fight chamber cleared, 15 a floor behind him and 25 for getting out, whatever its kill count', () => {
+test('a run pays CHAMBER_PEARLS a fight chamber cleared, FLOOR_PEARLS a floor behind him and 25 for getting out, whatever its kill count', () => {
   assert.ok(CHAMBER_PEARLS > 0, 'precondition: a chamber pays something, or "whatever the kills" is vacuous');
   assert.equal(pearlsFor({ floor: 1, won: false, kills: 0, chambers: 0 }), 0, 'a floor-1 death in the first chamber has nothing behind it');
-  assert.equal(pearlsFor({ floor: 2, won: false, kills: 20, chambers: 4 }), 4 * CHAMBER_PEARLS + 15, 'four chambers and a floor behind him do not pay four chambers\' pearls and 15');
-  assert.equal(pearlsFor({ floor: 3, won: true, kills: 76, chambers: 14 }), 14 * CHAMBER_PEARLS + 45 + 25, 'a win does not pay its chambers, three floors and the escape');
+  assert.equal(pearlsFor({ floor: 2, won: false, kills: 20, chambers: 4 }), 4 * CHAMBER_PEARLS + FLOOR_PEARLS, 'four chambers and a floor behind him do not pay four chambers\' pearls and a floor\'s');
+  assert.equal(pearlsFor({ floor: 3, won: true, kills: 76, chambers: 14 }), 14 * CHAMBER_PEARLS + 3 * FLOOR_PEARLS + 25, 'a win does not pay its chambers, three floors and the escape');
   const few = pearlsFor({ floor: 3, won: false, kills: 10, chambers: 6 }), many = pearlsFor({ floor: 3, won: false, kills: 80, chambers: 6 });
   assert.equal(few, many, 'a run that felled eight times the bodies in the same chambers was paid for them');
   assert.equal(pearlsFor({ floor: 3, won: false, kills: 10, chambers: 7 }) - few, CHAMBER_PEARLS, 'one more chamber is not worth exactly CHAMBER_PEARLS');
-  assert.equal(bank(rich({ pearls: 5 }), { floor: 2, won: false, kills: 80, chambers: 4 }).pearls, 5 + 4 * CHAMBER_PEARLS + 15, 'banking pays the kills a wave dealt');
+  assert.equal(bank(rich({ pearls: 5 }), { floor: 2, won: false, kills: 80, chambers: 4 }).pearls, 5 + 4 * CHAMBER_PEARLS + FLOOR_PEARLS, 'banking pays the kills a wave dealt');
 });
 
 test('an elite pays ELITE_PEARLS on top of its chamber, and a boss BOSS_PEARLS', () => {

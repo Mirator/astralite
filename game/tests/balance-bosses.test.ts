@@ -43,7 +43,8 @@ test('every pool boss is fought on floors one and two and the Bone King on floor
 });
 
 test('a duel is played with the policy it is named for: the weak knight, who never dodges, takes more of the fight and dies more often than the default one', () => {
-  const careful = duel('captain', 1, 'default', 6), careless = duel('captain', 1, 'weak', 6);
+  // Starting on half his bar (plan 023 Stage D: the Captain no longer beats a weak knight from a full one, which is the point of its damage cut), the Captain is a duel the two knights tell apart.
+  const careful = duel('captain', 1, 'default', 6, 1, 0.5), careless = duel('captain', 1, 'weak', 6, 1, 0.5);
   assert.equal(careful.duels, 6);
   assert.ok(careful.seconds > 0 && Number.isFinite(careful.seconds), 'the default knight never felled the Captain, so there is nothing to read');
   assert.ok(careful.hpLeft > 0 && careful.hpLeft <= 100, `HP left ${careful.hpLeft} is not a share of a bar`);
@@ -65,28 +66,32 @@ test('the shares a duel starts on are what a policy walks into each stair hall w
   assert.ok(shares.every(share => share > 0 && share <= 1), `${shares.join(", ")} is not a share of a bar`);
 });
 
-const summary = (policy: string, patch: Partial<RunSummary>): RunSummary => ({ policy, runs: 30, escapeRate: 50, deaths: 0, bossDeaths: 0, reserveDeaths: 0, bossShare: 60, fightSeconds: 40, beforeBoss: 50, stairHp: 60, runSeconds: 400, watchSeconds: 20, byBoss: {}, killedBy: {}, ...patch });
+const summary = (policy: string, patch: Partial<RunSummary>): RunSummary => ({ policy, runs: 30, escapeRate: 50, deaths: 0, bossDeaths: 0, reserveDeaths: 0, bossShare: 60, fightSeconds: 40, beforeBoss: 50, stairHp: 60, runSeconds: 400, watchSeconds: 20, pearls: 100, byBoss: {}, killedBy: {}, ...patch });
 
-test('each D13 target is judged against its own policy and its own band, inclusive at both ends', () => {
-  const judged = (patch: Record<string, Partial<RunSummary>>) => judge(['default', 'weak', 'weak-meta-max'].map(name => summary(name, patch[name] ?? {})));
+test('each D7 target is judged against its own policy and its own band, inclusive at both ends (plan 023)', () => {
+  const names = ['default', 'weak', 'weak-meta-max', 'special-crossbow'];
+  const judged = (patch: Record<string, Partial<RunSummary>>) => judge(names.map(name => summary(name, patch[name] ?? {})));
   const met = (patch: Record<string, Partial<RunSummary>>, policy: string, label: string) => judged(patch).find(t => t.policy === policy && t.label === label)!.met;
-  assert.equal(TARGETS.length, 9, 'precondition: D13 names nine whole-run targets for the bots');
-  for (const [label, key, lo, hi] of [['escape %', 'escapeRate', 55, 80], ['deaths before the stair hall, %', 'beforeBoss', 100 / 3, 100], ['vitality entering floor 1 stair hall, %', 'stairHp', 40, 80], ['median run seconds', 'runSeconds', 300, 600], ['median watch fight seconds', 'watchSeconds', 12, 40], ['boss fight seconds (median)', 'fightSeconds', 25, 60]] as const) {
-    assert.equal(met({ default: { [key]: lo } }, 'default', label), true, `${label}: the lower edge is inside`);
-    assert.equal(met({ default: { [key]: hi } }, 'default', label), true, `${label}: the upper edge is inside`);
-    assert.equal(met({ default: { [key]: lo - 0.1 } }, 'default', label), false, `${label}: under the band`);
-    if (hi < 100) assert.equal(met({ default: { [key]: hi + 0.1 } }, 'default', label), false, `${label}: over the band`);
+  assert.equal(TARGETS.length, 10, 'precondition: D7 names ten whole-run targets for the bots');
+  for (const [policy, label, key, lo, hi] of [
+    ['default', 'escape %', 'escapeRate', 60, 85], ['default', 'deaths before the stair hall, %', 'beforeBoss', 25, 100], ['default', 'vitality entering floor 1 stair hall, %', 'stairHp', 50, 90],
+    ['default', 'boss fight seconds (median)', 'fightSeconds', 25, 60], ['default', 'median pearls a run', 'pearls', 80, 130],
+    ['weak', 'escape %', 'escapeRate', 5, 30], ['weak', 'vitality entering floor 1 stair hall, %', 'stairHp', 30, 70], ['weak', 'median pearls a run', 'pearls', 30, 55],
+  ] as const) {
+    assert.equal(met({ [policy]: { [key]: lo } }, policy, label), true, `${policy} ${label}: the lower edge is inside`);
+    assert.equal(met({ [policy]: { [key]: hi } }, policy, label), true, `${policy} ${label}: the upper edge is inside`);
+    assert.equal(met({ [policy]: { [key]: lo - 0.1 } }, policy, label), false, `${policy} ${label}: under the band`);
+    if (hi < 100) assert.equal(met({ [policy]: { [key]: hi + 0.1 } }, policy, label), false, `${policy} ${label}: over the band`);
   }
-  assert.equal(met({ weak: { escapeRate: 35 } }, 'weak', 'escape %'), true);
-  assert.equal(met({ weak: { escapeRate: 36 } }, 'weak', 'escape %'), false);
-  assert.equal(met({ weak: { escapeRate: 9 } }, 'weak', 'escape %'), false);
-  assert.equal(met({ 'weak-meta-max': { escapeRate: 60 } }, 'weak-meta-max', 'escape %'), true);
-  assert.equal(met({ 'weak-meta-max': { escapeRate: 61 } }, 'weak-meta-max', 'escape %'), false);
   // One policy's number is never read against another's: the weak knight's 20% is in its own band and not the default's.
   assert.equal(met({ default: { escapeRate: 20 }, weak: { escapeRate: 20 } }, 'default', 'escape %'), false);
   // The margin is weak-meta-max over weak, in points: 15 is enough, 14 is not.
   assert.equal(met({ weak: { escapeRate: 20 }, 'weak-meta-max': { escapeRate: 35 } }, 'weak-meta-max', 'escape points over weak'), true);
   assert.equal(met({ weak: { escapeRate: 20 }, 'weak-meta-max': { escapeRate: 34 } }, 'weak-meta-max', 'escape points over weak'), false);
+  // D3: the crossbow special escapes at least half as often as the default knight: 45 of a default 90 is enough, 44 is not.
+  const crossbow = 'escape points over half the default knight\'s';
+  assert.equal(met({ default: { escapeRate: 90 }, 'special-crossbow': { escapeRate: 45 } }, 'special-crossbow', crossbow), true);
+  assert.equal(met({ default: { escapeRate: 90 }, 'special-crossbow': { escapeRate: 44 } }, 'special-crossbow', crossbow), false);
 });
 
 test('a run summary counts the bosses a policy met and what killed it', () => {
@@ -107,4 +112,17 @@ test('no pool boss kills the default knight more than twice as often as another,
     assert.ok(result.ok, `floor ${floor}: the default knight died to ${result.most} ${result.mostDeaths} times and to ${result.least} ${result.leastDeaths}: more than twice as often (the fewest floored at one)`);
   }
   assert.ok(duels.every(d => d.duels === 30 && d.damage > 0), 'precondition: every duel was fought and the boss hurt him');
+});
+
+// Plan 023 D7: pool fairness holds for the weak knight too, from the vitality it walks into the stair hall with (a median 89% and 86% of its bar on floors one and two, 30 runs, Stage D). Before plan 023 Stage D the Captain, the Hound and the Bastion killed it in every
+// duel from a full bar and the Pyre Mother in none; their damage was cut by about 45% (x0.65 and then x0.85 to 0.88 after the Hound still killed it from the 86% it walks into floor two with, rounded to whole numbers) so that none of the four kills it more than twice as often as another.
+test('no pool boss kills the weak knight more than twice as often as another, from the lowest bar it walks into a pool stair hall with (plan 023 D7, the shipped numbers)', () => {
+  const START = 0.86;
+  const duels = BOSS_FLOORS.filter(([kind, floor]) => floor <= 2 && BOSS_POOL.includes(kind)).map(([kind, floor]) => duel(kind, floor, 'weak', 30, 1, START));
+  assert.equal(duels.length, 8, 'precondition: four pool bosses on two floors');
+  assert.ok(duels.every(d => d.duels === 30 && d.damage > 0 && d.start === START), 'precondition: every duel was fought from 86% and the boss hurt him');
+  for (const floor of [1, 2]) {
+    const result = fairness(duels, floor, 'weak', START)!;
+    assert.ok(result.ok, `floor ${floor}: the weak knight died to ${result.most} ${result.mostDeaths} times and to ${result.least} ${result.leastDeaths}: more than twice as often (the fewest floored at one)`);
+  }
 });

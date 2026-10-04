@@ -75,8 +75,8 @@ const stream = (seed: number, level: number, room: number) => {
 };
 
 /** Plan 022 D7: the share of a floor's eligible bodies that are elite, by floor (floor one deals none), and the most one wave of one chamber holds. */
-export const ELITE_RATE: Readonly<Record<number, number>> = { 1: 0, 2: 0.15, 3: 0.25 };
-export const ELITE_PER_WAVE: Readonly<Record<number, number>> = { 1: 0, 2: 1, 3: 2 };
+export const ELITE_RATE: Readonly<Record<number, number>> = { 1: 0.05, 2: 0.15, 3: 0.25 };
+export const ELITE_PER_WAVE: Readonly<Record<number, number>> = { 1: 1, 2: 1, 3: 2 };
 
 /** The elite stream of a chamber: the wave stream's own mixing with another salt, so no wave rule and no table row moves who is elite. */
 const eliteStream = (seed: number, level: number, room: number) => {

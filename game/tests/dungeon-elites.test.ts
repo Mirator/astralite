@@ -81,7 +81,7 @@ test('a pyre is never volatile, since it leaves a fire on its own', () => {
   assert.equal(deathPoolOf('pyre', 'hasted'), BESTIARY.pyre.deathPool);
 });
 
-test('the rates are held per floor over 1,000 seeds: none on floor one, 15% of eligible bodies on floor two and 25% on floor three, before the caps', () => {
+test('the rates are held per floor over 1,000 seeds: 5% of eligible bodies on floor one, 15% on floor two and 25% on floor three, before the caps', () => {
   const measured: Record<number, { eligible: number; uncapped: number; capped: number; widest: number }> = {};
   for (const level of [1, 2, 3]) {
     let eligible = 0, uncapped = 0, capped = 0, widest = 0;
@@ -95,11 +95,13 @@ test('the rates are held per floor over 1,000 seeds: none on floor one, 15% of e
     measured[level] = { eligible, uncapped, capped, widest };
   }
   // Measured 2026-10-03 over these seeds: floor 2 9,233 of 61,515 eligible bodies at the rate alone (15.01%), 7,839 once a wave holds at most one (12.74%); floor 3 18,374 of 73,380 (25.04%), 17,733 with at most two a wave (24.17%).
-  assert.equal(measured[1].uncapped + measured[1].capped, 0, 'floor one dealt an elite');
+  // Plan 023 (D5): floor one deals a few too (5%, at most one a wave); it dealt none through plan 022.
   assert.ok(measured[1].eligible > 20_000, 'precondition: floor one held bodies that could have been elite');
-  for (const [level, rate] of [[2, 0.15], [3, 0.25]] as const) {
+  assert.ok(measured[1].capped > 0 && measured[1].capped <= measured[1].uncapped, `floor one dealt ${measured[1].capped} elites over 1,000 seeds (${measured[1].uncapped} before the cap)`);
+  assert.equal(measured[1].widest, ELITE_PER_WAVE[1], 'floor one holds more than one elite in a wave, or never reaches the one');
+  for (const [level, rate] of [[1, 0.05], [2, 0.15], [3, 0.25]] as const) {
     const { eligible, uncapped } = measured[level];
-    assert.ok(eligible > 50_000, `precondition: floor ${level} held only ${eligible} eligible bodies`);
+    assert.ok(eligible > (level === 1 ? 20_000 : 50_000), `precondition: floor ${level} held only ${eligible} eligible bodies`);
     assert.ok(Math.abs(uncapped / eligible - rate) < 0.01, `floor ${level}: ${(uncapped / eligible * 100).toFixed(2)}% of eligible bodies roll an elite against the ${rate * 100}% asked`);
   }
   // The caps hold, and they bite: with them the share is below the rate and above a floor of its own.

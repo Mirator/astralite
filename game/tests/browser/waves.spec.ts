@@ -153,7 +153,8 @@ test.describe('the sim and the game', () => {
       elites[level] = wornBy.length;
       expect(run.eliteBodies.map((b) => `${b.room}:${b.wave}:${b.kind}:${b.elite}`).sort(), `floor ${level} (seed ${state.floor.seed}): the sim and the game were not dealt the same elites`).toEqual(wornBy);
     }
-    expect(elites[1], 'floor one dealt an elite').toBe(0);
+    // Plan 023 (D5): floor one deals a few (5%), against floor two's 15% and floor three's 25%; each floor's own elites are compared with the sim's above.
+    expect(elites[1], 'floor one dealt more elites than floor two, at a third of its rate').toBeLessThan(elites[2]);
     expect(elites[2] + elites[3], `precondition: floors two and three of the page hold only ${elites[2] + elites[3]} elites, so the sim was not compared with any`).toBeGreaterThan(3);
   });
 });
