@@ -39,8 +39,8 @@ Clearing every guard in a room cleanses it and restores health. Each guard is
 worth 25 XP, awarded exactly once; XP is per-run and resets on retry. Floor
 one's seed is kept in the run log, and the deepest descent survives a reload.
 
-A run that ends, won or lost, banks pearls (2 for each fight chamber cleared, 10 for
-each boss, 15 a floor behind you, 25 for escaping). The result card, won or lost, has one button, RETURN TO
+A run that ends, won or lost, banks pearls (1 for each fight chamber cleared, 10 for
+each boss, 5 a floor behind you, 25 for escaping). The result card, won or lost, has one button, RETURN TO
 THE ALTAR, which takes you back to the hall; the **Tide Altar** there spends the
 pearls: it unlocks the six arms beyond the Tideblade and sells four small
 upgrades. Pearls and purchases are kept in the browser, per slot. The arm is

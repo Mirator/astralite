@@ -181,4 +181,12 @@ Five runs or more on a real GPU, at least one with the crossbow:
 
 ## Evidence
 
-(Filled in by each stage.)
+Stages 0, A, B, C, D and E were implemented on `claude/beautiful-gauss-5o0cw4`; the numbers and every planted bug with its failure message are in `game/progress.md` (the plan 023 entries of 2026-10-04). In short:
+
+- **Stage 0 (baseline).** The simulation reproduced plan 022 Stage E's shipped numbers exactly. At the shipped King (650) the weak knight escaped 10, 10, 10, 0 and 0% at King vitality 610, 630, 650, 670 and 690, and special-flask moved 13.3 points between 630 and 670 (D6's rule did not hold).
+- **Stage A (pearls by chamber).** `CHAMBER_PEARLS` and `Run.chambers`; the stair hall is its boss's, not a chamber. D2's two bands could not both be met by `CHAMBER_PEARLS` and the floor pearls on the Stage A bots (the default bot out-earned the weak one 4.5 to 5 times); they could once the boss damage cut let the weak knight live longer.
+- **Stage B (crossbow).** `BOSS_BOLT` for the crossbow's bolts only (the flask and the thrown spear are untouched; the arm's own `bolt` flag). x2: 0 -> 10% escape; D3's target was not met at x2.
+- **Stage C.** The D5 dials as named constants (no change, proved run by run), `FIRST_WAVE_LAYERS` 1: a small effect (the shipped wave table has no rule for opening packs).
+- **Stage D.** Stop rule 2 tripped (progress.md has the table): with every D5 dial at its limit the default bot's deaths before the stair hall stay 0 of 3 and its vitality entering floor one's stair hall 100%; the dials only hurt the weak bot and the crossbow, so `RECOVERY_SCALE` 1 and `FLOOR_DAMAGE` 0.15 ship, with floor-one elites at 5%. `BOSS_BOLT` 4 (range 2 to 4 set while tuning, the lowest that meets D3: crossbow special 50% against the default knight's 90%). The Captain, Hound and Bastion hit about 45% softer (the weak knight lost every one of their duels and none of the Pyre Mother's: pool fairness, D7), the King is 630. Pearls 1 a chamber and 5 a floor: default 107, weak 52.5, the shop in 8.4 and 17 runs. Final D7: met, default boss fight, both pearls rows, weak escape 16.7, weak-meta-max over weak +66.7, crossbow, pool fairness for both bots, King flatness; **not met**, default escape 90 (85 asked), default deaths before the stair hall (0%), default and weak vitality entering floor one's stair hall (100 and 89.2).
+- **Stage E.** The documents (this and `GAME_OVERVIEW.md`, `README.md`, `plans/README.md`, `game/progress.md`).
+- **Stage F is the operator's:** five runs or more on a real GPU, one with the crossbow: do rooms cost vitality, does a mend door feel needed, is the shop's pace right, can the crossbow beat a boss.

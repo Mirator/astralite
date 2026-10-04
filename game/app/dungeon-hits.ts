@@ -28,7 +28,7 @@ export type Blow = { damage: number; stagger: boolean; knockback: number; warden
 /**
  * Plan 023 (D3): a crossbow bolt deals this many times its damage to a boss. The crossbow works in the chambers, where a body has a few quarter-hits of vitality, and fails only where vitality is in the hundreds: a quiver of four with one bolt
  * back every 1.8 s is about five damage a second, against a boss's 150 to 630. A boss multiplier is the narrowest fix and leaves the arm's room play, where it is balanced, alone. The Heavy Bolt is multiplied too.
- * A dial from 2 to 4 (the coordinator's range): D3's target is that the crossbow special escapes at least half as often as the default knight, and 4 is the lowest that meets it at the shipped state (30 and 60 runs: x2 18.3%, x3 33.3%, x4 48.3% of 60,
+ * A dial from 2 to 4 (the range set while tuning): D3's target is that the crossbow special escapes at least half as often as the default knight, and 4 is the lowest that meets it at the shipped state (30 and 60 runs: x2 18.3%, x3 33.3%, x4 48.3% of 60,
  * against the default knight's 90 to 93; progress.md, plan 023 Stage D).
  */
 export const BOSS_BOLT = 4;
