@@ -5209,3 +5209,59 @@ Why the three that depend on carrying damage are unmet at any setting of the dia
 - The sim bot's door choice is unchanged (a purse, else a mending, else the first); a bot that took the mend door when hurt would carry less damage into the stair hall, and I did not build it because the plan does not ask for it.
 - Not done: the full browser suite (CI is the gate; the harness is still on `?waves=off`: the follow-up to turn waves on suite-wide is open and noted in `tests/README.md`); Stage G; no GPU run (frame numbers are SwiftShader); the playtest decides whether a wave's arrival reads, whether an elite is told apart in a crowd and whether the 5-point Draught and the King's 650 are too much or too little.
 - Browser plants, one run each (the dev server and the shim): all listed above.
+
+## 2026-10-04 - Plan 023 Stage 0: the baseline (main `f5ee477` + the plan)
+
+Branch `claude/beautiful-gauss-5o0cw4`. Measured at 30 runs a policy from seed 1 (`balance:check`'s own runs) with the repository's own simulation, by a scratch driver that plays the nine `bands.json` policies in parallel and reads the same reports (nothing committed from it). It **reproduces plan 022 Stage E's shipped numbers exactly** (default 83.3, weak 10, special-crossbow 0, weak-meta-max 63.3), so the drivers agree with `balance:check`.
+
+### Per policy (today's `pearlsFor`: a pearl a kill)
+
+| policy | escape | deaths f1 / f2 / f3 | deaths before the stair hall | median vitality entering the stair hall f1 / f2 / f3 (least) | median run s | median watch fight s | median pearls |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| default | 83.3 | 3.3 / 0 / 13.8 | 0 of 5 | 100 / 100 / 100 (70 / 45 / 19.2) | 244.2 | 6.2 | 200 |
+| weak | 10 | 50 / 53.3 / 57.1 | 8 of 27 | 90.7 / 57.2 / 100 (8 / 7.2 / 97.6) | 63.5 | 3.2 | 40.5 |
+| special | 96.7 | 0 / 0 / 3.3 | 0 of 1 | 100 / 100 / 100 (40 / 74 / 75.2) | 241.4 | 5.9 | 201.5 |
+| special-fangs | 100 | 0 / 0 / 0 | 0 of 0 | 100 / 100 / 100 (50 / 74 / 65.6) | 223.3 | 5.7 | 201.5 |
+| special-cleaver | 80 | 6.7 / 7.1 / 7.7 | 0 of 6 | 100 / 100 / 100 (44 / 62.4 / 22.4) | 280.7 | 6.8 | 199.5 |
+| special-crossbow | 0 | 30 / 38.1 / 100 | 6 of 30 | 100 / 97.2 / 91.2 (68 / 32 / 40) | 248.8 | 6.5 | 88 |
+| special-flask | 56.7 | 0 / 0 / 43.3 | 0 of 13 | 100 / 100 / 100 (64 / 84 / 63.2) | 337.4 | 7.1 | 188 |
+| meta-max | 100 | 0 / 0 / 0 | 0 of 0 | 100 / 100 / 100 (53.8 / 68.4 / 45.8) | 236.9 | 6 | 201.5 |
+| weak-meta-max | 63.3 | 0 / 3.3 / 34.5 | 5 of 11 | 92.3 / 89.7 / 86.1 (29.2 / 21.5 / 7.1) | 199.8 | 4.5 | 194 |
+
+Deaths by floor and cause (30 runs): default f3 King 3, f1 Mother 1, f3 hazard 1; weak f2 stalker 8, f1 Bastion 4, f1 Hound 3, f1 stalker 3, f1 Captain 3, f1 Mother 1, f1 hazard 1, f3 warden 2, f3 King 1, f3 stalker 1; special f3 King 1; special-cleaver f2 Mother 2, f1 Mother 1, f3 King 1, f1 and f3 hazard 1 each; special-crossbow f3 King 6, f3 stalker 5, f3 guard 2, f1 Mother 4, f1 Bastion 3, f2 Bastion 2, f2 Mother 2, f1 Captain / Hound 1 each, f2 Hound / archer / guard / stalker 1 each; special-flask f3 King 13; weak-meta-max f3 warden 5, f3 King 3, f3 stalker 2, f2 Bastion 1.
+
+**The crossbow special's numbers.** Escape 0%; it dies on floor 1 in 30% of its runs, floor 2 in 38.1% and every run that reaches floor 3 dies there (100%); its median boss fight is 64.8 s (the default knight's 33 s) and it fells 61 bodies a run against the default knight's 90 (a death ends it earlier); 6 of its 30 deaths come before the stair hall. Its median run pays 88 pearls.
+
+### The King's knife-edge (escape %, 30 runs, the King's vitality set from the table; 650 is the shipped value)
+
+| policy | 610 | 630 | 650 | 670 | 690 | largest step |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 86.7 | 80 | 83.3 | 83.3 | 80 | 6.7 |
+| weak | 10 | 10 | 10 | 0 | 0 | 10 |
+| special | 100 | 100 | 96.7 | 93.3 | 96.7 | 3.3 |
+| special-fangs | 100 | 100 | 100 | 100 | 100 | 0 |
+| special-cleaver | 83.3 | 80 | 80 | 83.3 | 80 | 3.3 |
+| special-crossbow | 3.3 | 3.3 | 0 | 0 | 3.3 | 3.3 |
+| special-flask | 56.7 | 53.3 | 56.7 | 43.3 | 50 | 13.3 |
+| meta-max | 100 | 100 | 100 | 100 | 100 | 0 |
+| weak-meta-max | 73.3 | 73.3 | 63.3 | 63.3 | 63.3 | 10 |
+
+D6's rule is "±20 vitality moves no policy's escape rate by more than 10 points", read at the shipped 650 (630 and 670 against each other and against 650). **It does not hold today for special-flask**: 53.3 at 630, 56.7 at 650 and 43.3 at 670, a 13.3-point drop, which is four runs of 30 (at 30 runs one run is 3.3 points, so a move of 10 points is three runs and the rule cannot be read finer than that). The weak knight is at the rule's edge (10 to 0 between 650 and 670: three runs of 30 become none, plan 022's "knife-edge" in one number). The default knight is flat (80 to 86.7 across all five values).
+
+### The duel table at stair-hall vitality (`balance:bosses -- --duels --at-stair`, 30 duels a boss, floor and policy; the default knight starts on 100% / 100% / 100%, the weak knight on 91% / 57% / 100% of its bar)
+
+| boss | floor | default start | default died | default boss s | weak start | weak died |
+| --- | --- | --- | --- | --- | --- | --- |
+| captain | 1 | 100% | 0% | 33.1 | 91% | 100% |
+| captain | 2 | 100% | 0% | 33 | 57% | 100% |
+| mother | 1 | 100% | 3% | 24.8 | 91% | 0% |
+| mother | 2 | 100% | 7% | 24.4 | 57% | 100% |
+| hound | 1 | 100% | 0% | 33 | 91% | 100% |
+| hound | 2 | 100% | 0% | 33.6 | 57% | 100% |
+| bastion | 1 | 100% | 0% | 33.4 | 91% | 100% |
+| bastion | 2 | 100% | 0% | 33.8 | 57% | 100% |
+| king | 3 | 100% | 87% | 78.5 | 100% | 100% |
+
+At full bar the weak knight dies to the Captain, the Hound and the Bastion in every duel and to the Mother in none on floor 1 (and in all on floor 2 at 57%). Pool fairness (D12 / D7): the default knight is met (floor 1: Mother 1, Captain 0; floor 2: Mother 2, Captain 0, the fewest floored at one); the weak knight is **not met on floor 1** at either start (Captain 30, Mother 0) and is met on floor 2 at 57% only because it dies to everything (30 and 30).
+
+What the baseline says in one line: every policy still walks into every stair hall at a median 100% (the weak knight 91% and 57%), the default knight's deaths are all boss deaths (0 of 5 before the stair hall), and the crossbow is at 0%.
