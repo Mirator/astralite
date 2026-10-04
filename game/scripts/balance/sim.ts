@@ -13,15 +13,16 @@
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
 import { canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
-import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, enemyStats, fallOf, moveOf, nearbyDozers, raiseSpot, scaledDamage, separateCrowd, type CrowdBody, type EnemyKind, type EnemyView, type Move, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
+import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, eliteStats, fallOf, moveOf, nearbyDozers, raiseSpot, scaledDamage, separateCrowd, type CrowdBody, type EliteModifier, type EnemyKind, type EnemyView, type Move, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { bossPush, landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, bossOnFloor, cellKey, dealBosses, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { arenaFloor, type Floor } from '../../app/dungeon-arena.ts';
+import { calledIn, idleClock, roomTiles, springing, waveDue, wavedFloor, waveSpots, type WaveClock } from '../../app/dungeon-waves.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, fanHeadings, ARROW_POOL, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
-import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
+import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, SHRINE, SHRINE_REACH, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
 export const FLOORS = 3;
@@ -189,6 +190,24 @@ export type FloorReport = {
    * room before anything closes records no fight for it, so read this column for the melee arms.
    */
   fights: number[];
+  /** Plan 022: the encounter of the room each entry of `fights` was fought in (`watch`, `ambush`, `gauntlet`), in the same order, so a fight length can be read per kind of chamber. */
+  fightEncounters: string[];
+  /** Plan 022: the knight's vitality as a share of his maximum the moment he walked into the stair hall (the boss's chamber); null on a floor he never reached it on (he died first, or the floor has no door to it). */
+  hpAtStair: number | null;
+  /** Plan 022 (D7): elites the knight felled this floor, by modifier (a modifier none was felled of is absent). */
+  eliteKills: Partial<Record<EliteModifier, number>>;
+  /** Plan 022: 1 if the knight died on this floor before he walked into the stair hall (`hpAtStair` null), so something other than the boss ended the run; 0 otherwise. D13 asks for a third of the default knight's deaths to be these. */
+  deathsBeforeBoss: number;
+  /** Plan 022: waves the floor's chambers called (each later wave of each chamber that stood up counts once). */
+  wavesRaised: number;
+  /** Plan 022: `fights` of the chambers that were dealt later waves, in the same units - the fight D13 measures. */
+  waveFights: number[];
+  /** Plan 022: every body of a later wave the sim stood on this floor (read off the bodies it ran), by chamber and wave, reserves included: what the game's scene is held against. */
+  waveBodies: { room: number; wave: number; kind: EnemyKind; buried: boolean }[];
+  /** Plan 022 (D7): every elite the sim stood on this floor (read off the bodies it ran), with the vitality it was built with: what the game's scene is held against. */
+  eliteBodies: { room: number; wave: number; kind: EnemyKind; elite: EliteModifier; hp: number }[];
+  /** Plan 022: each mend a shrine made, by the chamber it stands in and the vitality it gave (at most `SHRINE`, the first time the knight stood hurt within reach of it). */
+  shrineMends: { room: number; healed: number }[];
   hpAfter: number;
   maxHpAfter: number;
   rankAfter: number;
@@ -222,6 +241,10 @@ type Body = {
   // `intent.face`, which agrees except mid-trail, when a shield is down anyway). A `buried` body is a
   // summoner's reserve: asleep, untargetable and outside every count until its `summoner` (a spawn index) raises it.
   face: number; buried: boolean; summoner: number; maxHp: number;
+  // Plan 022 (D7): the modifier this body carries, if it is an elite: `eliteStats` made its numbers, a volatile one leaves fire, and it pays double.
+  elite?: EliteModifier;
+  // Plan 022 (dungeon-waves.ts): 1 for every body generateFloor lays; 2 or more for a body its chamber calls once the wave before it is down.
+  wave: number;
   // Plan 021. A boss's rotation slot, phase and the seconds of phase change left (EnemyView), the move whose tell is running
   // (its tell, reach and bolt are what the knight reads) and the rings a `scatter` tell has marked, to become fire when it ends.
   move: number; phase: number; change: number; winding: Move | null; marks: { x: number; z: number }[];
@@ -286,28 +309,31 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
   // Plan 021 (D13): the run's bosses are dealt as the game deals them, from floor one's seed, and each floor is laid with its own.
   const dealt = dealBosses(seed);
   for (let level = 1; level <= FLOORS; level++) {
-    const report = simulateFloor(seed + level - 1, level, run, policy, nerve, draft, generateFloor(seed + level - 1, level, { boss: bossOnFloor(dealt, level) }));
+    const report = simulateFloor(seed + level - 1, level, run, policy, nerve, draft, wavedFloor(generateFloor(seed + level - 1, level, { boss: bossOnFloor(dealt, level) }), seed + level - 1, level));
     floors.push(report);
     elapsed += report.seconds;
     if (report.outcome !== 'cleared') {
       // Whatever took the last of the vitality is what the run log would record.
       const damage = report.damage;
       cause = (Object.keys(damage) as Cause[]).filter(k => damage[k] > 0).sort((a, b) => damage[b] - damage[a])[0] ?? null;
-      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills, bosses: run.bosses }), floors };
+      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills, bosses: run.bosses, elites: run.elites }), floors };
     }
     // Descending restores a quarter of the bar, as the results card promises.
     if (level < FLOORS) heal(run, Math.round(run.maxHp * 0.25));
   }
-  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills, bosses: run.bosses }), floors };
+  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills, bosses: run.bosses, elites: run.elites }), floors };
 }
 
 /**
  * One floor laid out as the development arena (dungeon-arena.ts): `roster` awake in the Tide Gate, a caller's
  * reserve buried under it. The run ends when the roster is dead or the knight is - never by walking out of the
- * gate or down the stair, which is open from the start - so what a test reads is the fight.
+ * gate or down the stair, which is open from the start - so what a test reads is the fight. `start` is how much of his bar he begins on (plan 022).
  */
-export function simulateArena(seed: number, level: number, roster: readonly EnemyKind[], policy: Policy = DEFAULT_POLICY): FloorReport {
-  return simulateFloor(seed, level, startRun(policy), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), arenaFloor(seed, level, roster), true);
+export function simulateArena(seed: number, level: number, roster: readonly EnemyKind[], policy: Policy = DEFAULT_POLICY, start = 1): FloorReport {
+  // Plan 022: `start` is the share of his maximum vitality the knight begins on (1 is a full bar): the duel the stair hall really is, from what the keep leaves of him (scripts/balance/bosses.ts `--at-stair`).
+  const run = startRun(policy);
+  run.hp = Math.max(1, Math.round(run.maxHp * Math.min(1, Math.max(0, start))));
+  return simulateFloor(seed, level, run, policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), arenaFloor(seed, level, roster), true);
 }
 
 /** One generated floor fought by a fresh knight: no earlier floors, no boons, full vitality. For a test that needs a floor and not a descent; `built` is a floor the test laid itself (a chosen boss). */
@@ -316,7 +342,8 @@ export function simulateLevel(seed: number, level: number, policy: Policy = DEFA
 }
 
 function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number, built?: Floor, arena = false): FloorReport {
-  const floor = built ?? generateFloor(seed, level);
+  // Plan 022: a floor the sim lays itself is dealt its later waves as the game's is (`wavedFloor`); one a test hands in is its own.
+  const floor = built ?? wavedFloor(generateFloor(seed, level), seed, level);
   const weapon = policy.weapon;
   const damage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
   let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0, specialCount = 0, blockedCount = 0, raisedCount = 0, reassembledCount = 0;
@@ -344,16 +371,16 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   let corridorSeconds = 0, spentRecross = 0;
 
   const bodies: Body[] = floor.spawns.map((spawn, index) => {
-    const stats = enemyStats(spawn.kind, level);
+    const stats = eliteStats(spawn.kind, level, spawn.elite);
     return {
-      kind: spawn.kind, x: spawn.x * TILE, z: spawn.z * TILE,
+      kind: spawn.kind, elite: spawn.elite, x: spawn.x * TILE, z: spawn.z * TILE,
       hp: stats.hp, damage: stats.damage, tell: stats.tell, speed: stats.speed,
       // dungeon-game.tsx:617 staggers the opening cooldown so a pack does not swing as one.
       cooldown: 0.4 + (index % 3) * 0.2, hitFlash: 0, windup: 0, lunge: 0,
       // A buried body sleeps until a summon tell stands it up: `awake: !spawn.ambush` alone woke the whole reserve
       // at the start, the hole the arena's first version had (progress.md, 2026-09-26).
       aim: { x: 0, z: 0 }, room: spawn.room, awake: !spawn.ambush && !spawn.buried, dead: false,
-      face: 0, buried: !!spawn.buried, summoner: spawn.summoner ?? -1, maxHp: stats.hp,
+      face: 0, buried: !!spawn.buried, summoner: spawn.summoner ?? -1, maxHp: stats.hp, wave: spawn.wave ?? 1,
       move: 0, phase: 0, change: 0, winding: null, marks: [], get bossPhase() { return this.phase; },
       anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity,
     };
@@ -364,6 +391,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     ? [-2.5, 0, 2.5].map(offset => ({ x: room.x * TILE + offset, z: room.z * TILE, room: room.id, burned: false }))
     : []);
 
+  // dungeon-floor-scene.ts lays a shrine on the heart of every sanctuary chamber but the gate; dungeon-game.tsx heals SHRINE the first frame the knight is within SHRINE_REACH of an unused one with vitality to mend.
+  // Plan 022 Stage 0: the sim did not model it, so a knight who walked into a quiet chamber was never mended there. A knight who stands in a sanctuary hurt walks to the shrine before the door.
+  const shrines = floor.rooms.filter(room => room.id !== 0 && room.encounter === 'sanctuary').map(room => ({ room: room.id, x: room.x * TILE, z: room.z * TILE, cell: { x: room.x, z: room.z }, used: false }));
   const player = { x: floor.rooms[0].x * TILE, z: floor.rooms[0].z * TILE };
   const facing = { x: 0, z: 1 };
   let attackFacing = { x: 0, z: 1 };
@@ -393,11 +423,13 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const fires: { pool: Pool; kind: EnemyKind }[] = [];
   const cleared = new Set<number>([0]);
   // Plan 016 fight duration: when each room's fight started, and how long each finished one took.
-  const fightStart = new Map<number, number>(), fights: number[] = [];
+  const fightStart = new Map<number, number>(), fights: number[] = [], fightEncounters: string[] = [];
+  const eliteKills: Partial<Record<EliteModifier, number>> = {};
+  let hpAtStair: number | null = null, wavesRaised = 0; const waveFights: number[] = [], shrineMends: { room: number; healed: number }[] = [];
   const clearRoom = (room: number) => {
     cleared.add(room);
     const began = fightStart.get(room);
-    if (began !== undefined) { fights.push(+(t - began).toFixed(2)); fightStart.delete(room); }
+    if (began !== undefined) { fights.push(+(t - began).toFixed(2)); fightEncounters.push(floor.rooms[room].encounter); fightStart.delete(room); if (bodies.some(b => b.room === room && b.wave > 1)) waveFights.push(fights[fights.length - 1]); }
   };
 
   const goal = floor.rooms[floor.goal];
@@ -420,6 +452,11 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     return [...ways].sort((a, b) => pays(a) - pays(b))[0];
   };
   let chamber = 0;
+  // Plan 022 (dungeon-waves.ts): the wave clock of the chamber the knight is in, and where each body of the wave whose rings show will stand (dungeon-game.tsx keeps the same clock and the same rings).
+  let waveClock: WaveClock = idleClock();
+  const waveRings = new Map<Body, { x: number; z: number }>();
+  const openTiles = new Map<number, { x: number; z: number }[]>();
+  const openOf = (room: number) => { let open = openTiles.get(room); if (!open) { open = roomTiles(floor, room).map(t => ({ x: t.x * TILE, z: t.z * TILE })); openTiles.set(room, open); } return open; };
 
   let playerCell = '';
   let pursuit = new Map<number, number>();
@@ -450,8 +487,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     body.dead = true;
     // A boss's fall, read before this kill's draught or the room's top-up can touch his vitality (plan 021 D9).
     if (BESTIARY[body.kind].boss) { bossHpLeft = run.hp / run.maxHp * 100; bossTo = t; }
-    resolveKill(run, body.kind);
-    const fire = deathPool(body.kind, body);
+    resolveKill(run, body.kind, !!body.elite);
+    if (body.elite) eliteKills[body.elite] = (eliteKills[body.elite] ?? 0) + 1;
+    const fire = deathPool(body.kind, body, body.elite);
     if (fire && fires.length < HOSTILE_POOL_RINGS) fires.push({ pool: fire, kind: body.kind });
     for (const at of fall.crumble) bodies[at].dead = true;
     if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
@@ -501,8 +539,25 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     lastRoom = activeRoom;
 
     // dungeon-game.tsx:826 springs a room's ambush the moment the knight is inside it.
-    if (activeRoom >= 0) for (const body of bodies) {
-      if (body.room === activeRoom && !body.awake && !body.dead && !body.buried) { body.awake = true; body.cooldown = Math.max(body.cooldown, 0.9); }
+    // Plan 022: never a later wave - `springing` (dungeon-waves.ts) is the filter the game reads too.
+    if (activeRoom >= 0) for (const body of springing(bodies, activeRoom)) { body.awake = true; body.cooldown = Math.max(body.cooldown, 0.9); }
+
+    // Plan 022 (D3, D4; dungeon-game.tsx asks the same rule): the chamber calls its next wave when every body before it is down - after the pause the rings go down where the bodies will stand
+    // (a spot within the clearance of the knight moves), and when they have shown long enough the bodies stand, awake, with the ambush's opening cooldown.
+    if (activeRoom >= 0) {
+      const due = waveDue(bodies, activeRoom, waveClock, DT);
+      waveClock = due.clock;
+      if (due.mark !== null) {
+        const called = bodies.filter(b => b.room === activeRoom && b.wave === due.mark && !b.dead && !b.buried);
+        waveSpots(openOf(activeRoom), called.map(b => ({ x: b.x, z: b.z })), player).forEach((at, i) => waveRings.set(called[i], at));
+      }
+      if (due.raise !== null) {
+        // D4: a ring the knight has since walked onto moves off him, as the game moves it at the raise.
+        const rung = [...waveRings.keys()], placed = waveSpots(openOf(activeRoom), rung.map(b => waveRings.get(b)!), player);
+        rung.forEach((b, i) => waveRings.set(b, placed[i]));
+        for (const [body, at] of waveRings) { body.awake = true; body.x = at.x; body.z = at.z; body.anchor = { x: at.x, z: at.z }; body.cooldown = Math.max(body.cooldown, 0.9); }
+        waveRings.clear(); wavesRaised++;
+      }
     }
 
     // A room the knight stands in with nothing left alive is done with, even if it never held a body to
@@ -642,15 +697,21 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     } else if (dashTime <= 0) {
       // Nothing awake in reach. A sealed chamber is fought out first: walk at whatever is left alive in it.
       // Once it is clear the stair, in the warden hall, or else the chosen door, and through it.
-      const quarry = bodies.filter(b => !b.dead && !b.buried && b.room === chamber).sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z))[0];
-      const door = !quarry && chamber !== floor.goal ? chooseDoor(chamber) : undefined;
+      const quarry = bodies.filter(b => !b.dead && !b.buried && b.room === chamber && calledIn(b)).sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z))[0];
+      const shrine = !quarry ? shrines.find(shrine => shrine.room === chamber && !shrine.used && run.hp < run.maxHp) : undefined;
+      // Plan 022: a chamber whose next wave has not been called yet is not clear - he holds his ground for the rings instead of walking at the door.
+      const waiting = !quarry && bodies.some(b => b.room === chamber && !b.dead && !b.buried && !calledIn(b));
+      const door = !quarry && !shrine && !waiting && chamber !== floor.goal ? chooseDoor(chamber) : undefined;
       if (door && cleared.has(chamber) && Math.hypot(door.x * TILE - player.x, door.z * TILE - player.z) < DOOR_RADIUS) {
         // The swap key, pressed the frame it arrives: the next chamber's near wall, and nothing carried over.
         const next = floor.rooms[door.to];
         chamber = next.id; player.x = next.entry.x * TILE; player.z = next.entry.z * TILE; fields.clear();
+        if (next.id === floor.goal && hpAtStair === null) hpAtStair = run.hp / run.maxHp * 100;
         shots.length = 0; hostile.length = 0; pools.length = 0; fires.length = 0;
+      } else if (waiting) {
+        // holds: nothing to walk at until the rings have shown and the wave has stood
       } else {
-        const field = quarry ? fieldTo(Math.round(quarry.x / TILE), Math.round(quarry.z / TILE)) : door ? fieldTo(door.x, door.z) : goalField;
+        const field = quarry ? fieldTo(Math.round(quarry.x / TILE), Math.round(quarry.z / TILE)) : shrine ? fieldTo(shrine.cell.x, shrine.cell.z) : door ? fieldTo(door.x, door.z) : goalField;
         const here = field.get(packKey(cellX, cellZ));
         const next = ([[cellX + 1, cellZ], [cellX - 1, cellZ], [cellX, cellZ + 1], [cellX, cellZ - 1]] as [number, number][])
           .filter(([x, z]) => floor.cells.has(cellKey(x, z)))
@@ -658,6 +719,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         const ahead = next ? field.get(packKey(next[0], next[1])) ?? Infinity : Infinity;
         if (next && (here === undefined || ahead < here)) move = unit(next[0] * TILE - player.x, next[1] * TILE - player.z);
         else if (quarry) move = unit(quarry.x - player.x, quarry.z - player.z);
+        else if (shrine) move = unit(shrine.x - player.x, shrine.z - player.z);
         else if (door) move = unit(door.x * TILE - player.x, door.z * TILE - player.z);
         else if (stairClear()) move = unit(stair.x - player.x, stair.z - player.z);
       }
@@ -933,6 +995,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     const crowd: CrowdBody[] = bodies.map(b => ({ x: b.x, z: b.z, windup: b.windup, dead: b.dead || !b.awake }));
     separateCrowd(floor.cells, crowd, DT).forEach((spot, i) => { if (!crowd[i].dead) { bodies[i].x = spot.x; bodies[i].z = spot.z; } });
 
+    // dungeon-game.tsx:1865 (`SHRINE`): the first step within reach of an unused shrine, with vitality to mend, mends it for good.
+    for (const shrine of shrines) if (!shrine.used && Math.hypot(shrine.x - player.x, shrine.z - player.z) < SHRINE_REACH && run.hp < run.maxHp) { shrine.used = true; shrineMends.push({ room: shrine.room, healed: heal(run, SHRINE) }); }
+
     // --- the keep's own teeth ------------------------------------------------------------------
     // dungeon-game.tsx:855: one 3.6s cycle per room, firing in its last second, one tick per flare.
     for (const ring of hazards) {
@@ -979,7 +1044,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: bodies.filter(b => b.wave > 1).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, buried: b.buried })), eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

@@ -1,4 +1,4 @@
-import { BESTIARY, BOSS_POOL, FINAL_BOSS, reserveSize, type EnemyKind } from './dungeon-bestiary.ts';
+import { BESTIARY, BOSS_POOL, FINAL_BOSS, reserveSize, type EliteModifier, type EnemyKind } from './dungeon-bestiary.ts';
 import { FOUND_WEAPONS, PICKUP_RADIUS, STARTING_WEAPON, type WeaponId } from './dungeon-weapon.ts';
 
 export const TILE = 1.48;
@@ -17,8 +17,9 @@ export type Room = { encounter: Encounter; id: number; x: number; z: number; hal
  */
 export type Door = { id: number; from: number; to: number; x: number; z: number; face: { x: number; z: number } };
 // `buried` bodies are a summoner's reserve (dungeon-arena.ts): hidden, inert and outside every count until
-// the spawn index `summoner` raises them.
-export type Spawn = { x: number; z: number; kind: EnemyKind; room: number; ambush: boolean; buried?: boolean; summoner?: number };
+// the spawn index `summoner` raises them. `wave` (plan 022, dungeon-waves.ts) is 2 or more on a body a chamber calls after the one before it has
+// fallen; absent means the first wave, which is every spawn `generateFloor` lays. `elite` (plan 022 Stage C) is a modifier `dealElites` (dungeon-waves.ts) puts on a body; `generateFloor` never sets it.
+export type Spawn = { x: number; z: number; kind: EnemyKind; room: number; ambush: boolean; buried?: boolean; summoner?: number; wave?: number; elite?: EliteModifier };
 
 /**
  * The share of a pack each kind takes, in the order they are drawn; whatever is left over is guards.

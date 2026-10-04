@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { freshMeta, runStart, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
-import { BOONS, chamberReward, createRun, DRAFT_SIZE, draftBoons, grantXp, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, MEND, TOP_UP, XP_CACHE, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
+import { BOONS, chamberReward, createRun, DRAFT_SIZE, draftBoons, grantXp, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, MEND, XP_CACHE, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
 
 // A run with the draft already open, since every boon needs that gate held down.
 const drafting = (patch: Partial<Run> = {}): Run => Object.assign(createRun(), { choosing: true, pendingRanks: 1 }, patch);
@@ -52,7 +52,8 @@ test('every boon lands exactly once, and only while a draft is open', () => {
 
   const draught = drafting();
   takeBoon(draught, 'draught');
-  assert.equal(draught.draught, 6);
+  assert.equal(draught.draught, 5, 'plan 022 Stage E: a Grave Draught is worth 5 a kill, down from 6');
+  assert.ok(BOONS.find(b => b.id === 'draught')!.detail.includes('+5 '), 'the card does not say what the boon is worth');
 
   const ward = drafting();
   takeBoon(ward, 'ward');
@@ -192,22 +193,24 @@ test('the draft shuffle is uniform: every card is equally likely to be offered',
 });
 
 
-test('a chamber pays what its door showed, and every clear tops the knight up', () => {
-  // The purse door is experience plus the top-up; the mend door is a real heal instead of it.
+test('a chamber pays what its door showed, a clear heals nothing, and only the mend door heals (plan 022 D10)', () => {
+  // The purse door is experience and nothing back (plan 022: the 12-point top-up every clear paid is gone); the mend door is a real heal.
   const cache = createRun();
   cache.hp = 40;
-  assert.deepEqual(chamberReward(cache, 'cache'), { xp: XP_CACHE, ranks: 0, healed: TOP_UP });
-  assert.deepEqual([cache.totalXp, cache.hp], [60, 52]);
+  assert.deepEqual(chamberReward(cache, 'cache'), { xp: XP_CACHE, ranks: 0, healed: 0 }, 'a purse chamber healed the knight');
+  assert.deepEqual([cache.totalXp, cache.hp], [60, 40]);
 
   const mend = createRun();
   mend.hp = 40;
   assert.deepEqual(chamberReward(mend, 'mend'), { xp: 0, ranks: 0, healed: MEND });
   assert.deepEqual([mend.totalXp, mend.hp], [0, 70]);
+  assert.equal(MEND, 30, 'the mend door is worth 30');
 
-  // A shrine, the gate and the stair hall (no reward) pay the top-up alone. (Plan 019: no chamber pays an arm any more.)
+  // A shrine, the gate and the stair hall (no reward) pay nothing.
   const plain = createRun();
   plain.hp = 40;
-  assert.deepEqual(chamberReward(plain, null), { xp: 0, ranks: 0, healed: TOP_UP });
+  assert.deepEqual(chamberReward(plain, null), { xp: 0, ranks: 0, healed: 0 }, 'a chamber with no reward healed the knight');
+  assert.equal(plain.hp, 40);
 
   // Nothing overfills: the heal reported is what was actually restored, up to the cap and no further.
   const nearly = createRun();
@@ -230,7 +233,7 @@ const bought = (upgrades: Meta['upgrades']): Meta => ({ ...freshMeta(), upgrades
 test('createRun() with no argument is exactly the run the game always started', () => {
   // A literal on purpose: `createRun(runStart(freshMeta()))` would agree with itself whatever it dealt.
   const today = {
-    hp: 100, maxHp: 100, kills: 0, totalXp: 0, bosses: 0,
+    hp: 100, maxHp: 100, kills: 0, totalXp: 0, bosses: 0, elites: 0,
     rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
     strike: 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
     invuln: 0, taken: [], specialCooldown: 0,

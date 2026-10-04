@@ -48,3 +48,14 @@ test('a policy that says meta "max" starts every run on everything bought, and o
   assert.equal(buildPolicy({ special: true, weapon: 'maul', meta: 'max' }).weapon.id, 'maul');
   assert.throws(() => buildPolicy({ meta: 'most' as 'max' }), /unknown meta "most"/);
 });
+
+test('the stair hall is read off the floors that reached it, and deaths before it as a share of deaths (plan 022)', () => {
+  const floor = (level: number, outcome: FloorReport['outcome'], hpAtStair: number | null, deathsBeforeBoss = 0) => ({ level, outcome, hpAtStair, deathsBeforeBoss, hpAfter: 50, maxHpAfter: 100 }) as FloorReport;
+  const run = (outcome: RunReport['outcome'], floors: FloorReport[]) => ({ outcome, seconds: 100, floors }) as RunReport;
+  const summary = summarise([run('died', [floor(1, 'cleared', 60), floor(2, 'died', null, 1)]), run('died', [floor(1, 'cleared', 90), floor(2, 'died', 40)]), run('died', [floor(1, 'died', null, 1)]), run('died', [floor(1, 'died', null, 1)])]);
+  assert.equal(summary['floor1.medianHpAtStair'], 75, 'floor 1: two knights reached the stair hall at 60 and 90, the two that died before it say nothing');
+  assert.equal(summary['floor2.medianHpAtStair'], 40);
+  assert.ok(!('floor3.medianHpAtStair' in summary), 'no floor three was reached');
+  assert.equal(summary.deathsBeforeBoss, 75, 'three of the four deaths came before the stair hall');
+  assert.ok(!('deathsBeforeBoss' in summarise([run('escaped', [floor(1, 'cleared', 100)])])), 'a batch with no deaths has no share of them');
+});

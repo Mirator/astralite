@@ -6,11 +6,12 @@
 // Pure, like the floor generator it wraps: no React, no DOM, no three.js. It ships: `?arena=` works on the
 // published game, so a kind can be played anywhere the game runs. The menu page that picks a roster and the
 // `dungeonTest.buildArena` hook are development only, and an arena run is never recorded (dungeon-game.tsx).
-import { ENEMY_KINDS, type EnemyKind } from './dungeon-bestiary.ts';
+import { ENEMY_KINDS, type EliteModifier, type EnemyKind } from './dungeon-bestiary.ts';
 import { buryReserves, cellKey, generateFloor, TILE, type Spawn } from './dungeon-floor.ts';
 
 export type Floor = ReturnType<typeof generateFloor>;
-export type Arena = { roster: EnemyKind[]; level: number };
+/** `elite` (plan 022 D14, development only): every body of the roster that can carry this modifier does, whatever the floor's rate (`allElite`, dungeon-waves.ts). */
+export type Arena = { roster: EnemyKind[]; level: number; elite?: EliteModifier };
 
 /** More than this and a gate-sized room is a crowd rather than a fight. */
 export const ARENA_MAX = 12;

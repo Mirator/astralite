@@ -11,12 +11,15 @@ import type { RunStart } from './dungeon-meta.ts';
 // hand-driving a browser, which is how every combat regression in this project has been caught so far.
 export type Boon = { id: string; name: string; detail: string };
 
+// Plan 022 Stage E (D10): once a clear stopped healing, Grave Draught was what kept the bots at a full bar (30 runs: no draught at all took the default knight's escape from 80 to 63 and the weak one's from 20 to 0), so it
+// is one vitality a felled body smaller than it was (6). One dial: `takeBoon` and the card's text both read it.
+export const DRAUGHT = 5;
 export const BOONS: Boon[] = [
   { id: 'edge', name: 'Whetted Edge', detail: 'One more blade’s worth of bite on every strike' },
   { id: 'vigor', name: 'Tidal Vigor', detail: '+25 max vitality, filled now' },
   { id: 'step', name: 'Quick Step', detail: 'Evasion recovers 30% faster' },
   { id: 'reach', name: 'Long Guard', detail: 'Longer, wider strike arc' },
-  { id: 'draught', name: 'Grave Draught', detail: '+6 vitality per guard felled' },
+  { id: 'draught', name: 'Grave Draught', detail: `+${DRAUGHT} vitality per guard felled` },
   { id: 'ward', name: 'Salt Ward', detail: 'Take 20% less damage from enemy blows' },
 ];
 
@@ -25,12 +28,19 @@ export const STRIKE_BONUS = 4;
 export const XP_PER_ENEMY = 25;
 // Plan 021 (D10): felling a boss pays four bodies' worth and counts as a boss as well as a kill (`Run.bosses`, `RunEnd.bosses`).
 export const XP_PER_BOSS = 100;
-// What a cleared chamber pays (plan 017). Every clear tops the knight up; the door he chose decides the
-// rest: a purse of experience, or a real heal in place of the top-up. These are the dead end's old 60 XP
-// and 30 vitality, split so each door offers one of them rather than both.
+// Plan 022 (D9): an elite pays double, and counts as an elite as well as a kill (`Run.elites`), which `pearlsFor` pays a second pearl for.
+export const XP_PER_ELITE = 2 * XP_PER_ENEMY;
+// What a cleared chamber pays (plan 017). The door he chose decides it: a purse of experience, or a real heal.
+// These are the dead end's old 60 XP and 30 vitality, split so each door offers one of them rather than both.
+// Plan 022 (D10): a clear used to top the knight up by 12 as well; it heals nothing now, so damage is carried from chamber to chamber and the mend door
+// (30), a shrine (35) and the quarter of his maximum that each descent restores are the only places he mends. `TOP_UP` is kept as the one dial that
+// would bring it back; chamberReward reads it for every reward but a mend.
 export const XP_CACHE = 60;
 export const MEND = 30;
-export const TOP_UP = 12;
+export const TOP_UP = 0;
+// A shrine's one healing (the Stillwater Shrine of a sanctuary chamber): taken once, on the first step within SHRINE_REACH of it with vitality to mend. The game and the balance sim read this one number.
+export const SHRINE = 35;
+export const SHRINE_REACH = 1.5;
 // Each rank costs more than the last, so a full three-floor descent pays out five or six boons.
 export const rankCost = (rank: number) => 200 + (rank - 1) * 150;
 
@@ -51,6 +61,8 @@ export type Run = {
   hp: number; maxHp: number; kills: number; totalXp: number;
   // Plan 021: bosses felled this run (a boss is also a kill).
   bosses: number;
+  // Plan 022: elites felled this run (an elite is also a kill).
+  elites: number;
   rankLevel: number; rankProgress: number; pendingRanks: number; choosing: boolean;
   // Boon-derived modifiers. `guardAgainst` and `dashSpan` are multipliers, the rest are additive.
   // `strike` is a bonus on top of whatever the knight is holding, not the damage itself: the weapon
@@ -73,7 +85,7 @@ export type Run = {
 // With no argument this is the run the game has always started. `start` carries what was bought between runs;
 // `arm` is the game's to equip and means nothing here.
 export const createRun = (start?: RunStart): Run => ({
-  hp: start?.maxHp ?? START_HP, maxHp: start?.maxHp ?? START_HP, kills: 0, totalXp: 0, bosses: 0,
+  hp: start?.maxHp ?? START_HP, maxHp: start?.maxHp ?? START_HP, kills: 0, totalXp: 0, bosses: 0, elites: 0,
   rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
   strike: start?.strike ?? 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
   invuln: 0, taken: [], specialCooldown: 0,
@@ -167,7 +179,7 @@ export const takeBoon = (run: Run, id: string): Boon | null => {
   if (id === 'vigor') { run.maxHp += 25; run.hp = run.maxHp; }
   if (id === 'step') run.dashSpan *= 0.7;
   if (id === 'reach') run.reach += 0.35;
-  if (id === 'draught') run.draught += 6;
+  if (id === 'draught') run.draught += DRAUGHT;
   if (id === 'ward') run.guardAgainst *= 0.8;
   run.taken.push(id);
   run.pendingRanks = Math.max(0, run.pendingRanks - 1); run.choosing = false;
@@ -175,16 +187,16 @@ export const takeBoon = (run: Run, id: string): Boon | null => {
 };
 
 // A boss (the bestiary says which kind is one) pays `XP_PER_BOSS` and is counted in `run.bosses` as well as in `run.kills`; `kind` is left out
-// by a caller that has none to name, which pays what a body always paid.
-export const resolveKill = (run: Run, kind?: EnemyKind): Reward => {
-  const boss = !!kind && !!BESTIARY[kind].boss, xp = boss ? XP_PER_BOSS : XP_PER_ENEMY;
-  run.kills += 1; if (boss) run.bosses += 1;
+// by a caller that has none to name, which pays what a body always paid. An elite (plan 022 D9; `elite` is true for a body that carried a modifier) pays `XP_PER_ELITE` and is counted in `run.elites`.
+export const resolveKill = (run: Run, kind?: EnemyKind, elite = false): Reward => {
+  const boss = !!kind && !!BESTIARY[kind].boss, xp = boss ? XP_PER_BOSS : elite ? XP_PER_ELITE : XP_PER_ENEMY;
+  run.kills += 1; if (boss) run.bosses += 1; else if (elite) run.elites += 1;
   const { ranks } = grantXp(run, xp);
   return { xp, ranks, healed: heal(run, run.draught) };
 };
 
 // One payout per chamber, whatever brought its last body down. A shrine, the gate and the stair hall (no
-// reward) pay only the top-up.
+// reward) pay nothing now (`TOP_UP` is 0).
 export const chamberReward = (run: Run, reward: ChamberReward | null): Reward => {
   const xp = reward === 'cache' ? XP_CACHE : 0;
   const ranks = xp ? grantXp(run, xp).ranks : 0;

@@ -46,8 +46,8 @@ test('the Pyre Mother is a pool boss with D4\'s rotation: volley, volley, scatte
   assert.ok(mother.phaseNotice![1].length > 0);
   assert.ok(BOSS_POOL.includes('mother'), 'she is not in the pool, so nothing deals her');
   assert.ok(ENEMY_KINDS.includes('mother'));
-  assert.equal(enemyStats('mother', 1).hp, 215);
-  assert.equal(enemyStats('mother', 2).hp, 215 + HIT, 'a pool boss on floor two takes the usual extra blade of vitality');
+  assert.equal(enemyStats('mother', 1).hp, 150, 'plan 022 Stage E: 150, down from 215');
+  assert.equal(enemyStats('mother', 2).hp, 150 + HIT, 'a pool boss on floor two takes the usual extra blade of vitality');
   assert.ok(CAUSE_LABELS.mother.length > 0 && CUTAWAY_ELLIPSE.mother.radii[0] > CUTAWAY_ELLIPSE.pyre.radii[0], 'her cause label, and a cutaway window larger than the pyre\'s');
 });
 

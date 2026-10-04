@@ -98,6 +98,14 @@ if (flag('compare')) {
     console.log(`  ${level}       ${String(reached.length).padStart(7)}   ${String(fell.length).padStart(4)}   ${share(fell.length, reached.length).padStart(10)}   ${`${median(cleared.map(r => r.floors[level - 1].seconds)).toFixed(0)}s`.padStart(13)}   ${`${median(hp).toFixed(0)}%`.padStart(14)}   ${`${median(idle).toFixed(1)}s`.padStart(11)}   ${`${median(alone).toFixed(1)}s`.padStart(11)}   ${`${median(firstContact).toFixed(2)}s`.padStart(12)}`);
   }
 
+  // Plan 022 (D13): how hurt he is when he reaches the boss, how many deaths came before it, and how long an ordinary chamber's fight lasts.
+  {
+    const lost = reports.flatMap(r => r.floors).filter(f => f.outcome === 'died');
+    const atStair = (level: number) => reports.flatMap(r => r.floors.filter(f => f.level === level && typeof f.hpAtStair === 'number')).map(f => f.hpAtStair as number);
+    const fought = (kind: string) => reports.flatMap(r => r.floors).flatMap(f => f.fights.filter((_, i) => f.fightEncounters[i] === kind));
+    console.log(`  deaths before the stair hall ${lost.filter(f => f.deathsBeforeBoss === 1).length} of ${lost.length}   median vitality entering the stair hall ${[1, 2, 3].map(level => atStair(level).length ? `${median(atStair(level)).toFixed(0)}%` : '—').join(' / ')}   median fight watch ${median(fought('watch')).toFixed(1)}s ambush ${median(fought('ambush')).toFixed(1)}s gauntlet ${median(fought('gauntlet')).toFixed(1)}s\n`);
+  }
+
   // Where the idle total in the table above actually goes. Corridor/barren/spent/live-no-contact are
   // disjoint and sum to idle (sim.ts asserts it per floor). Plan 017 dropped the backtrack slice with the
   // dead ends it measured: a chamber is left by a door, never by the way in.

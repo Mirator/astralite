@@ -7,6 +7,7 @@ import {
   keyToward,
   openSpot,
   SCREEN_DIRECTIONS,
+  stanceNear,
   test,
   TILE,
   trackEnemy,
@@ -329,12 +330,49 @@ test('two kills in one swing pay out in full even when the first crosses a rank'
   ).toBe(0);
   expect(cleared.rank).toBe(before.rank + 1);
   expect(cleared.boonOffer).toBe(true);
-  // 25 for each kill, then 60 for emptying the purse chamber, and the top-up every clear pays.
+  // 25 for each kill, then 60 for emptying the purse chamber.
   expect(cleared.experience.total - before.experience.total).toBe(
     25 * pack.length + 60,
   );
   expect(cleared.chamber.sealed, 'the last kill left the chamber sealed').toBe(false);
-  expect(cleared.health).toBe(Math.min(cleared.maxHealth, 40 + 12));
+  // Plan 022 (D10): no top-up. A purse chamber pays experience and nothing back to the knight.
+  expect(cleared.health, 'a cleared purse chamber healed the knight').toBe(40);
+});
+
+// Plan 022 (D10): damage is carried from chamber to chamber. Clearing a chamber no longer tops the knight up (it was 12), and the door that offers a mend still pays its 30: the one place on the way a knight chooses to heal. Real blows on a staged
+// pack; the rule itself (`chamberReward`) is held in node by dungeon-sim.test.ts.
+test('a cleared chamber heals the knight nothing, and the mend door pays its 30', async ({ game, page }) => {
+  await game.enter();
+  const floor = await game.floor();
+  const opening = await game.state();
+  const clear = async (room: Floor['rooms'][number]) => {
+    const pack = opening.enemies.map((enemy, index) => ({ enemy, index })).filter(({ enemy }) => enemy.room === room.id && !enemy.buried);
+    expect(pack.length, `precondition: chamber ${room.id} holds one to three bodies`).toBeGreaterThan(0);
+    expect(pack.length).toBeLessThanOrEqual(3);
+    await game.teleport(room.x * TILE, room.z * TILE);
+    await game.step(120);
+    const stance = stanceNear(floor, { x: room.x * TILE, z: room.z * TILE }, 5, pack.length);
+    await game.teleport(stance.x, stance.z);
+    await game.step(16);
+    await game.configureCombat({ health: 40, enemies: pack.map(({ index }, i) => ({ index, x: stance.slots[i].x, z: stance.slots[i].z, hp: 1, windup: 0.3, cooldown: 30, aim: { x: -stance.facing.x, z: -stance.facing.z } })) });
+    expect((await game.state()).health, 'precondition: the knight stands hurt before the blow').toBe(40);
+    await swing(page, stance.key);
+    await game.step(220);
+    const after = await game.state();
+    expect(after.enemies.filter((enemy) => enemy.room === room.id && !enemy.buried), 'precondition: the chamber was cleared by the blow').toHaveLength(0);
+    expect(after.chamber.sealed, 'the chamber stayed sealed').toBe(false);
+    if (after.boonOffer) await game.takeBoon();
+    return after;
+  };
+  const bodies = (room: Floor['rooms'][number]) => opening.enemies.filter((enemy) => enemy.room === room.id && !enemy.buried).length;
+  const purse = floor.rooms.find((room) => room.reward === 'cache' && room.encounter === 'watch' && bodies(room) > 0 && bodies(room) <= 3);
+  const mend = floor.rooms.find((room) => room.reward === 'mend' && room.encounter === 'watch' && bodies(room) > 0 && bodies(room) <= 3);
+  expect(mend, 'the pinned floor has no mend chamber holding one to three bodies: pick another seed').toBeDefined();
+  const healed = await clear(mend!);
+  expect(healed.health, 'the mend door did not pay its 30').toBe(70);
+  expect(purse, 'the pinned floor has no purse chamber holding one to three bodies: pick another seed').toBeDefined();
+  const unhealed = await clear(purse!);
+  expect(unhealed.health, 'a chamber behind a purse door healed the knight: the top-up is gone (it was 12)').toBe(40);
 });
 
 test('Salt Ward blunts a sword but the embers of the keep burn through it', async ({

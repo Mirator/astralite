@@ -300,10 +300,10 @@ test('bodies grow with the floor: vitality by one blade a floor, damage by fifte
     bonecaller: { hp: 2 * HIT, damage: 0, tell: 1.2, speed: 2.2 },
     rattler: { hp: 1 * HIT, damage: 5, tell: 0.38, speed: 3.6 },
     captain: { hp: 72.5 * HIT, damage: 12, tell: 0.8, speed: 1.8 },
-    mother: { hp: 53.75 * HIT, damage: 10, tell: 0.8, speed: 2.1 },
+    mother: { hp: 37.5 * HIT, damage: 10, tell: 0.8, speed: 2.1 },
     hound: { hp: 65 * HIT, damage: 9, tell: 0.7, speed: 3.0 },
     bastion: { hp: 60 * HIT, damage: 11, tell: 0.7, speed: 1.7 },
-    king: { hp: 125 * HIT, damage: 0, tell: 0.8, speed: 1.9 },
+    king: { hp: 162.5 * HIT, damage: 0, tell: 0.8, speed: 1.9 },
   });
   // Floor one is exactly the base table, so every browser fixture pinned to floor one still holds.
   for (const kind of ENEMY_KINDS) assert.deepEqual(enemyStats(kind, 1), BASE_STATS[kind]);

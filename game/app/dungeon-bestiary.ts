@@ -328,9 +328,9 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   // asks the knight to keep moving: phase one is a fan of three bolts, a fan again, and a scatter that marks two rings where he has been and lights them when the tell
   // runs out. Below half she looses five bolts to the fan, adds a close sweep for a knight who has rushed her (she gives ground while she recovers, so it is a punish and
   // not a place to stand), and scatters twice running, three rings a time. A fan has no gap to walk through: the answer is the dash, or being elsewhere. Steadfast like every
-  // boss: only a stagger arm breaks her tell. The numbers are Stage F's (215 vitality, damage ×0.8 of D7's hypothesis); the moves are the design.
+  // boss: only a stagger arm breaks her tell. The numbers are Stage F's (damage ×0.8 of D7's hypothesis) and plan 022 Stage E's (150 vitality, down from 215: the default bot's deaths to her were her fight's length, and she killed it in every one of its deaths); the moves are the design.
   mother: {
-    stats: { hp: 215, damage: 10, tell: 0.8, speed: 2.1 },
+    stats: { hp: 150, damage: 10, tell: 0.8, speed: 2.1 },
     strikeRange: 2.6, attackRange: 8, holdRange: 6, recovery: 1.4,
     attack: 'volley', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 4,
     boss: 'pool', title: 'The Pyre Mother', phaseNotice: ['', 'The Pyre Mother kindles'],
@@ -416,9 +416,9 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   // rattlers stand up from the reserve at his feet, a heavy swing for a knight who has reached him, a single bolt for one who keeps away. Below 60% a sweep (everything round him) and a pounce (a lane across the
   // room) join the round, and below 25% he summons on every second move, one rattler a tell and four tells a round. The reserve is sized from that list (`reserveSize`, the most any one phase's round can raise), not from
   // `summons.count`, which this row keeps only as what a lone summon is worth. Felling him crumbles everything he called, standing or buried. Steadfast like every boss. The numbers are Stage F's (500 vitality,
-  // damage ×0.6 of D7's hypothesis); the moves are the design.
+  // damage ×0.6 of D7's hypothesis) and plan 022 Stage E's (650 vitality and damage ×1.45 of that: the last floor is where the default bot is made to die, since no earlier boss may kill it more than twice as often as another); the moves are the design.
   king: {
-    stats: { hp: 500, damage: 0, tell: 0.8, speed: 1.9 },
+    stats: { hp: 650, damage: 0, tell: 0.8, speed: 1.9 },
     strikeRange: 3.4, attackRange: 9, holdRange: 2.6, recovery: 1.4,
     attack: 'summon', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
     summons: { kind: 'rattler', count: 2, perTell: 2 },
@@ -427,25 +427,25 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
     moves: [
       [
         { attack: 'summon', tell: 1.2, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 2 } },
-        { attack: 'swing', tell: 0.8, damage: 13, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
-        { attack: 'volley', tell: 0.8, damage: 8, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
+        { attack: 'swing', tell: 0.8, damage: 19, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
+        { attack: 'volley', tell: 0.8, damage: 12, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
       ],
       [
         { attack: 'summon', tell: 1.2, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 2 } },
-        { attack: 'swing', tell: 0.75, damage: 13, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
-        { attack: 'volley', tell: 0.75, damage: 8, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
-        { attack: 'sweep', tell: 1.0, damage: 11, strikeRange: 3.4, attackRange: 2.6, cue: { shape: 'ring', radius: 3.4 }, cueScale: 1 },
-        { attack: 'pounce', tell: 0.7, damage: 12, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.2 }, cueScale: 1 },
+        { attack: 'swing', tell: 0.75, damage: 19, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
+        { attack: 'volley', tell: 0.75, damage: 12, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
+        { attack: 'sweep', tell: 1.0, damage: 16, strikeRange: 3.4, attackRange: 2.6, cue: { shape: 'ring', radius: 3.4 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.7, damage: 17, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.2 }, cueScale: 1 },
       ],
       [
         { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
-        { attack: 'swing', tell: 0.7, damage: 13, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
+        { attack: 'swing', tell: 0.7, damage: 19, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
         { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
-        { attack: 'volley', tell: 0.7, damage: 8, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
+        { attack: 'volley', tell: 0.7, damage: 12, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
         { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
-        { attack: 'sweep', tell: 0.9, damage: 11, strikeRange: 3.4, attackRange: 2.6, cue: { shape: 'ring', radius: 3.4 }, cueScale: 1 },
+        { attack: 'sweep', tell: 0.9, damage: 16, strikeRange: 3.4, attackRange: 2.6, cue: { shape: 'ring', radius: 3.4 }, cueScale: 1 },
         { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
-        { attack: 'pounce', tell: 0.7, damage: 12, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.2 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.7, damage: 17, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.2 }, cueScale: 1 },
       ],
     ],
     look: {
@@ -480,3 +480,45 @@ export const reserveSize = (kind: EnemyKind): number => {
   if (!archetype.moves) return archetype.summons.count;
   return Math.max(0, ...archetype.moves.map(phase => phase.reduce((sum, move) => sum + (move.attack === 'summon' ? move.summon?.perTell ?? archetype.summons!.perTell : 0), 0)));
 };
+
+// Plan 022 Stage C (D7, D8): elites. An elite is an ordinary body carrying one modifier, dealt by `dealElites` (dungeon-waves.ts) onto a `Spawn.elite`; it is the same kind, the same figure and the same moves, with a number or two changed
+// (`eliteStats`, dungeon-enemy.ts) and a colour that says which. Every modifier reuses a rule that already exists, so the balance sim gets it for nearly nothing.
+//
+// HOW TO CHANGE THEM. A modifier's multipliers, its colours and the fire a volatile body leaves are all in `ELITES`; which kinds may carry one is `eliteKind` and the odds per floor are in dungeon-waves.ts (`ELITE_RATE`, `ELITE_PER_WAVE`).
+// A fifth modifier is one more row here and one more member of `ELITE_MODIFIERS`; the compiler finds the rest of the Record. Tune with `npm run balance:check` (tests/dungeon-elites.test.ts holds the shape).
+export const ELITE_MODIFIERS = ['hasted', 'armoured', 'wrathful', 'volatile'] as const;
+export type EliteModifier = typeof ELITE_MODIFIERS[number];
+
+export type Elite = {
+  /** Multipliers on the kind's own numbers (`eliteStats`): walking speed, seconds of tell, vitality, damage per blow. */
+  speed: number; tell: number; hp: number; damage: number;
+  /** The fire it leaves where it falls, for the modifier that leaves one (the pyre's own); `deathPoolOf` reads it. */
+  pool?: { radius: number; life: number; damage: number; interval: number };
+  /** The colour the body glows when it is idle, and its eyes burn (D8): cyan, steel, red-orange, ember. */
+  glow: number;
+  /** What the modifier is called, for the snapshot, the bench label and a playtest note. */
+  name: string;
+};
+
+export const ELITES: Record<EliteModifier, Elite> = {
+  hasted: { speed: 1.35, tell: 0.8, hp: 1, damage: 1, glow: 0x35e0ff, name: 'Hasted' },
+  armoured: { speed: 1, tell: 1, hp: 2, damage: 1, glow: 0xb4c3d4, name: 'Armoured' },
+  wrathful: { speed: 1, tell: 1, hp: 1, damage: 1.4, glow: 0xff5e1c, name: 'Wrathful' },
+  volatile: { speed: 1, tell: 1, hp: 1, damage: 1, pool: { radius: 1.7, life: 3.5, damage: 8, interval: 0.6 }, glow: 0xffb62e, name: 'Volatile' },
+};
+
+/**
+ * Whether a kind may carry a modifier: never a boss, never a body that calls others (the bonecaller) and never one that is only ever called (the rattler), so a fight's reserve and its
+ * bosses stay what their designs say. Read off the table, so a kind added later is eligible unless it is one of those.
+ */
+export const eliteKind = (kind: EnemyKind): boolean => {
+  const archetype = BESTIARY[kind];
+  return !archetype.boss && !archetype.summons && !ENEMY_KINDS.some(other => BESTIARY[other].summons?.kind === kind);
+};
+
+/** The modifiers a kind can carry: all of them, bar the one it already has - a pyre leaves a fire on its own, so a volatile pyre would be a plain one. Empty for a kind that cannot be elite. */
+export const elitesFor = (kind: EnemyKind): EliteModifier[] =>
+  eliteKind(kind) ? ELITE_MODIFIERS.filter(modifier => !(ELITES[modifier].pool && BESTIARY[kind].deathPool)) : [];
+
+/** The fire a body leaves where it falls: its kind's own, or a volatile elite's. */
+export const deathPoolOf = (kind: EnemyKind, elite?: EliteModifier) => BESTIARY[kind].deathPool ?? (elite ? ELITES[elite].pool : undefined);

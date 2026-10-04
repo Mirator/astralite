@@ -3,10 +3,10 @@
 // the THREE.Group, the poses, the sound and the particles, and asks this module for the decision behind
 // each of them. Everything works over plain {x, z} points, so a whole fight can be replayed in node
 // instead of by hand-driving a browser, which is how every spatial regression here has been caught.
-import { BESTIARY, byKind, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
+import { BESTIARY, byKind, ELITES, type EliteModifier, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
 import { TILE, canStand, cellKey, hasClearPath, moveOnFloor } from './dungeon-floor.ts';
 
-export { ENEMY_KINDS, BESTIARY, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
+export { ENEMY_KINDS, BESTIARY, ELITES, type EliteModifier, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
 export type Point = { x: number; z: number };
 
 // A body stops caring about the knight once the walk to him is long enough. The cutoff is generous
@@ -93,6 +93,17 @@ export const scaledDamage = (base: number, level: number) => Math.round(base * (
 export const enemyStats = (kind: EnemyKind, level: number): EnemyStats => {
   const base = BASE_STATS[kind], deeper = floorsDeeper(level);
   return { hp: base.hp + deeper * HIT, damage: scaledDamage(base.damage, level), tell: base.tell, speed: base.speed };
+};
+
+/**
+ * Plan 022 (D7): what an elite body is made of: its kind's stats on this floor (`enemyStats`) with the modifier's multipliers on top, so every caller that scales a body - the game's `spawnEnemy`, the balance sim - applies a modifier the same way.
+ * Vitality stays in the quarter-hit grain and damage stays whole, rounded as `scaledDamage` rounds; `tell` and `speed` are what `decideEnemy` is fed (`EnemyView`). No modifier is the plain body.
+ */
+export const eliteStats = (kind: EnemyKind, level: number, modifier?: EliteModifier): EnemyStats => {
+  const base = enemyStats(kind, level);
+  if (!modifier) return base;
+  const m = ELITES[modifier];
+  return { hp: Math.round(base.hp * m.hp), damage: Math.round(base.damage * m.damage), tell: base.tell * m.tell, speed: base.speed * m.speed };
 };
 
 // Plan 021: a boss is an archetype with a list of moves for each phase (dungeon-bestiary.ts `Move`) and the shares of its

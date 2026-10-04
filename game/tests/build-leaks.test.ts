@@ -29,6 +29,14 @@ test('a bundle carrying a development-only hook or the eager-boot switch is repo
   assert.deepEqual(findLeaks(clean + 'new URLSearchParams(location.search).get(`boss`)', []).leaked, ['?boss=']);
   assert.deepEqual(findLeaks(clean + 'x.get("boss")', []).leaked, ['?boss=']);
   assert.deepEqual(findLeaks(clean + 'a.get(`bosses`)', []).leaked, [], 'only the boss link itself is matched');
+  // Plan 022 (D14): the dev waves link, the same way.
+  assert.deepEqual(findLeaks(clean + 'new URLSearchParams(location.search).get(`waves`)===`off`', []).leaked, ['?waves=']);
+  assert.deepEqual(findLeaks(clean + 'x.get("waves")', []).leaked, ['?waves=']);
+  assert.deepEqual(findLeaks(clean + 'a.get(`wavelength`)', []).leaked, [], 'only the waves link itself is matched');
+  // Plan 022 (D14): the dev elite link, the same way.
+  assert.deepEqual(findLeaks(clean + 'new URLSearchParams(location.search).get(`elite`)', []).leaked, ['?elite=']);
+  assert.deepEqual(findLeaks(clean + 'x.get("elite")', []).leaked, ['?elite=']);
+  assert.deepEqual(findLeaks(clean + 'a.get(`elites`)', []).leaked, [], 'only the elite link itself is matched');
   assert.deepEqual(findLeaks('unrelated chunk', []).missingPublic, ['render_game_to_text', 'advanceTime', 'dungeonTest']);
   // The arena ships no hook name of its own on the page it lives on; its event and its menu label are what give it away.
   assert.deepEqual(findLeaks(clean + 'dispatchEvent(new CustomEvent(`dungeon-arena`,{detail:a}))', []).leaked, ['dungeon-arena']);

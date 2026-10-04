@@ -4915,3 +4915,297 @@ the fit, tuning, `?boss=`), the `plans/README.md` row, the plan's Evidence for S
 - weak-meta-max (D9) is not met; the fairness check is met only trivially (items 1 and 2 above); the crossbow special is shut out of the bosses (item 4). The three hard bands that moved (default, weak and weak-meta-max) are the operator's to re-decide after the playtest.
 - The sim's King: the bot goes for the King first (a caller is the target before anything nearer) and has no dodge rule of its own for a summon. The reserve's damage to the weak knight in a duel is 49 to 56 of its 100.
 - The pearls arithmetic above rests on a human-earnings guess; no human run log exists.
+
+## 2026-10-03 - Plan 022 Stages 0, A and B: the baseline, waves as structure, and waves dealt
+
+Branch `claude/beautiful-gauss-5o0cw4`, six commits on `main` + the plan (`2fa0546`): Stage 0 (shrine parity, baseline), Stage A (structure), Stage B in three (rules and sim; game; the corpses). Stage C onward is untouched. No stop rule tripped; one plan assumption was wrong and is fixed (corpses, below).
+
+### Stage 0: the baseline (`bands.json` `measured` at 30 runs from seed 1, reproduced exactly by the sim with the three new report fields)
+
+| policy | escape | deaths f1 / f2 / f3 | median run s | median watch / ambush / gauntlet fight s | hpAtStair f1 / f2 / f3 (median; least) |
+| --- | --- | --- | --- | --- | --- |
+| default | 80.0 | 13.3 / 7.7 / 0.0 | 208.5 | 3.4 / 3.9 / 2.6 | 100 (79) / 100 (100) / 100 (81) |
+| weak | 33.3 | 30.0 / 19.0 / 37.5 | 136.6 | 2.5 / 3.1 / 1.7 | 100 (64) / 100 (57) / 100 (13) |
+| special | 100.0 | 0 / 0 / 0 | 209.1 | 3.6 / 4.0 / 2.5 | 100 (76) / 100 (92) / 100 (80) |
+| special-fangs | 100.0 | 0 / 0 / 0 | 189.2 | 3.5 / 4.1 / 2.6 | 100 (90) / 100 (72) / 100 (92) |
+| special-cleaver | 83.3 | 10.0 / 7.4 / 0.0 | 239.3 | 4.1 / 4.7 / 3.3 | 100 (71) / 100 (92) / 100 (90) |
+| special-crossbow | 3.3 | 43.3 / 35.3 / 90.9 | 205.3 | 3.8 / 4.4 / 2.2 | 100 (84) / 100 (49) / 100 (23) |
+| special-flask | 96.7 | 0 / 3.3 / 0 | 291.6 | 4.6 / 4.0 / 2.9 | 100 (88) / 100 (92) / 100 (66) |
+| meta-max | 100.0 | 0 / 0 / 0 | 209.2 | 3.5 / 3.9 / 2.6 | 100 (82) / 100 (81) / 100 (85) |
+| weak-meta-max | 100.0 | 0 / 0 / 0 | 173.5 | 2.8 / 3.0 / 1.8 | 100 (71) / 100 (81) / 100 (34) |
+
+Deaths by cause (30 runs): default f1 Pyre Mother x4, f2 Mother x2 (all six); weak f1 Bastion 3, Mother 3, Captain 3, f2 stalker 3, Mother 1, Hound 1, f3 warden 4, rattler 1, stalker 1; special-cleaver Mother x5; special-crossbow King 5, Mother 10, Bastion 8, guard 3, Captain 1, archer 1, rattler 1; special-flask Mother x1. Deaths before the stair hall (`hpAtStair` null): default 0 of 6, weak 4 of 19, everyone else 0. **The finding: every policy walks into every stair hall at a median 100% vitality**, because every clear heals 12 and a mend door 30; D10's target (40-80%) is far from where it starts. The median watch fight is 3.4 s for the default knight against D13's 12-40 s.
+
+**Hidden-body draw calls (step 2): a dormant body costs nothing.** A temporary hook (not committed) put 1, 5 and 9 arena bodies (level 3) into the dormant state a wave body starts in (`awake` false, `group.visible` false): 201 calls, 209,882 triangles, 56 shadow calls each time; the same bodies awake cost 240, 364 and 504 calls (about 35 a body). So D2's caps count the largest *single wave*, not every wave. **But the plan's other assumption was wrong: a dead body does not leave the scene.** A corpse stays drawn for the life of the floor and costs a standing body's calls: the ten-body chamber (3, 3 and 4 in three waves) read 586 calls with the first two waves lying dead in frame, 78 over the 508 every scene is held to. Fixed in the game (below), not by raising a ceiling.
+
+**Shrine parity (separate commit `510cc01`).** The game heals `SHRINE` 35 on the first step within `SHRINE_REACH` 1.5 of an unused shrine in a sanctuary chamber; the sim did not. Both now read the constants in `dungeon-sim.ts`, and a hurt knight in a sanctuary walks to its shrine before the door. Shifts at 30 runs (no band moved): weak escape 33.3 -> 36.7, weak run 136.6 -> 163.1 s (a weak knight mended in a quiet chamber goes on to a later floor), weak deaths f1 30 -> 26.7 and f3 37.5 -> 35.3, special floor-3 vitality 91 -> 87.8, meta-max floor-1 vitality 84.8 -> 86.7, special-crossbow floor-2 vitality 72 -> 74.4; the default knight's escape stays 80.0. `bands.json` `measured` re-taken by editing the text (a script that rewrites only the numbers of each `measured` block; a 16-line diff).
+
+### Stage A: waves as structure, nothing dealt
+
+`app/dungeon-waves.ts` (pure): `dealWaves(floor, seed, level, table)`, `wavedFloor`, `waveDue`, `waveSpots`, `springing` and `calledIn` (the ambush-spring and bot-target filters, which skip later waves; the game and the sim both read them), `WAVE_TABLE` (empty in Stage A). `Spawn.wave` (absent is the first wave). The snapshot gained `wave` and `maxHp` on every enemy and `chamber.wave` `{ at, of, marked }`. With the table empty **the 9 policies' reports are identical, run by run, to the shrine-parity baseline** (compared as JSON), and `npm run balance:check` printed the Stage 0 values and held every band (624.5 s).
+
+### Stage B: waves dealt
+
+**How they are dealt (as built; every number is in `dungeon-waves.ts`).** A chamber is dealt later waves only if it is a `path` chamber with `layer > 2` whose pack source is:
+
+| source | wave 2 | wave 3 |
+| --- | --- | --- |
+| middle fight | 2-3 from the `late` mix | none |
+| late fight | 2-3 from `late` | 1-2 from `late` plus a warden |
+| purse (hoard) | 2-3 from `hoard` | none |
+| opening, ambush, gauntlet, shrine, stair hall | none | none |
+
+Floors two and three add one body (from the same mix) to the last wave; a wave is at most 5 bodies and a chamber at most 10 standing (wave one included); a second caller in one wave is a guard; each chamber has its own hash stream (`stream(seed, level, room)`), so changing one source's rule moves no other chamber. A caller dealt into a wave buries its own reserve after all the wave bodies. A wave body is `ambush: true` with `wave` 2 or 3, so it starts `awake: false, visible: false` by the path an ambush body already takes; its tile is drawn from the chamber's own floor, at least 3.5 from the arrival, 2.5 from a door and 2.2 tiles from every other body. Over 450 floors (three levels) the append-only rule holds with the King's buried reserve among the spawns that keep their place, and a 900-floor digest of what `generateFloor` dealt is pinned (`b6b55432...`, recorded at `2fa0546`).
+
+**The call and the telegraph.** `waveDue(bodies, room, clock, dt)`: the next wave is called when every body of every earlier wave is down (a reserve under a standing caller is not), after `WAVE_PAUSE` 0.5 s `mark` fires once, and `WAVE_MARK` 0.9 s later `raise` fires once; never by time alone. The game draws rings on five meshes of its own (the fire ring's art, `makePoolMesh`) in the threat colour, closing and flickering as the scatter's do, on `waveSpots` (a spot within 2.5 of the knight moves to the nearest open tile beyond it); then the bodies stand on the rings in the burst `raise` plays, with the ambush's opening cooldown. `audio.play('warn')`, no text. `settleRoom` already counts a dormant body, so the doors stay barred until the last wave falls.
+
+**Interpretations.**
+- The rings use five meshes of their own, not the six hostile fire rings: a pyre's fire lasting 3.5 s would otherwise take rings from a wave. The same ring art.
+- The third wave's mix is `late` (D2 says "1-2 plus a warden" and no mix); the "one more body" on floors two and three is drawn from the wave's own mix.
+- A pinned warden placed in a crowded chamber takes the open tile farthest from the rest (at least 1.2 tiles) instead of being lost; a wave none of whose bodies could be placed closes up, so a chamber's waves are 2, or 2 and 3.
+- Rings are fixed when they appear (D4 says "when the marks appear"): a knight who walks onto one has bodies stand on him.
+- `?waves=off` (D14) is built in Stage B, where waves are, not Stage C; `build:check` holds it out of the bundle.
+- **The harness boots every page with `?waves=off`** (`DEFAULT_WAVES`), as it boots with the Captain: some fifty scenarios count a chamber's pack, kill it and expect doors, purse and rank (`combat.spec.ts`'s "two kills in one swing" is one), and I cannot run the whole suite locally. `waves.spec.ts` and the wave frame-budget scene opt in with `test.use({ waves: null })`. This means **no existing scenario runs with waves on**; the CI run on the PR is the first look at that, and turning it on for the whole suite is the follow-up.
+- The sim holds its ground (no walk to the door) while a chamber's next wave is still to come, and a raised body notices as an ambush body does.
+- The sim's "agreement" with the game is held on what each stood on a floor (the game's scene against `simulateLevel`'s bodies, floors one to three), not on a play-through.
+- `waveFights` is the fights of chambers that held later waves; `deathsBeforeBoss` is read as `outcome 'died'` with `hpAtStair` null.
+- The band for special-crossbow's floor-3 vitality is removed (no run of it clears floor 3 now; `floor3.deathRate` holds the fact) rather than widened.
+
+**Corpses (the fix).** When a chamber marks its next wave, the fallen of the waves before sink into the paving over the rings' 0.9 s and are then not drawn (`corpsesDue`, `corpseSink`, pure; the game applies the sink after the death animation, which writes a corpse's height each frame until it settles). Draw only: the sim never asks. The last wave's dead lie where they fell.
+
+**Frame numbers (SwiftShader, 2026-10-03).** The wave-chamber scene (floor three, seed 0x2's hall of ten bodies in waves of 3, 3 and 4, the last wave standing with a warden, the knight in its arc): **586 calls / 294,968 triangles** with the six dead left in frame (three runs, triangles 294,932 to 294,968), **440 calls / 255,930 to 255,942 triangles** with the floor taking them back (68 under 508; ceilings are the figures measured, floors the helper's 60% and 20%). The biggest single wave D2 deals is four bodies (3 and a warden), so the 5-body cap is not reached by the table.
+
+**Balance, before and after waves** (30 runs, `npm run balance:check` 727.6 s, every metric inside its band; Stage 0 after the shrine fix, then Stage B). Nothing is tuned; Stage E does that.
+
+| policy | escape | deaths f1 / f2 / f3 | median run s | median watch fight s | died before the stair hall |
+| --- | --- | --- | --- | --- | --- |
+| default | 80.0 (80.0) | 16.7 / 4.0 / 0.0 (13.3 / 7.7 / 0) | 237.8 (209) | 5.7 (3.4) | 0 of 6 (0 of 6) |
+| weak | 36.7 (36.7) | 33.3 / 10.0 / 38.9 (26.7 / 18.2 / 35.3) | 160.9 (163.1) | 4.3 (2.5) | 5 of 19 (4 of 19) |
+| special | 96.7 (100) | 0 / 3.3 / 0 | 236.8 (209.1) | 5.5 (3.6) | 0 of 1 |
+| special-fangs | 100 (100) | 0 / 0 / 0 | 215.7 (189.3) | 5.6 (3.5) | - |
+| special-cleaver | 86.7 (83.3) | 10 / 3.7 / 0 (10 / 7.4 / 0) | 276.1 (241.2) | 6.6 (4.1) | 0 of 4 |
+| special-crossbow | 0 (3.3) | 40 / 27.8 / 100 (43.3 / 35.3 / 90.9) | 250.8 (205.3) | 6.6 (3.8) | 3 of 30 (0 of 29) |
+| special-flask | 96.7 (96.7) | 0 / 0 / 3.3 | 340.1 (291.6) | 7.3 (4.6) | 0 of 1 |
+| meta-max | 100 (100) | 0 / 0 / 0 | 239.3 (209.2) | 5.7 (3.5) | - |
+| weak-meta-max | 100 (100) | 0 / 0 / 0 | 198.3 (173.5) | 4.6 (2.8) | - |
+
+Median vitality entering the stair hall is still 100% for every policy on every floor (least: default 84 / 90 / 92; weak 76 / 42 / 37): a wave heals nothing, and the 12-point top-up still does. The waves add about 25-50 s to a run and 2 s to a watch fight. Against D13 (default bot): escape 80 (55-80, at the top), deaths before the stair hall 0 of 6 (needs a third; not met), vitality at floor 1's stair hall 100 (40-80; not met, D10 is Stage D), median run 238 s (300-600; not met), watch fight 5.7 s (12-40; not met); weak 36.7 (10-35; just above). Six run-length bands moved to hold what was measured (default, special, meta-max 220 -> 250; special-cleaver 260 -> 290; special-flask 300 -> 360; weak-meta-max 190 -> 210) and the crossbow band above was removed; `measured` was re-taken in full, with a note in `bands.json`.
+
+### Tests, and the bugs planted
+
+New node tests (the node suite is 474 of 474): `tests/dungeon-waves.test.ts` (21), three in `balance-sim.test.ts`, three assertions in `build-leaks.test.ts`. Browser: `waves.spec.ts` (3), the wave-chamber scene. Each planted in the code, run against its own test, restored (`git status` clean of them after each).
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| generateFloor deals what it dealt before waves, 900 floors | an extra `random()` in the generator | `generateFloor no longer deals the floors plan 022 started from: a wave rule reached into the generator...` |
+| dealWaves only appends, reserves included | a wave body inserted before the buried reserve | `a wave body was dealt among the spawns generateFloor laid, which moves an index and with it every summoner link` |
+| springing | later waves kept | deep-equal failure of the sprung list |
+| waveDue | called on the first death | `the rings came at 1.50 s, before the last body fell at 3 s plus the pause` |
+| caps | no wave cap / no chamber cap | `wave 2 holds 7, over the cap of 5` / `16 standing bodies, over the cap of 10` |
+| last-wave extra | `LAST_WAVE_EXTRA` 0 | `floor 2: [[2,284],[1,14]] - a last wave of two stalkers should stand 3` |
+| rings keep clear of the knight | the clearance dropped in `waveSpots` | `a ring stands 0.00 from the knight` |
+| a cap cuts the drawn bodies, not the warden | the warden cut | `a warden pinned to a wave of three, with room for two` |
+| shipped table is D2 | a row changed / removed | `the shipped table is not D2: ...` |
+| a pinned warden is not lost; waves close up | no fallback; not renumbered | `a third wave without its warden` / `waves 3 - a chamber is dealt wave 2, or waves 2 and 3` |
+| the shrine mends once | never heals / never marked used | `only 0 shrine mends over 30 runs` / `a shrine mended the knight twice` |
+| the sim deals, calls and clears a waved floor | no waves / springs later waves / never raises | `0 waves were dealt over six floors and 0 stood` / `25 waves were dealt ... and 0 stood` (twice) |
+| corpses | `corpseSink` never done | `a corpse is not gone, and as deep as the floor takes it, when the wave stands` |
+| browser: a three-wave chamber, real blows | doors open after wave one | `the chamber opened when wave 1 fell, with wave 2 still to come` |
+| the same | clearance dropped in the game | `a ring lands within the clearance of the knight` |
+| the same | the spring wakes later waves | `a later wave woke when the knight walked in` |
+| the same | bodies not raised on their rings | `no body rose on the ring at (51.80, 99.16)` |
+| the same | rings never shown | `a ring is not showing, or is for the wrong wave` |
+| the same | corpses never put on the sinking list | `a corpse did not sink while the rings showed` |
+| browser: the page deals the first wave only | `?waves=off` not read | `the harness page dealt a wave: ?waves=off is not reaching the game` |
+| browser: the sim and the game deal the same waves | the game deals none | `precondition: floor 1 of the page holds no later wave` |
+| frame budget, wave chamber | an extra mesh on every figure | `wave-chamber draws more often than the budget allows` (596 against 586) |
+| frame budget, wave chamber | corpses never hidden | `a corpse of the waves before is still drawn` |
+| `?waves=` leak | read without the `NODE_ENV` guard, then `npm run build` and `build:check` | `development-only code reached the production bundle: ?waves=` |
+
+Things the plants taught: a first plant of the ring clearance (the constant set to 0) tripped the test's own precondition instead of its assertion, so it was planted in the rule; the first fight scenario lost a warden at the arc's edge, so the bodies are staged 0.7 apart and mid-windup; the door pass is frozen under the boon draft that nine kills (225 XP) open, so the scenario takes a card before it reads the doors.
+
+### Gates
+
+`npm run typecheck`, `npm run lint` clean; `npm test` 474 of 474; `npm run balance:check` green at Stage A (624.5 s, the Stage 0 values) and Stage B (727.6 s); `npm run build` + `build:check` clean (11 hooks, none shipped). Browser specs run locally with `GAME_TEST_WORKERS=2` (SwiftShader): `waves` (3), the wave frame-budget scene, `chambers` (the door), `combat` ("two kills in one swing"), `smoke`; every plant above against its own test. The full suite was not run locally; CI on the PR is the gate. Nothing pushed by this session.
+
+### Not done / not verified
+
+- Stage C onward. Nothing is tuned: pack sizes, rates and bands are Stage E's.
+- The full browser suite (the harness keeps it on `?waves=off`; see above). No GPU run; the frame numbers are SwiftShader.
+- The sound cue is the existing `warn`; whether a wave's arrival reads before it lands is Stage G's.
+- `deathsBeforeBoss`, `eliteKills` are not report fields yet (the first is derivable; elites are Stage C).
+
+## 2026-10-03 to 2026-10-04 - Plan 022 Stages C, D, E and F: elites, attrition, the tuning and the stop rule
+
+Branch `claude/beautiful-gauss-5o0cw4`. Commits after Stage B: `9471670` (carry-over), `0921020` and `afc0026` (Stage C rules and sim; game, look and tests), `7785611` (CI fixes to C), then Stages D and E together (a clear heals nothing and the tuning, with the bands re-taken, so that CI's balance gate is green at every push) and Stage F (the documents). Stage G (the playtest) is untouched. **A stop rule tripped** (the third: the weak and weak-meta-max targets cannot both hold with the default knight in its band); the table is below, D13 is **not met**, and no band was widened to pass.
+
+### Carry-over from Stage B
+
+- **A body is never raised on the knight (D4).** Rings are fixed when they appear, so a knight who walked onto one had a body stand on him. At the raise the game (`dungeon-game.tsx`) and the sim (`sim.ts`) run the rings through `waveSpots` again with the knight where he stands: a ring inside the 2.5 clearance moves to the nearest open tile beyond it, one already clear stays. Browser test (`waves.spec.ts`): the knight steps onto a ring of the third wave while the rings show; every body must stand at least the clearance from him. Plant: the re-spot dropped in the game -> `a body stood on the knight who had walked onto its ring`. (The sim's copy has no test of its own: its knight holds his ground while a wave is to come, so no scenario puts him on a ring; it is the same one call.)
+- **`deathsBeforeBoss`** is a `FloorReport` field (1 when he died on the floor with `hpAtStair` null), `summarise` reports `deathsBeforeBoss` (share of deaths) and `floorN.medianHpAtStair`, and `npm run balance` prints both with the median fight per encounter. Tests in `balance-sim` and `balance-bands`; plants: always 0 -> `a death before the stair hall is not counted as one`; counted on the wrong field -> `expected: 75 actual: 0`.
+- **CI's red wave-chamber frame (255,946 triangles against 255,942).** The scene was drawn 400 ms after the last wave was staged, on a frame that varies run to run (the swings that fell the first two waves are real input, so bodies were still being eased apart by the crowd's spacing and corpses still sinking: 255,930 to 255,958 over four runs). The scene now waits until every body of the chamber and every corpse has stood still for a second; four repeats read 439 calls / 255,774 triangles, identical, and the ceilings are those figures. Later (CI again): floor three deals elites, so felling the first waves can cross a rank and the boon card freezes the world; the scene takes the card with the real key.
+
+### Stage C: elites (D7, D8, D9, D14)
+
+**As built.** `ELITES` in `dungeon-bestiary.ts`; `eliteStats` in `dungeon-enemy.ts`; `dealElites` in `dungeon-waves.ts`, from its own stream (`eliteStream`, the wave stream's mixing with another salt, per chamber), so `generateFloor` and every wave are untouched (the SHA digest test of 900 floors is green) and no wave rule moves an elite.
+
+| modifier | what changes | glow, eyes | notes |
+| --- | --- | --- | --- |
+| hasted | speed x1.35, tell x0.8 | cyan `0x35e0ff` | the tell is read by `decideEnemy` off `EnemyView.tell` |
+| armoured | vitality x2 | steel `0xb4c3d4` | |
+| wrathful | damage x1.4 (rounded) | red-orange `0xff5e1c` | an orange a little off `THREAT` red, so a wrathful body is not read as a tell |
+| volatile | the pyre's `deathPool` where it falls (radius 1.7, 3.5 s, 8 a bite) | ember `0xffb62e` | never dealt to a pyre, which already leaves it |
+
+Never a boss, a bonecaller or a rattler (`eliteKind`, read off the table: no `boss`, no `summons`, not any kind's `summons.kind`). Rates: floor one none, floor two 15% of eligible bodies at most one a wave, floor three 25% at most two (`ELITE_RATE`, `ELITE_PER_WAVE`). Measured over 1,000 seeds: floor two 15.01% of 61,515 eligible bodies roll one, 12.74% are dealt once a wave holds at most one; floor three 25.04% roll, 24.17% are dealt with at most two. An elite pays 50 experience and a second pearl (`resolveKill`, `pearlsFor`, `Run.elites`, `RunEnd.elites`, absent from a record with none).
+
+**The look.** The glow is the idle branch of `poseEnemy` (the one that rewrites the emissive every frame), so the struck flash, the wind-up and a boss's phase change stay ahead of it. Its strength is `ELITE_GLOW` 0.05: the first value tried, 0.16, washed the whole figure flat in its colour on the bench (`outputs/figures`), and the bench test measures both sides now. The eyes take the colour on the body's own eye material. The health bar's pip is the bar's frame (the one mesh every bar has) drawn in the modifier's colour with a small flag on its outline (a shared `ShapeGeometry`), because a pip mesh of its own would have cost a draw call. Bench: `npm run figures -- --figures guard,warden --tint hasted` (not `--elite`: the bench's chunk ships, and `build:check` reads `get('elite')` as the game's link; it caught exactly that on the first build).
+
+**No extra draw calls, proved.** `frame-budget.spec.ts`, "a chamber of elites": four bodies abreast in the arc (guard, stalker, warden, shieldbearer, level three), each one blow from death so every bar is drawn, held until they stand still; the plain frame drawn twice first. Plain 352 calls / 236,158 triangles; every modifier 352 / 236,166 (a flag on each bar is 2 triangles). Planted: an aura mesh on each elite -> `four hasted bodies draw 4 more calls than four plain ones`. The first arena built over the booted floor draws more than every later one (515 against 479 in an earlier seven-body version of the scene; not chased), so one is built and thrown away.
+
+**Dev access.** `?elite=<modifier>` with `?arena=` and `dungeonTest.buildArena(roster, level, elite)`. `?waves=off` also leaves elites out (so the harness keeps the keep as it was); the sim and the game deal the same elites, held in `waves.spec.ts` against `simulateLevel`'s `eliteBodies`.
+
+**Tests, and the bugs planted** (each against its own test, restored):
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| node: each modifier's numbers | armoured x1 / hasted tell ignored | `guard floor 1: armoured is not twice the vitality` / `guard floor 1: hasted does not tell in 0.8 of the time` |
+| node: hasted as `decideEnemy` runs it | tell ignored | `the hasted guard winds up 0.5, not 0.8 of the plain 0.5` |
+| node: no boss, rattler or bonecaller, 1,000 seeds x 3 floors | eligibility dropped | `seed 13 floor 1: a captain was dealt armoured` |
+| node: the rates per floor | floor two 25% | `floor 2: 24.89% of eligible bodies roll an elite against the 15% asked` |
+| node: pays double, 2 pearls | `XP_PER_ELITE` = 25 | `an elite did not pay double experience` |
+| node: a volatile death leaves the pyre's fire | no pool | `a volatile guard left no fire` |
+| node: the glow survives the idle pose and loses to the wind-up and the struck flash | idle glow dropped | `the hasted guard's baked:0 does not glow at rest` |
+| sim: stands elites with their numbers, counts them, leaves fire | no fire / plain stats / not paid | `three volatile guards left fire that bit for 0 in all` / `an armoured guard was not built with twice the vitality` / `an escaped run report does not carry what a win pays` |
+| browser: the four modifiers' numbers and look | armoured x1 / plain stats in `spawnEnemy` / no idle glow / eyes untinted / no pip | `the armoured guard: vitality` / `the hasted guard: tell` / `the hasted guard does not glow its colour at rest` / `the hasted guard's eyes are a plain guard's` / `the hasted guard's bar has no pip in its colour` |
+| browser: a hasted guard's first frame of tell | tell ignored | `the hasted guard's first frame of tell is not 0.8 of the plain one's` |
+| browser: a real strike on a volatile guard | no fire / experience not doubled | `the volatile guard fell and left no fire` / `an elite did not pay double experience` |
+| browser: the dev link | not read | `the link did not build the arena it named` |
+| browser: the sim and the game deal the same elites | the sim dealing none | `floor 2 (seed 7): the sim and the game were not dealt the same elites` |
+| browser: a chamber of elites draws a plain chamber's calls | an aura mesh | `four hasted bodies draw 4 more calls than four plain ones: an elite must cost no draw call` |
+| browser: the bench tints | tint unread / glow 0.16 | `a hasted figure is no bluer against red than a plain one` / `a hasted figure is washed flat in its colour` |
+| `build:check` | `?elite=` read unguarded | `development-only code reached the production bundle: ?elite=` |
+
+### Stage D: attrition and the crossbow
+
+- **`TOP_UP` 12 -> 0 (D10).** A cleared chamber heals nothing; a mend door (30), a shrine (35) and the quarter of his maximum each descent restores stay. Node: `a chamber pays what its door showed, a clear heals nothing, and only the mend door heals` (plant `TOP_UP` 12 -> `a purse chamber healed the knight`). Browser (`combat.spec.ts`): a real blow on a mend chamber leaves him at 70 from 40 and a purse chamber at 40 (plant `TOP_UP` 12 in the game -> `a chamber behind a purse door healed the knight: the top-up is gone (it was 12)`). The existing purse scenario now expects 40, not 52.
+- **D11 was already true as built, and the plan's premise was wrong.** The Heavy Bolt's special swing carries `stagger: true`, and `blocks` (dungeon-hits.ts) lets a stagger blow past any shield; `hurledBlow` hands that to the bolt, the game and the sim both route the heavy bolt through it. A node test (`dungeon-bastion.test.ts`) and a browser test (`arena-kinds.spec.ts`, real keys, the Bastion in the arena) now hold it: an ordinary bolt is turned aside and a drawn Heavy Bolt wounds the Bastion from the front for every bolt in the quiver. Plants: `hurledBlow` with `stagger: false` -> `the heavy bolt was turned aside by a bastion's shield` (node) and `the Heavy Bolt was turned aside by the shield` (browser); an ordinary bolt let through (`blocks` bypassed) -> `an ordinary bolt wounded a bastion from the front`. **So D11 changed nothing about the crossbow, and the crossbow special's escape is not D11's to fix:** it was 3.3% at Stage 0, 0% after Stage B, 3.3% at C and D, and 0% in the final state (the arm cannot kill a 500-650 vitality boss from a four-bolt quiver; its deaths are the Mother 6, the King 6, the Bastion 5, stalkers 6). Below half the default bot's, so the plan's next step is owed to the operator: a bigger quiver or a heavier bolt for bosses is a weapon change, which this plan does not make.
+
+### Stage E: the tuning, and the stop rule
+
+Tooling first. `simulateArena(seed, level, roster, policy, start)` begins the knight on a share of his bar; `balance:bosses -- --duels --at-stair` plays every duel a second time with each policy starting on the median vitality it entered that floor's stair hall with (`stairShares`); the fairness check takes a policy and a start (D12: the default knight as well as the weak one); the run report is **D13's** targets (nine, replacing D9's). Tests: a duel can start on a share of the bar (plant: start ignored -> `starting on 20% of his bar the default knight lost 0% ... the start is not reaching the sim`), fairness reads the policy and the start (plant: always the weak knight -> `the Pyre Mother-shaped spike ... the default knight's deaths were not read`), each D13 band is inclusive at both ends (plant: default escape band 55-85 -> `escape %: over the band`), and the shipped numbers hold D12 for the default knight (plant: the Mother back at 215 -> `floor 1: the default knight died to mother 26 times and to captain 0`).
+
+The bots were measured at 30 runs from seed 1 (`balance:check`'s own), nine policies, before and after each stage:
+
+| stage | default escape | weak | weak-meta-max | default run s | default watch fight s | default vitality entering floor 1 / 2 / 3 stair hall | default deaths before the stair hall |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 (waves not yet) | 80.0 | 36.7 | 100 | 209 | 3.4 | 100 / 100 / 100 | 0 of 6 |
+| B (waves) | 80.0 | 36.7 | 100 | 238 | 5.7 | 100 / 100 / 100 | 0 of 6 |
+| C (elites) | 80.0 | 36.7 | 100 | 240 | 5.8 | 100 / 100 / 100 | 0 of 6 |
+| D (no top-up) | 76.7 | 20.0 | 76.7 | 240 | 5.8 | 100 / 100 / 100 | 1 of 7 |
+| E (final) | 83.3 | 10.0 | 63.3 | 244 | 6.2 | 100 / 100 / 100 | 0 of 5 |
+
+Stage C table (30 runs; the elites the bots fell are 8 to 12 a run for the strong policies):
+
+| policy | escape | deaths f1/f2/f3 | run s | fight watch/amb/gaunt/wave | hpAtStair f1/f2/f3 | before-boss | elite kills | boss s |
+|---|---|---|---|---|---|---|---|---|
+| default | 80 | 16.7 / 4 / 0 | 239.8 | 5.8 / 3.8 / 2.6 / 9.1 | 100 / 100 / 100 | 0 of 6 | 294 | 29.8 |
+| weak | 36.7 | 33.3 / 10 / 38.9 | 161.3 | 4.3 / 3 / 1.7 / 7.7 | 100 / 100 / 100 | 5 of 19 | 178 | 24.1 |
+| special | 100 | 0 / 0 / 0 | 239.9 | 6 / 4.1 / 2.5 / 9.2 | 100 / 100 / 100 | 0 of 0 | 360 | 29.6 |
+| special-fangs | 100 | 0 / 0 / 0 | 221.8 | 5.7 / 4 / 2.7 / 9.3 | 100 / 100 / 100 | 0 of 0 | 360 | 23.1 |
+| special-cleaver | 83.3 | 10 / 7.4 / 0 | 274.1 | 6.8 / 4.6 / 3.2 / 10.7 | 100 / 100 / 100 | 0 of 5 | 308 | 32.8 |
+| special-crossbow | 3.3 | 40 / 33.3 / 91.7 | 229.7 | 6.5 / 4.9 / 1.3 / 9.4 | 100 / 100 / 100 | 4 of 29 | 157 | 47.4 |
+| special-flask | 100 | 0 / 0 / 0 | 335.4 | 7.2 / 4.1 / 3.1 / 10.4 | 100 / 100 / 100 | 0 of 0 | 360 | 35.9 |
+| meta-max | 100 | 0 / 0 / 0 | 240.3 | 5.9 / 3.8 / 2.7 / 9.1 | 100 / 100 / 100 | 0 of 0 | 360 | 26.9 |
+| weak-meta-max | 100 | 0 / 0 / 0 | 202.3 | 4.7 / 3 / 1.7 / 8.1 | 100 / 100 / 100 | 0 of 0 | 360 | 22.3 |
+
+Stage D (no top-up; draught 6, bosses as plan 021):
+
+| policy | escape | deaths f1/f2/f3 | run s | fight watch/amb/gaunt/wave | hpAtStair f1/f2/f3 | before-boss | elite kills | boss s |
+|---|---|---|---|---|---|---|---|---|
+| default | 76.7 | 16.7 / 4 / 4.2 | 239.8 | 5.8 / 3.8 / 2.7 / 9.1 | 100 / 100 / 100 | 1 of 7 | 292 | 29.8 |
+| weak | 20 | 53.3 / 42.9 / 25 | 66.4 | 3.2 / 2.9 / 1.7 / 7.2 | 92.2 / 73.6 / 100 | 5 of 24 | 111 | 17.5 |
+| special | 96.7 | 3.3 / 0 / 0 | 239.4 | 5.9 / 4.1 / 2.5 / 9.2 | 100 / 100 / 100 | 0 of 1 | 351 | 29.5 |
+| special-fangs | 100 | 0 / 0 / 0 | 221.8 | 5.7 / 4 / 2.7 / 9.3 | 100 / 100 / 100 | 0 of 0 | 360 | 23.3 |
+| special-cleaver | 80 | 13.3 / 7.7 / 0 | 272 | 6.8 / 4.6 / 3.2 / 10.8 | 100 / 100 / 100 | 0 of 6 | 299 | 32.7 |
+| special-crossbow | 3.3 | 40 / 44.4 / 90 | 212.2 | 6 / 4.6 / 1.1 / 8.3 | 100 / 99.2 / 100 | 5 of 29 | 141 | 45.1 |
+| special-flask | 100 | 0 / 0 / 0 | 335.4 | 7.1 / 4.1 / 3.1 / 10.4 | 100 / 100 / 100 | 0 of 0 | 360 | 36.4 |
+| meta-max | 100 | 0 / 0 / 0 | 240.3 | 5.9 / 3.8 / 2.7 / 9.1 | 100 / 100 / 100 | 0 of 0 | 360 | 26.9 |
+| weak-meta-max | 76.7 | 0 / 3.3 / 20.7 | 200.8 | 4.5 / 3 / 1.7 / 7.8 | 92.3 / 94.3 / 100 | 6 of 7 | 312 | 21.1 |
+
+Stage E, the shipped state (Grave Draught 5, the Mother 150, the King 650 with damage 19/12/16/17):
+
+| policy | escape | deaths f1/f2/f3 | run s | fight watch/amb/gaunt/wave | hpAtStair f1/f2/f3 | before-boss | elite kills | boss s |
+|---|---|---|---|---|---|---|---|---|
+| default | 83.3 | 3.3 / 0 / 13.8 | 244.3 | 6.2 / 3.9 / 2.7 / 9.2 | 100 / 100 / 100 | 0 of 5 | 351 | 32.2 |
+| weak | 10 | 50 / 53.3 / 57.1 | 63.5 | 3.2 / 2.9 / 1.7 / 7.1 | 90.7 / 57.2 / 100 | 8 of 27 | 90 | 16.3 |
+| special | 96.7 | 0 / 0 / 3.3 | 241.4 | 5.9 / 4 / 2.5 / 9.2 | 100 / 100 / 100 | 0 of 1 | 360 | 31 |
+| special-fangs | 100 | 0 / 0 / 0 | 223.3 | 5.7 / 4 / 2.7 / 9.3 | 100 / 100 / 100 | 0 of 0 | 360 | 25.2 |
+| special-cleaver | 80 | 6.7 / 7.1 / 7.7 | 280.7 | 6.8 / 4.5 / 3.2 / 10.8 | 100 / 100 / 100 | 0 of 6 | 326 | 32 |
+| special-crossbow | 0 | 30 / 38.1 / 100 | 248.8 | 6.5 / 4.9 / 1.8 / 8.9 | 100 / 97.2 / 91.2 | 6 of 30 | 176 | 44.8 |
+| special-flask | 56.7 | 0 / 0 / 43.3 | 337.4 | 7.1 / 4.4 / 3 / 10.5 | 100 / 100 / 100 | 0 of 13 | 360 | 34.2 |
+| meta-max | 100 | 0 / 0 / 0 | 236.9 | 6 / 3.8 / 2.7 / 9.2 | 100 / 100 / 100 | 0 of 0 | 360 | 28.5 |
+| weak-meta-max | 63.3 | 0 / 3.3 / 34.5 | 199.8 | 4.5 / 3 / 1.7 / 7.8 | 92.3 / 89.7 / 86.1 | 5 of 11 | 312 | 21 |
+
+**Step 1: wave sizes and the elite rates: nothing moved, and why.** The bots do not feel more waves or more elites. Elite kills doubled (321 -> 642 over 30 runs at rates 30% and 45% a floor) and the default knight's escape stayed 83.3 and its run 257 s. A much larger table (three to five later waves, 20 bodies a chamber, elites 30/45/60%) with no Grave Draught did bring the default knight to 347 s, a 15 s watch fight and 4 of 7 deaths before the stair hall, but it took the weak knights to 0 and 3% (x3 below). Rates between 10% and 35% on floors two and three moved the default knight between 83 and 90 and nothing else, in no order (er1 to er5): this is noise at 30 runs, not a dial. So the D2 table and D7's rates are as Stages B and C dealt them.
+
+**Why the watch fight and the run length cannot reach D13 without D1.** The median watch fight is over every watch chamber the knight fought. Of 2,493 watch chambers in 300 floors, 1,353 (54%) are at layer two or shallower, which D1 keeps one wave (the tutorial beat), and those fight 3 to 5 s whatever the later chambers do; the other 1,140 are waved and fight 9 to 15 s (`wave` column). With `FIRST_WAVE_LAYERS` 0 (every chamber waved), with the later waves enlarged and floor-one elites, the default knight's watch fight is 12.3 s and its run 320 s (x2 below): both D13 targets met, with escape 90. That is a change to D1, which is not mine to make; it is the operator's to weigh.
+
+**Step 2: Grave Draught.** It dominates. With none at all (dr0), the default knight escapes 63.3% (from 80), the weak knight 0% (from 20) and weak-meta-max 6.7% (from 76.7); `+6` a kill over about 75 kills a run is 450 vitality a descent against a bar of 100. It is `DRAUGHT` 5 now (one dial, read by `takeBoon` and the card's text; tested). Draught 4 took weak-meta-max under its band with the weak knight at 3-7%; 5 is the value that left the shipped bosses on both sides of the weak/weak-meta-max line.
+
+**Step 3: boss vitality and damage.** The duel report, full bar (the default knight's median vitality entering every stair hall is still 100%, so the at-stair duel is the same duel; the weak knight's is 91% / 57% on floors one and two):
+
+| boss | floor | default died (before / after) | weak died (before / after) | boss s (default) | boss damage taken (default) |
+| --- | --- | --- | --- | --- | --- |
+| captain | 1 / 2 | 0 / 0 | 100 / 100 | 33 | 56 / 65 |
+| mother | 1 / 2 | 87 / 93 -> 3 / 7 | 100 / 80 -> 0 / 0 | 33 -> 25 | 106 -> 67, 103 -> 85 |
+| hound | 1 / 2 | 0 / 0 | 100 / 100 | 33 | 18 / 30 |
+| bastion | 1 / 2 | 0 / 0 | 100 / 100 | 33 | 36 / 40 |
+| king | 3 | 30 -> 87 | 100 / 100 | 58 -> 79 | 65 -> 97 |
+
+(Percent of 30 duels; the weak knight at 91% / 57% of its bar dies 100% to every boss but the Mother on floor one.) **The Pyre Mother is the default knight's one killer because of the length of her fight, not her damage:** at 215 vitality she kills 87-93% of its duels (floors one and two); at 0.6 of it (damage as it was) none; at 0.7 (150, shipped) 1 and 2 of 30; at 0.75, 3 and 13 of 30; at 0.8 with half her damage 1 and 7; her damage can fall to a fifth at full vitality and she still kills 2 and 6 of 30. So she is 150 vitality, her moves and damage as they were. The default knight's deaths before the stair hall, to waves, are 0 of 5; the King, at 650 vitality and damage x1.45 (13/8/11/12 -> 19/12/16/17), is where the default knight dies now (3 of its 5), and floor three is where the escape is decided. Fairness (D12): the default knight is killed by the Mother 1 and 2 times and by the others 0 (met, the fewest floored at one). **The weak knight's fairness is no longer met** (the Mother kills it 0 times at 150 vitality on both floors, the Captain 30): there is no setting of her that fits both knights, because the default knight dies to her at lower settings than the weak one does (at 0.75 of her vitality and full damage the weak knight is untouched, 0 and 0, while the default knight dies 3 and 13 of 30; at 215 it is 87 and 93 per cent against 100 and 80; the weak knight is untouched by every setting short of nearly her old self). I chose the default knight's, which D12 names.
+
+**The eight-setting table (30 runs, the three knights' escape; everything else as at Stage D unless said).** The wall is plan 021's: the dials that kill the default knight at the King kill the weak knight at it, and a weak knight that clears the first two floors is one or two runs.
+
+| # | setting | default | weak | weak-meta-max | note |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Stage D alone (draught 6, bosses of plan 021) | 76.7 | 20.0 | 76.7 | Mother kills the default knight in all 7 of its deaths: D12 fails |
+| 2 | no Grave Draught | 63.3 | 0 | 6.7 | the sustain that holds the bots at a full bar |
+| 3 | draught 4, a third wave on every chamber (`w`) | 80 | 10 | 76.7 | the D2 table made bigger changes nothing for wmm |
+| 4 | the pool bosses fair at x1.7 / 3 / 2.2 and the Mother x0.55, draught 6 | 80 | 6.7 | 43.3 | fair to the default knight, kills the weak one |
+| 5 | row 4 and draught 4 | 80 | 6.7 | 30.0 | |
+| 6 | the pool at x1.3 / 2 / 1.5 and the Mother x0.5, draught 4 | 96.7 | 6.7 | 46.7 | the default knight is then too safe |
+| 7 | `FIRST_WAVE_LAYERS` 0, bigger waves, elites 15/30/45% (floor one too), draught 3 | 90 | 10 | 83.3 | run 320 s, watch 12.3 s: D13's two length targets met |
+| 8 | **shipped**: the Mother 150, the King 650 (19/12/16/17), draught 5 | 83.3 | 10.0 | 63.3 | each of the three escapes is one run from its edge |
+
+The knife edge is real, not a rounding: at the shipped state the King's vitality at 665 leaves the weak knight 10% and the default knight 83.3; at 670 the weak knight is 0 (its three survivors all die); at 680 the default knight is 80 and the weak knight 0 and weak-meta-max still 63.3; the volley at 12 against 11 moves weak-meta-max between 63.3 and 70. **There is no King that gives all three.** **Disclosure:** the first runs that did give all three (a King of 650 and damage x1.45 with the Mother at 150 and draught 5: 80 / 13.3 / 53.3) were measured with a scratch script that multiplied every `damage:` after the King's row, which includes the `ELITES` table (the three modifiers that carry 1 became x1.45, wrathful x2.0 and the volatile fire 11.6). That was a bug in my tool, not a setting: it is not shipped, and the rows of this table are all clean runs of the repository's own files. It does show where the extra bite sits: elites that hit harder do separate the knights, which is D7's multiplier and not a dial of this plan, so it is the operator's to weigh as well.
+
+**Final D13 table (30 runs, `npm run balance:bosses`):**
+
+| target | measured | band | met |
+| --- | --- | --- | --- |
+| default escape | 83.3 | 55-80 | not met (one run) |
+| default deaths before the stair hall | 0 of 5 (0%) | at least a third | not met |
+| default vitality entering floor 1's stair hall | 100% | 40-80 | not met |
+| default median run | 244 s | 300-600 | not met |
+| default median watch fight | 6.2 s | 12-40 | not met |
+| weak escape | 10.0 | 10-35 | met (at the edge) |
+| weak-meta-max escape | 63.3 | 30-60 | not met (one run) |
+| weak-meta-max over weak | 53.3 points | at least 15 | met |
+| fairness (D12), default knight | Mother 1 and 2, the others 0 | at most twice | met |
+| fairness (D12), weak knight | Mother 0, Captain 30 | at most twice | **not met** (it was met before Stage E) |
+| boss fight, default (plan 021's D9, kept) | 33 s | 25-60 | met |
+
+Why the three that depend on carrying damage are unmet at any setting of the dials I was given: the default knight's median vitality entering floor one's stair hall is 100% even with no Grave Draught (dr0: 100 / 89.6 / 82.4), because floor one's chambers cost it about 25 vitality in all (21 of it ember hazards; floors two and three about 45 and 60) and a shrine (35) and a mend door (30) lie on every route; and none of its deaths are before the stair hall until the chambers are enlarged to the point where the weak knights are at 0. The default knight takes about 72 damage a floor in all, a third of it from the boss.
+
+**`balance:check`** is green (673.8 s, `bands.json` re-taken as text: `measured` for all nine policies, 27 bands moved to the next five beyond what was measured, each listed in the file's note, none widened beyond the measurement). **Price check (plan 019, report only; the prices are not changed).** The bots earn far more than plan 019's 45-pearl guess: the default knight's median run pays 200 pearls (about 76 kills, 45 for the floors, 25 for the win, 30 for the bosses, and 11.7 elites a run, each one pearl extra), the weak knight's 40 (3 elites a run). Elites are 6% of the default knight's pearls (about 188 without them). The set costs 900, which is 4.5 of the default knight's runs (4.8 without elites) and 22 of the weak knight's: the arithmetic "about twenty typical runs" holds for the weak knight and was never true for a knight that kills 76 bodies. A human's run log decides which; the Stage G playtest should read `pearls` off a few runs.
+
+### Interpretations and things I did not do
+
+- D11 is already true (above); I added the tests and nothing else. The crossbow special is at 0% and is not helped.
+- `?waves=off` leaves elites out as well as waves (the harness would otherwise meet armoured bodies in every floor-two scenario). The bench's tint is `?tint=`, not `?elite=`.
+- Elites are dealt from a second stream of their own rather than "the same stream after the waves", so the wave table moves no elite.
+- A volatile pyre is never dealt (a pyre already leaves fire).
+- Wrathful's colour is a red-orange a little off `THREAT`.
+- The sim bot's door choice is unchanged (a purse, else a mending, else the first); a bot that took the mend door when hurt would carry less damage into the stair hall, and I did not build it because the plan does not ask for it.
+- Not done: the full browser suite (CI is the gate; the harness is still on `?waves=off`: the follow-up to turn waves on suite-wide is open and noted in `tests/README.md`); Stage G; no GPU run (frame numbers are SwiftShader); the playtest decides whether a wave's arrival reads, whether an elite is told apart in a crowd and whether the 5-point Draught and the King's 650 are too much or too little.
+- Browser plants, one run each (the dev server and the shim): all listed above.

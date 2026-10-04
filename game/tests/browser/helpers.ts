@@ -15,6 +15,7 @@ import {
   TILE,
 } from '../../app/dungeon-floor.ts';
 import { BESTIARY, type EnemyKind } from '../../app/dungeon-bestiary.ts';
+import { swordContacts } from '../../app/dungeon-combat.ts';
 
 import { DEFAULT_BINDS, isMouseCode, type Action, type Slot } from '../../app/dungeon-save.ts';
 import type { Meta } from '../../app/dungeon-meta.ts';
@@ -241,7 +242,11 @@ export type Snapshot = {
   /** Plan 019: what the live run was dealt (arm, vitality, strike, boon cards, revives), read off the run itself. */
   run: { start: { arm: string; maxHp: number; strike: number; draftSize: number; defiance: number }; /** Plan 019 (D9), plan 020 (D7): the run's arm is settled - true on every floor but the hall (and the dev arena). */ armLocked: boolean };
   /** The development arena this page is charting floors as, or null for an ordinary keep. */
-  arena: { roster: EnemyKind[]; level: number } | null;
+  arena: { roster: EnemyKind[]; level: number; /** Plan 022 (D14): the modifier the arena was built with, when it was. */ elite?: 'hasted' | 'armoured' | 'wrathful' | 'volatile' } | null;
+  /** The bodies that have fallen and lie where they fell (the snapshot's `enemies` no longer lists them). */
+  corpses: { kind: EnemyKind; x: number; y: number; z: number; visible: boolean }[];
+  /** Plan 022: the rings a called wave shows, read off the ring meshes: where each is drawn, whether it is showing, the body it is for (its index in the spawn list, the chamber and the wave). */
+  waveMarks: { x: number; z: number; visible: boolean; wave: number; room: number; index: number }[];
   /**
    * Plan 021: the live boss body on this floor, or null. `phase` is its place in its `phases`, `move` its slot in the phase's rotation, `unhittable` and `change` the phase change in
    * progress, `attack` the move whose tell last began; `cue` is what its telegraph mesh is drawing, the shape read off the geometry on the mesh, and `bar` whether its own floating
@@ -295,6 +300,8 @@ export type Snapshot = {
   /** Plan 017: the chamber the knight stands in and its ways out. */
   chamber: {
     id: number; layer: number; reward: 'mend' | 'cache' | null; sealed: boolean; crossing: 'out' | 'in' | null;
+    /** Plan 022: the wave in play (the last one called), how many waves the chamber holds, and whether the rings of the next one are showing. */
+    wave: { at: number; of: number; marked: boolean };
     doors: { id: number; to: number; sign: string; x: number; z: number; radius: number; open: boolean; over: boolean }[];
   };
   /**
@@ -444,6 +451,13 @@ export type Snapshot = {
     aim: Point;
     room: number;
     awake: boolean;
+    /** Plan 022: 1 for the pack a chamber is dealt, 2 or more for a wave it calls once the one before is down; and the vitality it was built with. */
+    wave: number;
+    maxHp: number;
+    /** Plan 022 (D7, D8): the modifier the body carries, or null; the numbers it was built with and what it wears (the emissive of its first lit skin, and the colour of its eyes), read off the scene. */
+    elite: 'hasted' | 'armoured' | 'wrathful' | 'volatile' | null;
+    tell: number; speed: number; damage: number;
+    wears: { emissive: number; intensity: number; eye: number; frame: number | null };
   }[];
 };
 
@@ -562,6 +576,12 @@ export const DEFAULT_SEEDS = [0x1, 0x7, 0xc];
  * `test.use({ boss: null })` boots without the link, on a page of its own, and meets whatever the run was dealt.
  */
 export const DEFAULT_BOSS = 'captain';
+/**
+ * Plan 022 (D14): whether every page boots asking for the first wave of every chamber and nothing after it (`?waves=off`, development only). Waves change what a chamber holds - a pack is one wave of several, a room does not clear on its
+ * last kill - and some fifty scenarios stage a pack by counting what a chamber holds, kill it and expect the doors, the purse and the rank, so the suite boots with the later waves off, like it boots with the Captain, and what the waves do
+ * is held by `waves.spec.ts`. `test.use({ waves: null })` boots with them on, on a page of its own: the keep as a player meets it.
+ */
+export const DEFAULT_WAVES = 'off';
 
 /** Distance the knight keeps while lining a strike up: inside 1.8, with slack. */
 export const STRIKE_STANCE = 1.05;
@@ -664,6 +684,8 @@ export class Game {
     readonly hall = false,
     /** Plan 021 (D14): the `?boss=` link the page booted with, or null for none. Every page boots with the Captain, so the bosses a floor holds do not depend on the deal. */
     readonly boss: string | null = DEFAULT_BOSS,
+    /** Plan 022 (D14): the `?waves=` link the page booted with, or null for none (the later waves are dealt). Every page boots with `off`, so what a chamber holds is its first wave. */
+    readonly waves: string | null = DEFAULT_WAVES,
   ) {}
 
   /**
@@ -673,8 +695,8 @@ export class Game {
    * so the listeners belong to the pool, which re-points them at each scenario in turn. Attaching
    * them here too would go on charging a page's whole life to a object nobody holds any more.
    */
-  static async open(page: Page, info: TestInfo, seeds: number[], watch = true, hall = false, boss: string | null = DEFAULT_BOSS) {
-    const game = new Game(page, info, seeds, hall, boss);
+  static async open(page: Page, info: TestInfo, seeds: number[], watch = true, hall = false, boss: string | null = DEFAULT_BOSS, waves: string | null = DEFAULT_WAVES) {
+    const game = new Game(page, info, seeds, hall, boss, waves);
     if (watch) {
       page.on('pageerror', (error) => game.pageErrors.push(String(error)));
       page.on('console', (message) => {
@@ -697,7 +719,7 @@ export class Game {
     // itself (loading.spec.ts) drives its own `page.goto` on the plain URL instead of going through `Game`.
     // Plan 020 (D11): `hall=skip` keeps today's flow - the boot builds floor 1 and ENTER enters it - for the 138 callers of `game.enter()`. A scenario that is
     // about the hall opts out with `test.use({ hall: true })`, which boots the page the way a player's is: into the Tide Altar's hall.
-    await page.goto(`${CAPTURING ? '/?quality=full&' : '/?'}boot=eager${hall ? '' : '&hall=skip'}${boss === null ? '' : `&boss=${boss}`}`);
+    await page.goto(`${CAPTURING ? '/?quality=full&' : '/?'}boot=eager${hall ? '' : '&hall=skip'}${boss === null ? '' : `&boss=${boss}`}${waves === null ? '' : `&waves=${waves}`}`);
     // The hooks go up as soon as floor 1 exists, before the cold compile - but a fresh page on CI
     // shares its cores with a sibling worker's software-rasterised frames, and the 25 s default has
     // timed out here on three isolated specs in one run. This is a boot, so it gets the boot's budget.
@@ -1339,6 +1361,7 @@ const needsOwnPage = (options: {
   isolate: boolean;
   hall: boolean;
   boss: string | null;
+  waves: string | null;
   hasTouch: boolean;
   isMobile: boolean;
   storageState: unknown;
@@ -1348,6 +1371,7 @@ const needsOwnPage = (options: {
   options.isolate ||
   options.hall ||
   options.boss !== DEFAULT_BOSS ||
+  options.waves !== DEFAULT_WAVES ||
   options.hasTouch ||
   options.isMobile ||
   options.storageState !== undefined ||
@@ -1355,7 +1379,7 @@ const needsOwnPage = (options: {
   options.viewport?.height !== 700;
 
 export const test = base.extend<
-  { seeds: number[]; isolate: boolean; hall: boolean; boss: string | null; game: Game },
+  { seeds: number[]; isolate: boolean; hall: boolean; boss: string | null; waves: string | null; game: Game },
   { pool: Pool }
 >({
   seeds: [DEFAULT_SEEDS, { option: true }],
@@ -1372,6 +1396,8 @@ export const test = base.extend<
   hall: [false, { option: true }],
   /** Plan 021 (D14): the `?boss=` link the page boots with; `null` boots with none, and such a scenario has its own page. */
   boss: [DEFAULT_BOSS as string | null, { option: true }],
+  /** Plan 022 (D14): the `?waves=` link the page boots with; `null` boots with the later waves dealt, and such a scenario has its own page. */
+  waves: [DEFAULT_WAVES as string | null, { option: true }],
   pool: [
     async ({ browser }, runWorker) => {
       const pool = new Pool(browser);
@@ -1384,12 +1410,12 @@ export const test = base.extend<
   // the two have to be the same object. A scenario that needs its own gets a context built here from
   // the options it asked for; the rest are handed the worker's.
   page: async (
-    { browser, pool, isolate, hall, boss, hasTouch, isMobile, storageState, viewport },
+    { browser, pool, isolate, hall, boss, waves, hasTouch, isMobile, storageState, viewport },
     runTest,
     info,
   ) => {
     if (
-      !needsOwnPage({ isolate, hall, boss, hasTouch, isMobile, storageState, viewport })
+      !needsOwnPage({ isolate, hall, boss, waves, hasTouch, isMobile, storageState, viewport })
     ) {
       const pooled = await pool.take(info);
       pool.adopted = false;
@@ -1412,7 +1438,7 @@ export const test = base.extend<
   },
   // Named `runTest`, not `use`: a bare `use` reads as a React hook to the linter.
   game: async (
-    { page, pool, seeds, isolate, hall, boss, hasTouch, isMobile, storageState, viewport },
+    { page, pool, seeds, isolate, hall, boss, waves, hasTouch, isMobile, storageState, viewport },
     runTest,
     info,
   ) => {
@@ -1420,13 +1446,14 @@ export const test = base.extend<
       isolate,
       hall,
       boss,
+      waves,
       hasTouch,
       isMobile,
       storageState,
       viewport,
     });
     const game = own
-      ? await Game.open(page, info, seeds, true, hall, boss)
+      ? await Game.open(page, info, seeds, true, hall, boss, waves)
       : await Game.adopt(page, info, seeds, pool);
     await runTest(game);
     if (!own) await game.prove(pool);
@@ -1683,3 +1710,42 @@ export const settleBoss = async (game: Game) => {
   }
   throw new GameError('the boss was still changing phase after eight seconds');
 };
+
+// Plan 022: striking a staged pack with real input, shared by the wave scenarios (waves.spec.ts, frame-budget.spec.ts).
+const STANCE_DIRECTIONS = Object.keys(SCREEN_DIRECTIONS) as ScreenDirection[];
+const tilesWithin = (floor: Floor, near: Point, radius: number) =>
+  floor.tiles.map((tile) => ({ x: tile.x * TILE, z: tile.z * TILE })).filter((spot) => Math.hypot(spot.x - near.x, spot.z - near.z) < radius).sort((a, b) => Math.hypot(a.x - near.x, a.z - near.z) - Math.hypot(b.x - near.x, b.z - near.z));
+
+/** One real swing, aimed with a real arrow key. */
+export const swing = async (page: Page, key: string) => {
+  await page.keyboard.down(key);
+  await hold(page, 'attack');
+  await page.keyboard.up(key);
+  await release(page, 'attack');
+};
+
+/** Somewhere within `within` of `near` to stand with `count` bodies abreast inside the arc, 0.7 apart (a stalker's body is wider than that, so they are staged mid-windup, which crowd separation leaves alone), each slot checked against the production contact rule. */
+export const stanceNear = (floor: Floor, near: Point, within: number, count: number) => {
+  for (const player of tilesWithin(floor, near, within)) {
+    if (!canStand(floor.cells, player.x, player.z)) continue;
+    for (const name of STANCE_DIRECTIONS) {
+      const facing = SCREEN_DIRECTIONS[name], across = { x: -facing.z, z: facing.x }, slots: Point[] = [];
+      for (let i = 0; i < count; i++) {
+        const lateral = (i - (count - 1) / 2) * 0.7, spot = { x: player.x + facing.x * 1.05 + across.x * lateral, z: player.z + facing.z * 1.05 + across.z * lateral };
+        if (!canStand(floor.cells, spot.x, spot.z) || !swordContacts(floor.cells, player, facing, spot, 0)) break;
+        slots.push(spot);
+      }
+      if (slots.length === count) return { ...player, facing, slots, key: ARROW_KEYS[name] };
+    }
+  }
+  throw new Error(`no stance within ${within} of (${near.x.toFixed(2)}, ${near.z.toFixed(2)}) fits ${count} bodies in the arc`);
+};
+
+/** Steps the clock by hand until `done` reads true of the snapshot, or throws naming what never happened. */
+export const until = async (game: Game, what: string, done: (s: Snapshot) => boolean, maxMs = 3000, stepMs = 50) => {
+  let state = await game.state();
+  for (let t = 0; t < maxMs && !done(state); t += stepMs) { await game.step(stepMs); state = await game.state(); }
+  expect(done(state), `${what} did not happen within ${maxMs} ms`).toBe(true);
+  return state;
+};
+

@@ -48,7 +48,13 @@ export function summarise(reports: RunReport[]): Summary {
     summary[`floor${level}.deathRate`] = reached.filter(f => f.outcome === 'died').length / reached.length * 100;
     const cleared = reached.filter(f => f.outcome === 'cleared');
     if (cleared.length) summary[`floor${level}.medianHpLeft`] = median(cleared.map(f => f.hpAfter / f.maxHpAfter * 100));
+    // Plan 022: the vitality he walked into the stair hall with, over the floors where he reached it.
+    const atStair = reached.flatMap(f => typeof f.hpAtStair === 'number' ? [f.hpAtStair] : []);
+    if (atStair.length) summary[`floor${level}.medianHpAtStair`] = median(atStair);
   }
+  // Plan 022: of the floors he died on, the share he died on before the stair hall (D13: at least a third for the default knight). Absent when nobody died.
+  const deaths = reports.flatMap(r => r.floors).filter(f => f.outcome === 'died');
+  if (deaths.length) summary.deathsBeforeBoss = deaths.filter(f => f.deathsBeforeBoss === 1).length / deaths.length * 100;
   return summary;
 }
 

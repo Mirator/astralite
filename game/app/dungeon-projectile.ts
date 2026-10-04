@@ -4,7 +4,7 @@
 //
 // Pure, like the rest of the rules: no React, no DOM, no three.js. The renderer owns the mesh and the
 // trail; this owns whether the shot connected and where it stopped.
-import { BESTIARY, type Bolt, type EnemyKind } from './dungeon-bestiary.ts';
+import { deathPoolOf, type Bolt, type EliteModifier, type EnemyKind } from './dungeon-bestiary.ts';
 import { TILE, cellKey } from './dungeon-floor.ts';
 
 export type Shot = {
@@ -166,11 +166,11 @@ export type Pool = {
 export const HOSTILE_POOL_RINGS = 6;
 
 /**
- * The fire a kind leaves where it falls (`deathPool` in the bestiary), burning from its first bite; null for
- * every kind that leaves none. What it bites is the caller's choice - the game turns these on the knight.
+ * The fire a kind leaves where it falls (`deathPool` in the bestiary, or a volatile elite's, plan 022 D7), burning from its first bite; null for
+ * every body that leaves none. What it bites is the caller's choice - the game turns these on the knight.
  */
-export const deathPool = (kind: EnemyKind, at: { x: number; z: number }): Pool | null => {
-  const fire = BESTIARY[kind].deathPool;
+export const deathPool = (kind: EnemyKind, at: { x: number; z: number }, elite?: EliteModifier): Pool | null => {
+  const fire = deathPoolOf(kind, elite);
   return fire ? { x: at.x, z: at.z, radius: fire.radius, life: fire.life, damage: fire.damage, interval: fire.interval, timer: 0 } : null;
 };
 

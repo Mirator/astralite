@@ -20,6 +20,7 @@ import { animateCloth } from './dungeon-motion';
 import { altarHall, canStand, dealBosses, gateRacks, generateFloor, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
 import { FINAL_BOSS } from './dungeon-bestiary';
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
+import { allElite, corpseSink, corpsesDue, idleClock, parseElite, roomTiles, springing, waveDue, waveSpots, wavedFloor, WAVE_CAP, WAVE_MARK, type WaveClock } from './dungeon-waves';
 import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import SlotPicker from './dungeon-slot-picker';
 import AltarPanel, { type AltarKind } from './dungeon-altar-panel';
@@ -40,7 +41,7 @@ import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, migrateStored, readBest, readMeta, readRuns, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
 import { bank, buyArm, buyUpgrade, chooseArm, freshMeta, pearlsFor, runStart as metaRunStart, UPGRADES, type Meta } from './dungeon-meta';
-import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, SHRINE, SHRINE_REACH, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
 import { beginMove, dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, THREAT, type Enemy, type EnemyKind } from './dungeon-enemy-view';
@@ -388,6 +389,11 @@ export default function DungeonGame() {
     const swingHits = new Set<Enemy>();
     let gameStatus: 'playing' | 'complete' | 'won' | 'lost' = 'playing';
     const stairClear = () => stage.enemies.every(e => e.room !== floor.goal || e.dead);
+    // Plan 022 (dungeon-waves.ts): where a chamber's waves stand, read off its bodies for the snapshot - the wave in play (the last one called), how many the chamber holds, and whether the rings of the next one show.
+    const waveState = (room: number) => {
+      const here = stage.enemies.filter(e => e.room === room), pending = Math.min(...here.filter(e => e.wave > 1 && !e.awake && !e.dead && !e.buried).map(e => e.wave)), of = Math.max(1, ...here.map(e => e.wave));
+      return { at: Number.isFinite(pending) ? pending - 1 : of, of, marked: waveMarks.some(mark => mark.enemy.room === room) };
+    };
     // The last warden's fall unseals the stair; the knight still has to take it, and nothing ends until he does.
     const openStair = () => {
       if (stairOpen) return;
@@ -421,10 +427,10 @@ export default function DungeonGame() {
       const fall = fallOf(stage.enemies, stage.enemies.indexOf(enemy));
       if (fall.reassembles) { rebury(enemy, stage.enemies[enemy.summoner]); return; }
       enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind); dropMarks(enemy);
-      award(resolveKill(run, enemy.kind)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
+      award(resolveKill(run, enemy.kind, !!enemy.elite)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
       if (BESTIARY[enemy.kind].boss) { setBossBar(null); bossKey = ''; unmark(enemy); }
       // A pyre leaves its fire where it fell (dungeon-projectile's `deathPool`), which bites the knight.
-      const fire = deathPool(enemy.kind, enemy.group.position), ring = fire ? hostilePoolMeshes.find(mesh => !mesh.visible) : undefined;
+      const fire = deathPool(enemy.kind, enemy.group.position, enemy.elite), ring = fire ? hostilePoolMeshes.find(mesh => !mesh.visible) : undefined;
       if (fire && ring) { ring.visible = true; ring.position.set(fire.x, .07, fire.z); ring.scale.setScalar(fire.radius); hostilePools.push({ pool: fire, mesh: ring, kind: enemy.kind }); burst(enemy.group.position, 0xff8c38, 18); }
       // Everything a summoner called crumbles with it, standing or still buried, and none of it pays.
       for (const at of fall.crumble) {
@@ -490,9 +496,9 @@ export default function DungeonGame() {
       // began, and the log is cheap enough to reread once per run that guessing is not worth it.
       const end: RunEnd = { at: Date.now(), floor: level, won: !cause, cause, seconds: Math.max(0, Math.round(elapsed - runStart)), rank: run.rankLevel, xp: run.totalXp, kills: run.kills, boons: [...boonsTaken], seed: firstSeed,
         // Plan 019: the arm the run began holding, the ranks it began with and what it earns (D3). An arena pays nothing.
-        arm: runArm, upgrades: { ...runUpgrades }, pearls: arena ? 0 : pearlsFor({ floor: level, won: !cause, kills: run.kills, bosses: run.bosses }),
+        arm: runArm, upgrades: { ...runUpgrades }, pearls: arena ? 0 : pearlsFor({ floor: level, won: !cause, kills: run.kills, bosses: run.bosses, elites: run.elites }),
         // Plan 021: the bosses felled, and which boss each floor the run reached held.
-        bosses: run.bosses, ...(runBosses.length ? { bossKinds: runBosses.slice(0, level) } : null) };
+        bosses: run.bosses, ...(runBosses.length ? { bossKinds: runBosses.slice(0, level) } : null), ...(run.elites ? { elites: run.elites } : null) };
       setBossBar(null); bossKey = '';
       setEnded(end);
       if (arena) return;
@@ -760,6 +766,14 @@ export default function DungeonGame() {
     const marked: { owner: Enemy; mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; at: { x: number; z: number }; radius: number }[] = [];
     const trail: { x: number; z: number }[] = []; let trailTimer = 0;
     const unmark = (owner?: Enemy) => { for (let i = marked.length - 1; i >= 0; i--) if (!owner || marked[i].owner === owner) { marked[i].mesh.visible = false; marked[i].mesh.material.color.setHex(0xff5a2a); marked.splice(i, 1); } };
+    // Plan 022 (D3, D4): the rings a chamber's next wave shows on the floor before its bodies stand, one on each spot (`waveSpots`: never within the clearance of the knight), drawn on ring meshes of their own - the fire ring's own art, so they never wait for a
+    // pyre's fire to go out - in the threat colour, closing as the wave comes. `waveClock` is the rule's clock for the chamber the knight is in (dungeon-waves.ts `waveDue`, which the balance sim asks as well); the world only draws what it says.
+    const waveMeshes = Array.from({ length: WAVE_CAP }, () => { const mesh = makePoolMesh(); world.add(mesh); return mesh; });
+    const waveMarks: { enemy: Enemy; mesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; at: { x: number; z: number }; age: number }[] = [];
+    let waveClock: WaveClock = idleClock();
+    // The fallen of the waves before, sinking into the paving over the rings' WAVE_MARK and then no longer drawn (`corpseSink`): a corpse costs a standing body's draw calls, and the ten-body chamber cap would spend them all.
+    const sinking: { enemy: Enemy; age: number }[] = [];
+    const clearWaveMarks = () => { for (const mark of waveMarks) mark.mesh.visible = false; waveMarks.length = 0; waveClock = idleClock(); };
     // Plan 016: the Tolling Slam's ring on the floor while the maul is wound; the slam itself is impacts.slam.
     // An outline at the reach over a faint wash rather than the flask's solid ring: it has to say "this far"
     // under the knight for a second at a time without the paving disappearing under it. Made once at mount.
@@ -814,7 +828,7 @@ export default function DungeonGame() {
       for (const live of hostile) live.mesh.visible = false;
       hostile.length = 0;
       for (const live of hostilePools) live.mesh.visible = false;
-      hostilePools.length = 0; unmark(); trail.length = 0; trailTimer = 0;
+      hostilePools.length = 0; unmark(); clearWaveMarks(); sinking.length = 0; trail.length = 0; trailTimer = 0;
       for (const live of pools) live.mesh.visible = false;
       pools.length = 0;
     };
@@ -955,7 +969,10 @@ export default function DungeonGame() {
     // never recorded: no run log entry, no best run, no LAST KEEP seed.
     let arena: Arena | null = null;
     const setArena = (next: Arena | null) => { arena = next; setArenaOn(next); };
-    setArena(parseArena(new URLSearchParams(window.location.search).get('arena'), new URLSearchParams(window.location.search).get('level'), FLOORS));
+    // Plan 022 (D14): `?elite=<modifier>` (development only, ignored by a production build) makes every body of an `?arena=` roster that can carry it that elite, for playing one on demand.
+    const devElite = process.env.NODE_ENV !== 'production' ? parseElite(new URLSearchParams(window.location.search).get('elite')) : null;
+    const parsedArena = parseArena(new URLSearchParams(window.location.search).get('arena'), new URLSearchParams(window.location.search).get('level'), FLOORS);
+    setArena(parsedArena && devElite ? { ...parsedArena, elite: devElite } : parsedArena);
     // Plan 020: the Tide Altar's hall (dungeon-floor.ts `altarHall`), which is charted when the build that asked for it said so (`wantHall`) and is the same
     // room every time. The hall branch is first and the seed is only drawn below it, so a hall build takes nothing from the pinned or the real random stream.
     // `?hall=skip` (development only, set by the test harness as it sets `boot=eager`) keeps today's flow for the suite: the press builds floor 1 directly, and
@@ -965,12 +982,17 @@ export default function DungeonGame() {
     const startsInHall = () => !skipHall && !arena;
     // Plan 021 (D14): `?boss=<kind>` (development only, ignored by a production build) puts that boss on floors one and two, for a playtest or a test that needs a particular one.
     const devBoss = process.env.NODE_ENV !== 'production' ? parseBoss(new URLSearchParams(window.location.search).get('boss')) : null;
+    // Plan 022 (D14): `?waves=off` (development only, ignored by a production build) deals every chamber its first wave and nothing after, as the keep was before waves.
+    const devWavesOff = process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('waves') === 'off';
     // A run's bosses are dealt when its floor one is charted, from that floor's seed; every later floor reads them back, so a restart on a seed meets the same bosses.
     const bossedFloor = (seed: number, nextLevel: number): Floor => {
       if (nextLevel === 1) { const dealt = dealBosses(seed); runBosses = [devBoss ?? dealt[0], devBoss ?? dealt[1], FINAL_BOSS]; }
-      return generateFloor(seed, nextLevel, { boss: runBosses[nextLevel - 1] ?? FINAL_BOSS });
+      const laid = generateFloor(seed, nextLevel, { boss: runBosses[nextLevel - 1] ?? FINAL_BOSS });
+      // Plan 022 (D5): the later waves are dealt on top of what the generator laid, appended after every spawn, from their own hash stream. `?waves=off` (development only, D14) leaves the first wave alone, for comparing.
+      return devWavesOff ? laid : wavedFloor(laid, seed, nextLevel);
     };
-    const chart = (seed: number | undefined, nextLevel: number): Floor => wantHall ? altarHall() : arena ? arenaFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel, arena.roster) : bossedFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
+    const eliteArena = (laid: Floor, set: Arena): Floor => set.elite ? { ...laid, spawns: allElite(laid.spawns, set.elite) } : laid;
+    const chart = (seed: number | undefined, nextLevel: number): Floor => wantHall ? altarHall() : arena ? eliteArena(arenaFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel, arena.roster), arena) : bossedFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
     // A frame boundary the browser has painted: a rAF callback runs before its own frame's paint, so
     // it takes two. A hidden tab runs no animation frames, and a build must not wait on it. Nor does a
     // build under a driver's clock (`advanceTime` stopped the frame loop): the stages then only have to
@@ -1787,7 +1809,7 @@ export default function DungeonGame() {
           // open the moment he arrives. Any other seals behind him until its last body falls.
           if (!cleared.has(roomId) && !stage.enemies.some(e => e.room === roomId)) { cleared.add(roomId); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#a8d5b0'); }
           const node = mapNode(floor, roomId); mapPlayer.current?.setAttribute('cx', String(node.x)); mapPlayer.current?.setAttribute('cy', String(node.y));
-          const sprung = stage.enemies.filter(e => e.room === currentRoom.id && !e.awake && !e.dead && !e.buried);
+          const sprung = springing(stage.enemies, currentRoom.id);
           if (sprung.length) {
             sprung.forEach(e => { e.awake = true; e.group.visible = true; e.cooldown = Math.max(e.cooldown, 0.9); burst(e.group.position, 0xff4529, 10); });
             setNotice(`${currentRoom.name} · ambush`); noticeTime = 3; audio.play('warn'); shake = 0.12;
@@ -1862,7 +1884,7 @@ export default function DungeonGame() {
             // frame however much better the shrine looks. At this strength the
             // inverse square has the light spent by the time it reaches him.
             if (!feature.used) ember.bid(crystal.position, near, 4.4 + Math.sin(t*2)*.7, 0x71f4c4);
-            if (!feature.used && feature !== stage.altar && near < 1.5 && run.hp < run.maxHp) { feature.used = true; heal(run, 35); setHealth(run.hp); audio.play('clear'); burst(player.position,0x71f4c4,20); setNotice('+35 vitality'); noticeTime = 2; }
+            if (!feature.used && feature !== stage.altar && near < SHRINE_REACH && run.hp < run.maxHp) { feature.used = true; heal(run, SHRINE); setHealth(run.hp); audio.play('clear'); burst(player.position,0x71f4c4,20); setNotice(`+${SHRINE} vitality`); noticeTime = 2; }
           } else {
             const wasFiring = feature.phase > 2.6;
             feature.phase = (t + feature.room*.7) % 3.6;
@@ -2077,6 +2099,35 @@ export default function DungeonGame() {
           if(run.hp===0)endRun(kind);
         };
         trailTimer = sampleTrail(trail, trailTimer, player.position, dt);
+        // Plan 022 (D3, D4): the chamber the knight is in calls its next wave when every body before it is down - after the pause the rings go down where the bodies will stand (`waveSpots`), with a cue and no text, and when they
+        // have shown for WAVE_MARK the bodies stand on them, awake, in the burst `raise` plays, with the ambush's opening cooldown. The rule is dungeon-waves.ts's; scripts/balance/sim.ts asks the same one.
+        if (activeRoom >= 0) {
+          // Rings belong to the chamber that rang them: a knight who is somewhere else (a driver's teleport; a sealed chamber lets no one leave) leaves none behind.
+          if (waveMarks.some(mark => mark.enemy.room !== activeRoom)) clearWaveMarks();
+          const due = waveDue(stage.enemies, activeRoom, waveClock, dt);
+          waveClock = due.clock;
+          if (due.mark !== null) {
+            const called = stage.enemies.filter(e => e.room === activeRoom && e.wave === due.mark && !e.dead && !e.buried);
+            waveSpots(roomTiles(floor, activeRoom).map(t => ({ x: t.x * TILE, z: t.z * TILE })), called.map(e => ({ x: e.group.position.x, z: e.group.position.z })), { x: player.position.x, z: player.position.z }).forEach((at, i) => {
+              const mesh = waveMeshes[i]; mesh.visible = true; mesh.position.set(at.x, .07, at.z); mesh.scale.setScalar(1.45); mesh.material.color.setHex(THREAT);
+              waveMarks.push({ enemy: called[i], mesh, at, age: 0 });
+            });
+            for (const enemy of corpsesDue(stage.enemies, activeRoom, due.mark)) if (enemy.group.visible && !sinking.some(s => s.enemy === enemy)) sinking.push({ enemy, age: 0 });
+            audio.play('warn');
+          }
+          if (due.raise !== null) {
+            // D4: the knight is never stood on. A ring is fixed when it appears, so one he has since walked onto moves, as it did at the call, to the nearest open tile beyond the clearance (`waveSpots`); a ring already clear stays.
+            waveSpots(roomTiles(floor, activeRoom).map(t => ({ x: t.x * TILE, z: t.z * TILE })), waveMarks.map(mark => mark.at), { x: player.position.x, z: player.position.z }).forEach((at, i) => { waveMarks[i].at = at; });
+            for (const mark of waveMarks) {
+              const body = mark.enemy;
+              body.awake = true; body.group.visible = true; body.group.position.set(mark.at.x, .03, mark.at.z); body.anchor = { x: mark.at.x, z: mark.at.z }; body.cooldown = Math.max(body.cooldown, .9);
+              burst(body.group.position, 0xb9a4ff, 14);
+            }
+            clearWaveMarks();
+          }
+          // The rings close on their centres over WAVE_MARK and flicker, as the scatter's do.
+          for (const mark of waveMarks) { mark.age += dt; mark.mesh.scale.setScalar(1.45 - .45 * Math.min(1, mark.age / WAVE_MARK)); mark.mesh.material.opacity = .55 + Math.sin(t * 18) * .2; }
+        }
         stage.enemies.forEach((enemy, index) => {
           if (!enemy.awake) { hideMarks(enemy); return; }
           // A neighbour's noticing beat can pull a still-dormant body in early; scripts/balance/sim.ts
@@ -2144,6 +2195,12 @@ export default function DungeonGame() {
           // What the decision looks like: pose, gait, the landed blow's flash and its trails (dungeon-enemy-view).
           poseEnemy(enemy, intent, dt, t, elapsed);
         });
+        // Plan 022: the dead of the waves before go down into the floor as the next wave's rings close, after the death animation has had its way with them (it writes the corpse's height every frame until it settles).
+        for (let i = sinking.length - 1; i >= 0; i--) {
+          const fall = sinking[i], body = fall.enemy, sink = corpseSink(fall.age += dt);
+          if (sink.gone) { body.group.visible = false; sinking.splice(i, 1); continue; }
+          body.group.position.y = (body.death?.settled ? body.death.joints[0].endPosition.y : body.group.position.y) - sink.depth;
+        }
         // The rings a scatter has marked close on their centres over its tell and flicker, in the colour of every other tell, until they light.
         for (const mark of marked) { const tell = mark.owner.tell > 0 ? 1 - mark.owner.windup / mark.owner.tell : 1; mark.mesh.scale.setScalar(mark.radius * (1.45 - .45 * Math.min(1, Math.max(0, tell)))); mark.mesh.material.opacity = .55 + Math.sin(t * 18) * .2; }
         // Plan 021 (D8): the boss bar - on while a boss has noticed the knight and still stands, off the moment it falls or he does (`fell`, `endRun`). React hears of it only when what it shows changes.
@@ -2427,7 +2484,7 @@ export default function DungeonGame() {
       testHooks.setEnemyRigVisible = (index, visible) => { const rig = stage.enemies[index]?.group.userData.rig as THREE.Object3D | undefined; if (!rig) throw new Error(`no enemy at spawn index ${index}`); rig.visible = visible; };
       // The arena (dungeon-arena.ts), synchronous and deterministic like `buildFloor`: this roster, awake in
       // the gate of this floor, until `reset`.
-      testHooks.buildArena = (roster, arenaLevel = 1) => { setArena(roster.length ? { roster: [...roster], level: arenaLevel } : null); wantHall = false; buildFloor(arenaLevel); };
+      testHooks.buildArena = (roster, arenaLevel = 1, elite) => { setArena(roster.length ? { roster: [...roster], level: arenaLevel, ...(elite ? { elite } : null) } : null); wantHall = false; buildFloor(arenaLevel); };
       // The menu's arena page asks through this event, never through `dungeon-action`, so nothing about it
       // exists in a production build. Before the first floor exists it is a press of ENTER with the arena
       // set, which the boot then charts; once the keep is up it is a restart into the arena, entering it if
@@ -2474,7 +2531,9 @@ export default function DungeonGame() {
         wayDown: stage.doors[0] ? { x: stage.doors[0].spot.x, z: stage.doors[0].spot.z, radius: DOOR_RADIUS, open: !stage.doors[0].bars.visible, over: overDoor === stage.doors[0].door, inScene: [stage.doors[0].ring, stage.doors[0].veil, stage.doors[0].sigil].every(part => part.parent === floorGroup), sign: doorSignOf(floor, stage.doors[0].door) } : null,
         stair: !!stage.stairRing && stage.stairRing.parent === floorGroup,
       } : null,
-      arena: arena ? { roster: [...arena.roster], level: arena.level } : null,
+      // Plan 022: the rings a called wave shows, read off the ring meshes (where each is drawn, whether it is showing, and the body it is for), not off the plan that placed them.
+      waveMarks: waveMarks.map(mark => ({ x: mark.mesh.position.x, z: mark.mesh.position.z, visible: mark.mesh.visible, wave: mark.enemy.wave, room: mark.enemy.room, index: stage.enemies.indexOf(mark.enemy) })),
+      arena: arena ? { roster: [...arena.roster], level: arena.level, ...(arena.elite ? { elite: arena.elite } : null) } : null,
       // Plan 021: the live boss body, if one stands on this floor - its vitality and phase, the move it is in, whether it is taking damage, and what it is drawing (the cue's shape read off the mesh, and whether its own floating bar shows).
       boss: (() => { const body = stage.enemies.find(e => !e.dead && !e.buried && BESTIARY[e.kind].boss); if (!body) return null; const shape = body.cue.geometry as THREE.BufferGeometry & { type: string; parameters: { thetaLength?: number } };
         return { kind: body.kind, hp: body.hp, maxHp: body.maxHp, phase: body.bossPhase, move: body.move, unhittable: body.change > 0, change: body.change, awake: body.awake, windup: body.windup, attack: body.doing?.attack ?? null, cue: { visible: body.cue.visible, shape: shape.type === 'PlaneGeometry' ? 'lane' : (shape.parameters.thetaLength ?? 0) > 6 ? 'ring' : 'arc', scale: body.cue.scale.x }, bar: body.bar.visible, surge: body.surge?.visible ?? false, shield: BESTIARY[body.kind].shield ? (body.group.userData.shield as THREE.Object3D).visible : null }; })(),
@@ -2482,7 +2541,7 @@ export default function DungeonGame() {
       run: { start: { ...began }, armLocked },
       health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: pc.weapon.special ?? null }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), hostilePools: hostilePools.map(h => ({ kind: h.kind, x: h.pool.x, z: h.pool.z, radius: h.pool.radius, life: h.pool.life, damage: h.pool.damage, drawn: h.mesh.visible })), scatterMarks: marked.map(m => ({ x: m.at.x, z: m.at.z, radius: m.radius, drawn: m.mesh.visible, threat: m.mesh.material.color.getHex() === THREAT })), arrowsDrawn: arrowPool.filter(arrow => arrow.visible).length, hostileRings: hostilePoolMeshes.filter(ring => ring.visible).length, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: stage.enemies.filter(e => !e.dead && !e.buried).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, onStair: stairOpen && onStair },
-      chamber: { id: activeRoom, layer: floor.rooms[activeRoom]?.layer ?? -1, reward: floor.rooms[activeRoom]?.reward ?? null, sealed: !cleared.has(activeRoom), crossing: crossing ? (crossing.flipped ? 'in' : 'out') : null, doors: stage.doors.filter(view => view.door.from === activeRoom).map(view => ({ id: view.door.id, to: view.door.to, sign: doorSignOf(floor, view.door), x: view.spot.x, z: view.spot.z, radius: DOOR_RADIUS, open: !view.bars.visible, over: overDoor?.id === view.door.id })) },
+      chamber: { id: activeRoom, layer: floor.rooms[activeRoom]?.layer ?? -1, reward: floor.rooms[activeRoom]?.reward ?? null, sealed: !cleared.has(activeRoom), wave: waveState(activeRoom), crossing: crossing ? (crossing.flipped ? 'in' : 'out') : null, doors: stage.doors.filter(view => view.door.from === activeRoom).map(view => ({ id: view.door.id, to: view.door.to, sign: doorSignOf(floor, view.door), x: view.spot.x, z: view.spot.z, radius: DOOR_RADIUS, open: !view.bars.visible, over: overDoor?.id === view.door.id })) },
       stair: { x: stage.stairSpot.x, z: stage.stairSpot.z, radius: STAIR_RADIUS },
       // Plan 019: read off the scene - where each rack's group really stands and whether it is attached to the floor - not off the layout that placed it.
       racks: racks.map(rack => ({ x: rack.group.position.x, z: rack.group.position.z, kind: rack.kind, radius: PICKUP_RADIUS, over: rack === overRack, inScene: rack.group.parent === floorGroup, offered: rack === overRack && offered && offered !== 'stair' && offered !== 'altar' && offered !== 'down' && !offered.startsWith('door:') ? offered : null })),
@@ -2509,7 +2568,7 @@ export default function DungeonGame() {
       floor: { level, waterfalls: stage.atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
       player: { x: player.position.x, z: player.position.z, facing: { x: pc.facing.x, z: pc.facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime: pc.attackTime, attackBuffer: pc.attackBuffer, dashBuffer: pc.dashBuffer, dashTime: pc.dashTime, dashCooldown: pc.dashCooldown, chain: { beat: pc.chainBeat, beats: chainLength(pc.weapon), idle: Number.isFinite(pc.chainIdle) ? pc.chainIdle : null, damage: pc.swing.damage + run.strike, duration: pc.swing.duration }, invulnerable: run.invuln, hurtFlash, special: pc.weapon.special ? { id: pc.weapon.special.id, ready: specialAvailable(pc.weapon.special, { cooled: specialReady(run), quiver, out: !!harpoon }), cooldown: run.specialCooldown, charging: charging !== null, charge: charging !== null ? chargeLevel(pc.weapon.special, charging) : 0, held: charging ?? 0, live: pc.swingKind === 'special' && pc.attackTime > 0, buffered: specialBuffer, harpoon: harpoon ? { phase: harpoon.phase, x: harpoon.x, z: harpoon.z } : null, bare: !!harpoon, vault: vault ? { target: vault.target ? stage.enemies.filter(e => !e.dead).indexOf(vault.target) : null, distance: vault.distance, landed: vault.landed } : null } : null, swordAngle: player.userData.sword.rotation.y, cloak:{anchor:player.userData.cape.position.toArray(),pitch:player.userData.cape.rotation.x}, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, locomotion: {speed:gaitSpeed,phase:walkPhase,sprint:locomotion.sprint,pitch:player.userData.torso.rotation.x,height:player.position.y,arm:player.userData.arm.rotation.x,tabard:player.userData.tabard.rotation.x,knees:player.userData.legs.map((leg:THREE.Group)=>leg.userData.knee.rotation.x)}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
       corpses: stage.enemies.filter(e=>e.dead).map(e=>({kind:e.kind,x:e.group.position.x,y:e.group.position.y,z:e.group.position.z,scale:e.group.scale.toArray(),rotation:e.group.userData.rig.rotation.x,age:e.death?.age,settled:e.death?.settled,visible:e.group.visible,cue:e.cue.visible,bar:e.bar.visible,trails:e.trails.some(trail=>trail.effect.mesh.visible)})),
-      enemies: stage.enemies.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, buried: e.buried, summoner: e.summoner, blocked: e.blocked, visible: e.group.visible, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, pose: {shieldArm:e.group.userData.limbs[0].rotation.x,shieldTilt:e.group.userData.shield.rotation.x,pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x,weaponYaw:e.group.userData.weapon.rotation.y,attackAge:Number.isFinite(e.attackAge)?e.attackAge:null,trails:e.trails.filter(trail=>trail.effect.mesh.visible).length,cue:e.cue.visible} })),
+      enemies: stage.enemies.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, buried: e.buried, summoner: e.summoner, blocked: e.blocked, visible: e.group.visible, windup: e.windup, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, wave: e.wave, maxHp: e.maxHp, elite: e.elite ?? null, tell: e.tell, speed: e.speed, damage: e.damage, wears: { emissive: e.skins[0]?.emissive.getHex() ?? 0, intensity: e.skins[0]?.emissiveIntensity ?? 0, eye: (e.group.userData.eyes[0].material as THREE.MeshBasicMaterial).color.getHex(), frame: e.elite ? ((e.bar.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).color.getHex() : null }, pose: {shieldArm:e.group.userData.limbs[0].rotation.x,shieldTilt:e.group.userData.shield.rotation.x,pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x,weaponYaw:e.group.userData.weapon.rotation.y,attackAge:Number.isFinite(e.attackAge)?e.attackAge:null,trails:e.trails.filter(trail=>trail.effect.mesh.visible).length,cue:e.cue.visible} })),
     });
     const animate = (now: number) => {
       if (stopped || faulted) return; raf = requestAnimationFrame(animate);

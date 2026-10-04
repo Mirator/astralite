@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEFAULT_POLICY, simulateArena, simulateLevel, simulateRun, type Policy } from '../scripts/balance/sim.ts';
 import { arenaFloor } from '../app/dungeon-arena.ts';
+import { allElite } from '../app/dungeon-waves.ts';
+import { enemyStats } from '../app/dungeon-enemy.ts';
 import { generateFloor } from '../app/dungeon-floor.ts';
-import type { EnemyKind } from '../app/dungeon-bestiary.ts';
+import { BESTIARY, ELITE_MODIFIERS, type EliteModifier, type EnemyKind } from '../app/dungeon-bestiary.ts';
 import { weaponById } from '../app/dungeon-weapon.ts';
 import { freshMeta, type Meta } from '../app/dungeon-meta.ts';
+import { SHRINE } from '../app/dungeon-sim.ts';
 import { hurledBlow } from '../app/dungeon-combat.ts';
 import { landBlow } from '../app/dungeon-hits.ts';
 import { asReaper, TEST_BOSS, TEST_SCATTERER } from './fixtures/test-boss.ts';
@@ -33,8 +36,9 @@ test('the boon draft is independent of how often the knight dodges', () => {
   // Both streams come off the seed, but through different generators. Sharing one would make the
   // dodge rate silently deal different cards, which is exactly the confound that made an early skill
   // sweep read backwards.
-  const bold = simulateRun(0x7c0de, policy({ dodge: 1 }));
-  const timid = simulateRun(0x7c0de, policy({ dodge: 0 }));
+  // Plan 022 moved the seed this was pinned on (0x7c0de): with waves the knight who never dodges dies on floor one there with two cards. 0x4242 deals both six.
+  const bold = simulateRun(0x4242, policy({ dodge: 1 }));
+  const timid = simulateRun(0x4242, policy({ dodge: 0 }));
   // A knight who dies early drafts fewer cards (the bosses of plan 021 kill the one who never dodges): the cards both were dealt must be the same ones.
   const shared = Math.min(bold.boons.length, timid.boons.length);
   assert.ok(shared >= 3, `precondition: both knights were dealt at least three cards (${bold.boons.length} and ${timid.boons.length}), so equal prefixes mean something`);
@@ -207,18 +211,21 @@ test('the sim offers as many cards as the run it plays is owed', () => {
 });
 
 test('a run report says what banking it would pay', () => {
-  // Written out, not recomputed: a pearl a kill, 15 a floor behind him, 25 for getting out, and (plan 021) ten for each boss the floors say fell.
+  // Written out, not recomputed: a pearl a kill, 15 a floor behind him, 25 for getting out, (plan 021) ten for each boss the floors say fell and (plan 022) a second pearl for each elite they say fell.
+  const elitesOf = (report: ReturnType<typeof simulateRun>) => report.floors.reduce((sum, floor) => sum + Object.values(floor.eliteKills).reduce((a, b) => a + (b ?? 0), 0), 0);
   const felled = (report: ReturnType<typeof simulateRun>) => report.floors.filter(floor => floor.bossHpLeft !== null).length;
-  const won = simulateRun(0x1, policy());
+  // Seed 2 (plan 022 Stage E moved it from 0x1, whom the stronger Bone King now beats).
+  const won = simulateRun(0x2, policy());
   assert.equal(won.outcome, 'escaped', 'precondition: the default knight escapes this seed');
   assert.equal(felled(won), 3, 'precondition: the escape went through three bosses');
-  assert.equal(won.pearls, won.kills + 3 * 15 + 25 + 3 * 10, 'an escaped run report does not carry what a win pays');
-  // Seeds 11 and 8 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159.
-  for (const [seed, floor] of [[11, 2], [8, 3]] as const) {
+  assert.ok(elitesOf(won) > 0, 'precondition: the escape felled an elite, so what an elite pays is in the sum');
+  assert.equal(won.pearls, won.kills + 3 * 15 + 25 + 3 * 10 + elitesOf(won), 'an escaped run report does not carry what a win pays');
+  // Seeds 2 and 85 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159; plan 022 Stage D (no top-up) moved them from 11 and 8.
+  for (const [seed, floor] of [[2, 2], [85, 3]] as const) {
     const lost = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
     assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
     assert.equal(felled(lost), floor - 1, `precondition: a run lost on floor ${floor} felled the ${floor - 1} bosses behind it`);
-    assert.equal(lost.pearls, lost.kills + (floor - 1) * 15 + (floor - 1) * 10, `a run lost on floor ${floor} does not report what a death pays`);
+    assert.equal(lost.pearls, lost.kills + (floor - 1) * 15 + (floor - 1) * 10 + elitesOf(lost), `a run lost on floor ${floor} does not report what a death pays`);
   }
 });
 
@@ -256,4 +263,94 @@ test('the rings a scatter marks become fire that bites the knight and bills the 
     for (const r of reports) assert.equal(r.damage.reaper, r.poolDamage.reaper, 'a scatterer dealt damage that was not fire');
     assert.equal(total(reports, r => r.bossDamage), total(reports, r => r.poolDamage.reaper), 'the fire was not billed to the boss');
   });
+});
+
+test('a sanctuary\'s shrine mends a hurt knight once, as the game does (plan 022 Stage 0)', () => {
+  // dungeon-game.tsx has always healed SHRINE the first frame the knight stands hurt within reach of an unused shrine; the sim did not, which is the parity gap this closes.
+  let mends = 0, whole = 0;
+  for (const seed of Array.from({ length: 30 }, (_, i) => 1 + i * 7919)) {
+    const run = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
+    for (const floor of run.floors) {
+      const sanctuaries = new Set(generateFloor(seed + floor.level - 1, floor.level).rooms.filter(room => room.id !== 0 && room.encounter === 'sanctuary').map(room => room.id));
+      assert.equal(new Set(floor.shrineMends.map(m => m.room)).size, floor.shrineMends.length, `seed ${seed} floor ${floor.level}: a shrine mended the knight twice`);
+      for (const mend of floor.shrineMends) {
+        assert.ok(sanctuaries.has(mend.room), `seed ${seed} floor ${floor.level}: a chamber that is no sanctuary mended the knight`);
+        assert.ok(mend.healed > 0 && mend.healed <= SHRINE, `seed ${seed} floor ${floor.level}: a shrine mended ${mend.healed}, and heals at most ${SHRINE}`); mends++; if (mend.healed === SHRINE) whole++;
+      }
+    }
+  }
+  assert.ok(mends >= 5 && whole >= 1, `precondition: only ${mends} shrine mends over 30 runs (${whole} of the full ${SHRINE}), so the shrine was barely exercised`);
+});
+
+test('the sim deals a floor its later waves, calls each only after the one before is down, and still clears the floor (plan 022 Stage B)', () => {
+  let seconds = 0, plainSeconds = 0, groups = 0, raised = 0, cleared = 0;
+  const seeds = [1, 2, 3, 4, 5, 6].map(i => i * 7919);
+  for (const seed of seeds) {
+    // The same floor with its first waves only (a floor a test lays itself is not dealt waves) and as the sim deals it.
+    const plain = simulateLevel(seed, 2, policy(), generateFloor(seed, 2)), waved = simulateLevel(seed, 2, policy());
+    assert.equal(plain.waveBodies.length, 0, 'a floor handed in was dealt waves');
+    assert.equal(plain.wavesRaised, 0);
+    groups += new Set(waved.waveBodies.map(b => `${b.room}:${b.wave}`)).size;
+    raised += waved.wavesRaised;
+    if (waved.outcome === 'cleared') cleared++;
+    assert.ok(waved.wavesRaised <= new Set(waved.waveBodies.map(b => `${b.room}:${b.wave}`)).size, `seed ${seed}: more waves stood than were dealt`);
+    assert.equal(waved.waveBodies.every(b => b.wave >= 2), true);
+    seconds += waved.seconds; plainSeconds += plain.seconds;
+  }
+  assert.ok(groups >= 12 && raised >= 6, `precondition: ${groups} waves were dealt over six floors and ${raised} stood, so the knight barely met one`);
+  assert.ok(cleared >= 4, `only ${cleared} of six floors were cleared with waves in them: the knight is stuck waiting for a wave that never stands`);
+  assert.ok(seconds > plainSeconds * 1.1, `six floors took ${seconds.toFixed(0)} s with waves and ${plainSeconds.toFixed(0)} s without: a wave should add fights, not nothing`);
+});
+
+test('a floor the knight died on says whether it was before the stair hall (plan 022 carry-over)', () => {
+  const weak = policy({ dodge: 0, reaction: 0.6 });
+  // Read off the boss, which the report observes on its own: a knight who died before the stair hall never met it. Seeds 1 and 2 (plan 022 Stage D moved them from 0x3ddf and 0x7bbd).
+  const early = simulateRun(1, weak).floors.find(f => f.outcome === 'died');
+  const late = simulateRun(2, weak).floors.find(f => f.outcome === 'died');
+  assert.ok(early && late, 'seeds 1 and 2 no longer each end in a death with the weak knight: pick other seeds');
+  assert.equal(early.bossDamage + early.bossSeconds, 0, 'precondition: the boss never met the knight who died on this floor');
+  assert.equal(early.hpAtStair, null, 'precondition: he never reached the stair hall');
+  assert.equal(early.deathsBeforeBoss, 1, 'a death before the stair hall is not counted as one');
+  assert.ok(late.bossDamage > 0 && late.hpAtStair !== null, 'precondition: this knight died to the boss in the stair hall');
+  assert.equal(late.deathsBeforeBoss, 0, 'a death in the stair hall is counted as one before it');
+  const won = simulateRun(0x51ed, policy()).floors.find(f => f.outcome === 'cleared');
+  assert.ok(won, 'precondition: the default knight clears a floor on seed 0x51ed');
+  assert.equal(won.deathsBeforeBoss, 0, 'a floor that was cleared counts a death before the boss');
+});
+
+test('the sim stands each elite with its modifier\'s numbers, counts the ones it fells, and a volatile one leaves fire that bites (plan 022 Stage C)', () => {
+  const trio = (modifier: EliteModifier | null, seed: number) => {
+    const laid = arenaFloor(seed, 2, ['guard', 'guard', 'guard']);
+    return simulateLevel(seed, 2, policy(), (modifier ? { ...laid, spawns: allElite(laid.spawns, modifier) } : laid) as Parameters<typeof simulateLevel>[3]);
+  };
+  const seeds = [3, 4, 5], plain = seeds.map(seed => trio(null, seed));
+  assert.ok(plain.every(r => r.outcome === 'cleared' && r.eliteBodies.length === 0 && Object.keys(r.eliteKills).length === 0 && Object.values(r.poolDamage).every(v => v === 0)), 'precondition: three plain guards are cleared with no elite and no fire');
+  const guard = enemyStats('guard', 2);
+  for (const modifier of ELITE_MODIFIERS) {
+    const reports = seeds.map(seed => trio(modifier, seed));
+    for (const r of reports) {
+      assert.equal(r.outcome, 'cleared', `three ${modifier} guards were not cleared`);
+      assert.equal(r.eliteBodies.length, 3, `the sim stood ${r.eliteBodies.length} of three ${modifier} guards as elites`);
+      assert.deepEqual(r.eliteKills, { [modifier]: 3 }, `the sim did not count its ${modifier} kills`);
+    }
+    if (modifier === 'armoured') assert.ok(reports.every(r => r.eliteBodies.every(b => b.hp === guard.hp * 2)), 'an armoured guard was not built with twice the vitality');
+    else assert.ok(reports.every(r => r.eliteBodies.every(b => b.hp === guard.hp)), `a ${modifier} guard was built with a different vitality`);
+    const fire = reports.reduce((sum, r) => sum + r.poolDamage.guard, 0);
+    if (modifier === 'volatile') assert.ok(fire >= 24, `three volatile guards left fire that bit for ${fire} in all (three floors of three bodies)`);
+    else assert.equal(fire, 0, `a ${modifier} guard left fire`);
+  }
+  // Twice the vitality is a longer fight against the same three bodies.
+  const armoured = seeds.map(seed => trio('armoured', seed));
+  assert.ok(armoured.reduce((s, r) => s + r.seconds, 0) > plain.reduce((s, r) => s + r.seconds, 0) + 1, 'three armoured guards were no longer a fight than three plain ones');
+});
+
+test('the floors the sim lays are dealt elites as the rates say: none on floor one, some on two and three, never on a boss (plan 022 Stage C)', () => {
+  const counts = [0, 0, 0];
+  for (const seed of [1, 2, 3, 4, 5, 6].map(i => i * 7919)) for (const level of [1, 2, 3]) {
+    const report = simulateLevel(seed, level, policy());
+    counts[level - 1] += report.eliteBodies.length;
+    for (const b of report.eliteBodies) assert.ok(!BESTIARY[b.kind].boss && b.kind !== 'rattler' && b.kind !== 'bonecaller', `seed ${seed} floor ${level}: a ${b.kind} stood as ${b.elite}`);
+  }
+  assert.equal(counts[0], 0, 'floor one stood an elite');
+  assert.ok(counts[1] > 5 && counts[2] > 12, `precondition: six floors of two and three stood ${counts[1]} and ${counts[2]} elites`);
 });
