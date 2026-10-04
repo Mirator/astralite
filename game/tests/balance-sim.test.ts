@@ -8,7 +8,7 @@ import { generateFloor } from '../app/dungeon-floor.ts';
 import { BESTIARY, ELITE_MODIFIERS, type EliteModifier, type EnemyKind } from '../app/dungeon-bestiary.ts';
 import { weaponById } from '../app/dungeon-weapon.ts';
 import { CHAMBER_PEARLS, FLOOR_PEARLS, freshMeta, type Meta } from '../app/dungeon-meta.ts';
-import { SHRINE } from '../app/dungeon-sim.ts';
+import { fightChamber, SHRINE } from '../app/dungeon-sim.ts';
 import { hurledBlow } from '../app/dungeon-combat.ts';
 import { BOSS_BOLT, landBlow } from '../app/dungeon-hits.ts';
 import { asReaper, TEST_BOSS, TEST_SCATTERER } from './fixtures/test-boss.ts';
@@ -373,4 +373,32 @@ test('the floors the sim lays are dealt elites as the rates say: a few on floor 
   }
   assert.ok(counts[1] > 5 && counts[2] > 12, `precondition: six floors of two and three stood ${counts[1]} and ${counts[2]} elites`);
   assert.ok(counts[0] < counts[1], `floor one (5%) stood ${counts[0]} elites against floor two's ${counts[1]} (15%)`);
+});
+
+// Plan 024 Stage 0: the report's direct measure of whether a fight room costs the knight anything.
+test('ordinary damage is what blows and bolts of bodies that are not bosses took off him in fight chambers: no hazard, no fire and no boss is in it (plan 024)', () => {
+  // A knight that never dodges, so there is damage of every cause to tell apart.
+  const floors = [1, 2, 3, 4].flatMap(i => simulateRun(i * 7919, policy({ dodge: 0, reaction: 0.6 })).floors.map(floor => ({ floor, seed: i * 7919 })));
+  const sum = (read: (f: (typeof floors)[number]['floor']) => number) => floors.reduce((s, { floor }) => s + read(floor), 0);
+  const kinds = Object.keys(BESTIARY) as EnemyKind[];
+  assert.ok(sum(f => f.damage.hazard) > 0 && sum(f => kinds.reduce((s, k) => s + f.poolDamage[k], 0)) > 0 && sum(f => f.bossDamage) > 0, 'precondition: embers, fire and bosses all hurt him, so each exclusion has something to exclude');
+  assert.ok(sum(f => f.ordinaryDamage) > 100, 'precondition: ordinary bodies hurt him');
+  for (const { floor, seed } of floors) {
+    const blows = kinds.filter(k => !BESTIARY[k].boss).reduce((s, k) => s + floor.damage[k] - floor.poolDamage[k], 0);
+    assert.equal(floor.ordinaryDamage, blows, `seed ${seed} floor ${floor.level}: ordinary damage is not the blows and bolts of the bodies that are not bosses (hazard ${floor.damage.hazard}, fire ${kinds.reduce((s, k) => s + floor.poolDamage[k], 0)}, boss ${floor.bossDamage})`);
+    const fights = generateFloor(seed + floor.level - 1, floor.level).rooms.filter(fightChamber).length;
+    assert.ok(floor.chambersEntered > 0 && floor.chambersEntered <= fights, `seed ${seed} floor ${floor.level}: he entered ${floor.chambersEntered} of the floor's ${fights} fight chambers`);
+    assert.equal(floor.ordinaryDamagePerChamber, +(floor.ordinaryDamage / floor.chambersEntered).toFixed(2), `seed ${seed} floor ${floor.level}: the per-chamber figure is not the damage over the chambers entered`);
+  }
+});
+
+test('a body that hurts him outside a fight chamber is not ordinary damage, and a floor with no fight chamber entered reports zero and not NaN (plan 024)', () => {
+  // The arena is fought in the Tide Gate, a sanctuary: guards that hit him there are not a fight chamber's.
+  const reports = [1, 2, 3, 4, 5, 6, 7, 8].map(seed => simulateArena(seed, 3, ['guard', 'guard', 'guard', 'guard'], policy({ dodge: 0, reaction: 0.6 })));
+  assert.ok(reports.reduce((sum, r) => sum + r.damage.guard, 0) > 0, 'precondition: the guards hurt him');
+  for (const r of reports) {
+    assert.equal(r.ordinaryDamage, 0, 'damage in a sanctuary was counted as a fight chamber\'s');
+    assert.equal(r.chambersEntered, 0);
+    assert.equal(r.ordinaryDamagePerChamber, 0);
+  }
 });

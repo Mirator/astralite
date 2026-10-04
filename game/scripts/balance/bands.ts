@@ -54,6 +54,9 @@ export function summarise(reports: RunReport[]): Summary {
     // Plan 022: the vitality he walked into the stair hall with, over the floors where he reached it.
     const atStair = reached.flatMap(f => typeof f.hpAtStair === 'number' ? [f.hpAtStair] : []);
     if (atStair.length) summary[`floor${level}.medianHpAtStair`] = median(atStair);
+    // Plan 024 Stage 0: what ordinary bodies took off him per fight chamber he entered, pooled over the batch (the sum of the damage over the sum of the chambers, not a mean of ratios, so a floor with one chamber does not weigh as much as one with four). Left out when no run on the floor entered a fight chamber.
+    const chambers = reached.reduce((sum, f) => sum + (typeof f.chambersEntered === 'number' ? f.chambersEntered : 0), 0);
+    if (chambers > 0) summary[`floor${level}.ordinaryDamagePerChamber`] = reached.reduce((sum, f) => sum + (f.ordinaryDamage ?? 0), 0) / chambers;
   }
   // Plan 022: of the floors he died on, the share he died on before the stair hall (D13: at least a third for the default knight). Absent when nobody died.
   const deaths = reports.flatMap(r => r.floors).filter(f => f.outcome === 'died');

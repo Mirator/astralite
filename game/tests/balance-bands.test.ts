@@ -67,3 +67,14 @@ test('the median pearls a run paid is in the summary, and a batch with no pearls
   assert.equal(summarise([run(10), run(30), run(50), run(70)]).medianPearls, 40, 'an even batch takes the middle two');
   assert.ok(!('medianPearls' in summarise([run(undefined), run(undefined)])), 'a batch whose reports carry no pearls reported one');
 });
+
+// Plan 024 Stage 0: ordinary damage per fight chamber, pooled over the batch.
+test('ordinary damage per chamber is the batch\'s damage over its chambers, not a mean of each floor\'s ratio, and a floor that entered none leaves it out (plan 024)', () => {
+  const floor = (level: number, ordinaryDamage: number, chambersEntered: number) => ({ level, outcome: 'cleared', hpAfter: 50, maxHpAfter: 100, ordinaryDamage, chambersEntered }) as FloorReport;
+  const run = (floors: FloorReport[]) => ({ outcome: 'died', seconds: 100, floors }) as RunReport;
+  const summary = summarise([run([floor(1, 10, 1), floor(2, 6, 2)]), run([floor(1, 0, 3), floor(2, 0, 0)])]);
+  assert.equal(summary['floor1.ordinaryDamagePerChamber'], 2.5, '10 damage over 4 chambers is 2.5; the mean of the two floors\' own ratios (10 and 0) would be 5');
+  assert.equal(summary['floor2.ordinaryDamagePerChamber'], 3, '6 damage over the 2 chambers there were');
+  assert.ok(!('floor3.ordinaryDamagePerChamber' in summary), 'no run reached floor three');
+  assert.ok(!('floor1.ordinaryDamagePerChamber' in summarise([run([floor(1, 0, 0)])])), 'a floor with no fight chamber entered has no per-chamber figure');
+});

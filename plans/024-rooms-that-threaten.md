@@ -190,3 +190,21 @@ Tests:
 ## Evidence
 
 (Filled in by each stage.)
+
+### Stage 0: the baseline (2026-10-04, main `a6fb211` + this plan)
+
+Full tables in `game/progress.md`, "Plan 024 Stage 0". 30 runs a policy from seed 1, the same runs `balance:check` plays; the new report field changed nothing the bots play (every number `bands.json` already held is unchanged).
+
+| policy | escape % | deaths f1 / f2 / f3 (count) | deaths before the stair hall | median vitality entering the stair hall f1 / f2 / f3 | ordinaryDamagePerChamber f1 / f2 / f3 | median pearls |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 90 | 1 / 1 / 1 | 0 of 3 | 100 / 100 / 100 | 0.59 / 1.43 / 1.87 | 107 |
+| weak | 16.7 | 5 / 7 / 13 | 9 of 25 (36%) | 89.2 / 90.5 / 92 | 7.82 / 16.54 / 26.2 | 52.5 |
+| special | 96.7 | 0 / 0 / 1 | 0 of 1 | 100 / 100 / 100 | 0.32 / 1.8 / 1.81 | 107 |
+| special-fangs | 96.7 | 0 / 0 / 1 | 1 of 1 | 100 / 100 / 100 | 0.69 / 1.58 / 3.07 | 107 |
+| special-cleaver | 93.3 | 2 / 0 / 0 | 0 of 2 | 100 / 100 / 100 | 0.74 / 1.84 / 2.57 | 107 |
+| special-crossbow | 50 | 0 / 3 / 12 | 12 of 15 (80%) | 100 / 100 / 92.4 | 0.34 / 11.55 / 22.53 | 87.5 |
+| special-flask | 53.3 | 0 / 0 / 14 | 0 of 14 | 100 / 100 / 100 | 1.39 / 3.69 / 5.86 | 103.5 |
+| meta-max | 100 | 0 / 0 / 0 | 0 of 0 | 100 / 100 / 100 | 0.61 / 1.27 / 1.68 | 107 |
+| weak-meta-max | 83.3 | 0 / 0 / 5 | 2 of 5 | 92.3 / 98.7 / 96.8 | 6.39 / 15.37 / 23.34 | 107 |
+
+The default knight's damage over a whole run: 14% ordinary enemies, 37.7% bosses, 32.3% embers, 16% pools. The plan's Why quoted 0.9 / 2.9 / 2.4 a chamber for the default knight; the field says 0.59 / 1.43 / 1.87.

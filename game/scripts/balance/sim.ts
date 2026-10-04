@@ -22,7 +22,7 @@ import { calledIn, idleClock, roomTiles, springing, waveDue, wavedFloor, waveSpo
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, fanHeadings, ARROW_POOL, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
-import { clearChamber, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, SHRINE, SHRINE_REACH, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
+import { clearChamber, createRun, DOOR_RADIUS, draftBoons, fightChamber, heal, hurt, resolveKill, SHRINE, SHRINE_REACH, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
 export const FLOORS = 3;
@@ -208,6 +208,14 @@ export type FloorReport = {
   eliteBodies: { room: number; wave: number; kind: EnemyKind; elite: EliteModifier; hp: number }[];
   /** Plan 022: each mend a shrine made, by the chamber it stands in and the vitality it gave (at most `SHRINE`, the first time the knight stood hurt within reach of it). */
   shrineMends: { room: number; healed: number }[];
+  /**
+   * Plan 024 Stage 0: what ordinary bodies did to him in the rooms that are fights. `ordinaryDamage` is the vitality that blows and bolts of a kind that is not a boss took off him while he stood in a fight chamber
+   * (`fightChamber`: a path chamber that is not a sanctuary), so no hazard, no pool (a pyre's fire, a volatile body's, a boss's rings) and no boss is in it, and neither is anything a boss's reserve dealt in the stair hall.
+   * `chambersEntered` is the fight chambers he stood in at all, cleared or not, and `ordinaryDamagePerChamber` the first over the second (0 when he entered none): the direct measure of whether a fight room costs him anything.
+   */
+  ordinaryDamage: number;
+  chambersEntered: number;
+  ordinaryDamagePerChamber: number;
   hpAfter: number;
   maxHpAfter: number;
   rankAfter: number;
@@ -430,6 +438,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   // Plan 016 fight duration: when each room's fight started, and how long each finished one took.
   const fightStart = new Map<number, number>(), fights: number[] = [], fightEncounters: string[] = [];
   const eliteKills: Partial<Record<EliteModifier, number>> = {};
+  let ordinaryDamage = 0;
+  // Plan 024 Stage 0: a blow or a bolt from a body that is not a boss, landed with the knight in a fight chamber. A pool's bite never comes through here (`poolDamage` has it).
+  const ordinaryBlow = (kind: EnemyKind, dealt: number, room: number) => { if (dealt && !BESTIARY[kind].boss && room >= 0 && fightChamber(floor.rooms[room])) ordinaryDamage += dealt; };
   let hpAtStair: number | null = null, wavesRaised = 0; const waveFights: number[] = [], shrineMends: { room: number; healed: number }[] = [];
   const clearRoom = (room: number) => {
     cleared.add(room);
@@ -875,7 +886,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       }
       if (intent.hit) {
         const dealt = hurt(run, strike, { dashing: dashImmune(dashTime), warded: true });
-        damage[body.kind] += dealt;
+        damage[body.kind] += dealt; ordinaryBlow(body.kind, dealt, activeRoom);
         if (dealt) lastBlow = body.kind;
         if (dealt && live.filter(b => Math.hypot(b.x - player.x, b.z - player.z) < 4).length >= 3) surrounded += dealt;
         if (run.hp <= 0) return endFloor('died');
@@ -894,7 +905,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (flight.done) hostile.splice(i, 1);
       if (!flight.hit) continue;
       const dealt = hurt(run, shot.damage, { dashing: dashImmune(dashTime), warded: true });
-      damage[kind] += dealt;
+      damage[kind] += dealt; ordinaryBlow(kind, dealt, activeRoom);
       if (dealt) lastBlow = kind;
       if (dealt && live.filter(b => Math.hypot(b.x - player.x, b.z - player.z) < 4).length >= 3) surrounded += dealt;
       if (run.hp <= 0) return endFloor('died');
@@ -1036,6 +1047,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     if (Math.abs(idleSum - idle) > 1e-6) {
       throw new Error(`idle attribution does not sum to idle on floor ${level} (seed ${seed}): buckets ${idleSum}, idle ${idle}`);
     }
+    const chambersEntered = [...roomsTouched].filter(id => fightChamber(floor.rooms[id])).length;
     return {
       level, outcome, seconds: +t.toFixed(1), kills: run.kills - startKills, spawns: floor.guardCount, damage, surrounded,
       contact: +contact.toFixed(1), idle: +idle.toFixed(1),
@@ -1049,7 +1061,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, ordinaryDamage, chambersEntered, ordinaryDamagePerChamber: +(chambersEntered ? ordinaryDamage / chambersEntered : 0).toFixed(2), hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }
