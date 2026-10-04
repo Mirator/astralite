@@ -3,9 +3,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BOSS_POOL, FINAL_BOSS } from '../app/dungeon-bestiary.ts';
-import { BOSS_FLOORS, duel, fairness, judge, runSummary, TARGETS, type Duel, type RunSummary } from '../scripts/balance/bosses.ts';
+import { BOSS_FLOORS, duel, fairness, judge, runSummary, stairShares, TARGETS, type Duel, type RunSummary } from '../scripts/balance/bosses.ts';
 
-const row = (kind: Duel['kind'], floor: number, policy: string, deaths: number): Duel => ({ kind, floor, policy, duels: 30, deaths, deathRate: deaths / 30 * 100, seconds: 10, damage: 0, reserve: 0, hpLeft: 50, phaseChanges: 1, stuck: 0 });
+const row = (kind: Duel['kind'], floor: number, policy: string, deaths: number, start = 1): Duel => ({ kind, floor, policy, start, duels: 30, deaths, deathRate: deaths / 30 * 100, seconds: 10, damage: 0, reserve: 0, hpLeft: 50, phaseChanges: 1, stuck: 0 });
 
 test('pool fairness is D9\'s: the weak knight\'s deaths to the worst boss are at most twice those to the best, and the fewest is floored at one death', () => {
   const floor1 = (deaths: number[]) => BOSS_POOL.map((kind, i) => row(kind, 1, 'weak', deaths[i]));
@@ -24,6 +24,18 @@ test('pool fairness reads the weak knight on the floor it is asked about, and no
   assert.equal(fairness(rows, 3), null, 'the last floor has one boss, so there is nothing to be fair between');
 });
 
+test('pool fairness holds either bot to it (plan 022 D12), each at the start it was played from, and reads no other policy or start', () => {
+  const floor = (policy: string, deaths: number[], start = 1) => BOSS_POOL.map((kind, i) => row(kind, 1, policy, deaths[i], start));
+  const rows = [...floor('default', [6, 0, 1, 1]), ...floor('weak', [1, 1, 1, 1]), ...floor('default', [1, 1, 1, 1], 0.6), ...floor('weak', [9, 0, 0, 0], 0.6)];
+  const unfair = fairness(rows, 1, 'default');
+  assert.equal(unfair?.ok, false, 'the Pyre Mother-shaped spike (six deaths to one boss, none to the least) is the case D12 exists for: the default knight\'s deaths were not read');
+  assert.deepEqual([unfair?.policy, unfair?.start, unfair?.mostDeaths, unfair?.leastDeaths], ['default', 1, 6, 0]);
+  assert.equal(fairness(rows, 1, 'weak')?.ok, true, 'the default knight\'s deaths were read as the weak knight\'s');
+  assert.equal(fairness(rows, 1, 'default', 0.6)?.ok, true, 'a duel from another start was counted in this one');
+  assert.equal(fairness(rows, 1, 'weak', 0.6)?.ok, false, 'a start was not read');
+  assert.equal(fairness(rows, 1, 'weak', 0.5), null, 'a start nobody played is not a fairness result');
+});
+
 test('every pool boss is fought on floors one and two and the Bone King on floor three', () => {
   assert.deepEqual(BOSS_FLOORS.filter(([, floor]) => floor === 3).map(([kind]) => kind), [FINAL_BOSS]);
   for (const kind of BOSS_POOL) for (const floor of [1, 2]) assert.ok(BOSS_FLOORS.some(([k, f]) => k === kind && f === floor), `${kind} is not fought on floor ${floor}`);
@@ -40,25 +52,41 @@ test('a duel is played with the policy it is named for: the weak knight, who nev
   assert.ok(careless.damage > careful.damage, 'the weak knight was not hurt more by the boss');
 });
 
-const summary = (policy: string, patch: Partial<RunSummary>): RunSummary => ({ policy, runs: 30, escapeRate: 50, deaths: 0, bossDeaths: 0, reserveDeaths: 0, bossShare: 60, fightSeconds: 40, byBoss: {}, killedBy: {}, ...patch });
+test('a duel can start on a share of the bar, and the knight who starts hurt dies more often (plan 022 --at-stair)', () => {
+  const full = duel('captain', 1, 'default', 8), hurt = duel('captain', 1, 'default', 8, 1, 0.2);
+  assert.deepEqual([full.start, hurt.start], [1, 0.2], 'the duel does not say what it started on');
+  assert.ok(full.deathRate < 100, 'precondition: the default knight does not lose every duel from a full bar');
+  assert.ok(hurt.deathRate > full.deathRate, `starting on 20% of his bar the default knight lost ${hurt.deathRate}% of the Captain's duels against ${full.deathRate}% from a full one: the start is not reaching the sim`);
+});
 
-test('each D9 target is judged against its own policy and its own band, inclusive at both ends', () => {
+test('the shares a duel starts on are what a policy walks into each stair hall with, one for each floor, and a share is never over a whole bar', () => {
+  const shares = stairShares('weak', 6);
+  assert.equal(shares.length, 3);
+  assert.ok(shares.every(share => share > 0 && share <= 1), `${shares.join(", ")} is not a share of a bar`);
+});
+
+const summary = (policy: string, patch: Partial<RunSummary>): RunSummary => ({ policy, runs: 30, escapeRate: 50, deaths: 0, bossDeaths: 0, reserveDeaths: 0, bossShare: 60, fightSeconds: 40, beforeBoss: 50, stairHp: 60, runSeconds: 400, watchSeconds: 20, byBoss: {}, killedBy: {}, ...patch });
+
+test('each D13 target is judged against its own policy and its own band, inclusive at both ends', () => {
   const judged = (patch: Record<string, Partial<RunSummary>>) => judge(['default', 'weak', 'weak-meta-max'].map(name => summary(name, patch[name] ?? {})));
   const met = (patch: Record<string, Partial<RunSummary>>, policy: string, label: string) => judged(patch).find(t => t.policy === policy && t.label === label)!.met;
-  assert.equal(TARGETS.length, 5, 'precondition: D9 names five whole-run targets');
-  assert.equal(met({ default: { escapeRate: 75 } }, 'default', 'escape %'), true);
-  assert.equal(met({ default: { escapeRate: 90 } }, 'default', 'escape %'), true);
-  assert.equal(met({ default: { escapeRate: 74.9 } }, 'default', 'escape %'), false, 'a default knight escaping 74.9% is under D9\'s 75');
-  assert.equal(met({ default: { escapeRate: 91 } }, 'default', 'escape %'), false, 'a default knight escaping 91% is over D9\'s 90');
-  assert.equal(met({ weak: { escapeRate: 55 } }, 'weak', 'escape %'), true);
-  assert.equal(met({ weak: { escapeRate: 56 } }, 'weak', 'escape %'), false);
-  assert.equal(met({ 'weak-meta-max': { escapeRate: 55 } }, 'weak-meta-max', 'escape %'), true);
-  assert.equal(met({ 'weak-meta-max': { escapeRate: 81 } }, 'weak-meta-max', 'escape %'), false);
-  // The weak knight's 50% is in its own band and not the default's: one policy's number is never read against another's.
-  assert.equal(met({ default: { escapeRate: 50 }, weak: { escapeRate: 50 } }, 'default', 'escape %'), false);
-  assert.equal(met({ default: { fightSeconds: 24 } }, 'default', 'boss fight seconds (median)'), false);
-  assert.equal(met({ default: { fightSeconds: 60 } }, 'default', 'boss fight seconds (median)'), true);
-  assert.equal(met({ default: { bossShare: 49 } }, 'default', 'deaths to a boss, %'), false);
+  assert.equal(TARGETS.length, 9, 'precondition: D13 names nine whole-run targets for the bots');
+  for (const [label, key, lo, hi] of [['escape %', 'escapeRate', 55, 80], ['deaths before the stair hall, %', 'beforeBoss', 100 / 3, 100], ['vitality entering floor 1 stair hall, %', 'stairHp', 40, 80], ['median run seconds', 'runSeconds', 300, 600], ['median watch fight seconds', 'watchSeconds', 12, 40], ['boss fight seconds (median)', 'fightSeconds', 25, 60]] as const) {
+    assert.equal(met({ default: { [key]: lo } }, 'default', label), true, `${label}: the lower edge is inside`);
+    assert.equal(met({ default: { [key]: hi } }, 'default', label), true, `${label}: the upper edge is inside`);
+    assert.equal(met({ default: { [key]: lo - 0.1 } }, 'default', label), false, `${label}: under the band`);
+    if (hi < 100) assert.equal(met({ default: { [key]: hi + 0.1 } }, 'default', label), false, `${label}: over the band`);
+  }
+  assert.equal(met({ weak: { escapeRate: 35 } }, 'weak', 'escape %'), true);
+  assert.equal(met({ weak: { escapeRate: 36 } }, 'weak', 'escape %'), false);
+  assert.equal(met({ weak: { escapeRate: 9 } }, 'weak', 'escape %'), false);
+  assert.equal(met({ 'weak-meta-max': { escapeRate: 60 } }, 'weak-meta-max', 'escape %'), true);
+  assert.equal(met({ 'weak-meta-max': { escapeRate: 61 } }, 'weak-meta-max', 'escape %'), false);
+  // One policy's number is never read against another's: the weak knight's 20% is in its own band and not the default's.
+  assert.equal(met({ default: { escapeRate: 20 }, weak: { escapeRate: 20 } }, 'default', 'escape %'), false);
+  // The margin is weak-meta-max over weak, in points: 15 is enough, 14 is not.
+  assert.equal(met({ weak: { escapeRate: 20 }, 'weak-meta-max': { escapeRate: 35 } }, 'weak-meta-max', 'escape points over weak'), true);
+  assert.equal(met({ weak: { escapeRate: 20 }, 'weak-meta-max': { escapeRate: 34 } }, 'weak-meta-max', 'escape points over weak'), false);
 });
 
 test('a run summary counts the bosses a policy met and what killed it', () => {
@@ -67,4 +95,16 @@ test('a run summary counts the bosses a policy met and what killed it', () => {
   assert.ok(Object.keys(s.byBoss).length > 0 && Object.values(s.byBoss).reduce((n, b) => n + b.floors, 0) >= 3, 'three runs met fewer than three bosses');
   assert.equal(s.deaths, Object.values(s.killedBy).reduce((a, b) => a + b, 0), 'what killed the knight does not add up to how many died');
   assert.ok(s.bossDeaths <= s.deaths);
+});
+
+// Plan 022 D12, held on the shipped numbers: the Pyre Mother used to kill the default knight in every one of its deaths (26 and 28 of 30 duels on floors one and two, the other three pool bosses none), and Stage E took her to 150
+// vitality. The default knight, from a full bar (his median bar entering the stair hall: the keep leaves him full, so both starts are one), is killed by no pool boss more than twice as often as by another, on either floor.
+test('no pool boss kills the default knight more than twice as often as another, on either floor (plan 022 D12, the shipped numbers)', () => {
+  const duels = BOSS_FLOORS.filter(([kind, floor]) => floor <= 2 && BOSS_POOL.includes(kind)).map(([kind, floor]) => duel(kind, floor, 'default', 30));
+  assert.equal(duels.length, 8, 'precondition: four pool bosses on two floors');
+  for (const floor of [1, 2]) {
+    const result = fairness(duels, floor, 'default')!;
+    assert.ok(result.ok, `floor ${floor}: the default knight died to ${result.most} ${result.mostDeaths} times and to ${result.least} ${result.leastDeaths}: more than twice as often (the fewest floored at one)`);
+  }
+  assert.ok(duels.every(d => d.duels === 30 && d.damage > 0), 'precondition: every duel was fought and the boss hurt him');
 });

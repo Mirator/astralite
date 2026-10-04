@@ -232,7 +232,7 @@ test('the Pyre Mother is wired: a lane drawn for her fan, the bar names her, the
   const bar = page.locator('.boss-bar');
   await expect(bar).toBeVisible();
   await expect(bar).toHaveAttribute('aria-label', 'The Pyre Mother');
-  await expect(bar).toHaveAttribute('aria-valuemax', '215');
+  await expect(bar).toHaveAttribute('aria-valuemax', '150');
   // The fan, as it flies: every bolt of it is an arrow on the screen, the aimed one and then the two either side.
   const fanOf = (phase: number) => BESTIARY.mother.moves![phase][0].bolt!.fan!;
   const bolts = async () => {
@@ -244,9 +244,9 @@ test('the Pyre Mother is wired: a lane drawn for her fan, the bar names her, the
   expect(fanOf(0).count, 'precondition: phase one looses a fan of more than one').toBeGreaterThan(1);
   expect(state.hostileBolts.map((b) => b.kind), 'the fan was not all in the air at once').toEqual(Array(fanOf(0).count).fill('mother'));
   expect(state.arrowsDrawn, 'a bolt of the fan has no arrow drawn').toBe(fanOf(0).count);
-  // Below half: the threshold is 107.5, so 107 is under it. Her densest volley is then the whole fan, and the twelve-arrow pool holds all of it.
+  // Below half: the threshold is 75, so 74 is under it. Her densest volley is then the whole fan, and the twelve-arrow pool holds all of it.
   await game.step(2500);
-  await game.configureCombat({ health: 100, enemies: [{ index: 0, hp: 107 }] });
+  await game.configureCombat({ health: 100, enemies: [{ index: 0, hp: 74 }] });
   const calm = await settleBoss(game);
   expect(calm.phase, 'she did not change phase under half').toBe(1);
   await expect(page.locator('.chamber-notice')).toContainText('The Pyre Mother kindles');
@@ -310,7 +310,7 @@ test('with the knight\'s own fire on the ground she marks no more rings than are
   const opening = await game.state();
   const spots = standingSpots(floor, { x: opening.enemies[0].x, z: opening.enemies[0].z }, 3);
   // Below half she scatters three rings, twice running: the second is marked while the first three still burn, and the knight's own flask then takes one of the six.
-  await game.configureCombat({ enemies: [{ index: 0, hp: 107 }] });
+  await game.configureCombat({ enemies: [{ index: 0, hp: 74 }] });
   await settleBoss(game);
   const pace = pacing(game, spots);
   await tellOf(game, 'scatter', pace);

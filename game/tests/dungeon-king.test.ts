@@ -54,8 +54,8 @@ test('the Bone King is the final boss with D4\'s phases: summon, swing, volley, 
   assert.equal(king.phaseNotice?.length, king.moves!.length, 'a notice for each phase');
   assert.ok(king.phaseNotice!.slice(1).every(notice => notice.length > 0));
   assert.ok(ENEMY_KINDS.includes('king'));
-  assert.equal(enemyStats('king', 1).hp, 500);
-  assert.equal(enemyStats('king', 3).hp, 508, 'the last floor\'s boss takes the usual extra blade of vitality a floor, twice');
+  assert.equal(enemyStats('king', 1).hp, 650, 'plan 022 Stage E: 650, up from 500');
+  assert.equal(enemyStats('king', 3).hp, 658, 'the last floor\'s boss takes the usual extra blade of vitality a floor, twice');
   assert.ok(CAUSE_LABELS.king.length > 0 && CUTAWAY_ELLIPSE.king.radii[0] > CUTAWAY_ELLIPSE.warden.radii[0], 'its cause label and a cutaway window larger than the warden\'s');
 });
 

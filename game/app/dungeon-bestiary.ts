@@ -328,9 +328,9 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   // asks the knight to keep moving: phase one is a fan of three bolts, a fan again, and a scatter that marks two rings where he has been and lights them when the tell
   // runs out. Below half she looses five bolts to the fan, adds a close sweep for a knight who has rushed her (she gives ground while she recovers, so it is a punish and
   // not a place to stand), and scatters twice running, three rings a time. A fan has no gap to walk through: the answer is the dash, or being elsewhere. Steadfast like every
-  // boss: only a stagger arm breaks her tell. The numbers are Stage F's (215 vitality, damage ×0.8 of D7's hypothesis); the moves are the design.
+  // boss: only a stagger arm breaks her tell. The numbers are Stage F's (damage ×0.8 of D7's hypothesis) and plan 022 Stage E's (150 vitality, down from 215: the default bot's deaths to her were her fight's length, and she killed it in every one of its deaths); the moves are the design.
   mother: {
-    stats: { hp: 215, damage: 10, tell: 0.8, speed: 2.1 },
+    stats: { hp: 150, damage: 10, tell: 0.8, speed: 2.1 },
     strikeRange: 2.6, attackRange: 8, holdRange: 6, recovery: 1.4,
     attack: 'volley', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 4,
     boss: 'pool', title: 'The Pyre Mother', phaseNotice: ['', 'The Pyre Mother kindles'],
@@ -416,9 +416,9 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   // rattlers stand up from the reserve at his feet, a heavy swing for a knight who has reached him, a single bolt for one who keeps away. Below 60% a sweep (everything round him) and a pounce (a lane across the
   // room) join the round, and below 25% he summons on every second move, one rattler a tell and four tells a round. The reserve is sized from that list (`reserveSize`, the most any one phase's round can raise), not from
   // `summons.count`, which this row keeps only as what a lone summon is worth. Felling him crumbles everything he called, standing or buried. Steadfast like every boss. The numbers are Stage F's (500 vitality,
-  // damage ×0.6 of D7's hypothesis); the moves are the design.
+  // damage ×0.6 of D7's hypothesis) and plan 022 Stage E's (650 vitality and damage ×1.45 of that: the last floor is where the default bot is made to die, since no earlier boss may kill it more than twice as often as another); the moves are the design.
   king: {
-    stats: { hp: 500, damage: 0, tell: 0.8, speed: 1.9 },
+    stats: { hp: 650, damage: 0, tell: 0.8, speed: 1.9 },
     strikeRange: 3.4, attackRange: 9, holdRange: 2.6, recovery: 1.4,
     attack: 'summon', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 0,
     summons: { kind: 'rattler', count: 2, perTell: 2 },
@@ -427,25 +427,25 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
     moves: [
       [
         { attack: 'summon', tell: 1.2, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 2 } },
-        { attack: 'swing', tell: 0.8, damage: 13, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
-        { attack: 'volley', tell: 0.8, damage: 8, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
+        { attack: 'swing', tell: 0.8, damage: 19, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
+        { attack: 'volley', tell: 0.8, damage: 12, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
       ],
       [
         { attack: 'summon', tell: 1.2, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 2 } },
-        { attack: 'swing', tell: 0.75, damage: 13, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
-        { attack: 'volley', tell: 0.75, damage: 8, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
-        { attack: 'sweep', tell: 1.0, damage: 11, strikeRange: 3.4, attackRange: 2.6, cue: { shape: 'ring', radius: 3.4 }, cueScale: 1 },
-        { attack: 'pounce', tell: 0.7, damage: 12, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.2 }, cueScale: 1 },
+        { attack: 'swing', tell: 0.75, damage: 19, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
+        { attack: 'volley', tell: 0.75, damage: 12, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
+        { attack: 'sweep', tell: 1.0, damage: 16, strikeRange: 3.4, attackRange: 2.6, cue: { shape: 'ring', radius: 3.4 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.7, damage: 17, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.2 }, cueScale: 1 },
       ],
       [
         { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
-        { attack: 'swing', tell: 0.7, damage: 13, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
+        { attack: 'swing', tell: 0.7, damage: 19, strikeRange: 3.2, attackRange: 2.6, cue: { shape: 'arc' }, cueScale: 2.0 },
         { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
-        { attack: 'volley', tell: 0.7, damage: 8, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
+        { attack: 'volley', tell: 0.7, damage: 12, strikeRange: 9, attackRange: 7, cue: { shape: 'lane', length: 8, width: 1.3 }, cueScale: 1, bolt: { speed: 12, flight: 0.75 } },
         { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
-        { attack: 'sweep', tell: 0.9, damage: 11, strikeRange: 3.4, attackRange: 2.6, cue: { shape: 'ring', radius: 3.4 }, cueScale: 1 },
+        { attack: 'sweep', tell: 0.9, damage: 16, strikeRange: 3.4, attackRange: 2.6, cue: { shape: 'ring', radius: 3.4 }, cueScale: 1 },
         { attack: 'summon', tell: 1.1, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.5 }, cueScale: 1, summon: { perTell: 1 } },
-        { attack: 'pounce', tell: 0.7, damage: 12, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.2 }, cueScale: 1 },
+        { attack: 'pounce', tell: 0.7, damage: 17, strikeRange: 5, attackRange: 5.5, cue: { shape: 'lane', length: 5, width: 2.2 }, cueScale: 1 },
       ],
     ],
     look: {

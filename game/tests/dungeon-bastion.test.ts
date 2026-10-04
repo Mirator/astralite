@@ -10,6 +10,8 @@ import { cellKey, TILE } from '../app/dungeon-floor.ts';
 import { CAUSE_LABELS } from '../app/dungeon-run-summary.ts';
 import { CUTAWAY_ELLIPSE } from '../app/dungeon-occlusion.ts';
 import { DEFAULT_POLICY, simulateArena } from '../scripts/balance/sim.ts';
+import { KEEP_CROSSBOW } from '../app/dungeon-weapon.ts';
+import { hurledBlow } from '../app/dungeon-combat.ts';
 
 const bastion = BESTIARY.bastion;
 const DT = 1 / 60;
@@ -121,4 +123,25 @@ test('in the balance sim the Bastion\'s shield turns blows aside while it holds 
     assert.ok(reports.reduce((sum, r) => sum + r.blocked, 0) > 0, 'precondition: the shield turned a blow aside in phase one');
     for (const r of reports) assert.equal(r.blockedLate, 0, `the Bastion's shield turned ${r.blockedLate} blows aside after it broke`);
   }
+});
+
+// Plan 022 D11. The Keep Crossbow's heavy bolt (its special) goes through a shield: the shieldbearer's and the Bastion's. The ordinary bolt is turned aside as it always was. The blow a special's bolt lands is built by
+// `hurledBlow` from the special's own swing, which carries `stagger` - the property that breaks a guard outright - so the pass-through is held here, from the front, where it matters.
+test('the heavy bolt hurts the Bastion and the shieldbearer from the front, and an ordinary bolt is still turned aside', () => {
+  const heavy = KEEP_CROSSBOW.special!;
+  const bolt = (damage: number) => ({ damage, stagger: KEEP_CROSSBOW.stagger, knockback: KEEP_CROSSBOW.knockback, wardenKnockback: KEEP_CROSSBOW.wardenKnockback });
+  const special = hurledBlow(heavy, { harpoon: false, damage: 36 }, { free: true, steadfast: true }).blow;
+  // The knight stands west of the body and the bolt flies east into its face; the body looks back along it.
+  const from = { x: 1, z: 0 }, facing = { x: -1, z: 0 };
+  for (const kind of ['bastion', 'shieldbearer'] as const) {
+    const fresh = (): Struck => ({ kind, hp: 240, windup: 0, cooldown: 0, hitFlash: 0, bossPhase: 0 });
+    const plainBolt = fresh(), turned = landBlow(open(), plainBolt, { x: 0, z: 0 }, bolt(9), from, facing);
+    assert.deepEqual([turned.blocked, plainBolt.hp], [true, 240], `an ordinary bolt wounded a ${kind} from the front: the shield is not up, so nothing below proves the heavy bolt passes it`);
+    const heavyBolt = fresh(), through = landBlow(open(), heavyBolt, { x: 0, z: 0 }, special, from, facing);
+    assert.equal(through.blocked, false, `the heavy bolt was turned aside by a ${kind}'s shield`);
+    assert.equal(heavyBolt.hp, 240 - 36, `the heavy bolt did not wound a ${kind} from the front`);
+  }
+  // A plain bolt is not turned aside once the shield is down (phase two of the Bastion), so what the shield turned aside above was the shield and not the body.
+  const broken: Struck = { kind: 'bastion', hp: 240, windup: 0, cooldown: 0, hitFlash: 0, bossPhase: 1 };
+  assert.equal(landBlow(open(), broken, { x: 0, z: 0 }, bolt(9), from, facing).blocked, false, 'precondition: the Bastion\'s shield is gone in its second phase');
 });

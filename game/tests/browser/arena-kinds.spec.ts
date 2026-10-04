@@ -1,4 +1,4 @@
-import { expect, laneSpot, press, strikeStance, test, TILE, type Game } from './helpers.ts';
+import { expect, hold, laneSpot, press, release, strikeStance, test, TILE, type Game } from './helpers.ts';
 import type { Page } from '@playwright/test';
 
 // The arena-only kinds (app/dungeon-bestiary.ts). Each rule is held in node - the shield in
@@ -46,6 +46,45 @@ test('a shieldbearer turns a frontal strike aside while its shield is up, and ta
   const struck = (await game.state()).enemies[0];
   expect(struck.blocked, 'a strike during its recovery was turned aside').toBe(open.enemies[0].blocked);
   expect(struck.hp).toBe(open.enemies[0].hp - open.weapon.strikeDamage);
+});
+
+// Plan 022 D11: the Keep Crossbow's Heavy Bolt goes through a shield, an ordinary bolt does not. The rule is held in node (dungeon-bastion.test.ts, from the front, against the Bastion and the shieldbearer); this fires both with the real keys at a
+// Bastion in the arena (its shield is the shieldbearer's, and holds in its first phase), whose shield is up (not winding, not recovering from its own swing), and reads what the running game did to it.
+test('the Keep Crossbow\'s ordinary bolt is turned aside by the Bastion\'s shield, and the Heavy Bolt goes through it', async ({ game, page }) => {
+  await arena(game, page, ['bastion']);
+  await game.equip('crossbow');
+  await game.step(120);
+  const floor = await game.floor(), opening = await game.state();
+  const spot = { x: opening.enemies[0].x, z: opening.enemies[0].z };
+  const stance = strikeStance(floor, spot, { distance: 3 });
+  const perBolt = (opening.weapon as typeof opening.weapon & { special: { swing: { damage: number } } }).special.swing.damage;
+  // Facing it, with the shield up: a short cooldown (a flinch's, under a recovery's) and no tell.
+  const raise = async () => {
+    await game.teleport(stance.x, stance.z);
+    await page.keyboard.down(stance.key); await game.step(1); await page.keyboard.up(stance.key);
+    await game.configureCombat({ enemies: [{ index: 0, x: spot.x, z: spot.z, cooldown: 0.3, windup: 0 }] });
+  };
+  await raise();
+  const before = (await game.state()).enemies[0];
+  await press(page, 'attack');
+  await game.step(500);
+  const turned = (await game.state()).enemies[0];
+  expect(turned.blocked, 'the ordinary bolt never reached the shield, so nothing was tested').toBe(before.blocked + 1);
+  expect(turned.hp, 'an ordinary bolt wounded a raised shield').toBe(before.hp);
+
+  // Draw the whole quiver (it is refilling: wait for a bolt), let it go on the raised shield, and it goes through.
+  await game.step(2500);
+  await raise();
+  await hold(page, 'special');
+  await game.step(800);
+  await raise();
+  const bolts = (await game.state()).weapon.quiver!;
+  expect(bolts, 'precondition: a drawn Heavy Bolt is worth at least two bolts').toBeGreaterThan(1);
+  await release(page, 'special');
+  await game.step(500);
+  const struck = (await game.state()).enemies[0];
+  expect(struck.blocked, 'the Heavy Bolt was turned aside by the shield').toBe(turned.blocked);
+  expect(struck.hp, 'the Heavy Bolt did not wound the shield from the front').toBe(before.hp - bolts * perBolt);
 });
 
 test('a pyre leaves fire where it falls, and the fire burns the knight standing in it', async ({ game, page }) => {

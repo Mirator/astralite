@@ -327,10 +327,13 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
 /**
  * One floor laid out as the development arena (dungeon-arena.ts): `roster` awake in the Tide Gate, a caller's
  * reserve buried under it. The run ends when the roster is dead or the knight is - never by walking out of the
- * gate or down the stair, which is open from the start - so what a test reads is the fight.
+ * gate or down the stair, which is open from the start - so what a test reads is the fight. `start` is how much of his bar he begins on (plan 022).
  */
-export function simulateArena(seed: number, level: number, roster: readonly EnemyKind[], policy: Policy = DEFAULT_POLICY): FloorReport {
-  return simulateFloor(seed, level, startRun(policy), policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), arenaFloor(seed, level, roster), true);
+export function simulateArena(seed: number, level: number, roster: readonly EnemyKind[], policy: Policy = DEFAULT_POLICY, start = 1): FloorReport {
+  // Plan 022: `start` is the share of his maximum vitality the knight begins on (1 is a full bar): the duel the stair hall really is, from what the keep leaves of him (scripts/balance/bosses.ts `--at-stair`).
+  const run = startRun(policy);
+  run.hp = Math.max(1, Math.round(run.maxHp * Math.min(1, Math.max(0, start))));
+  return simulateFloor(seed, level, run, policy, rng(seed ^ 0x9e3779b9), rng(seed ^ 0x85ebca6b), arenaFloor(seed, level, roster), true);
 }
 
 /** One generated floor fought by a fresh knight: no earlier floors, no boons, full vitality. For a test that needs a floor and not a descent; `built` is a floor the test laid itself (a chosen boss). */
