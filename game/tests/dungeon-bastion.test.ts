@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BESTIARY, BOSS_POOL, ENEMY_KINDS } from '../app/dungeon-bestiary.ts';
 import { bossReach, decideEnemy, enemyStats, HIT, HIT_COOLDOWN, LUNGE_CONTACT, LUNGE_SPEED, LUNGE_TIME, moveOf, NOTICE_TIME, RECOVERY, type EnemyIntent, type EnemyView, type World } from '../app/dungeon-enemy.ts';
-import { blocks, bossPush, landBlow, type Struck } from '../app/dungeon-hits.ts';
+import { blocks, BOSS_BOLT, bossPush, landBlow, type Struck } from '../app/dungeon-hits.ts';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
 import { CAUSE_LABELS } from '../app/dungeon-run-summary.ts';
 import { CUTAWAY_ELLIPSE } from '../app/dungeon-occlusion.ts';
@@ -139,7 +139,8 @@ test('the heavy bolt hurts the Bastion and the shieldbearer from the front, and 
     assert.deepEqual([turned.blocked, plainBolt.hp], [true, 240], `an ordinary bolt wounded a ${kind} from the front: the shield is not up, so nothing below proves the heavy bolt passes it`);
     const heavyBolt = fresh(), through = landBlow(open(), heavyBolt, { x: 0, z: 0 }, special, from, facing);
     assert.equal(through.blocked, false, `the heavy bolt was turned aside by a ${kind}'s shield`);
-    assert.equal(heavyBolt.hp, 240 - 36, `the heavy bolt did not wound a ${kind} from the front`);
+    // Plan 023 (D3): a shot deals BOSS_BOLT times its damage to a boss, so the Bastion takes the heavy bolt twice over and the shieldbearer, which is no boss, once.
+    assert.equal(heavyBolt.hp, 240 - 36 * (kind === 'bastion' ? BOSS_BOLT : 1), `the heavy bolt did not wound a ${kind} from the front`);
   }
   // A plain bolt is not turned aside once the shield is down (phase two of the Bastion), so what the shield turned aside above was the shield and not the body.
   const broken: Struck = { kind: 'bastion', hp: 240, windup: 0, cooldown: 0, hitFlash: 0, bossPhase: 1 };

@@ -19,8 +19,19 @@ export type Struck = { kind: EnemyKind; hp: number; windup: number; cooldown: nu
 /** Whether a boss is standing in a phase change, which nothing damages (plan 021 D3). */
 export const unhittable = (target: Pick<Struck, 'change'>) => (target.change ?? 0) > 0;
 
-/** What the blow carries: a swing's beat, or the arm that loosed a bolt, with the knight's strike added in. */
-export type Blow = { damage: number; stagger: boolean; knockback: number; wardenKnockback: number };
+/**
+ * What the blow carries: a swing's beat, or the arm that loosed a bolt, with the knight's strike added in. `bolt` (plan 023) marks a blow a crossbow bolt lands (the arm's `bolt` flag, dungeon-weapon.ts: the Keep Crossbow's bolt and its Heavy Bolt)
+ * which `landBlow` multiplies by `BOSS_BOLT` on a boss; absent is a blow of steel, a flask or a thrown spear.
+ */
+export type Blow = { damage: number; stagger: boolean; knockback: number; wardenKnockback: number; bolt?: boolean };
+
+/**
+ * Plan 023 (D3): a crossbow bolt deals this many times its damage to a boss. The crossbow works in the chambers, where a body has a few quarter-hits of vitality, and fails only where vitality is in the hundreds: a quiver of four with one bolt
+ * back every 1.8 s is about five damage a second, against a boss's 150 to 630. A boss multiplier is the narrowest fix and leaves the arm's room play, where it is balanced, alone. The Heavy Bolt is multiplied too.
+ * A dial from 2 to 4 (the range set while tuning): D3's target is that the crossbow special escapes at least half as often as the default knight, and 4 is the lowest that meets it at the shipped state (30 and 60 runs: x2 18.3%, x3 33.3%, x4 48.3% of 60,
+ * against the default knight's 90 to 93; progress.md, plan 023 Stage D).
+ */
+export const BOSS_BOLT = 4;
 
 /** How long a struck body shows white. */
 export const HIT_FLASH = 0.2;
@@ -58,7 +69,7 @@ export const landBlow = (cells: Set<string>, target: Struck, at: Heading, blow: 
     moveOnFloor(cells, at, push.x * blow.knockback / 3, push.z * blow.knockback / 3);
     return { broke: false, killed: false, blocked: true };
   }
-  target.hp -= blow.damage; target.hitFlash = HIT_FLASH;
+  target.hp -= blow.bolt && BESTIARY[target.kind].boss ? blow.damage * BOSS_BOLT : blow.damage; target.hitFlash = HIT_FLASH;
   const broke = interruptsWindup(target.kind, target.windup, blow.stagger);
   if (broke) target.windup = 0;
   target.cooldown = Math.max(target.cooldown, hitCooldown(target.kind, broke, blow.stagger));

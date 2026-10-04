@@ -16,7 +16,7 @@
 // starting on the median vitality it entered that floor's stair hall with in the whole runs `balance:check` plays (`stairShares`), and prints both.
 // At 30 duels one death is 3.3 points and cannot be told from luck, so the comparison floors the fewest deaths at one.
 //
-// The run report is D13's targets (plan 022; D9's, plan 021, before it) measured on the same 30 runs `balance:check` plays (bands.json's `runs` and `firstSeed`, and its own
+// The run report is D7's targets (plan 023; D13's, plan 022, and D9's, plan 021, before it) measured on the same 30 runs `balance:check` plays (bands.json's `runs` and `firstSeed`, and its own
 // definitions of the default, weak and weak-meta-max knights): escape rate, how many of the deaths came before the stair hall and how many a boss dealt, the vitality he walked into floor one's stair hall with, how long a run and a
 // watch fight last, how long the default knight's boss fights last, and which boss accounts for how much of the dying (plan 021's 70% stop rule). Bot numbers, not human ones.
 import { readFileSync } from 'node:fs';
@@ -115,6 +115,8 @@ export type RunSummary = {
   policy: string; runs: number; escapeRate: number; deaths: number; bossDeaths: number; reserveDeaths: number; bossShare: number; fightSeconds: number;
   /** Plan 022 (D13): the share of the deaths that came before the stair hall, the median vitality (percent) he walked into floor one's stair hall with, the median run and the median watch fight, in seconds. */
   beforeBoss: number; stairHp: number; runSeconds: number; watchSeconds: number;
+  /** Plan 023 (D2): the median pearls a run banked (`pearlsFor`). */
+  pearls: number;
   byBoss: Record<string, { floors: number; deaths: number; seconds: number; damage: number; hpLeft: number }>; killedBy: Record<string, number>;
 };
 
@@ -141,31 +143,33 @@ export function runSummary(policyName: string, runs: number): RunSummary {
     policy: policyName, runs, escapeRate: pct(reports.filter(r => r.outcome === 'escaped').length, runs), deaths: dead.length, bossDeaths, reserveDeaths, bossShare: pct(bossDeaths, dead.length),
     fightSeconds: median(floors.filter(f => f.bossHpLeft !== null).map(f => f.bossSeconds)), byBoss, killedBy,
     beforeBoss: pct(lost.filter(f => f.deathsBeforeBoss === 1).length, lost.length), stairHp: median(reports.flatMap(r => r.floors).filter(f => f.level === 1 && typeof f.hpAtStair === 'number').map(f => f.hpAtStair as number)),
-    runSeconds: median(reports.map(r => r.seconds)), watchSeconds: median(watch),
+    runSeconds: median(reports.map(r => r.seconds)), watchSeconds: median(watch), pearls: median(reports.map(r => r.pearls)),
   };
 }
 
 /**
- * Plan 022's whole-run targets, D13's (D9's, plan 021, before it). Each is [label, lo, hi] over the number the policy's summary yields; `read` is given every policy's summary, so a target can be a margin over another policy's. Held at 30 runs, the
- * same ones `balance:check` plays. Fairness (D12) is the duel report's and is not here.
+ * Plan 023's whole-run targets, D7's (D13's, plan 022, before them; D9's, plan 021, before those). Each is [label, lo, hi] over the number the policy's summary yields; `read` is given every policy's summary, so a target can be a margin over another policy's.
+ * Held at 30 runs, the same ones `balance:check` plays. Fairness (D12, D7) is the duel report's and is not here. D7 dropped plan 022's run-length and watch-fight targets (the bots could not reach them) and the absolute weak-meta-max escape band (it ran into plan 021's wall twice),
+ * and added the crossbow special (D3: at least half as often as the default knight escapes) and the pearls a run banks (D2).
  */
 export const TARGETS: { policy: string; label: string; read: (s: RunSummary, all: readonly RunSummary[]) => number; lo: number; hi: number }[] = [
-  { policy: 'default', label: 'escape %', read: s => s.escapeRate, lo: 55, hi: 80 },
-  { policy: 'default', label: 'deaths before the stair hall, %', read: s => s.beforeBoss, lo: 100 / 3, hi: 100 },
-  { policy: 'default', label: 'vitality entering floor 1 stair hall, %', read: s => s.stairHp, lo: 40, hi: 80 },
-  { policy: 'default', label: 'median run seconds', read: s => s.runSeconds, lo: 300, hi: 600 },
-  { policy: 'default', label: 'median watch fight seconds', read: s => s.watchSeconds, lo: 12, hi: 40 },
+  { policy: 'default', label: 'escape %', read: s => s.escapeRate, lo: 60, hi: 85 },
+  { policy: 'default', label: 'deaths before the stair hall, %', read: s => s.beforeBoss, lo: 25, hi: 100 },
+  { policy: 'default', label: 'vitality entering floor 1 stair hall, %', read: s => s.stairHp, lo: 50, hi: 90 },
   { policy: 'default', label: 'boss fight seconds (median)', read: s => s.fightSeconds, lo: 25, hi: 60 },
-  { policy: 'weak', label: 'escape %', read: s => s.escapeRate, lo: 10, hi: 35 },
-  { policy: 'weak-meta-max', label: 'escape %', read: s => s.escapeRate, lo: 30, hi: 60 },
+  { policy: 'default', label: 'median pearls a run', read: s => s.pearls, lo: 80, hi: 130 },
+  { policy: 'weak', label: 'escape %', read: s => s.escapeRate, lo: 5, hi: 30 },
+  { policy: 'weak', label: 'vitality entering floor 1 stair hall, %', read: s => s.stairHp, lo: 30, hi: 70 },
+  { policy: 'weak', label: 'median pearls a run', read: s => s.pearls, lo: 30, hi: 55 },
   { policy: 'weak-meta-max', label: 'escape points over weak', read: (s, all) => s.escapeRate - all.find(x => x.policy === 'weak')!.escapeRate, lo: 15, hi: 100 },
+  { policy: 'special-crossbow', label: 'escape points over half the default knight\'s', read: (s, all) => s.escapeRate - all.find(x => x.policy === 'default')!.escapeRate / 2, lo: 0, hi: 100 },
 ];
 
 /** Each target held against the summary of its policy: the number measured, and whether it is inside the band, inclusive. */
 export const judge = (summaries: readonly RunSummary[]) => TARGETS.map(t => { const s = summaries.find(x => x.policy === t.policy)!, measured = t.read(s, summaries); return { policy: t.policy, label: t.label, measured, lo: t.lo, hi: t.hi, met: measured >= t.lo && measured <= t.hi }; });
 
 function runReport(runs: number) {
-  const summaries = ['default', 'weak', 'weak-meta-max'].map(name => runSummary(name, runs));
+  const summaries = ['default', 'weak', 'weak-meta-max', 'special-crossbow'].map(name => runSummary(name, runs));
   const targets = judge(summaries);
   // The 70% stop rule: one boss may not account for more than 70% of everything that died to a boss, over the three policies.
   const total: Record<string, number> = {};
@@ -181,7 +185,7 @@ function printRuns(report: ReturnType<typeof runReport>, runs: number) {
     console.log('    boss       floors met   deaths here   median fight s   median damage   HP left when it fell');
     for (const [kind, v] of Object.entries(s.byBoss)) console.log(`    ${kind.padEnd(9)}  ${String(v.floors).padStart(10)}   ${String(v.deaths).padStart(11)}   ${fixed(v.seconds).padStart(14)}   ${fixed(v.damage, 0).padStart(13)}   ${`${fixed(v.hpLeft, 0)}%`.padStart(20)}`);
   }
-  console.log('\n  D13 targets (plan 022)');
+  console.log('\n  D7 targets (plan 023)');
   for (const t of report.targets) console.log(`    ${t.policy.padEnd(14)} ${t.label.padEnd(30)} ${fixed(t.measured).padStart(6)}   [${t.lo}, ${t.hi}]   ${t.met ? 'met' : 'NOT met'}`);
   if (report.wall) console.log(`\n  stop rule (D9 may not need one boss for more than 70% of the boss deaths): ${report.wall.kind} accounts for ${report.wall.deaths} of ${report.wall.of} (${fixed(report.wall.share, 0)}%)${report.wall.share > 70 && report.wall.of >= 4 ? '   TRIPPED' : ''}`);
   console.log('');

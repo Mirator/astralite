@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
 import { landBlow, burn } from '../app/dungeon-hits.ts';
-import { PHASE_CHANGE, strikeDamage, type EnemyIntent } from '../app/dungeon-enemy.ts';
+import { BOSS_FLOOR_DAMAGE, damageStep, FLOOR_DAMAGE, PHASE_CHANGE, RECOVERY_SCALE, recoveryFor, scaledDamage, strikeDamage, type EnemyIntent } from '../app/dungeon-enemy.ts';
 import { asReaper, TEST_BOSS, TEST_KING } from './fixtures/test-boss.ts';
 import { recordSequence, type Recorded } from './fixtures/enemy-sequence.ts';
 import { AIM_LOCK, fallOf, raiseSpot, RAISE_SPREAD, ALERT_RADIUS, ALERT_STAGGER, BASE_STATS, BESTIARY, ENEMY_KINDS, HIT, HIT_COOLDOWN, hitCooldown, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, interruptsWindup, LUNGE_SPEED, LUNGE_TIME, nearbyDozers, NOTICE_TIME, PATROL_SPAN, PATROL_SPEED, pursuitStep, RECOVERY, separateCrowd, sweptContact, type CrowdBody, type EnemyView, type Wakeable, type World } from '../app/dungeon-enemy.ts';
@@ -299,11 +299,11 @@ test('bodies grow with the floor: vitality by one blade a floor, damage by fifte
     pyre: { hp: 1.5 * HIT, damage: 8, tell: 0.5, speed: 2.4 },
     bonecaller: { hp: 2 * HIT, damage: 0, tell: 1.2, speed: 2.2 },
     rattler: { hp: 1 * HIT, damage: 5, tell: 0.38, speed: 3.6 },
-    captain: { hp: 72.5 * HIT, damage: 12, tell: 0.8, speed: 1.8 },
+    captain: { hp: 72.5 * HIT, damage: 7, tell: 0.8, speed: 1.8 },
     mother: { hp: 37.5 * HIT, damage: 10, tell: 0.8, speed: 2.1 },
-    hound: { hp: 65 * HIT, damage: 9, tell: 0.7, speed: 3.0 },
-    bastion: { hp: 60 * HIT, damage: 11, tell: 0.7, speed: 1.7 },
-    king: { hp: 162.5 * HIT, damage: 0, tell: 0.8, speed: 1.9 },
+    hound: { hp: 65 * HIT, damage: 5, tell: 0.7, speed: 3.0 },
+    bastion: { hp: 60 * HIT, damage: 6, tell: 0.7, speed: 1.7 },
+    king: { hp: 157.5 * HIT, damage: 0, tell: 0.8, speed: 1.9 },
   });
   // Floor one is exactly the base table, so every browser fixture pinned to floor one still holds.
   for (const kind of ENEMY_KINDS) assert.deepEqual(enemyStats(kind, 1), BASE_STATS[kind]);
@@ -665,4 +665,30 @@ test('a boss\'s blow costs what its move says, scaled by the floor as an ordinar
     assert.equal(strikeDamage('reaper', 3, 1, 1), 13, 'the phase was not read: phase 1\'s second move is the pounce');
   });
   for (const kind of ENEMY_KINDS) for (const level of [1, 2, 3]) assert.equal(strikeDamage(kind, level), enemyStats(kind, level).damage, `${kind} on floor ${level}`);
+});
+
+// Plan 023 (D5): the two dials on how hard an ordinary body presses. Each is held at values the game does not ship, so the rule is held whatever the tuning says.
+test('the recovery scale reaches every ordinary kind and never a boss (plan 023 D5)', () => {
+  const bosses = ENEMY_KINDS.filter(kind => BESTIARY[kind].boss), ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].boss);
+  assert.ok(bosses.length === 5 && ordinary.length === 9, 'precondition: five bosses and nine ordinary kinds');
+  for (const kind of ordinary) assert.equal(recoveryFor(BESTIARY[kind], 0.5), BESTIARY[kind].recovery * 0.5, `a ${kind} was not made to recover at half the time`);
+  for (const kind of bosses) assert.equal(recoveryFor(BESTIARY[kind], 0.5), BESTIARY[kind].recovery, `the scale reached the ${kind}, a boss`);
+  // And the table the rules read is that rule at the shipped scale, kind by kind.
+  assert.ok(RECOVERY_SCALE >= 0.7 && RECOVERY_SCALE <= 1, `RECOVERY_SCALE is ${RECOVERY_SCALE}: D5 allows 0.7 to 1`);
+  for (const kind of ENEMY_KINDS) assert.equal(RECOVERY[kind], recoveryFor(BESTIARY[kind], RECOVERY_SCALE), `${kind}: RECOVERY is not the rule at the shipped scale`);
+  for (const kind of bosses) assert.equal(RECOVERY[kind], BESTIARY[kind].recovery, `${kind}: a boss's recovery moved`);
+});
+
+test('floor damage scales an ordinary kind by FLOOR_DAMAGE and a boss by its own step, and a floor-three guard costs what it says (plan 023 D5)', () => {
+  assert.equal(damageStep('guard', 0.3, 0.1), 0.3, 'an ordinary kind did not take the floor-damage step');
+  assert.equal(damageStep('king', 0.3, 0.1), 0.1, 'a boss took the ordinary step');
+  assert.ok(FLOOR_DAMAGE >= 0.15 && FLOOR_DAMAGE <= 0.3, `FLOOR_DAMAGE is ${FLOOR_DAMAGE}: D5 allows +15% to +30% a floor`);
+  assert.equal(BOSS_FLOOR_DAMAGE, 0.15, 'a boss keeps its own step');
+  // Written out: the guard's floor-one damage, two floors down.
+  const base = BASE_STATS.guard.damage;
+  assert.equal(enemyStats('guard', 1).damage, base);
+  assert.equal(enemyStats('guard', 3).damage, Math.round(base * (1 + 2 * FLOOR_DAMAGE)), 'a floor-three guard does not cost two steps more');
+  assert.ok(enemyStats('guard', 3).damage > base, 'precondition: the floors scale damage at all');
+  assert.equal(scaledDamage(20, 3, 0.25), 30, 'the step is a share of the floor-one damage for each floor down');
+  for (const kind of ENEMY_KINDS.filter(kind => BESTIARY[kind].boss && BASE_STATS[kind].damage > 0)) assert.equal(enemyStats(kind, 3).damage, scaledDamage(BASE_STATS[kind].damage, 3, BOSS_FLOOR_DAMAGE), `${kind}: a boss's stat damage moved with the ordinary step`);
 });

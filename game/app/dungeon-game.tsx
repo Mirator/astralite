@@ -25,7 +25,7 @@ import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import SlotPicker from './dungeon-slot-picker';
 import AltarPanel, { type AltarKind } from './dungeon-altar-panel';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
-import { DASH_BUFFER, dashImmune, dragToward, hurledBlow, lineContacts, specialAvailable, specialGate, specialMayCut, specialSpends, swordContacts, vaultLanding, vaultTarget } from './dungeon-combat';
+import { boltBlow, DASH_BUFFER, dashImmune, dragToward, hurledBlow, lineContacts, specialAvailable, specialGate, specialMayCut, specialSpends, swordContacts, vaultLanding, vaultTarget } from './dungeon-combat';
 import { ALERT_STAGGER, BESTIARY, decideEnemy, fallOf, moveOf, NOTICE_TIME, nearbyDozers, raiseSpot, scaledDamage, separateCrowd, type Wakeable } from './dungeon-enemy';
 import { awayFrom, bossPush, burn as burnBody, landBlow } from './dungeon-hits';
 import { chargePose } from './dungeon-attack-pose';
@@ -41,7 +41,7 @@ import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, migrateStored, readBest, readMeta, readRuns, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
 import { bank, buyArm, buyUpgrade, chooseArm, freshMeta, pearlsFor, runStart as metaRunStart, UPGRADES, type Meta } from './dungeon-meta';
-import { chamberReward, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, SHRINE, SHRINE_REACH, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { clearChamber, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, SHRINE, SHRINE_REACH, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
 import { beginMove, dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, THREAT, type Enemy, type EnemyKind } from './dungeon-enemy-view';
@@ -467,7 +467,7 @@ export default function DungeonGame() {
       if (!cleared.has(id) && stage.enemies.every(e => e.room !== id || e.dead)) {
         cleared.add(id);
         const room = floor.rooms[id], ways = stage.doors.filter(view => view.door.from === id);
-        award(chamberReward(run, room.reward));
+        award(clearChamber(run, room));
         setNotice(`${room.name} · ${ways.length ? 'the way on opens' : 'cleansed'}`);
         noticeTime = 3.5; rewardTime = 1.4; audio.play('clear'); burst(player.position,0x71f4c4,18);
         for (const view of ways) burst(view.spot, view.color, 14);
@@ -496,9 +496,9 @@ export default function DungeonGame() {
       // began, and the log is cheap enough to reread once per run that guessing is not worth it.
       const end: RunEnd = { at: Date.now(), floor: level, won: !cause, cause, seconds: Math.max(0, Math.round(elapsed - runStart)), rank: run.rankLevel, xp: run.totalXp, kills: run.kills, boons: [...boonsTaken], seed: firstSeed,
         // Plan 019: the arm the run began holding, the ranks it began with and what it earns (D3). An arena pays nothing.
-        arm: runArm, upgrades: { ...runUpgrades }, pearls: arena ? 0 : pearlsFor({ floor: level, won: !cause, kills: run.kills, bosses: run.bosses, elites: run.elites }),
+        arm: runArm, upgrades: { ...runUpgrades }, pearls: arena ? 0 : pearlsFor({ floor: level, won: !cause, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites }),
         // Plan 021: the bosses felled, and which boss each floor the run reached held.
-        bosses: run.bosses, ...(runBosses.length ? { bossKinds: runBosses.slice(0, level) } : null), ...(run.elites ? { elites: run.elites } : null) };
+        bosses: run.bosses, ...(runBosses.length ? { bossKinds: runBosses.slice(0, level) } : null), ...(run.elites ? { elites: run.elites } : null), chambers: run.chambers };
       setBossBar(null); bossKey = '';
       setEnded(end);
       if (arena) return;
@@ -2278,7 +2278,7 @@ export default function DungeonGame() {
               // The first body the spear takes that is not steadfast is hauled in rather than shoved; a warden only staggers.
               const hurled = live.special, thrown = hurled ? hurledBlow(hurled, { harpoon: !!live.harpoon, damage: live.shot.damage }, { free: !!harpoon && !harpoon.dragged, steadfast: !!BESTIARY[enemy.kind].steadfast }) : null;
               const drags = !!thrown?.drags;
-              const blow = thrown ? thrown.blow : { ...pc.weapon, damage: live.shot.damage };
+              const blow = thrown ? thrown.blow : boltBlow(pc.weapon, live.shot.damage);
               const hit = landBlow(floor.cells, enemy, enemy.group.position, blow, { x: live.shot.dx, z: live.shot.dz }, facingOf(enemy));
               if (hit.blocked) { enemy.blocked++; audio.play('warn'); burst(enemy.group.position, 0xdfe6ea, 8); continue; }
               if ('immune' in hit) { burst(enemy.group.position, 0x9ff0e6, 6); continue; }

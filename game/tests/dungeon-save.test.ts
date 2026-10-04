@@ -180,6 +180,18 @@ test('an old record parses with no bosses felled and no boss list, and a new one
   assert.deepEqual(parseRun(JSON.parse(written)), kept);
 });
 
+// Plan 023: a run records the fight chambers it cleared. An older record has none and keeps none (`pearlsFor` reads that as a pearl a kill); a stored 0 is a run that cleared none and is kept.
+test('a record keeps the chambers it cleared, an old one has none, and a bad count is none', () => {
+  assert.ok(!('chambers' in parseRun(PRE_019)!), 'an old record grew a chamber count');
+  assert.equal(parseRun({ ...PRE_019, chambers: 9 })!.chambers, 9);
+  assert.equal(parseRun({ ...PRE_019, chambers: 0 })!.chambers, 0, 'a run that cleared no chamber lost its zero, which would make it read as an old record');
+  assert.equal(parseRun({ ...PRE_019, chambers: 4.9 })!.chambers, 4);
+  assert.equal(parseRun({ ...PRE_019, chambers: 1e9 })!.chambers, 999);
+  for (const bad of [-1, 'nine', null, NaN]) assert.ok(!('chambers' in parseRun({ ...PRE_019, chambers: bad })!), `a chamber count of ${String(bad)} was kept`);
+  const kept = parseRun({ ...PRE_019, chambers: 7 })!;
+  assert.deepEqual(parseRun(JSON.parse(JSON.stringify(kept))), kept, 'a record with chambers does not survive a write and a read');
+});
+
 test('the new record fields are kept when sane and defaulted one by one when not', () => {
   const full = parseRun({ ...PRE_019, arm: 'maul', upgrades: { lungs: 2, tide: 1 }, pearls: 77 });
   assert.deepEqual([full?.arm, full?.upgrades, full?.pearls], ['maul', { lungs: 2, tide: 1 }, 77]);

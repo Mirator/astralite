@@ -5209,3 +5209,357 @@ Why the three that depend on carrying damage are unmet at any setting of the dia
 - The sim bot's door choice is unchanged (a purse, else a mending, else the first); a bot that took the mend door when hurt would carry less damage into the stair hall, and I did not build it because the plan does not ask for it.
 - Not done: the full browser suite (CI is the gate; the harness is still on `?waves=off`: the follow-up to turn waves on suite-wide is open and noted in `tests/README.md`); Stage G; no GPU run (frame numbers are SwiftShader); the playtest decides whether a wave's arrival reads, whether an elite is told apart in a crowd and whether the 5-point Draught and the King's 650 are too much or too little.
 - Browser plants, one run each (the dev server and the shim): all listed above.
+
+## 2026-10-04 - Plan 023 Stage 0: the baseline (main `f5ee477` + the plan)
+
+Branch `claude/beautiful-gauss-5o0cw4`. Measured at 30 runs a policy from seed 1 (`balance:check`'s own runs) with the repository's own simulation, by a scratch driver that plays the nine `bands.json` policies in parallel and reads the same reports (nothing committed from it). It **reproduces plan 022 Stage E's shipped numbers exactly** (default 83.3, weak 10, special-crossbow 0, weak-meta-max 63.3), so the drivers agree with `balance:check`.
+
+### Per policy (today's `pearlsFor`: a pearl a kill)
+
+| policy | escape | deaths f1 / f2 / f3 | deaths before the stair hall | median vitality entering the stair hall f1 / f2 / f3 (least) | median run s | median watch fight s | median pearls |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| default | 83.3 | 3.3 / 0 / 13.8 | 0 of 5 | 100 / 100 / 100 (70 / 45 / 19.2) | 244.2 | 6.2 | 200 |
+| weak | 10 | 50 / 53.3 / 57.1 | 8 of 27 | 90.7 / 57.2 / 100 (8 / 7.2 / 97.6) | 63.5 | 3.2 | 40.5 |
+| special | 96.7 | 0 / 0 / 3.3 | 0 of 1 | 100 / 100 / 100 (40 / 74 / 75.2) | 241.4 | 5.9 | 201.5 |
+| special-fangs | 100 | 0 / 0 / 0 | 0 of 0 | 100 / 100 / 100 (50 / 74 / 65.6) | 223.3 | 5.7 | 201.5 |
+| special-cleaver | 80 | 6.7 / 7.1 / 7.7 | 0 of 6 | 100 / 100 / 100 (44 / 62.4 / 22.4) | 280.7 | 6.8 | 199.5 |
+| special-crossbow | 0 | 30 / 38.1 / 100 | 6 of 30 | 100 / 97.2 / 91.2 (68 / 32 / 40) | 248.8 | 6.5 | 88 |
+| special-flask | 56.7 | 0 / 0 / 43.3 | 0 of 13 | 100 / 100 / 100 (64 / 84 / 63.2) | 337.4 | 7.1 | 188 |
+| meta-max | 100 | 0 / 0 / 0 | 0 of 0 | 100 / 100 / 100 (53.8 / 68.4 / 45.8) | 236.9 | 6 | 201.5 |
+| weak-meta-max | 63.3 | 0 / 3.3 / 34.5 | 5 of 11 | 92.3 / 89.7 / 86.1 (29.2 / 21.5 / 7.1) | 199.8 | 4.5 | 194 |
+
+Deaths by floor and cause (30 runs): default f3 King 3, f1 Mother 1, f3 hazard 1; weak f2 stalker 8, f1 Bastion 4, f1 Hound 3, f1 stalker 3, f1 Captain 3, f1 Mother 1, f1 hazard 1, f3 warden 2, f3 King 1, f3 stalker 1; special f3 King 1; special-cleaver f2 Mother 2, f1 Mother 1, f3 King 1, f1 and f3 hazard 1 each; special-crossbow f3 King 6, f3 stalker 5, f3 guard 2, f1 Mother 4, f1 Bastion 3, f2 Bastion 2, f2 Mother 2, f1 Captain / Hound 1 each, f2 Hound / archer / guard / stalker 1 each; special-flask f3 King 13; weak-meta-max f3 warden 5, f3 King 3, f3 stalker 2, f2 Bastion 1.
+
+**The crossbow special's numbers.** Escape 0%; it dies on floor 1 in 30% of its runs, floor 2 in 38.1% and every run that reaches floor 3 dies there (100%); its median boss fight is 64.8 s (the default knight's 33 s) and it fells 61 bodies a run against the default knight's 90 (a death ends it earlier); 6 of its 30 deaths come before the stair hall. Its median run pays 88 pearls.
+
+### The King's knife-edge (escape %, 30 runs, the King's vitality set from the table; 650 is the shipped value)
+
+| policy | 610 | 630 | 650 | 670 | 690 | largest step |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 86.7 | 80 | 83.3 | 83.3 | 80 | 6.7 |
+| weak | 10 | 10 | 10 | 0 | 0 | 10 |
+| special | 100 | 100 | 96.7 | 93.3 | 96.7 | 3.3 |
+| special-fangs | 100 | 100 | 100 | 100 | 100 | 0 |
+| special-cleaver | 83.3 | 80 | 80 | 83.3 | 80 | 3.3 |
+| special-crossbow | 3.3 | 3.3 | 0 | 0 | 3.3 | 3.3 |
+| special-flask | 56.7 | 53.3 | 56.7 | 43.3 | 50 | 13.3 |
+| meta-max | 100 | 100 | 100 | 100 | 100 | 0 |
+| weak-meta-max | 73.3 | 73.3 | 63.3 | 63.3 | 63.3 | 10 |
+
+D6's rule is "±20 vitality moves no policy's escape rate by more than 10 points", read at the shipped 650 (630 and 670 against each other and against 650). **It does not hold today for special-flask**: 53.3 at 630, 56.7 at 650 and 43.3 at 670, a 13.3-point drop, which is four runs of 30 (at 30 runs one run is 3.3 points, so a move of 10 points is three runs and the rule cannot be read finer than that). The weak knight is at the rule's edge (10 to 0 between 650 and 670: three runs of 30 become none, plan 022's "knife-edge" in one number). The default knight is flat (80 to 86.7 across all five values).
+
+### The duel table at stair-hall vitality (`balance:bosses -- --duels --at-stair`, 30 duels a boss, floor and policy; the default knight starts on 100% / 100% / 100%, the weak knight on 91% / 57% / 100% of its bar)
+
+| boss | floor | default start | default died | default boss s | weak start | weak died |
+| --- | --- | --- | --- | --- | --- | --- |
+| captain | 1 | 100% | 0% | 33.1 | 91% | 100% |
+| captain | 2 | 100% | 0% | 33 | 57% | 100% |
+| mother | 1 | 100% | 3% | 24.8 | 91% | 0% |
+| mother | 2 | 100% | 7% | 24.4 | 57% | 100% |
+| hound | 1 | 100% | 0% | 33 | 91% | 100% |
+| hound | 2 | 100% | 0% | 33.6 | 57% | 100% |
+| bastion | 1 | 100% | 0% | 33.4 | 91% | 100% |
+| bastion | 2 | 100% | 0% | 33.8 | 57% | 100% |
+| king | 3 | 100% | 87% | 78.5 | 100% | 100% |
+
+At full bar the weak knight dies to the Captain, the Hound and the Bastion in every duel and to the Mother in none on floor 1 (and in all on floor 2 at 57%). Pool fairness (D12 / D7): the default knight is met (floor 1: Mother 1, Captain 0; floor 2: Mother 2, Captain 0, the fewest floored at one); the weak knight is **not met on floor 1** at either start (Captain 30, Mother 0) and is met on floor 2 at 57% only because it dies to everything (30 and 30).
+
+What the baseline says in one line: every policy still walks into every stair hall at a median 100% (the weak knight 91% and 57%), the default knight's deaths are all boss deaths (0 of 5 before the stair hall), and the crossbow is at 0%.
+
+## 2026-10-04 - Plan 023 Stage A: pearls by chamber
+
+Branch `claude/beautiful-gauss-5o0cw4`. A run is paid `CHAMBER_PEARLS` (2) for every **fight chamber** it clears, not a pearl a kill (D1). Nothing the bots play moved, so every measured value but the pearls is Stage 0's.
+
+**As built.** `dungeon-meta.ts`: `CHAMBER_PEARLS`, and `pearlsFor` takes `chambers` in place of `kills` (a record with no `chambers` is paid as it was, a pearl a kill: `RunEnd.chambers` is optional, the type accepts the older record, and nothing re-pays a stored run, whose `pearls` is in the record). An elite still pays `ELITE_PEARLS` on top, a boss `BOSS_PEARLS`, the floors and the escape as before. `dungeon-sim.ts`: `Run.chambers`, `fightChamber(room)` (a `path` chamber that is not a sanctuary) and `clearChamber(run, room)`, which both the game's `settleRoom` and the sim's `fell` call in place of `chamberReward`; the game and the sim therefore cannot disagree about which clears pay. `dungeon-save.ts`: `RunEnd.chambers` is kept by `parseRun` (a stored 0 is a run that cleared none and is kept; an absent or bad count is absent). The sim's `RunReport.chambers`, `summarise`'s new `medianPearls`, and a `medianPearls` band for every policy in `bands.json`.
+
+**Interpretations.**
+- **The stair hall is not a fight chamber.** Its fight is a boss, paid by `BOSS_PEARLS` as D1 says ("bosses ... pay as today"); counting it too would pay the boss twice. The Tide Gate and a shrine hold no bodies and so cannot settle by a kill at all; `fightChamber` also names them, so a later rule that put a body in one would not start paying for it by accident (node test: over 180 generated floors, a chamber is a fight exactly when the generator stands bodies in it, the stair hall aside).
+- The game counts a chamber where it settles by a kill (`settleRoom`); a chamber with no bodies is marked cleared on entry and was never a settle, so it pays nothing.
+- A thrown spear (`harpoon`) is a shot like a bolt: that is Stage B.
+
+**Pearls before and after (30 runs, CHAMBER_PEARLS 2, floor pearls still 15).**
+
+| policy | median pearls before (a pearl a kill) | median pearls after | median fight chambers a run | median kills a run | the 900-pearl shop in runs before / after |
+| --- | --- | --- | --- | --- | --- |
+| default | 200 | 158 | 23 | 89.5 | 4.5 / 5.7 |
+| weak | 40.5 | 31.5 | 9 | 27 | 22.2 / 28.6 |
+| special | 201.5 | 159 | 23 | 90 | 4.5 / 5.7 |
+| special-fangs | 201.5 | 159 | 23 | 90 | 4.5 / 5.7 |
+| special-cleaver | 199.5 | 158 | 23 | 87.5 | 4.5 / 5.7 |
+| special-crossbow | 88 | 59 | 15.5 | 61 | 10.2 / 15.3 |
+| special-flask | 188 | 154 | 23 | 90 | 4.8 / 5.8 |
+| meta-max | 201.5 | 159 | 23 | 90 | 4.5 / 5.7 |
+| weak-meta-max | 194 | 157.5 | 23 | 87 | 4.6 / 5.7 |
+
+**D2 is not reachable with the dials this stage may turn, and what I did about it.** D2 asks the weak bot 30-55 and the default bot 80-130. A default run banks, whatever the chambers pay, 45 for three floors, 25 for the win, 30 for three bosses and about 12 for its elites: 112 before it has cleared a chamber, and it clears 23. A weak run clears 9 and banks one floor or none. So one integer `CHAMBER_PEARLS` and the floor pearls give this grid (median pearls, default / weak; 30 runs, computed from the same runs for every pair, the floor pearls being the only other dial D2 names):
+
+| CHAMBER_PEARLS | floor 15 | floor 12 | floor 10 | floor 8 | floor 5 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 135 / 22.5 | 126 / 21 | 120 / 20 | 114 / 19 | 105 / 17.5 |
+| 2 | **158 / 31.5** | 149 / 30 | 143 / 29 | 137 / 28 | 128 / 26.5 |
+| 3 | 181 / 40.5 | 172 / 39 | 166 / 38 | 160 / 37 | 151 / 35.5 |
+
+No cell is inside both bands: the default bot out-earns the weak one by 4.5 to 5 times at any setting and D2's two bands are 4.3 apart at most. I kept `CHAMBER_PEARLS` 2 and the floor pearls 15: the weak bot is the nearer proxy for a new human (D2's own words), it lands inside (31.5, a shop in 28.6 of its runs) and the default bot, the practised player, is above (158, a shop in 5.7 runs against the 7-11 asked). This is **provisional**: Stage D moves what both bots do (a run that dies earlier banks fewer chambers) and re-reads this grid with the shipped dials.
+
+**Plan 019's price arithmetic, re-stated.** The 900-pearl shop was "about twenty typical runs" at a guessed 45 pearls a run. With waves and a pearl a kill it was 4.5 runs for the default bot and 22 for the weak bot (plan 022 Stage E); paid by chamber it is 5.7 and 28.6. The prices are unchanged, so no save is devalued.
+
+**Tests, and the bugs planted** (each against its own test, then restored):
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| node: a run pays CHAMBER_PEARLS a chamber whatever its kill count | pay per kill again | `four chambers and a floor behind him do not pay four chambers' pearls and 15` |
+| node: a record with no chambers is paid as before | the old record paid 0 | `a record with no chambers no longer reads as a pearl a kill` |
+| node: a shrine, the gate and the stair hall count for nothing | `fightChamber` counts every chamber | `a shrine, the Tide Gate or the stair hall was counted as a fight` |
+| node: a chamber is a fight exactly when the generator stands bodies in it | the same plant | `floor 1 seed 1: a start sanctuary chamber holds 0 bodies and the rule says fight is true` |
+| node: the sim report's pearls and chambers | chambers not counted in `clearChamber` | `the report counts the chambers the floors fought` |
+| node: pay per kill again, the same test | the same as the first plant | `an escaped run report does not carry what a win pays` (164 expected) |
+| node: `parseRun` keeps a stored zero | a falsy zero dropped | `a run that cleared no chamber lost its zero, which would make it read as an old record` |
+| node: `medianPearls` is a median | the mean | `the median of 10, 200 and 40 is 40, not their mean 83.3` |
+| browser: a death pays for the chamber cleared, not the bodies felled, through the real card | the game omits `chambers` from `pearlsFor` | `the run was not paid CHAMBER_PEARLS for its one chamber` |
+
+The browser scenario (`combat.spec.ts`) empties a three-body chamber with a real swing, then a staged blow kills the knight on floor one: the record, the save and the card all carry one chamber's pearls (2) and not the three kills'.
+
+**Gates.** `npm run typecheck`, `npm run lint` clean; `npm test` 503 of 503; `npm run balance:check` green (699.0 s, every metric inside its band, the new `medianPearls` bands included). Browser (SwiftShader, `GAME_TEST_WORKERS=2`): the new `combat.spec.ts` scenario, once clean and once planted. The full suite was not run locally; CI is the gate.
+
+## 2026-10-04 - Plan 023 Stage B: the crossbow against bosses
+
+A crossbow bolt, and the Heavy Bolt, deal `BOSS_BOLT` (2) times their damage to a boss (D3). Nothing else about the arm changes.
+
+**As built.** `dungeon-hits.ts`: `BOSS_BOLT = 2`, and `landBlow` multiplies a blow's damage by it when the blow is a `bolt` and the body's archetype has `boss`. `Blow.bolt` is set where the blow is built, in one place for both the game and the sim: `boltBlow(weapon, damage)` for an ordinary shot and `hurledBlow` for a special's, both in `dungeon-combat.ts`, reading the arm's own `bolt` flag (`Weapon.bolt`, `dungeon-weapon.ts`), which only the Keep Crossbow and its Heavy Bolt carry. Fire (`burn`) and steel are never multiplied; a boss changing phase still takes nothing.
+
+**Interpretation: bolts, not every shot.** The design section says "a ranged blow on a body whose archetype has boss"; D3 says "bolts ... nothing else about the crossbow changes". The flask's thrown vial and the thrown spear (the harpoon) are ranged blows too and go through the same lines of the game and the sim. I read D3 as the crossbow's and flagged only its shots: a first cut that multiplied every shot moved `special-flask` (floor-three vitality left 42.4 -> 34.4, below its band, and its boss fight 33.2 -> 31.4 s), which the plan never asked for. With the flag the flask is exactly as it was (56.7% escape, 154 pearls, boss fight 33.2 s). A node test holds that the flask and the harpoon are not multiplied.
+
+**The crossbow special, before and after (30 runs).**
+
+| | before (Stage A) | after (x2) |
+| --- | --- | --- |
+| escape | 0 | 10 |
+| deaths f1 / f2 / f3 | 30 / 38.1 / 100 | 3.3 / 10.3 / 88.5 |
+| deaths by cause | f3 King 6, f3 stalker 5, f3 guard 2, f1 Mother 4, f1 Bastion 3, f2 Bastion 2, f2 Mother 2, ... | f3 King 9, f3 stalker 6, f3 guard 5, f3 warden 2, f1 / f2 Bastion 1 each, f2 warden / guard 1 each, f3 archer 1 |
+| median boss fight s | 64.8 | 30.1 |
+| median run s | 248.8 | 323.1 |
+| median pearls | 59 | 108 |
+| median vitality entering the stair hall f1 / f2 / f3 | 100 / 97.2 / 91.2 | 100 / 98 / 77.6 |
+| deaths before the stair hall | 6 of 30 | 7 of 27 |
+
+**D3's target is not met at x2.** "The crossbow special escapes at least half as often as the default bot": the default knight escapes 83.3, so 41.7 or more is asked, and x2 gives 10.0. The boss fight is no longer the wall (30 s, the default knight's 33): floors one and two stop killing it (30 -> 3.3 and 38.1 -> 10.3). What stops it is floor three, where it dies in 88.5% of its arrivals, and the King is 9 of the 27 deaths, stalkers and guards 11 and wardens 2. The size of the multiplier is a measurable dial, so for the operator (measured at 30 runs, nothing else changed, **not shipped**):
+
+| BOSS_BOLT | escape | deaths f1 / f2 / f3 | median boss fight s | median run s |
+| --- | --- | --- | --- | --- |
+| 2 (shipped) | 10 | 3.3 / 10.3 / 88.5 | 30.1 | 323 |
+| 3 | 33.3 | 0 / 6.7 / 64.3 | 23.2 | 293 |
+| 4 | 53.3 | 0 / 10 / 40.7 | 19.2 | 294 |
+
+A x4 crossbow would meet D3 and fell a boss in 19 s, much quicker than the default knight's sword (33 s). I kept x2 because the operator's D3 says x2, and because Stage D makes the rooms press harder, which moves floor three (where the crossbow dies) before it moves anything else; the crossbow is re-measured in Stage D's table.
+
+**Bands.** Only special-crossbow moved: `measured` re-taken for it, and its `medianPearls` band [45, 75] -> [85, 135] (the Stage A rule: 0.8x to 1.25x of the 108 measured); its other seven bands held. Every other policy plays exactly as before.
+
+**Tests, and the bugs planted** (each against its own test, then restored):
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| node: a bolt deals BOSS_BOLT times its damage to a boss (five bosses) and its own to everything else, steel is never multiplied | no multiplier | `a bolt on a captain dealt 9, not 18` |
+| the same | the multiplier on every body | `a bolt on a guard dealt 18, not its own 9: only a boss takes the multiplier` |
+| node: the Heavy Bolt on a boss is multiplied, on a warden not | no multiplier / on every body | `the Heavy Bolt was not multiplied on the Bone King` / `the Heavy Bolt was multiplied on a warden` |
+| node: only a crossbow bolt is multiplied, a flask and the spear are not | every shot a bolt (`boltBlow`) / the harpoon a bolt (`hurledBlow`) | `a flask's shot was multiplied on a boss` / `the thrown spear was multiplied on a boss` |
+| the same | the crossbow row loses its flag / the Heavy Bolt loses its flag | `precondition: the same damage from the crossbow is multiplied` / `the bolt flag is on the crossbow and its Heavy Bolt and nowhere else` |
+| node (Bastion): the Heavy Bolt wounds the Bastion twice over, the shieldbearer once | no multiplier | `the heavy bolt did not wound a bastion from the front` |
+| sim: the knight's bolts deal BOSS_BOLT to a boss (a Captain made 36 quarter-hits) | the sim builds the blow without `boltBlow` | `seed 1: the Captain needed 5 bolts of 9 to fall from 36, so a bolt did not deal 18` |
+| browser (arena, real keys): the ordinary bolt deals twice to the Captain, once to a warden | the game builds the blow without `boltBlow` / the crossbow row loses its flag | `a bolt on the Captain did not deal twice its damage` (both) |
+| browser: the same, the multiplier on every body | `blow.bolt` without the boss test | `a bolt on a warden was multiplied, or never landed` |
+| browser (arena): the Heavy Bolt through the Bastion's shield | no multiplier | `the Heavy Bolt did not wound the shield from the front, twice over for a boss` |
+
+The browser scenarios are in `arena-kinds.spec.ts`: the existing Bastion scenario now expects the Heavy Bolt's wound times `BOSS_BOLT`, and a new one fires the same ordinary bolt with the real key at a held Captain and a held warden and reads each one's vitality.
+
+**Gates.** `npm run typecheck`, `npm run lint` clean; `npm test` 508 of 508; `npm run balance:check` green (755.9 s). Browser (SwiftShader, `GAME_TEST_WORKERS=2`): both `arena-kinds.spec.ts` crossbow scenarios, clean and planted. The full suite was not run locally.
+
+## 2026-10-04 - Plan 023 Stage C: rooms that press (structure), and waves from the second fight
+
+**Step 1: the dials as named constants at their old values.** `RECOVERY_SCALE` (1) and `FLOOR_DAMAGE` / `BOSS_FLOOR_DAMAGE` (0.15 and 0.15) in `dungeon-enemy.ts`; `FIRST_WAVE_LAYERS` and `ELITE_RATE[1]` (0) already existed in `dungeon-waves.ts`. `RECOVERY` is now `recoveryFor(archetype)` (the bestiary's recovery times the scale for an ordinary kind, untouched for a boss), `enemyStats` reads `damageStep(kind)` (an ordinary kind's `FLOOR_DAMAGE`, a boss's own step), and `scaledDamage` takes the step as a parameter defaulting to the boss's, which is what the game's and the sim's boss-move lines still call. **Proved to change nothing:** with only these constants in, the default, weak, weak-meta-max and crossbow-special reports (30 runs each) were identical to Stage B's, summary and every run's length, so `balance:check` would print Stage B's values.
+
+**Step 2: `FIRST_WAVE_LAYERS` 2 -> 1 (D4).** The first fight past the gate (layer 1) is the tutorial beat and stays one wave; a watch fight from the second on takes waves. The effect is small and the plan's own arithmetic says why: the shipped `WAVE_TABLE` has rules for `middle`, `late` and `hoard` packs only, and a layer-2 chamber on floor one is an `opening` pack (progress under .35), so only layer-2 chambers on floors two and three, which are `middle`, are newly dealt waves. Measured (30 runs, Stage B -> C):
+
+| policy | escape | deaths f1 / f2 / f3 | median run s | median watch fight s | median vitality entering the stair hall f1 / f2 / f3 | pearls |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 83.3 -> 90 | 3.3 / 0 / 13.8 -> 3.3 / 3.4 / 3.6 | 244.2 -> 259.7 | 6.2 -> 7.6 | 100 / 100 / 100 -> 100 / 100 / 100 | 158 -> 160 |
+| weak | 10 -> 10 | 50 / 53.3 / 57.1 -> 50 / 60 / 50 | 63.5 -> 64.8 | 3.2 -> 5.2 | 90.7 / 57.2 / 100 -> 90.7 / 76.6 / 100 | 31.5 -> 31.5 |
+| special-crossbow | 10 -> 26.7 | 3.3 / 10.3 / 88.5 -> 3.3 / 3.4 / 71.4 | 323.1 -> 363.6 | 7.4 -> 11.5 | 100 / 98 / 77.6 -> 100 / 100 / 84.8 | 108 -> 109 |
+| weak-meta-max | 63.3 -> 73.3 | 0 / 3.3 / 34.5 -> 0 / 0 / 26.7 | 199.8 -> 214.7 | 4.5 -> 6.2 | 92.3 / 89.7 / 86.1 -> 92.3 / 90.2 / 87.7 | 157.5 -> 159.5 |
+
+Escapes moved by one to three runs in either direction (the default knight's 83.3 -> 90 is noise, not a softer keep): what the dial bought is longer fights on floors two and three (the weak knight's median watch fight 3.2 -> 5.2 s). The default knight still enters every stair hall at 100%, so rooms still do not hurt: that is Stage D's.
+
+**Bands.** `measured` re-taken for all nine policies; twelve bands that no longer held moved to the next five beyond what was measured and are listed in `bands.json`'s note (default floor-3 vitality min 65 -> 55 and run max 250 -> 260; weak floor-2 deaths max 55 -> 65; run maximums of special 260, special-fangs 240, special-cleaver 300, special-crossbow 365, special-flask 370, meta-max 255, weak-meta-max 215; special-flask escape min 55 -> 45 and floor-3 deaths max 45 -> 55).
+
+**Tests, and the bugs planted** (each against its own test, then restored):
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| node: the first fight past the gate is dealt no waves and the second is (a table with a rule for every source, so the table does not gate it) | `FIRST_WAVE_LAYERS` 2 | `D4: the first fight is the tutorial beat, and from the second on watch fights take waves`; with that assertion removed, `the second fight past the gate was dealt 0 wave bodies over 450 floors` |
+| node: the recovery scale reaches every ordinary kind and never a boss (held at 0.5, a value the game does not ship) | applied to a boss / not applied | `the scale reached the captain, a boss` / `a guard was not made to recover at half the time` |
+| node: floor damage scales an ordinary kind by `FLOOR_DAMAGE` and a boss by its own step | a boss takes the ordinary step | `a boss took the ordinary step` |
+| node: the same | `enemyStats` ignores the floor | `a floor-three guard does not cost two steps more` (and the old floor-growth tests) |
+| browser (arena on floor three): a floor-three body reports the floor-one blow plus two steps | `enemyStats` ignores the floor | `a floor-three guard does not cost the floor-one blow plus two floor-damage steps` (Expected 16, received 12) |
+
+`dungeon-waves.test.ts`'s older checks that read the literal 2 (layers of the first two fights) now read `FIRST_WAVE_LAYERS`. The older floor-growth test (`damage by fifteen percent`) still holds the written-out 12 / 14 / 16 of the shipped step; Stage D rewrites it with the shipped value.
+
+**A sim reporting fix the dial exposed.** `waves.spec.ts` ("the sim and the game deal the same waves") failed once `FIRST_WAVE_LAYERS` was 1: on floor three of seed 12 a layer-2 purse chamber is now dealt a bonecaller in its second wave, the sim's run woke it and raised two of its reserve, and `FloorReport.waveBodies` was read at the end of the floor, so those two read `buried: false` against the game's scene read at the start. `waveBodies` is now read off the bodies as they are built (`waveBodiesAtStart`); nothing the sim plays changed (reporting only; the nine policies' numbers above are from before and after the fix alike). The scenario passes (3 of 3) and fails again, with that diff, with the fix reverted. Gates: `npm run typecheck`, `npm run lint` clean; `npm test` 511 of 511; `npm run balance:check` green (859.9 s) with the bands above; browser `waves.spec.ts` 3 of 3 and the new `arena-kinds.spec.ts` scenario once clean and once planted.
+
+## 2026-10-04 - Plan 023 Stage D: the tuning against D7, and the second stop rule
+
+Branch `claude/beautiful-gauss-5o0cw4`. **Stop rule 2 tripped** ("the default bot's deaths before the stair hall stay under a quarter with every D5 dial at its limit"); the table that shows it is below. Everything the stage could move and measure is shipped; four D7 numbers are **not met** and are named in the final table. No band was widened to pass: every band that moved is listed in `bands.json`'s note, each to the next five beyond what was measured, and the two pearls bands of the default and weak knights are D2's own.
+
+Method: the repository's own simulation, 30 runs a policy from seed 1 (`balance:check`'s), a scratch driver playing variants of the tree in parallel; `balance:check` and `npm run balance:bosses -- --at-stair` on the shipped state at the end (both below).
+
+### 1. D5's dials: the default knight does not move
+
+`RECOVERY_SCALE` x `FLOOR_DAMAGE`, floor-one elites 0 (30 runs; the Stage C state, `FIRST_WAVE_LAYERS` 1):
+
+| RECOVERY_SCALE | FLOOR_DAMAGE | default escape | default deaths before the stair hall | default vitality entering floor 1's stair hall | weak escape | weak-meta-max escape | crossbow-special escape |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0.15 | 90 | 0 of 3 | 100 | 10 | 73.3 | 26.7 |
+| 1 | 0.22 | 90 | 0 of 3 | 100 | 10 | 60 | 16.7 |
+| 1 | 0.30 | 90 | 0 of 3 | 100 | 3.3 | 60 | 16.7 |
+| 0.85 | 0.15 | 93.3 | 0 of 2 | 100 | 10 | 76.7 | 10 |
+| 0.85 | 0.22 | 93.3 | 0 of 2 | 100 | 6.7 | 63.3 | 10 |
+| 0.85 | 0.30 | 93.3 | 0 of 2 | 100 | 0 | 56.7 | 6.7 |
+| 0.7 | 0.15 | 90 | 0 of 3 | 100 | 6.7 | 73.3 | 10 |
+| 0.7 | 0.22 | 90 | 0 of 3 | 100 | 6.7 | 60 | 6.7 |
+| 0.7 | 0.30 | 90 | 0 of 3 | 100 | 0 | 53.3 | 3.3 |
+
+The default knight's run (escape 90 or 93.3, deaths 0 of 2 or 3, vitality 100) is **identical across every setting of `FLOOR_DAMAGE`** (the damage scaling only exists from floor two: `floorsDeeper(1)` is 0) and moves by one run across `RECOVERY_SCALE`. What the dials do move is the knights that were never the problem: the weak knight falls to 0, weak-meta-max from 73 to 53, and the crossbow from 27 to 3.
+
+**Every dial at its limit** (`RECOVERY_SCALE` 0.7, `FLOOR_DAMAGE` 0.30, floor-one elites 10%), the whole of the third D7 row, with and without Grave Draught (a diagnostic, not shipped; Draught is plan 022's dial, 5 a kill):
+
+| state | default escape | default deaths before the stair hall | default median vitality entering floor 1's stair hall (runs under 100) | weak escape | weak median vitality entering floor 1's stair hall |
+| --- | --- | --- | --- | --- | --- |
+| Stage C | 90 | 0 of 3 | 100 (7 of 30) | 10 | 90.7 |
+| all dials at their limit | 90 | **0 of 3 (0%, the rule asks 25%)** | 100 (8 of 30) | 0 | 89.2 |
+| Stage C, no Grave Draught | 63.3 | 1 of 11 (9%) | 100 (13 of 30) | 0 | 71.5 |
+| limits, no Grave Draught | 73.3 | 3 of 8 (38%) | 100 (14 of 30) | 0 | 68 |
+
+**So the bot's dodging, not the numbers, is the wall** (the plan's own words for this outcome): the default knight (dodge 0.8) takes almost nothing on floor one, where `FLOOR_DAMAGE` does not reach, and what it takes a shrine, a mend door or Grave Draught puts back; its median bar entering floor 1's stair hall is 100% at every setting tried, and only removing Grave Draught altogether (which no dial of D5 does) lets the limits kill it before the stair hall. A human playtest decides whether the rooms hurt a person (Stage F); I did not chase the bot with bigger numbers.
+
+### 2. What I shipped for D5, and why that low
+
+`RECOVERY_SCALE` 1 and `FLOOR_DAMAGE` 0.15 (the bottoms of their ranges, so **these two dials ship as no change**), floor-one elites `ELITE_RATE[1]` 0.05 with `ELITE_PER_WAVE[1]` 1. The reason is the coordinator's instruction that D3's target is the one that matters and D5's dials cost exactly that target while buying no number of the default knight: at 60 runs the crossbow special's escape at `BOSS_BOLT` 4 against a default knight at 93.3% (half of it is 46.7):
+
+| state (60 runs, `BOSS_BOLT` 4) | crossbow special escape |
+| --- | --- |
+| `RECOVERY_SCALE` 1, `FLOOR_DAMAGE` 0.15 (shipped) | **48.3** |
+| 0.9, 0.18 | 35 |
+| 0.85, 0.22 | 33.3 |
+
+A middle setting (0.85, 0.22, 5%) also took the weak knight's escape to 3.3 and 6.7 across two samples, under D7's 5. The elites on floor one cost nothing in either; they are a variety a person meets in the first room and a pearl each.
+
+### 3. Boss damage: pool fairness for the weak knight (D6, D7)
+
+D7 asks that no pool boss kill a bot more than twice as often as another, from the bar it walks into the stair hall with. The weak knight lost every Captain, Hound and Bastion duel (30 of 30) and no Mother duel, from a full bar. Their damage rows were cut (duels at weak 90%, 30 each):
+
+| damage x | Captain / Hound / Bastion deaths, floor 1 | floor 2 |
+| --- | --- | --- |
+| 1 (Stage C) | 30 / 30 / 30 | 30 / 30 / 30 |
+| 0.8 | 30 / 0 / 0 | 30 / 30 / 30 |
+| 0.65 | 0 / 0 / 0 | 0 / 0 / 0 |
+| 0.5 | 0 / 0 / 0 | 0 / 0 / 0 |
+
+0.65 (rounded to whole numbers) left the Hound at 87 damage on floor two against the 86% bar the weak knight walks in with, so one more step was taken (Captain x0.88, Hound x0.85, Bastion x0.88 on top, to whole numbers): the Captain's rows are now 7 / 7 / 5 (were 12 / 12 / 10), the Hound's 5 / 4 (was 9 / 8) and the Bastion's 6 / 5 (was 11 / 9). Shipped (final duel table below): no pool boss kills the weak knight from 100%, 89% or 91% of its bar, and the Pyre Mother and the default knight's duels are untouched (the Mother's deaths of the default knight 1 and 2, the others 0: fair). This is a cut of the pool bosses' damage by about 45% in all, which D6 allows ("re-tuned down if needed"); the stair hall is no longer a wall for a knight that never dodges, and a person who plays like the weak bot beats the Captain: the playtest's question.
+
+### 4. The King: off the knife-edge (D6)
+
+At the shipped state the weak knight escapes 16.7% at King vitality 610, 630 and 650 and 0 at 670 and 690 (the same cliff plan 022 found at 665 to 670). 650 was one step from it, so the King is **630** (-3%). The rule "+/-20 vitality moves no policy's escape by more than 10 points" over 610, 630 and 650 (30 runs):
+
+| policy | 610 | 630 | 650 | span |
+| --- | --- | --- | --- | --- |
+| default | 90 | 90 | 90 | 0 |
+| weak | 16.7 | 16.7 | 16.7 | 0 |
+| special | 100 | 96.7 | 96.7 | 3.3 |
+| special-fangs | 96.7 | 96.7 | 96.7 | 0 |
+| special-cleaver | 93.3 | 93.3 | 93.3 | 0 |
+| special-crossbow | 50 | 50 | 46.7 | 3.3 |
+| special-flask | 50 | 53.3 | 46.7 | 6.7 |
+| meta-max | 100 | 100 | 100 | 0 |
+| weak-meta-max | 83.3 | 83.3 | 80 | 3.3 |
+
+Met (the Stage 0 table's special-flask 13.3 and weak 10 are now 6.7 and 0). The King does not take the default knight's escape under D7's 85: raising it to 700 or 750 moved the default knight from 90 to 93.3 and 96.7 (a boss at 700 hit-points is a longer fight the default knight, who dodges, wins anyway) and took the weak knight to 0.
+
+### 5. `BOSS_BOLT` 4, the lowest that meets D3 (the coordinator's range 2 to 4, tuned last)
+
+The crossbow special, shipped state otherwise (60 runs, so one run is 1.7 points; the default knight at 90 to 93.3):
+
+| BOSS_BOLT | crossbow escape (60 runs) | needed |
+| --- | --- | --- |
+| 2 | 18.3 | 46.7 |
+| 3 | 33.3 | 46.7 |
+| 4 | **48.3** | 46.7 |
+
+At 30 runs (`balance:check`'s own) the shipped state gives the crossbow special 50.0% against the default knight's 90.0 (half is 45: met by 5 points). Its median boss fight is 17.9 s. The tests read the constant (range 2 to 4) and not a 2. It still dies on floor three in 44.4% of its arrivals (guards 5, wardens 4, stalkers 2, a pyre): the bolt multiplier fixes the bosses, not the rooms.
+
+### 6. Pearls (D2), and what it took
+
+After the boss cut the weak knight lives longer (its median run 64.8 -> 160.7 s, floor-one deaths 50% -> 16.7%), so the Stage A grid moved. Median pearls, default / weak (30 runs; the other policies are the default's):
+
+| CHAMBER_PEARLS | floor pearls 15 | 10 | 5 | 0 |
+| --- | --- | --- | --- | --- |
+| 1 | 137 / 72.5 | 122 / 62.5 | **107 / 52.5** | 92 / 42.5 |
+| 2 | 161 / 88.5 | 146 / 78.5 | 131 / 68.5 | 116 / 58.5 |
+
+D2's bands (default 80-130, weak 30-55) hold together only at `CHAMBER_PEARLS` 1 with the floor pearls at 5 or 0 (and, at 5, with the weak knight at its edge: 52.5, mean 54.1); the plan's "only if needed the floor pearls" was needed. `CHAMBER_PEARLS` 1, `FLOOR_PEARLS` 5 (a named constant now; a record with no `chambers` still reads as it was paid, a pearl a kill and 15 a floor, `LEGACY_FLOOR_PEARLS`). The 900-pearl shop is 8.4 of the default knight's runs (D2: 7-11) and 17.1 of the weak knight's (D2 says 18-30 for 30-55 pearls; its 52.5 is inside the band, the arithmetic is a hair under it).
+
+### 7. The final D7 table (`balance:bosses -- --at-stair`, 30 runs; the default knight enters every stair hall at 100%, the weak knight at 89 / 91 / 92% of its bar)
+
+| target | measured | band | met |
+| --- | --- | --- | --- |
+| default escape | 90.0 | 60-85 | **not met** (5 points over; a knight that dodges, King 630 to 750 does not move it) |
+| default deaths before the stair hall | 0 of 3 (0%) | at least 25% | **not met** (stop rule 2) |
+| default median vitality entering floor 1's stair hall | 100 | 50-90 | **not met** (stop rule 2) |
+| default boss fight | 32.8 s | 25-60 | met |
+| default median pearls | 107 | 80-130 | met |
+| weak escape | 16.7 | 5-30 | met |
+| weak median vitality entering floor 1's stair hall | 89.2 | 30-70 | **not met** (the weak knight dies young in chambers, 36% of its deaths before the stair hall, and the ones that arrive are whole: the median of the arrivals) |
+| weak median pearls | 52.5 | 30-55 | met |
+| weak-meta-max over weak | 66.7 points | at least 15 | met |
+| crossbow special over half the default knight's | +5.0 points (50.0 against 45) | at least 0 | met |
+| pool fairness, default knight | Mother 1 and 2, the others 0 | at most twice | met |
+| pool fairness, weak knight, from 89% and 91% (and 100%) | every pool boss 0 | at most twice | met |
+| King flatness, +/-20 vitality | largest 6.7 points (special-flask) | at most 10 | met |
+
+### 8. The duel table at stair vitality, final (30 duels a boss, floor and policy)
+
+| boss | floor | default (100%) died | default boss s | weak (89% on floor 1, 91% on floor 2) died | weak boss s |
+| --- | --- | --- | --- | --- | --- |
+| captain | 1 | 0% | 33.1 | 0% | 26.6 |
+| captain | 2 | 0% | 33 | 0% | 26.6 |
+| mother | 1 | 3% | 24.8 | 0% | 22.9 |
+| mother | 2 | 7% | 24.4 | 0% | 22.9 |
+| hound | 1 | 0% | 33 | 0% | 23.9 |
+| hound | 2 | 0% | 33.6 | 0% | 24.4 |
+| bastion | 1 | 0% | 33.4 | 0% | 24 |
+| bastion | 2 | 0% | 33.8 | 0% | 24.5 |
+| king | 3 | 83% | 73.5 | 100% (92%) | - |
+
+### Tests, and the bugs planted
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| node: a run pays CHAMBER_PEARLS a chamber and FLOOR_PEARLS a floor | floors paid at the old 15 | `four chambers and a floor behind him do not pay four chambers' pearls and a floor's` |
+| node: a record with no chambers reads as it was paid before | a legacy record paid the new floor rate | `a record with no chambers no longer reads as a pearl a kill` |
+| node: `BOSS_BOLT` in D3's range | 5 | `BOSS_BOLT is 5: D3 allows a whole multiplier from 2 to 4` |
+| node: the rates per floor (5 / 15 / 25%) | floor one at 15% / at none | `floor 1: 14.94% of eligible bodies roll an elite against the 5% asked` / `floor one dealt 0 elites over 1,000 seeds (0 before the cap)` |
+| browser (waves.spec): the sim and the game deal the same waves and elites | floor-one elites at 90% | `floor one dealt more elites than floor two, at a third of its rate` (17 against 6) |
+| node: the King's vitality | back at 650 | `plan 023 Stage D: 630 (650 at plan 022 Stage E, up from 500), off the weak knight's knife-edge` |
+| node: no pool boss kills the weak knight more than twice as often as another, from 86% | the Captain's swings back at 12 | `floor 1: the weak knight died to captain 30 times and to mother 0: more than twice as often (the fewest floored at one)` |
+| node: each D7 target is judged against its own band, inclusive | default escape band 55-85 / the crossbow margin without the half | `default escape %: under the band` / `Expected values to be strictly equal` |
+
+Other tests moved with the numbers and say so: the Captain-duel test reads the policy from half a bar (the Captain no longer beats a weak knight from a full one), the "died before the stair hall" test swaps its two seeds, the King-fells test takes the second sweep seed, `meta.spec.ts`'s death-pays scenario holds 200 pearls going in (a floor-two death with no chamber pays 5, which cannot buy Deep Lungs and Whetted Start by itself), and the floor-growth test pins the new boss rows.
+
+**Gates.** `npm run typecheck`, `npm run lint` clean; `npm test` 512 of 512; `npm run balance:check` green (1003.6 s) with the bands re-taken for all nine policies; browser (SwiftShader, `GAME_TEST_WORKERS=2`): `waves`, `arena-kinds`, `boss`, `elites` (25 of 25), `meta` (5 of 5), the death-pays scenario of `combat.spec.ts` and `death.spec.ts`. The full suite was not run locally.
+
+### Not done / interpretations of Stage D
+
+- Stop rule 2: D7's default-knight rows (escape over 85, deaths before the stair hall, vitality entering floor one's stair hall) and the weak knight's vitality row are unmet; nothing in D5's ranges moves them and I did not widen a band or invent a mechanic for them. The Grave Draught dial (plan 022's, 5 a kill) is the one number the diagnostic above shows would, and it is not one of D5's.
+- `RECOVERY_SCALE` 1 and `FLOOR_DAMAGE` 0.15 ship at the bottom of their ranges: the dials exist (and are tested at values the game does not ship), the playtest of Stage F is where a person says whether the rooms need them.
+- The pool bosses' damage cut is a design change D6 licenses ("down if needed") and the fairness rule requires; it is the largest thing this stage did to feel, and a person who never dodges now beats them.
+
+## 2026-10-04 - Plan 023 Stage E: the documents
+
+`GAME_OVERVIEW.md` (pearls by chamber and floor, the elites on floor one, waves from the second fight, the crossbow's bolts against bosses, the softer pool bosses and the King's 630, the bots' numbers re-stated), `README.md` (the pearls line), `game/tests/README.md` (the balance report's D7 targets and `--at-stair`), the `plans/README.md` row for 023 and the plan's Evidence. No new snapshot field was added by this plan (the run record gained `chambers`, documented in `game/tests/README.md` under the run log). Stage F, the operator's playtest, is open: five runs or more on a real GPU, one with the crossbow; do rooms cost vitality, does a mend door feel needed, is the shop's pace right, can the crossbow beat a boss. The number the playtest most needs from a run is what `chambers` and `pearls` say in the copied run log.

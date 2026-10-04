@@ -70,7 +70,7 @@ test('later waves stand only in watch and purse chambers past the first two figh
       const where = `seed ${seed} floor ${level} room ${room.id}`;
       assert.equal(room.role, 'path', where);
       assert.equal(room.encounter, 'watch', `${where}: a ${room.encounter} chamber was dealt a wave`);
-      assert.ok(room.layer > FIRST_WAVE_LAYERS, `${where}: layer ${room.layer} is one of the first two fights`);
+      assert.ok(room.layer > FIRST_WAVE_LAYERS, `${where}: layer ${room.layer} is the first fight past the gate`);
       assert.ok(spawn.ambush, `${where}: a wave body is not dormant`);
       assert.ok(roomTiles(floor, room.id).some(t => t.x === spawn.x && t.z === spawn.z), `${where}: a wave body stands off its chamber's own floor`);
       assert.ok(Math.hypot(spawn.x - room.entry.x, spawn.z - room.entry.z) >= ARRIVAL_CLEAR, `${where}: a wave body stands on the arrival`);
@@ -81,6 +81,25 @@ test('later waves stand only in watch and purse chambers past the first two figh
     }
   }
   assert.ok(checked > 300, `precondition: only ${checked} wave bodies were checked`);
+});
+
+// Plan 023 (D4): the first fight past the gate (layer 1) stays one wave, the tutorial beat; from the second on (layer 2) a watch fight is dealt waves. The shipped table has no rule for an `opening` pack, so this holds the rule with a table
+// that has one for every source: what keeps layer 1 single-wave is `FIRST_WAVE_LAYERS`, not the table.
+test('the first fight past the gate is dealt no waves and the second is (plan 023 D4)', () => {
+  assert.equal(FIRST_WAVE_LAYERS, 1, 'D4: the first fight is the tutorial beat, and from the second on watch fights take waves');
+  const everySource: WaveTable = { ...D2, opening: [{ count: [2, 3], mix: PACK_MIX.opening }] };
+  const waves = { 1: 0, 2: 0 };
+  for (const level of LEVELS) for (const seed of SEEDS) {
+    const floor = generateFloor(seed, level), out = dealWaves(floor, seed, level, everySource);
+    for (const spawn of out.slice(floor.spawns.length).filter(s => !s.buried)) {
+      const layer = floor.rooms[spawn.room].layer;
+      if (layer === 1) assert.fail(`seed ${seed} floor ${level}: the first fight past the gate was dealt a wave`);
+      if (layer === 2) waves[2]++;
+    }
+    waves[1] += floor.rooms.filter(room => room.role === 'path' && room.layer === 1 && room.encounter === 'watch').length;
+  }
+  assert.ok(waves[1] > 100, `precondition: only ${waves[1]} first fights were laid`);
+  assert.ok(waves[2] > 100, `the second fight past the gate was dealt ${waves[2]} wave bodies over ${SEEDS.length * LEVELS.length} floors`);
 });
 
 test('a source with no rule is dealt one wave: a purse-only table touches no other chamber', () => {
@@ -301,7 +320,7 @@ test('the shipped table is the one the plan decided (D2), and deals what it says
       if (seen.length === 2) { late++; assert.ok(dealt.some(s => s.room === room && s.wave === 3 && s.kind === 'warden'), `seed ${seed} floor ${level} room ${room}: a third wave without its warden`); }
       else if (floor.rooms[room].reward === 'cache') purse++; else middle++;
     }
-    for (const spawn of dealt) assert.ok(floor.rooms[spawn.room].encounter === 'watch' && floor.rooms[spawn.room].layer > 2, `seed ${seed}: a wave in an ambush, a gauntlet, a shrine, the stair hall or one of the first two fights`);
+    for (const spawn of dealt) assert.ok(floor.rooms[spawn.room].encounter === 'watch' && floor.rooms[spawn.room].layer > FIRST_WAVE_LAYERS, `seed ${seed}: a wave in an ambush, a gauntlet, a shrine, the stair hall or the first fight`);
   }
   assert.ok(middle > 30 && late > 30 && purse > 30, `precondition: ${middle} middle, ${late} late and ${purse} purse chambers were dealt waves`);
 });

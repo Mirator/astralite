@@ -42,6 +42,9 @@ export function summarise(reports: RunReport[]): Summary {
   if (!reports.length) return summary;
   summary.escapeRate = reports.filter(r => r.outcome === 'escaped').length / reports.length * 100;
   summary.medianRunSeconds = median(reports.map(r => r.seconds));
+  // Plan 023 (D2): what a run pays, the median over the batch (`pearlsFor`: CHAMBER_PEARLS a fight chamber, the floors, the escape, the bosses and the elites), so the shop's pace is a band like everything else. Left out of a batch whose reports carry no pearls.
+  const pearls = reports.flatMap(r => typeof r.pearls === 'number' ? [r.pearls] : []);
+  if (pearls.length) summary.medianPearls = median(pearls);
   for (let level = 1; level <= FLOORS; level++) {
     const reached = reports.filter(r => r.floors.length >= level).map(r => r.floors[level - 1]);
     if (!reached.length) continue;

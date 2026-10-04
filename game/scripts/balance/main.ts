@@ -81,7 +81,7 @@ if (flag('compare')) {
 } else {
   console.log(`\n  ${runs} runs · reaction ${policy.reaction}s · dodge ${policy.dodge} · ${policy.explore ? 'exploring' : 'trunk only'}\n`);
   console.log(`  escaped ${escaped.length} (${share(escaped.length, runs)})   died ${died.length} (${share(died.length, runs)})   stuck ${stuck.length} (${share(stuck.length, runs)})`);
-  console.log(`  median run ${(median(reports.map(r => r.seconds)) / 60).toFixed(1)} min · median rank ${median(reports.map(r => r.rank))} · median kills ${median(reports.map(r => r.kills))}\n`);
+  console.log(`  median run ${(median(reports.map(r => r.seconds)) / 60).toFixed(1)} min · median rank ${median(reports.map(r => r.rank))} · median kills ${median(reports.map(r => r.kills))} · median fight chambers ${median(reports.map(r => r.chambers))} · median pearls ${median(reports.map(r => r.pearls))}\n`);
 
   // The headline number: a keep that gets easier as it goes shows up here as a falling death rate.
   // The last three columns are the silence between fights: idle and alone are seconds, first contact is

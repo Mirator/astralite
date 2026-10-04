@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { ARM_ORDER, ARM_PRICES, bank, buyArm, buyUpgrade, chooseArm, FLOORS, freshMeta, maxedMeta, pearlsFor, PEARL_CAP, PRICE_TOTAL, rankOf, runStart, UPGRADES, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
+import { ARM_ORDER, ARM_PRICES, bank, buyArm, buyUpgrade, CHAMBER_PEARLS, chooseArm, ELITE_PEARLS, FLOOR_PEARLS, FLOORS, freshMeta, maxedMeta, pearlsFor, PEARL_CAP, PRICE_TOTAL, rankOf, runStart, UPGRADES, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
 import { FLOORS as SIM_FLOORS } from '../scripts/balance/sim.ts';
 import { STRIKE_BONUS } from '../app/dungeon-sim.ts';
 import { FOUND_WEAPONS } from '../app/dungeon-weapon.ts';
@@ -28,7 +28,35 @@ test('the floor count the earnings rule uses is the one the sim and the game pla
   assert.equal(Number(/^const FLOORS = (\d+);/m.exec(source)?.[1]), FLOORS);
 });
 
-test('a run pays a pearl a kill, 15 a floor behind him and 25 for getting out', () => {
+// Plan 023 (D1): a run is paid for the fight chambers it cleared, not for the bodies it felled. Waves roughly doubled the kills a floor holds, and a pearl a kill took the 900-pearl shop from about twenty
+// runs to about four and a half; a chamber's count is fixed by the floor's layers, so a bigger wave table cannot move the economy again.
+test('a run pays CHAMBER_PEARLS a fight chamber cleared, FLOOR_PEARLS a floor behind him and 25 for getting out, whatever its kill count', () => {
+  assert.ok(CHAMBER_PEARLS > 0, 'precondition: a chamber pays something, or "whatever the kills" is vacuous');
+  assert.equal(pearlsFor({ floor: 1, won: false, kills: 0, chambers: 0 }), 0, 'a floor-1 death in the first chamber has nothing behind it');
+  assert.equal(pearlsFor({ floor: 2, won: false, kills: 20, chambers: 4 }), 4 * CHAMBER_PEARLS + FLOOR_PEARLS, 'four chambers and a floor behind him do not pay four chambers\' pearls and a floor\'s');
+  assert.equal(pearlsFor({ floor: 3, won: true, kills: 76, chambers: 14 }), 14 * CHAMBER_PEARLS + 3 * FLOOR_PEARLS + 25, 'a win does not pay its chambers, three floors and the escape');
+  const few = pearlsFor({ floor: 3, won: false, kills: 10, chambers: 6 }), many = pearlsFor({ floor: 3, won: false, kills: 80, chambers: 6 });
+  assert.equal(few, many, 'a run that felled eight times the bodies in the same chambers was paid for them');
+  assert.equal(pearlsFor({ floor: 3, won: false, kills: 10, chambers: 7 }) - few, CHAMBER_PEARLS, 'one more chamber is not worth exactly CHAMBER_PEARLS');
+  assert.equal(bank(rich({ pearls: 5 }), { floor: 2, won: false, kills: 80, chambers: 4 }).pearls, 5 + 4 * CHAMBER_PEARLS + FLOOR_PEARLS, 'banking pays the kills a wave dealt');
+});
+
+test('an elite pays ELITE_PEARLS on top of its chamber, and a boss BOSS_PEARLS', () => {
+  assert.ok(ELITE_PEARLS > 0, 'precondition: an elite pays something');
+  const plain = pearlsFor({ floor: 2, won: false, kills: 30, chambers: 5 });
+  assert.equal(pearlsFor({ floor: 2, won: false, kills: 30, chambers: 5, elites: 4 }) - plain, 4 * ELITE_PEARLS);
+  assert.equal(pearlsFor({ floor: 2, won: false, kills: 30, chambers: 5, bosses: 1 }) - plain, 10);
+});
+
+// A record from before plan 023 has no `chambers`. Nothing re-pays a stored run (its `pearls` is in the record), but the type must read it as it was paid then.
+test('a record with no chambers reads as it was paid before: a pearl a kill', () => {
+  assert.equal(pearlsFor({ floor: 3, won: true, kills: 76 }), 76 + 45 + 25, 'a record with no chambers no longer reads as a pearl a kill');
+  assert.equal(pearlsFor({ floor: 2, won: false, kills: 20 }), 20 + 15);
+  assert.equal(pearlsFor({ floor: 3, won: false, kills: 50 }), 50 + 30, 'a floor-3 death has two floors behind it, not three');
+  assert.notEqual(pearlsFor({ floor: 2, won: false, kills: 20 }), pearlsFor({ floor: 2, won: false, kills: 20, chambers: 0 }), 'precondition: a stored 0 chambers is a run that cleared none, not an old record');
+});
+
+test('a pearl a kill, as before plan 023 (a record without chambers), 15 a floor behind him and 25 for getting out', () => {
   // Written out as arithmetic rather than through the function under test.
   assert.equal(pearlsFor({ floor: 1, won: false, kills: 0 }), 0, 'a floor-1 death with no kills has no floor behind it');
   assert.equal(pearlsFor({ floor: 1, won: false, kills: 9 }), 9);

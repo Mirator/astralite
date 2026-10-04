@@ -3,7 +3,7 @@
 // the THREE.Group, the poses, the sound and the particles, and asks this module for the decision behind
 // each of them. Everything works over plain {x, z} points, so a whole fight can be replayed in node
 // instead of by hand-driving a browser, which is how every spatial regression here has been caught.
-import { BESTIARY, byKind, ELITES, type EliteModifier, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
+import { BESTIARY, byKind, ELITES, type Archetype, type EliteModifier, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
 import { TILE, canStand, cellKey, hasClearPath, moveOnFloor } from './dungeon-floor.ts';
 
 export { ENEMY_KINDS, BESTIARY, ELITES, type EliteModifier, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
@@ -37,7 +37,12 @@ export const ATTACK_RANGE = byKind(a => a.attackRange);
 // Inside this it stands its ground rather than shuffling into the knight's chest.
 export const HOLD_RANGE = byKind(a => a.holdRange);
 // Recovery after a swing lands or misses. A stalker pays most for its pounce.
-export const RECOVERY = byKind(a => a.recovery);
+// Plan 023 (D5): `RECOVERY_SCALE` is the one dial on how often an ordinary body threatens: its recovery is the bestiary's times this, so 0.7 is a body that swings about four times in the seconds it used to swing three.
+// It reaches every ordinary kind and never a boss, whose recovery is part of its design (a boss fight's length is plan 021's and 022's, tuned on its own). The tells are not touched: readability is the one thing not traded.
+export const RECOVERY_SCALE = 1;
+/** One archetype's recovery: the bestiary's, times `scale` for an ordinary kind and untouched for a boss. `scale` is a parameter so a test can hold the rule at a value the game does not ship. */
+export const recoveryFor = (archetype: { boss?: Archetype['boss']; recovery: number }, scale = RECOVERY_SCALE) => archetype.boss ? archetype.recovery : archetype.recovery * scale;
+export const RECOVERY = byKind(a => recoveryFor(a));
 export const LUNGE_SPEED = 13, LUNGE_TIME = 0.32, LUNGE_CONTACT = 0.85;
 // A volley's lane follows the knight until this much of the tell is left, then holds: the bolt goes where
 // the lane pointed when it locked. Tracking to the last frame made the bolt a homing coin flip; never
@@ -78,7 +83,7 @@ export const hitCooldown = (kind: EnemyKind, broke: boolean, stagger: boolean) =
 
 // The numbers a body is made of, by kind and by floor. Only counts used to grow with depth; a floor-three
 // guard was byte-for-byte a floor-one guard while the knight's boons only ever went up, so the run got
-// easier as it went. Vitality grows by one per floor, damage by fifteen percent, and
+// easier as it went. Vitality grows by one per floor, damage by `FLOOR_DAMAGE` (fifteen percent through plan 022), and
 // tells and speeds hold still so a learned read stays true all the way down.
 // Vitality is quoted in quarter-hits of a starting blade rather than in whole ones. A guard used to
 // hold 2 and the sword used to deal 1, so a weapon was either as strong as the sword or twice as
@@ -88,11 +93,19 @@ export const hitCooldown = (kind: EnemyKind, broke: boolean, stagger: boolean) =
 export const HIT = 4;
 export const BASE_STATS: Record<EnemyKind, EnemyStats> = byKind(a => a.stats);
 const floorsDeeper = (level: number) => Math.max(0, Math.floor(Number.isFinite(level) ? level : 1) - 1);
-/** A floor-one blow's damage on this floor: fifteen percent more for every floor down, rounded. */
-export const scaledDamage = (base: number, level: number) => Math.round(base * (1 + 0.15 * floorsDeeper(level)));
+/**
+ * Plan 023 (D5): how much more an ordinary body's blow costs for every floor down (a share of the floor-one damage). Fifteen percent through plan 022; a dial now, because damage carried from chamber to chamber is what makes a chamber cost something.
+ * A boss keeps its own step (`BOSS_FLOOR_DAMAGE`): the bosses are tuned by their move rows, and a floor-two boss is meant to hit as it did.
+ */
+export const FLOOR_DAMAGE = 0.15;
+export const BOSS_FLOOR_DAMAGE = 0.15;
+/** A floor-one blow's damage on this floor: `step` more for every floor down (a boss's by default), rounded. */
+export const scaledDamage = (base: number, level: number, step = BOSS_FLOOR_DAMAGE) => Math.round(base * (1 + step * floorsDeeper(level)));
+/** The share of floor-one damage a kind's blow gains for every floor down: an ordinary kind's `FLOOR_DAMAGE`, a boss's own `BOSS_FLOOR_DAMAGE`. The steps are parameters so a test can hold the rule at values the game does not ship. */
+export const damageStep = (kind: EnemyKind, ordinary = FLOOR_DAMAGE, boss = BOSS_FLOOR_DAMAGE) => BESTIARY[kind].boss ? boss : ordinary;
 export const enemyStats = (kind: EnemyKind, level: number): EnemyStats => {
   const base = BASE_STATS[kind], deeper = floorsDeeper(level);
-  return { hp: base.hp + deeper * HIT, damage: scaledDamage(base.damage, level), tell: base.tell, speed: base.speed };
+  return { hp: base.hp + deeper * HIT, damage: scaledDamage(base.damage, level, damageStep(kind)), tell: base.tell, speed: base.speed };
 };
 
 /**

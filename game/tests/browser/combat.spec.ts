@@ -1,6 +1,8 @@
 import { swordContacts } from '../../app/dungeon-combat.ts';
+import { CHAMBER_PEARLS } from '../../app/dungeon-meta.ts';
 import {
   ARROW_KEYS,
+  blowStance,
   canStand,
   expect,
   hasClearPath,
@@ -373,6 +375,51 @@ test('a cleared chamber heals the knight nothing, and the mend door pays its 30'
   expect(purse, 'the pinned floor has no purse chamber holding one to three bodies: pick another seed').toBeDefined();
   const unhealed = await clear(purse!);
   expect(unhealed.health, 'a chamber behind a purse door healed the knight: the top-up is gone (it was 12)').toBe(40);
+});
+
+// Plan 023 (D1): a run is paid for the fight chambers it cleared, not the bodies it felled. A real blow empties a chamber of three bodies (three kills, one chamber), then a staged blow kills the knight on floor one, which
+// has no floor behind it and no boss or elite felled: the record, the save and the card all carry exactly one chamber's pearls, which a pearl a kill would pay differently. The rule is held in node (`pearlsFor`, `clearChamber`).
+test('a death pays for the chamber the knight cleared, not the bodies he felled, and the card says so', async ({ game, page }) => {
+  await game.enter();
+  const floor = await game.floor();
+  const opening = await game.state();
+  const bodies = (room: Floor['rooms'][number]) => opening.enemies.filter((enemy) => enemy.room === room.id && !enemy.buried).length;
+  const room = floor.rooms.find((candidate) => candidate.role === 'path' && candidate.encounter === 'watch' && bodies(candidate) >= 2 && bodies(candidate) <= 3 && bodies(candidate) !== CHAMBER_PEARLS);
+  expect(room, 'the pinned floor has no watch chamber of two or three bodies, a number other than the chamber pearls: pick another seed').toBeDefined();
+  const pack = opening.enemies.map((enemy, index) => ({ enemy, index })).filter(({ enemy }) => enemy.room === room!.id && !enemy.buried);
+  // The body that will kill him, found now while the snapshot's indices are the spawn indices (nothing has died yet): a swinger in another chamber.
+  const attacker = opening.enemies.find((enemy) => enemy.room !== room!.id && !enemy.buried && BESTIARY[enemy.kind].attack === 'swing');
+  expect(attacker, 'precondition: a body that swings stands outside the chamber that is cleared').toBeDefined();
+  const attackerIndex = opening.enemies.indexOf(attacker!);
+
+  await game.teleport(room!.x * TILE, room!.z * TILE);
+  await game.step(120);
+  const stance = stanceNear(floor, { x: room!.x * TILE, z: room!.z * TILE }, 5, pack.length);
+  await game.teleport(stance.x, stance.z);
+  await game.step(16);
+  await game.configureCombat({ enemies: pack.map(({ index }, i) => ({ index, x: stance.slots[i].x, z: stance.slots[i].z, hp: 1, windup: 0.3, cooldown: 30, aim: { x: -stance.facing.x, z: -stance.facing.z } })) });
+  await swing(page, stance.key);
+  await game.step(220);
+  const cleared = await game.state();
+  expect(cleared.enemies.filter((enemy) => enemy.room === room!.id && !enemy.buried), 'precondition: the chamber was cleared by the blow').toHaveLength(0);
+  expect(cleared.chamber.sealed, 'precondition: the chamber settled').toBe(false);
+  expect(cleared.boonOffer, 'precondition: no rank-up card is open over the scene').toBe(false);
+
+  // Now the lethal blow, from the body found above: the same staging `stageBlow` does, at the index that was read before the kills.
+  const blow = blowStance(floor, { x: attacker!.x, z: attacker!.z });
+  await game.teleport(blow.player.x, blow.player.z);
+  await game.step(120);
+  await game.configureCombat({ health: 1, enemies: [{ index: attackerIndex, x: blow.behind.x, z: blow.behind.z, windup: 0.0675, cooldown: 0, aim: { x: blow.player.x - blow.behind.x, z: blow.player.z - blow.behind.z } }] });
+  await game.step(300);
+  expect((await game.state()).mode, 'the staged blow never landed').toBe('lost');
+
+  const logged = (await page.evaluate(() => (window as unknown as { dungeonTest: { runLog: () => { floor: number; kills: number; chambers: number; bosses: number; pearls: number }[] } }).dungeonTest.runLog())).at(-1)!;
+  expect([logged.floor, logged.kills, logged.chambers, logged.bosses], 'the record does not say what the run did: floor one, the chamber\'s bodies felled, one chamber cleared').toEqual([1, pack.length, 1, 0]);
+  expect(logged.pearls, 'the run was not paid CHAMBER_PEARLS for its one chamber').toBe(CHAMBER_PEARLS);
+  expect(logged.kills, 'precondition: a pearl a kill would pay something else').not.toBe(CHAMBER_PEARLS);
+  expect((await game.meta()).pearls, 'the save was not paid for the chamber').toBe(CHAMBER_PEARLS);
+  const earned: number = CHAMBER_PEARLS;
+  await expect(page.locator('.result-card .run-pearls'), 'the card does not show the chamber pearls').toHaveText(`+${earned} ${earned === 1 ? 'pearl' : 'pearls'} · ${earned} held`);
 });
 
 test('Salt Ward blunts a sword but the embers of the keep burn through it', async ({

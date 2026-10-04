@@ -12,7 +12,7 @@
 // other, not a claim about how well a human plays.
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
-import { canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
+import { boltBlow, canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
 import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, eliteStats, fallOf, moveOf, nearbyDozers, raiseSpot, scaledDamage, separateCrowd, type CrowdBody, type EliteModifier, type EnemyKind, type EnemyView, type Move, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { bossPush, landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
@@ -22,7 +22,7 @@ import { calledIn, idleClock, roomTiles, springing, waveDue, wavedFloor, waveSpo
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, fanHeadings, ARROW_POOL, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
-import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, SHRINE, SHRINE_REACH, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
+import { clearChamber, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, SHRINE, SHRINE_REACH, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
 export const FLOORS = 3;
@@ -202,7 +202,7 @@ export type FloorReport = {
   wavesRaised: number;
   /** Plan 022: `fights` of the chambers that were dealt later waves, in the same units - the fight D13 measures. */
   waveFights: number[];
-  /** Plan 022: every body of a later wave the sim stood on this floor (read off the bodies it ran), by chamber and wave, reserves included: what the game's scene is held against. */
+  /** Plan 022: every body of a later wave the sim stood on this floor (read off the bodies as built, before the run raised any reserve), by chamber and wave, reserves included: what the game's scene is held against. */
   waveBodies: { room: number; wave: number; kind: EnemyKind; buried: boolean }[];
   /** Plan 022 (D7): every elite the sim stood on this floor (read off the bodies it ran), with the vitality it was built with: what the game's scene is held against. */
   eliteBodies: { room: number; wave: number; kind: EnemyKind; elite: EliteModifier; hp: number }[];
@@ -227,6 +227,8 @@ export type RunReport = {
   boons: string[];
   /** Plan 019: what banking this run would pay (`pearlsFor`), so earnings can be measured without game code. */
   pearls: number;
+  /** Plan 023 (D1): the fight chambers cleared, which `pearls` pays `CHAMBER_PEARLS` each for. */
+  chambers: number;
   floors: FloorReport[];
 };
 
@@ -316,12 +318,12 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
       // Whatever took the last of the vitality is what the run log would record.
       const damage = report.damage;
       cause = (Object.keys(damage) as Cause[]).filter(k => damage[k] > 0).sort((a, b) => damage[b] - damage[a])[0] ?? null;
-      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills, bosses: run.bosses, elites: run.elites }), floors };
+      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites }), chambers: run.chambers, floors };
     }
     // Descending restores a quarter of the bar, as the results card promises.
     if (level < FLOORS) heal(run, Math.round(run.maxHp * 0.25));
   }
-  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills, bosses: run.bosses, elites: run.elites }), floors };
+  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites }), chambers: run.chambers, floors };
 }
 
 /**
@@ -385,6 +387,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity,
     };
   });
+
+  // Plan 023 Stage C: what the floor was dealt, read off the bodies as they are built and not as the run leaves them: a bonecaller's reserve that the run raised is `buried: false` by its end, and the game's scene is read at the start.
+  const waveBodiesAtStart = bodies.filter(b => b.wave > 1).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, buried: b.buried }));
 
   // dungeon-game.tsx:578 lays three ember rings across a gauntlet, offset along x from the room's heart.
   const hazards = floor.rooms.flatMap(room => room.id !== 0 && room.encounter === 'gauntlet'
@@ -494,7 +499,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     for (const at of fall.crumble) bodies[at].dead = true;
     if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
       clearRoom(body.room);
-      chamberReward(run, floor.rooms[body.room].reward);
+      clearChamber(run, floor.rooms[body.room]);
     }
   };
   // A bonecaller's tell ran out (dungeon-game.tsx:398-408 `raise`): the next `perTell` of its buried reserve stand
@@ -924,7 +929,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           // bolt otherwise carries the special's numbers, a plain bolt the arm's.
           const thrown = hurled ? hurledBlow(hurled, { harpoon: harpoon?.shot === shot, damage: shot.damage }, { free: !!harpoon && !harpoon.dragged, steadfast: BESTIARY[body.kind].steadfast }) : null;
           const drags = !!thrown?.drags;
-          const blow = thrown ? thrown.blow : { ...weapon, damage: shot.damage };
+          const blow = thrown ? thrown.blow : boltBlow(weapon, shot.damage);
           // The push is the bolt's own heading, not the line from the knight to the body: the two differ once he has moved, for a pierced second body and for the harpoon (dungeon-game.tsx:2004-2010).
           // A shield-turned bolt is done with the body: no drag, and the harpoon keeps its one drag (dungeon-game.tsx:2011).
           if (landBlow(floor.cells, body, body, blow, { x: shot.dx, z: shot.dz }, facingOf(body)).blocked) { blockedCount++; if (body.phase > 0) blockedLate++; continue; }
@@ -1044,7 +1049,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: bodies.filter(b => b.wave > 1).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, buried: b.buried })), eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

@@ -173,8 +173,15 @@ export const specialSpends = (special: Special, state: { pools: number }) => spe
  */
 export const hurledBlow = (special: Special, shot: { harpoon: boolean; damage: number }, state: { free: boolean; steadfast: boolean }) => {
   const drags = shot.harpoon && !!special.hurl && state.free && !state.steadfast;
-  return { drags, blow: { damage: shot.damage, stagger: !!special.swing.stagger, knockback: drags ? 0 : special.swing.knockback ?? 0, wardenKnockback: special.swing.wardenKnockback ?? 0 } };
+  return { drags, blow: { damage: shot.damage, stagger: !!special.swing.stagger, knockback: drags ? 0 : special.swing.knockback ?? 0, wardenKnockback: special.swing.wardenKnockback ?? 0, bolt: !!special.swing.bolt } };
 };
+
+/**
+ * The blow an ordinary shot lands: the arm's own numbers with the shot's damage. `bolt` is the arm's own flag (`Weapon.bolt`: the Keep Crossbow's, not the flask's), which `landBlow` (dungeon-hits.ts) multiplies by `BOSS_BOLT` on a boss (plan 023 D3), so the game
+ * and the balance sim, which both build a shot's blow here and a special's through `hurledBlow`, can never disagree about which blows are bolts.
+ */
+export const boltBlow = (weapon: Pick<Weapon, 'stagger' | 'knockback' | 'wardenKnockback' | 'bolt'>, damage: number) =>
+  ({ damage, stagger: weapon.stagger, knockback: weapon.knockback, wardenKnockback: weapon.wardenKnockback, bolt: !!weapon.bolt });
 
 /**
  * How long a dash pressed into a live blade waits for contact to end. Longer than the contact window,

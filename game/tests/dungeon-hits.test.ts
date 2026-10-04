@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { bossReach, COMMITTED_WINDUP, HIT_COOLDOWN, RECOVERY } from '../app/dungeon-enemy.ts';
 import { canStand, cellKey, moveOnFloor, TILE } from '../app/dungeon-floor.ts';
-import { awayFrom, blocks, bossPush, burn, HIT_FLASH, landBlow, type Blow, type Struck } from '../app/dungeon-hits.ts';
+import { awayFrom, blocks, BOSS_BOLT, bossPush, burn, HIT_FLASH, landBlow, type Blow, type Struck } from '../app/dungeon-hits.ts';
+import { boltBlow, hurledBlow } from '../app/dungeon-combat.ts';
+import { BESTIARY, BOSS_POOL, ENEMY_KINDS, FINAL_BOSS } from '../app/dungeon-bestiary.ts';
 import { asReaper, TEST_BOSS } from './fixtures/test-boss.ts';
 import { TIDEBLADE, weaponById } from '../app/dungeon-weapon.ts';
 
@@ -140,4 +142,56 @@ test('the push that opens a boss\'s phase change leaves the knight outside its l
     assert.ok(canStand(cells, cornered.x, cornered.z), 'the push left the knight inside the wall');
     assert.ok(cornered.x < 23.5 * TILE, 'the push carried the knight through the wall');
   });
+});
+
+// Plan 023 (D3): the Keep Crossbow works in the chambers and was shut out of the bosses, whose vitality is in the hundreds against about five damage a second of sustained fire. A shot deals BOSS_BOLT times its damage to a boss, and
+// nothing else about it changes. The blows are built the way the game and the balance sim build them (`boltBlow`, and `hurledBlow` for a special's shot), so a shot that is not marked as one fails here.
+test('a bolt deals BOSS_BOLT times its damage to a boss and its own damage to anything else, and steel is never multiplied (plan 023 D3)', () => {
+  assert.ok(BOSS_BOLT >= 2 && BOSS_BOLT <= 4 && Number.isInteger(BOSS_BOLT), `BOSS_BOLT is ${BOSS_BOLT}: D3 allows a whole multiplier from 2 to 4`);
+  const crossbow = weaponById('crossbow'), cells = floor(5, 5), at = { x: 2 * TILE, z: 2 * TILE }, from = { x: 1, z: 0 };
+  const bosses = [...BOSS_POOL, FINAL_BOSS], ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].boss);
+  assert.ok(bosses.length === 5 && bosses.every(kind => BESTIARY[kind].boss), 'precondition: five kinds are bosses');
+  assert.ok(ordinary.length === 9 && ordinary.includes('warden'), 'precondition: the rest are ordinary, the warden among them');
+  const bolt = boltBlow(crossbow, 9);
+  for (const kind of bosses) {
+    const struck = body(kind, { hp: 500 });
+    assert.equal(landBlow(cells, struck, { ...at }, bolt, from).blocked, false, `precondition: the bolt was not turned aside by a ${kind}`);
+    assert.equal(struck.hp, 500 - 9 * BOSS_BOLT, `a bolt on a ${kind} dealt ${500 - struck.hp}, not ${9 * BOSS_BOLT}`);
+    const stabbed = body(kind, { hp: 500 });
+    landBlow(cells, stabbed, { ...at }, blow({ damage: 9 }), from);
+    assert.equal(stabbed.hp, 500 - 9, `a blow of steel on a ${kind} was multiplied`);
+  }
+  for (const kind of ordinary) {
+    const struck = body(kind, { hp: 500 });
+    // Face a shielded kind away from the shot, so nothing here is about the shield.
+    landBlow(cells, struck, { ...at }, bolt, from, { x: 1, z: 0 });
+    assert.equal(struck.hp, 500 - 9, `a bolt on a ${kind} dealt ${500 - struck.hp}, not its own 9: only a boss takes the multiplier`);
+  }
+});
+
+test('the Heavy Bolt is multiplied by BOSS_BOLT on a boss as well, and the same bolt on a warden is not (plan 023 D3)', () => {
+  const heavy = weaponById('crossbow').special!, cells = floor(5, 5), at = { x: 2 * TILE, z: 2 * TILE }, from = { x: 1, z: 0 };
+  const special = hurledBlow(heavy, { harpoon: false, damage: 36 }, { free: true, steadfast: true }).blow;
+  const boss = body('king', { hp: 650 }), warden = body('warden', { hp: 650 });
+  landBlow(cells, boss, { ...at }, special, from); landBlow(cells, warden, { ...at }, special, from);
+  assert.equal(boss.hp, 650 - 36 * BOSS_BOLT, 'the Heavy Bolt was not multiplied on the Bone King');
+  assert.equal(warden.hp, 650 - 36, 'the Heavy Bolt was multiplied on a warden');
+});
+
+// D3 is the crossbow's: "bolts deal x2 damage to bosses ... nothing else about the crossbow changes", and no other arm changes at all. The flask and the thrown spear fly shots too and are not multiplied.
+test('only a crossbow bolt is multiplied: a thrown flask and the thrown spear are not (plan 023 D3)', () => {
+  const cells = floor(5, 5), at = { x: 2 * TILE, z: 2 * TILE }, from = { x: 1, z: 0 };
+  const flask = weaponById('flask'), harpoon = weaponById('spear').special!;
+  assert.ok(flask.ranged && harpoon.swing.ranged, 'precondition: the flask and the harpoon are shots');
+  const struck = (blowOf: Blow) => { const boss = body('mother', { hp: 500 }); landBlow(cells, boss, { ...at }, blowOf, from); return 500 - boss.hp; };
+  assert.equal(struck(boltBlow(flask, 6)), 6, 'a flask\'s shot was multiplied on a boss');
+  assert.equal(struck(hurledBlow(harpoon, { harpoon: true, damage: 6 }, { free: true, steadfast: true }).blow), 6, 'the thrown spear was multiplied on a boss');
+  assert.equal(struck(boltBlow(weaponById('crossbow'), 6)), 6 * BOSS_BOLT, 'precondition: the same damage from the crossbow is multiplied');
+  assert.deepEqual([weaponById('crossbow').bolt, weaponById('crossbow').special!.swing.bolt, flask.bolt, harpoon.swing.bolt], [true, true, undefined, undefined], 'the bolt flag is on the crossbow and its Heavy Bolt and nowhere else');
+});
+
+test('a boss changing phase still takes nothing from a shot, multiplied or not (plan 023 D3)', () => {
+  const boss = body('captain', { hp: 500, change: 0.5 });
+  assert.deepEqual(landBlow(floor(5, 5), boss, { x: 2 * TILE, z: 2 * TILE }, boltBlow(weaponById('crossbow'), 9), { x: 1, z: 0 }), { broke: false, killed: false, blocked: false, immune: true });
+  assert.equal(boss.hp, 500, 'a shot wounded a boss mid phase change');
 });

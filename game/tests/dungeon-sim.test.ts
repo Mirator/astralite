@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { freshMeta, runStart, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
-import { BOONS, chamberReward, createRun, DRAFT_SIZE, draftBoons, grantXp, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, MEND, XP_CACHE, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
+import { generateFloor } from '../app/dungeon-floor.ts';
+import { BOONS, chamberReward, clearChamber, createRun, DRAFT_SIZE, draftBoons, fightChamber, grantXp, hurt, INVULN, rankCost, resolveKill, STRIKE_BONUS, takeBoon, tickRun, MEND, XP_CACHE, XP_PER_ENEMY, type Run } from '../app/dungeon-sim.ts';
 
 // A run with the draft already open, since every boon needs that gate held down.
 const drafting = (patch: Partial<Run> = {}): Run => Object.assign(createRun(), { choosing: true, pendingRanks: 1 }, patch);
@@ -227,13 +228,46 @@ test('a chamber pays what its door showed, a clear heals nothing, and only the m
   assert.deepEqual([brink.rankLevel, brink.pendingRanks], [2, 1]);
 });
 
+// Plan 023 (D1): a fight chamber is counted into `run.chambers`, which is what `pearlsFor` pays a chamber's pearls for. A shrine, the Tide Gate and the stair hall are not fight chambers: they pay nothing here.
+test('clearing a fight chamber counts it, and a shrine, the gate and the stair hall count for nothing (plan 023 D1)', () => {
+  const run = createRun();
+  clearChamber(run, { role: 'path', encounter: 'watch', reward: null });
+  clearChamber(run, { role: 'path', encounter: 'ambush', reward: 'cache' });
+  clearChamber(run, { role: 'path', encounter: 'gauntlet', reward: 'mend' });
+  assert.equal(run.chambers, 3, 'a watch, an ambush and a gauntlet chamber are three fights');
+  const before = run.chambers;
+  clearChamber(run, { role: 'path', encounter: 'sanctuary', reward: null });
+  clearChamber(run, { role: 'start', encounter: 'sanctuary', reward: null });
+  clearChamber(run, { role: 'goal', encounter: 'warden', reward: null });
+  assert.equal(run.chambers, before, 'a shrine, the Tide Gate or the stair hall was counted as a fight');
+  // What the door promised is still paid, through the same call.
+  const hurtKnight = createRun(); hurtKnight.hp = 40;
+  assert.deepEqual(clearChamber(hurtKnight, { role: 'path', encounter: 'watch', reward: 'mend' }), { xp: 0, ranks: 0, healed: MEND });
+  assert.equal(clearChamber(createRun(), { role: 'path', encounter: 'watch', reward: 'cache' }).xp, XP_CACHE);
+});
+
+// The rule says which chambers are fights; the generator says which chambers hold bodies. They have to agree, or a chamber pays for a fight that was never there (or the other way about).
+test('a chamber is a fight exactly when the generator stands bodies in it, the stair hall aside (plan 023 D1)', () => {
+  const seen = { fight: 0, shrine: 0, gate: 0, goal: 0 };
+  for (let i = 1; i <= 60; i++) for (const level of [1, 2, 3]) {
+    const floor = generateFloor(i * 7919 + 13, level);
+    for (const room of floor.rooms) {
+      const bodies = floor.spawns.filter(spawn => spawn.room === room.id && !spawn.buried).length;
+      if (room.role === 'goal') { seen.goal++; assert.ok(bodies > 0, 'precondition: the stair hall holds its boss'); assert.equal(fightChamber(room), false, 'the stair hall is paid by its boss, not as a chamber'); continue; }
+      if (room.role === 'start') seen.gate++; else if (room.encounter === 'sanctuary') seen.shrine++; else seen.fight++;
+      assert.equal(fightChamber(room), bodies > 0, `floor ${level} seed ${i}: a ${room.role} ${room.encounter} chamber holds ${bodies} bodies and the rule says fight is ${fightChamber(room)}`);
+    }
+  }
+  assert.ok(seen.fight > 100 && seen.shrine > 5 && seen.gate === 180 && seen.goal === 180, `precondition: 180 floors stood ${JSON.stringify(seen)}`);
+});
+
 // --- Plan 019: a run that starts with what was bought -----------------------------------------------------
 const bought = (upgrades: Meta['upgrades']): Meta => ({ ...freshMeta(), upgrades });
 
 test('createRun() with no argument is exactly the run the game always started', () => {
   // A literal on purpose: `createRun(runStart(freshMeta()))` would agree with itself whatever it dealt.
   const today = {
-    hp: 100, maxHp: 100, kills: 0, totalXp: 0, bosses: 0, elites: 0,
+    hp: 100, maxHp: 100, kills: 0, totalXp: 0, bosses: 0, elites: 0, chambers: 0,
     rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
     strike: 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
     invuln: 0, taken: [], specialCooldown: 0,
