@@ -292,3 +292,23 @@ D2, D7, D10 and D13 are re-decided here.
 ### Stage B (2026-10-03)
 
 D2's table is dealt (middle: a second wave of 2-3 from `late`; late: a second of 2-3 and a third of 1-2 with a warden; purse: a second of 2-3 from `hoard`; +1 on the last wave on floors 2 and 3; caps 5 and 10), the rings drawn for 0.9 s before the bodies stand, the doors barred to the last wave. `generateFloor` is byte-identical over 900 floors. Wave-chamber frame: 440 calls / 255,942 triangles on SwiftShader (586 before the dead sink). Balance (nothing tuned): default escape 80.0 -> 80.0, run 209 -> 238 s, watch fight 3.4 -> 5.7 s; six run-length bands moved, one removed. D13 is far from met (vitality at the stair hall 100%, watch fight 5.7 s, run 238 s): Stages D and E. Interpretations (the harness boots with `?waves=off`; five ring meshes of their own; `late` for the third wave) are listed in `game/progress.md`.
+
+### Carry-over from Stage B (2026-10-03)
+
+A body is never raised on the knight (the rings are run through `waveSpots` again at the raise, in the game and the sim; browser test and plant in `game/progress.md`), `deathsBeforeBoss` and `floorN.medianHpAtStair` are report fields, and CI's red wave-chamber frame was made deterministic (the scene waits for its bodies and corpses to stand still: 439 calls / 255,774 triangles over four identical repeats).
+
+### Stage C (2026-10-03)
+
+Four modifiers (`ELITES`, `eliteStats`, `dealElites` from a stream of its own; floor two 15% at most one a wave, floor three 25% at most two; measured 12.74% and 24.17% dealt over 1,000 seeds), glow in `poseEnemy`'s idle branch (strength 0.05: 0.16 washed the figure flat), eyes, and a flag on the health bar's frame (one mesh), double experience and 2 pearls, `?elite=` and the bench's `?tint=`. **No extra draw call per elite, measured:** four plain bodies 352 calls / 236,158 triangles, four of any modifier 352 / 236,166. `generateFloor` is byte-identical. Interpretations: `?waves=off` also leaves elites out; elites have a second stream; a pyre is never volatile. Balance (30 runs): nothing moves (default escape 80.0, run 240 s).
+
+### Stage D (2026-10-04)
+
+`TOP_UP` is 0 (a clear heals nothing; a mend door still pays 30). **D11 was already true as built:** the Heavy Bolt's special swing carries `stagger: true`, which `blocks` lets past any shield, so the bolt already wounded the Bastion from the front; tests now hold it (node and browser, with planted regressions). The crossbow special's escape is 0% in the final state and is not D11's to fix. Default escape 80.0 -> 76.7, weak 36.7 -> 20.0, weak-meta-max 100 -> 76.7 (30 runs).
+
+### Stage E (2026-10-04)
+
+**Stop rule 3 tripped; D13 is not met.** Shipped: Grave Draught 5 (was 6), the Pyre Mother 150 vitality (was 215), the Bone King 650 with damage 19/12/16/17 (was 500, 13/8/11/12); wave sizes and elite rates unchanged (they move nothing the bots feel). Default 83.3 escape (55-80), 0 of 5 deaths before the stair hall, 100% vitality entering floor one's stair hall, run 244 s, watch fight 6.2 s; weak 10.0 (met); weak-meta-max 63.3 (30-60; 53 points over weak, met). D12 holds for the default knight (the Mother 1 and 2 deaths of 30, the others 0) and no longer for the weak one. The watch fight and the run length cannot be met without changing D1 (54% of watch chambers are the tutorial beat; with it off and the waves enlarged both are met, at escape 90). The eight-setting table, the duel table and the price check (the bots earn about 200 pearls a run, not 45; elites are 6% of it) are in `game/progress.md`.
+
+### Stage F (2026-10-04)
+
+`GAME_OVERVIEW.md`, `README.md` (one line), `game/tests/README.md` (the snapshot fields, `?elite=`, `?waves=off` and why the harness boots with it, and the open follow-up), the `dungeon-waves.ts` header (how to change the wave table and the elite rates), `plans/README.md` and `game/progress.md`. Stage G (the operator's playtest) is not done.
