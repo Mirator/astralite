@@ -25,7 +25,7 @@ import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import SlotPicker from './dungeon-slot-picker';
 import AltarPanel, { type AltarKind } from './dungeon-altar-panel';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
-import { DASH_BUFFER, dashImmune, dragToward, hurledBlow, lineContacts, specialAvailable, specialGate, specialMayCut, specialSpends, swordContacts, vaultLanding, vaultTarget } from './dungeon-combat';
+import { boltBlow, DASH_BUFFER, dashImmune, dragToward, hurledBlow, lineContacts, specialAvailable, specialGate, specialMayCut, specialSpends, swordContacts, vaultLanding, vaultTarget } from './dungeon-combat';
 import { ALERT_STAGGER, BESTIARY, decideEnemy, fallOf, moveOf, NOTICE_TIME, nearbyDozers, raiseSpot, scaledDamage, separateCrowd, type Wakeable } from './dungeon-enemy';
 import { awayFrom, bossPush, burn as burnBody, landBlow } from './dungeon-hits';
 import { chargePose } from './dungeon-attack-pose';
@@ -2278,7 +2278,7 @@ export default function DungeonGame() {
               // The first body the spear takes that is not steadfast is hauled in rather than shoved; a warden only staggers.
               const hurled = live.special, thrown = hurled ? hurledBlow(hurled, { harpoon: !!live.harpoon, damage: live.shot.damage }, { free: !!harpoon && !harpoon.dragged, steadfast: !!BESTIARY[enemy.kind].steadfast }) : null;
               const drags = !!thrown?.drags;
-              const blow = thrown ? thrown.blow : { ...pc.weapon, damage: live.shot.damage };
+              const blow = thrown ? thrown.blow : boltBlow(pc.weapon, live.shot.damage);
               const hit = landBlow(floor.cells, enemy, enemy.group.position, blow, { x: live.shot.dx, z: live.shot.dz }, facingOf(enemy));
               if (hit.blocked) { enemy.blocked++; audio.play('warn'); burst(enemy.group.position, 0xdfe6ea, 8); continue; }
               if ('immune' in hit) { burst(enemy.group.position, 0x9ff0e6, 6); continue; }

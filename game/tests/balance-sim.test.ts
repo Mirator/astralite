@@ -10,7 +10,7 @@ import { weaponById } from '../app/dungeon-weapon.ts';
 import { CHAMBER_PEARLS, freshMeta, type Meta } from '../app/dungeon-meta.ts';
 import { SHRINE } from '../app/dungeon-sim.ts';
 import { hurledBlow } from '../app/dungeon-combat.ts';
-import { landBlow } from '../app/dungeon-hits.ts';
+import { BOSS_BOLT, landBlow } from '../app/dungeon-hits.ts';
 import { asReaper, TEST_BOSS, TEST_SCATTERER } from './fixtures/test-boss.ts';
 
 // The harness is a measuring instrument, so what it owes the suite is not a balance assertion — those
@@ -232,6 +232,21 @@ test('a run report says what banking it would pay', () => {
     assert.ok(fought(lost) > 0, 'precondition: the run cleared a chamber before it died');
     assert.equal(lost.pearls, CHAMBER_PEARLS * fought(lost) + (floor - 1) * 15 + (floor - 1) * 10 + elitesOf(lost), `a run lost on floor ${floor} does not report what a death pays`);
   }
+});
+
+// Plan 023 (D3): the sim's knight lands his bolts through the same `landBlow` the game does, with the blow built by `boltBlow`, so a boss takes BOSS_BOLT times a bolt. The Drowned Captain is made 36 quarter-hits of vitality for this
+// (restored after) so a handful of bolts fells him: the crossbow's bolt is 9, so two bolts is 36 with the multiplier and four without. `landed` is read off what the sim did, not recomputed.
+test('the sim\'s bolts deal BOSS_BOLT times their damage to a boss (plan 023 D3)', () => {
+  const had = BESTIARY.captain.stats.hp;
+  try {
+    BESTIARY.captain.stats.hp = 36;
+    for (const seed of [1, 2, 3]) {
+      const report = simulateArena(seed, 1, ['captain'], policy({ weapon: weaponById('crossbow') }));
+      assert.equal(report.bossHpLeft === null, false, `precondition: seed ${seed} felled the Captain`);
+      assert.ok(report.landed >= 1, `precondition: seed ${seed} landed a bolt on him`);
+      assert.ok(report.landed <= 36 / (9 * BOSS_BOLT), `seed ${seed}: the Captain needed ${report.landed} bolts of 9 to fall from 36, so a bolt did not deal ${9 * BOSS_BOLT}`);
+    }
+  } finally { BESTIARY.captain.stats.hp = had; }
 });
 
 // Plan 021 Stage A: the sim models a boss's moves and phases before anything deals one. A test archetype (tests/fixtures/test-boss.ts)

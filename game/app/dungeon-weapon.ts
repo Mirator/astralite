@@ -73,6 +73,11 @@ export type Weapon = {
    */
   burst?: { radius: number; life: number; damage: number; interval: number };
   /**
+   * Plan 023 (D3): this arm's shot is a bolt, which deals `BOSS_BOLT` times its damage to a boss (dungeon-hits.ts `landBlow`). Only the Keep Crossbow's bolt and its Heavy Bolt are: a thrown flask and the thrown spear are shots too, but not bolts,
+   * and the multiplier is the crossbow's alone (D3: nothing else about any arm changes).
+   */
+  bolt?: boolean;
+  /**
    * Beats after the first, for an arm that swings a string rather than the same cut over and over.
    *
    * Absent means one repeating swing, which is what every arm did and what five of the seven still do.
@@ -389,6 +394,7 @@ export const KEEP_CROSSBOW: Weapon = {
   wardenKnockback: 0.1,
   stagger: false,
   ranged: { speed: 19, flight: 0.62, pierce: 1, capacity: 4, refill: 1.8 },
+  bolt: true,
   /**
    * Plan 016 Stage C: the whole quiver in one bolt. Held 0.7s it is drawn and stays drawn; let go then and
    * it goes through everything on its line to the first stone, worth a bolt for every bolt it spent. It has
@@ -401,6 +407,7 @@ export const KEEP_CROSSBOW: Weapon = {
     swing: {
       duration: 0.55, anticipation: 0.03, contactEnd: 0.14, damage: 9, moveSpeed: 1, knockback: 0.5, wardenKnockback: 0.2, stagger: true,
       ranged: { speed: 26, flight: 0.6, pierce: 64, capacity: 4, refill: 1.8 },
+      bolt: true,
     },
     chargeMin: 0.7, chargeMax: 0.7, moveScale: 0.6,
   },

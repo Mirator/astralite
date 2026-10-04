@@ -182,11 +182,11 @@ test('a Flashpoint whose fire went out before contact spends nothing; every othe
 
 test('a special shot lands the blow of the special that loosed it, and only the harpoon itself drags', () => {
   const bolt = hurledBlow(heavyBolt, { harpoon: false, damage: 36 }, { free: true, steadfast: false });
-  assert.deepEqual(bolt, { drags: false, blow: { damage: 36, stagger: true, knockback: heavyBolt.swing.knockback, wardenKnockback: heavyBolt.swing.wardenKnockback } });
+  assert.deepEqual(bolt, { drags: false, blow: { damage: 36, stagger: true, knockback: heavyBolt.swing.knockback, wardenKnockback: heavyBolt.swing.wardenKnockback, bolt: true } });
   // A heavy bolt still in the air once the spear is thrown takes nothing of the spear's: not its drag.
   assert.equal(hurledBlow(heavyBolt, { harpoon: false, damage: 36 }, { free: true, steadfast: false }).drags, false);
   const spear = hurledBlow(harpoon, { harpoon: true, damage: 6 }, { free: true, steadfast: false });
-  assert.deepEqual(spear, { drags: true, blow: { damage: 6, stagger: true, knockback: 0, wardenKnockback: 0 } });
+  assert.deepEqual(spear, { drags: true, blow: { damage: 6, stagger: true, knockback: 0, wardenKnockback: 0, bolt: false } });
   assert.equal(hurledBlow(harpoon, { harpoon: true, damage: 6 }, { free: false, steadfast: false }).drags, false, 'one drag a throw');
   assert.equal(hurledBlow(harpoon, { harpoon: true, damage: 6 }, { free: true, steadfast: true }).drags, false, 'a warden only staggers');
 });

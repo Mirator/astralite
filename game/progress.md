@@ -5320,3 +5320,55 @@ No cell is inside both bands: the default bot out-earns the weak one by 4.5 to 5
 The browser scenario (`combat.spec.ts`) empties a three-body chamber with a real swing, then a staged blow kills the knight on floor one: the record, the save and the card all carry one chamber's pearls (2) and not the three kills'.
 
 **Gates.** `npm run typecheck`, `npm run lint` clean; `npm test` 503 of 503; `npm run balance:check` green (699.0 s, every metric inside its band, the new `medianPearls` bands included). Browser (SwiftShader, `GAME_TEST_WORKERS=2`): the new `combat.spec.ts` scenario, once clean and once planted. The full suite was not run locally; CI is the gate.
+
+## 2026-10-04 - Plan 023 Stage B: the crossbow against bosses
+
+A crossbow bolt, and the Heavy Bolt, deal `BOSS_BOLT` (2) times their damage to a boss (D3). Nothing else about the arm changes.
+
+**As built.** `dungeon-hits.ts`: `BOSS_BOLT = 2`, and `landBlow` multiplies a blow's damage by it when the blow is a `bolt` and the body's archetype has `boss`. `Blow.bolt` is set where the blow is built, in one place for both the game and the sim: `boltBlow(weapon, damage)` for an ordinary shot and `hurledBlow` for a special's, both in `dungeon-combat.ts`, reading the arm's own `bolt` flag (`Weapon.bolt`, `dungeon-weapon.ts`), which only the Keep Crossbow and its Heavy Bolt carry. Fire (`burn`) and steel are never multiplied; a boss changing phase still takes nothing.
+
+**Interpretation: bolts, not every shot.** The design section says "a ranged blow on a body whose archetype has boss"; D3 says "bolts ... nothing else about the crossbow changes". The flask's thrown vial and the thrown spear (the harpoon) are ranged blows too and go through the same lines of the game and the sim. I read D3 as the crossbow's and flagged only its shots: a first cut that multiplied every shot moved `special-flask` (floor-three vitality left 42.4 -> 34.4, below its band, and its boss fight 33.2 -> 31.4 s), which the plan never asked for. With the flag the flask is exactly as it was (56.7% escape, 154 pearls, boss fight 33.2 s). A node test holds that the flask and the harpoon are not multiplied.
+
+**The crossbow special, before and after (30 runs).**
+
+| | before (Stage A) | after (x2) |
+| --- | --- | --- |
+| escape | 0 | 10 |
+| deaths f1 / f2 / f3 | 30 / 38.1 / 100 | 3.3 / 10.3 / 88.5 |
+| deaths by cause | f3 King 6, f3 stalker 5, f3 guard 2, f1 Mother 4, f1 Bastion 3, f2 Bastion 2, f2 Mother 2, ... | f3 King 9, f3 stalker 6, f3 guard 5, f3 warden 2, f1 / f2 Bastion 1 each, f2 warden / guard 1 each, f3 archer 1 |
+| median boss fight s | 64.8 | 30.1 |
+| median run s | 248.8 | 323.1 |
+| median pearls | 59 | 108 |
+| median vitality entering the stair hall f1 / f2 / f3 | 100 / 97.2 / 91.2 | 100 / 98 / 77.6 |
+| deaths before the stair hall | 6 of 30 | 7 of 27 |
+
+**D3's target is not met at x2.** "The crossbow special escapes at least half as often as the default bot": the default knight escapes 83.3, so 41.7 or more is asked, and x2 gives 10.0. The boss fight is no longer the wall (30 s, the default knight's 33): floors one and two stop killing it (30 -> 3.3 and 38.1 -> 10.3). What stops it is floor three, where it dies in 88.5% of its arrivals, and the King is 9 of the 27 deaths, stalkers and guards 11 and wardens 2. The size of the multiplier is a measurable dial, so for the operator (measured at 30 runs, nothing else changed, **not shipped**):
+
+| BOSS_BOLT | escape | deaths f1 / f2 / f3 | median boss fight s | median run s |
+| --- | --- | --- | --- | --- |
+| 2 (shipped) | 10 | 3.3 / 10.3 / 88.5 | 30.1 | 323 |
+| 3 | 33.3 | 0 / 6.7 / 64.3 | 23.2 | 293 |
+| 4 | 53.3 | 0 / 10 / 40.7 | 19.2 | 294 |
+
+A x4 crossbow would meet D3 and fell a boss in 19 s, much quicker than the default knight's sword (33 s). I kept x2 because the operator's D3 says x2, and because Stage D makes the rooms press harder, which moves floor three (where the crossbow dies) before it moves anything else; the crossbow is re-measured in Stage D's table.
+
+**Bands.** Only special-crossbow moved: `measured` re-taken for it, and its `medianPearls` band [45, 75] -> [85, 135] (the Stage A rule: 0.8x to 1.25x of the 108 measured); its other seven bands held. Every other policy plays exactly as before.
+
+**Tests, and the bugs planted** (each against its own test, then restored):
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| node: a bolt deals BOSS_BOLT times its damage to a boss (five bosses) and its own to everything else, steel is never multiplied | no multiplier | `a bolt on a captain dealt 9, not 18` |
+| the same | the multiplier on every body | `a bolt on a guard dealt 18, not its own 9: only a boss takes the multiplier` |
+| node: the Heavy Bolt on a boss is multiplied, on a warden not | no multiplier / on every body | `the Heavy Bolt was not multiplied on the Bone King` / `the Heavy Bolt was multiplied on a warden` |
+| node: only a crossbow bolt is multiplied, a flask and the spear are not | every shot a bolt (`boltBlow`) / the harpoon a bolt (`hurledBlow`) | `a flask's shot was multiplied on a boss` / `the thrown spear was multiplied on a boss` |
+| the same | the crossbow row loses its flag / the Heavy Bolt loses its flag | `precondition: the same damage from the crossbow is multiplied` / `the bolt flag is on the crossbow and its Heavy Bolt and nowhere else` |
+| node (Bastion): the Heavy Bolt wounds the Bastion twice over, the shieldbearer once | no multiplier | `the heavy bolt did not wound a bastion from the front` |
+| sim: the knight's bolts deal BOSS_BOLT to a boss (a Captain made 36 quarter-hits) | the sim builds the blow without `boltBlow` | `seed 1: the Captain needed 5 bolts of 9 to fall from 36, so a bolt did not deal 18` |
+| browser (arena, real keys): the ordinary bolt deals twice to the Captain, once to a warden | the game builds the blow without `boltBlow` / the crossbow row loses its flag | `a bolt on the Captain did not deal twice its damage` (both) |
+| browser: the same, the multiplier on every body | `blow.bolt` without the boss test | `a bolt on a warden was multiplied, or never landed` |
+| browser (arena): the Heavy Bolt through the Bastion's shield | no multiplier | `the Heavy Bolt did not wound the shield from the front, twice over for a boss` |
+
+The browser scenarios are in `arena-kinds.spec.ts`: the existing Bastion scenario now expects the Heavy Bolt's wound times `BOSS_BOLT`, and a new one fires the same ordinary bolt with the real key at a held Captain and a held warden and reads each one's vitality.
+
+**Gates.** `npm run typecheck`, `npm run lint` clean; `npm test` 508 of 508; `npm run balance:check` green (755.9 s). Browser (SwiftShader, `GAME_TEST_WORKERS=2`): both `arena-kinds.spec.ts` crossbow scenarios, clean and planted. The full suite was not run locally.

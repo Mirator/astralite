@@ -1,3 +1,4 @@
+import { BOSS_BOLT } from '../../app/dungeon-hits.ts';
 import { expect, hold, laneSpot, press, release, strikeStance, test, TILE, type Game } from './helpers.ts';
 import type { Page } from '@playwright/test';
 
@@ -84,7 +85,39 @@ test('the Keep Crossbow\'s ordinary bolt is turned aside by the Bastion\'s shiel
   await game.step(500);
   const struck = (await game.state()).enemies[0];
   expect(struck.blocked, 'the Heavy Bolt was turned aside by the shield').toBe(turned.blocked);
-  expect(struck.hp, 'the Heavy Bolt did not wound the shield from the front').toBe(before.hp - bolts * perBolt);
+  // Plan 023 (D3): the Bastion is a boss, so the Heavy Bolt that goes through its shield is multiplied by BOSS_BOLT.
+  expect(struck.hp, 'the Heavy Bolt did not wound the shield from the front, twice over for a boss').toBe(before.hp - bolts * perBolt * BOSS_BOLT);
+});
+
+// Plan 023 (D3): a shot deals twice its damage to a boss. The rule is held in node (dungeon-hits.test.ts, and the sim's own bolts in balance-sim.test.ts); this fires the same ordinary bolt with the real key at a Drowned Captain and at a warden, held still in the arena, and
+// reads what the running game did to each: the boss loses twice the bolt, the warden the bolt.
+test('the Keep Crossbow\'s ordinary bolt deals twice its damage to a boss and its own damage to a warden', async ({ game, page }) => {
+  await arena(game, page, ['captain', 'warden']);
+  await game.equip('crossbow');
+  await game.step(120);
+  const floor = await game.floor(), opening = await game.state();
+  expect(opening.enemies.map((e) => e.kind), 'precondition: the arena stands the boss and the warden').toEqual(['captain', 'warden']);
+  const bolt = opening.weapon.strikeDamage;
+  expect(bolt, 'precondition: the crossbow\'s bolt is its 9').toBe(9);
+  const spots = opening.enemies.map((e) => ({ x: e.x, z: e.z }));
+  const stances = spots.map((spot, i) => strikeStance(floor, spot, { distance: 3, avoid: spots.filter((_, j) => j !== i), clearance: 3 }));
+  // Hold both bodies where they are, inert (a long cooldown and no tell), and fire one bolt at `index` from its own stance.
+  const fireAt = async (index: number) => {
+    const stance = stances[index];
+    await game.teleport(stance.x, stance.z);
+    await page.keyboard.down(stance.key); await game.step(1); await page.keyboard.up(stance.key);
+    await game.configureCombat({ enemies: spots.map((spot, i) => ({ index: i, x: spot.x, z: spot.z, cooldown: 30, windup: 0 })) });
+    const before = (await game.state()).enemies[index];
+    await press(page, 'attack');
+    await game.step(600);
+    return { before, after: (await game.state()).enemies[index] };
+  };
+  const boss = await fireAt(0);
+  expect(boss.after.blocked, 'precondition: the bolt was not turned aside').toBe(boss.before.blocked);
+  expect(boss.before.hp - boss.after.hp, 'a bolt on the Captain did not deal twice its damage').toBe(bolt * BOSS_BOLT);
+  await game.step(2500); // the quiver comes back
+  const warden = await fireAt(1);
+  expect(warden.before.hp - warden.after.hp, 'a bolt on a warden was multiplied, or never landed').toBe(bolt);
 });
 
 test('a pyre leaves fire where it falls, and the fire burns the knight standing in it', async ({ game, page }) => {
