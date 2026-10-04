@@ -208,3 +208,39 @@ Full tables in `game/progress.md`, "Plan 024 Stage 0". 30 runs a policy from see
 | weak-meta-max | 83.3 | 0 / 0 / 5 | 2 of 5 | 92.3 / 98.7 / 96.8 | 6.39 / 15.37 / 23.34 | 107 |
 
 The default knight's damage over a whole run: 14% ordinary enemies, 37.7% bosses, 32.3% embers, 16% pools. The plan's Why quoted 0.9 / 2.9 / 2.4 a chamber for the default knight; the field says 0.59 / 1.43 / 1.87.
+
+### Stage A: the honest bot (2026-10-04, D1 and D2; sim only)
+
+Full tables and the planted bugs are in `game/progress.md`, "Plan 024 Stage A". Per-tell dodge (miss rate over ~1,000 tells: 0% at dodge 1, 19.3% at 0.8, 50.0% at 0.5), a seeded card draw, ember avoidance and the `skilled` policy (dodge 0.95, reaction 0.18); all `bands.json` measured blocks re-taken, `balance:check` green on them. Before → after, 30 runs a policy:
+
+| policy | escape % | deaths f1 / f2 / f3 (% of arrivals; count) | deaths before the stair hall (count, share) | median vitality entering the stair hall f1 / f2 / f3 | ordinaryDamagePerChamber f1 / f2 / f3 | median pearls |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 90 → 86.7 | 3.3 / 3.4 / 3.6 (1/1/1) → 0 / 3.3 / 10.3 (0/1/3) | 0 of 3 (0%) → 1 of 4 (25%) | 100 / 100 / 100 → 100 / 100 / 100 | 0.59 / 1.43 / 1.87 → 1.71 / 5.22 / 7.19 | 107 → 107 |
+| skilled | (new) 93.3 | (new) 0 / 0 / 6.7 (0/0/2) | (new) 0 of 2 (0%) | (new) 100 / 100 / 100 | (new) 0.63 / 2.39 / 3.65 | (new) 107 |
+| weak | 16.7 → 23.3 | 16.7 / 28 / 72.2 (5/7/13) → 16.7 / 16 / 66.7 (5/4/14) | 9 of 25 (36%) → 8 of 23 (35%) | 89.2 / 90.5 / 92 → 94 / 94.4 / 100 | 7.82 / 16.54 / 26.2 → 8.26 / 17.36 / 24.04 | 52.5 → 64.5 |
+| special | 96.7 → 100 | 0 / 0 / 3.3 (0/0/1) → 0 / 0 / 0 (0/0/0) | 0 of 1 (0%) → 0 of 0 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 0.32 / 1.8 / 1.81 → 1.43 / 3.62 / 5.11 | 107 → 107 |
+| special-fangs | 96.7 → 96.7 | 0 / 0 / 3.3 (0/0/1) → 0 / 0 / 3.3 (0/0/1) | 1 of 1 (100%) → 1 of 1 (100%) | 100 / 100 / 100 → 100 / 100 / 99.2 | 0.69 / 1.58 / 3.07 → 1.53 / 3.97 / 6.43 | 107 → 107 |
+| special-cleaver | 93.3 → 86.7 | 6.7 / 0 / 0 (2/0/0) → 3.3 / 0 / 10.3 (1/0/3) | 0 of 2 (0%) → 0 of 4 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 0.74 / 1.84 / 2.57 → 1.9 / 5.22 / 6.99 | 107 → 107 |
+| special-crossbow | 50 → 50 | 0 / 10 / 44.4 (0/3/12) → 0 / 10 / 44.4 (0/3/12) | 12 of 15 (80%) → 11 of 15 (73%) | 100 / 100 / 92.4 → 100 / 100 / 92.4 | 0.34 / 11.55 / 22.53 → 0.56 / 13.28 / 21.57 | 87.5 → 88 |
+| special-flask | 53.3 → 63.3 | 0 / 0 / 46.7 (0/0/14) → 0 / 0 / 36.7 (0/0/11) | 0 of 14 (0%) → 0 of 11 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.39 / 3.69 / 5.86 → 1.25 / 4.76 / 6.59 | 103.5 → 104 |
+| meta-max | 100 → 100 | 0 / 0 / 0 (0/0/0) → 0 / 0 / 0 (0/0/0) | 0 of 0 (0%) → 0 of 0 (0%) | 100 / 100 / 100 → 100 / 100 / 98.6 | 0.61 / 1.27 / 1.68 → 1.46 / 4.39 / 6.03 | 107 → 107 |
+| weak-meta-max | 83.3 → 60 | 0 / 0 / 16.7 (0/0/5) → 0 / 0 / 40 (0/0/12) | 2 of 5 (40%) → 1 of 12 (8%) | 92.3 / 98.7 / 96.8 → 96.2 / 94.7 / 92.3 | 6.39 / 15.37 / 23.34 → 6.57 / 15.24 / 24.1 | 107 → 106.5 |
+
+Damage share by cause (ordinary enemies / bosses / hazards (embers) / pools):
+
+| policy | ordinary enemies % | bosses % | hazards (embers) % | pools (fire) % | vitality lost a run |
+| --- | --- | --- | --- | --- | --- |
+| default | 14 → 41.6 | 37.7 → 41.4 | 32.3 → 3.5 | 16 → 13.5 | 216 → 273 |
+| skilled | (new) 28.3 | (new) 40.9 | (new) 7.7 | (new) 23.1 | (new) 198 |
+| weak | 60 → 65.3 | 27.4 → 29.6 | 7.8 → 0 | 4.8 → 5.2 | 440 → 457 |
+| special | 16.6 → 37.7 | 32 → 37.6 | 31.7 → 7.2 | 19.7 → 17.5 | 197 → 230 |
+| special-fangs | 24.7 → 49.6 | 13.5 → 17.5 | 36.5 → 6.3 | 25.3 → 26.6 | 187 → 210 |
+| special-cleaver | 20 → 43.8 | 31.5 → 39.4 | 34.5 → 7.9 | 14 → 8.9 | 197 → 259 |
+| special-crossbow | 75.9 → 75.6 | 10.7 → 12.8 | 2.9 → 0.9 | 10.5 → 10.7 | 317 → 334 |
+| special-flask | 33.8 → 43.1 | 39.2 → 43.2 | 13 → 3.4 | 14.1 → 10.3 | 264 → 238 |
+| meta-max | 14.3 → 41.2 | 33.4 → 41.4 | 36 → 5.3 | 16.3 → 12.1 | 203 → 240 |
+| weak-meta-max | 59.6 → 64.5 | 28.3 → 30.6 | 7.8 → 0.1 | 4.4 → 4.8 | 603 → 586 |
+
+Pool-boss duels at stair-hall vitality (30 duels each): default Mother 3% → 10% (floor 1) and 7% → 20% (floor 2), Captain, Hound and Bastion 0% before and after; skilled Mother 3% and 13%, the others 0%; weak 0% everywhere; the King kills default 83% → 100% and skilled 97% from a full bar. D12 pool fairness is **not met** for the default knight (floor 1: Mother 3, Captain 0; floor 2: Mother 6, Captain 0) or the skilled one on floor 2 (Mother 4, Captain 0).
+
+D7 against the Stage A numbers (default / skilled / weak): escape 86.7 (asks 50-75) / 93.3 (75-95, met) / 23.3 (0-20); one of four default deaths before the stair hall (25%, asks at least a quarter: met on the edge); median vitality entering floor 1's stair hall 100 (asks 50-85); ordinary damage a chamber on floor 1 1.71 (asks at least 6). The plan's Why said 0.9 / 2.9 / 2.4 a chamber on floors 1-3 for the default knight; the Stage 0 field says 0.59 / 1.43 / 1.87 and Stage A 1.71 / 5.22 / 7.19. The default knight's embers fell from 32.3% to 3.5% of what it loses, and ordinary enemies rose from 14% to 41.6%.
