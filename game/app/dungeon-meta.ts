@@ -74,21 +74,25 @@ export const maxedMeta = (): Meta =>
   ({ pearls: 0, upgrades: Object.fromEntries(UPGRADES.map(upgrade => [upgrade.id, upgrade.ranks])), arms: [...ARM_ORDER], arm: STARTING_WEAPON });
 
 /**
- * What a finished run pays (D3): a pearl a kill, 15 a floor behind him, 25 for getting out. A death on
- * floor 2 has one floor behind it; a win has all of them. Rattlers never count as kills, so they never pay.
- * Plan 021 (D10): ten more for every boss felled, so a run that dies to the boss on floor 3 still pays for the two behind it.
- * `bosses` is optional so a record from before bosses reads as none, and so is `elites` (plan 022).
+ * What a finished run pays: `CHAMBER_PEARLS` for every fight chamber he cleared, 15 a floor behind him, 25 for getting out. A death on
+ * floor 2 has one floor behind it; a win has all of them. Plan 021 (D10): ten more for every boss felled, so a run that dies to the boss on floor 3 still pays for the two behind it.
+ * `bosses` is optional so a record from before bosses reads as none, and so is `elites` (plan 022): an elite pays `ELITE_PEARLS` on top of its chamber.
+ * Plan 023 (D1): it used to pay a pearl a kill, and waves roughly doubled the kills, so the shop that was meant to take about twenty runs took about four and a half.
+ * A chamber is the unit a player chooses and its count a run can reach is fixed by the floor's layers, not by how many bodies a wave deals, so a later wave table cannot inflate the economy again.
+ * `chambers` is optional because a record from before plan 023 has none: it reads as it was paid then, a pearl a kill. (Nothing re-pays a stored run; `pearls` is stored in the record.)
  */
+export const CHAMBER_PEARLS = 2;
 export const BOSS_PEARLS = 10;
-/** Plan 022 (D9): an elite is a kill that pays 2 pearls instead of 1, so each one felled adds this on top of the kill it already counts as. */
+/** Plan 022 (D9): an elite pays a pearl of its own, on top of its chamber's. */
 export const ELITE_PEARLS = 1;
-export const pearlsFor = (end: Pick<RunEnd, 'floor' | 'won' | 'kills'> & Partial<Pick<RunEnd, 'bosses' | 'elites'>>) => {
+export const pearlsFor = (end: Pick<RunEnd, 'floor' | 'won' | 'kills'> & Partial<Pick<RunEnd, 'chambers' | 'bosses' | 'elites'>>) => {
   const floorsCompleted = end.won ? FLOORS : Math.max(0, end.floor - 1);
-  return Math.max(0, end.kills) + 15 * floorsCompleted + (end.won ? 25 : 0) + BOSS_PEARLS * Math.max(0, end.bosses ?? 0) + ELITE_PEARLS * Math.max(0, end.elites ?? 0);
+  const fought = end.chambers === undefined ? Math.max(0, end.kills) : CHAMBER_PEARLS * Math.max(0, end.chambers);
+  return fought + 15 * floorsCompleted + (end.won ? 25 : 0) + BOSS_PEARLS * Math.max(0, end.bosses ?? 0) + ELITE_PEARLS * Math.max(0, end.elites ?? 0);
 };
 
 /** A new `Meta` with the run's earnings added. Never touches its input. */
-export const bank = (meta: Meta, end: Pick<RunEnd, 'floor' | 'won' | 'kills'> & Partial<Pick<RunEnd, 'bosses' | 'elites'>>): Meta =>
+export const bank = (meta: Meta, end: Pick<RunEnd, 'floor' | 'won' | 'kills'> & Partial<Pick<RunEnd, 'chambers' | 'bosses' | 'elites'>>): Meta =>
   ({ ...meta, pearls: Math.min(PEARL_CAP, meta.pearls + pearlsFor(end)), upgrades: { ...meta.upgrades }, arms: [...meta.arms] });
 
 /** The next rank, or null when it cannot be had: unknown id, already at the top, or too few pearls. */

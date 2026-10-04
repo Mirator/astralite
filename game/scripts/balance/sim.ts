@@ -22,7 +22,7 @@ import { calledIn, idleClock, roomTiles, springing, waveDue, wavedFloor, waveSpo
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, fanHeadings, ARROW_POOL, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
-import { chamberReward, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, SHRINE, SHRINE_REACH, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
+import { clearChamber, createRun, DOOR_RADIUS, draftBoons, heal, hurt, resolveKill, SHRINE, SHRINE_REACH, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
 export const FLOORS = 3;
@@ -227,6 +227,8 @@ export type RunReport = {
   boons: string[];
   /** Plan 019: what banking this run would pay (`pearlsFor`), so earnings can be measured without game code. */
   pearls: number;
+  /** Plan 023 (D1): the fight chambers cleared, which `pearls` pays `CHAMBER_PEARLS` each for. */
+  chambers: number;
   floors: FloorReport[];
 };
 
@@ -316,12 +318,12 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
       // Whatever took the last of the vitality is what the run log would record.
       const damage = report.damage;
       cause = (Object.keys(damage) as Cause[]).filter(k => damage[k] > 0).sort((a, b) => damage[b] - damage[a])[0] ?? null;
-      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills, bosses: run.bosses, elites: run.elites }), floors };
+      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites }), chambers: run.chambers, floors };
     }
     // Descending restores a quarter of the bar, as the results card promises.
     if (level < FLOORS) heal(run, Math.round(run.maxHp * 0.25));
   }
-  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills, bosses: run.bosses, elites: run.elites }), floors };
+  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites }), chambers: run.chambers, floors };
 }
 
 /**
@@ -494,7 +496,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     for (const at of fall.crumble) bodies[at].dead = true;
     if (!cleared.has(body.room) && bodies.every(b => b.room !== body.room || b.dead)) {
       clearRoom(body.room);
-      chamberReward(run, floor.rooms[body.room].reward);
+      clearChamber(run, floor.rooms[body.room]);
     }
   };
   // A bonecaller's tell ran out (dungeon-game.tsx:398-408 `raise`): the next `perTell` of its buried reserve stand

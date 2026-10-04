@@ -5265,3 +5265,58 @@ D6's rule is "±20 vitality moves no policy's escape rate by more than 10 points
 At full bar the weak knight dies to the Captain, the Hound and the Bastion in every duel and to the Mother in none on floor 1 (and in all on floor 2 at 57%). Pool fairness (D12 / D7): the default knight is met (floor 1: Mother 1, Captain 0; floor 2: Mother 2, Captain 0, the fewest floored at one); the weak knight is **not met on floor 1** at either start (Captain 30, Mother 0) and is met on floor 2 at 57% only because it dies to everything (30 and 30).
 
 What the baseline says in one line: every policy still walks into every stair hall at a median 100% (the weak knight 91% and 57%), the default knight's deaths are all boss deaths (0 of 5 before the stair hall), and the crossbow is at 0%.
+
+## 2026-10-04 - Plan 023 Stage A: pearls by chamber
+
+Branch `claude/beautiful-gauss-5o0cw4`. A run is paid `CHAMBER_PEARLS` (2) for every **fight chamber** it clears, not a pearl a kill (D1). Nothing the bots play moved, so every measured value but the pearls is Stage 0's.
+
+**As built.** `dungeon-meta.ts`: `CHAMBER_PEARLS`, and `pearlsFor` takes `chambers` in place of `kills` (a record with no `chambers` is paid as it was, a pearl a kill: `RunEnd.chambers` is optional, the type accepts the older record, and nothing re-pays a stored run, whose `pearls` is in the record). An elite still pays `ELITE_PEARLS` on top, a boss `BOSS_PEARLS`, the floors and the escape as before. `dungeon-sim.ts`: `Run.chambers`, `fightChamber(room)` (a `path` chamber that is not a sanctuary) and `clearChamber(run, room)`, which both the game's `settleRoom` and the sim's `fell` call in place of `chamberReward`; the game and the sim therefore cannot disagree about which clears pay. `dungeon-save.ts`: `RunEnd.chambers` is kept by `parseRun` (a stored 0 is a run that cleared none and is kept; an absent or bad count is absent). The sim's `RunReport.chambers`, `summarise`'s new `medianPearls`, and a `medianPearls` band for every policy in `bands.json`.
+
+**Interpretations.**
+- **The stair hall is not a fight chamber.** Its fight is a boss, paid by `BOSS_PEARLS` as D1 says ("bosses ... pay as today"); counting it too would pay the boss twice. The Tide Gate and a shrine hold no bodies and so cannot settle by a kill at all; `fightChamber` also names them, so a later rule that put a body in one would not start paying for it by accident (node test: over 180 generated floors, a chamber is a fight exactly when the generator stands bodies in it, the stair hall aside).
+- The game counts a chamber where it settles by a kill (`settleRoom`); a chamber with no bodies is marked cleared on entry and was never a settle, so it pays nothing.
+- A thrown spear (`harpoon`) is a shot like a bolt: that is Stage B.
+
+**Pearls before and after (30 runs, CHAMBER_PEARLS 2, floor pearls still 15).**
+
+| policy | median pearls before (a pearl a kill) | median pearls after | median fight chambers a run | median kills a run | the 900-pearl shop in runs before / after |
+| --- | --- | --- | --- | --- | --- |
+| default | 200 | 158 | 23 | 89.5 | 4.5 / 5.7 |
+| weak | 40.5 | 31.5 | 9 | 27 | 22.2 / 28.6 |
+| special | 201.5 | 159 | 23 | 90 | 4.5 / 5.7 |
+| special-fangs | 201.5 | 159 | 23 | 90 | 4.5 / 5.7 |
+| special-cleaver | 199.5 | 158 | 23 | 87.5 | 4.5 / 5.7 |
+| special-crossbow | 88 | 59 | 15.5 | 61 | 10.2 / 15.3 |
+| special-flask | 188 | 154 | 23 | 90 | 4.8 / 5.8 |
+| meta-max | 201.5 | 159 | 23 | 90 | 4.5 / 5.7 |
+| weak-meta-max | 194 | 157.5 | 23 | 87 | 4.6 / 5.7 |
+
+**D2 is not reachable with the dials this stage may turn, and what I did about it.** D2 asks the weak bot 30-55 and the default bot 80-130. A default run banks, whatever the chambers pay, 45 for three floors, 25 for the win, 30 for three bosses and about 12 for its elites: 112 before it has cleared a chamber, and it clears 23. A weak run clears 9 and banks one floor or none. So one integer `CHAMBER_PEARLS` and the floor pearls give this grid (median pearls, default / weak; 30 runs, computed from the same runs for every pair, the floor pearls being the only other dial D2 names):
+
+| CHAMBER_PEARLS | floor 15 | floor 12 | floor 10 | floor 8 | floor 5 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 135 / 22.5 | 126 / 21 | 120 / 20 | 114 / 19 | 105 / 17.5 |
+| 2 | **158 / 31.5** | 149 / 30 | 143 / 29 | 137 / 28 | 128 / 26.5 |
+| 3 | 181 / 40.5 | 172 / 39 | 166 / 38 | 160 / 37 | 151 / 35.5 |
+
+No cell is inside both bands: the default bot out-earns the weak one by 4.5 to 5 times at any setting and D2's two bands are 4.3 apart at most. I kept `CHAMBER_PEARLS` 2 and the floor pearls 15: the weak bot is the nearer proxy for a new human (D2's own words), it lands inside (31.5, a shop in 28.6 of its runs) and the default bot, the practised player, is above (158, a shop in 5.7 runs against the 7-11 asked). This is **provisional**: Stage D moves what both bots do (a run that dies earlier banks fewer chambers) and re-reads this grid with the shipped dials.
+
+**Plan 019's price arithmetic, re-stated.** The 900-pearl shop was "about twenty typical runs" at a guessed 45 pearls a run. With waves and a pearl a kill it was 4.5 runs for the default bot and 22 for the weak bot (plan 022 Stage E); paid by chamber it is 5.7 and 28.6. The prices are unchanged, so no save is devalued.
+
+**Tests, and the bugs planted** (each against its own test, then restored):
+
+| Test | Plant | Failure message |
+| --- | --- | --- |
+| node: a run pays CHAMBER_PEARLS a chamber whatever its kill count | pay per kill again | `four chambers and a floor behind him do not pay four chambers' pearls and 15` |
+| node: a record with no chambers is paid as before | the old record paid 0 | `a record with no chambers no longer reads as a pearl a kill` |
+| node: a shrine, the gate and the stair hall count for nothing | `fightChamber` counts every chamber | `a shrine, the Tide Gate or the stair hall was counted as a fight` |
+| node: a chamber is a fight exactly when the generator stands bodies in it | the same plant | `floor 1 seed 1: a start sanctuary chamber holds 0 bodies and the rule says fight is true` |
+| node: the sim report's pearls and chambers | chambers not counted in `clearChamber` | `the report counts the chambers the floors fought` |
+| node: pay per kill again, the same test | the same as the first plant | `an escaped run report does not carry what a win pays` (164 expected) |
+| node: `parseRun` keeps a stored zero | a falsy zero dropped | `a run that cleared no chamber lost its zero, which would make it read as an old record` |
+| node: `medianPearls` is a median | the mean | `the median of 10, 200 and 40 is 40, not their mean 83.3` |
+| browser: a death pays for the chamber cleared, not the bodies felled, through the real card | the game omits `chambers` from `pearlsFor` | `the run was not paid CHAMBER_PEARLS for its one chamber` |
+
+The browser scenario (`combat.spec.ts`) empties a three-body chamber with a real swing, then a staged blow kills the knight on floor one: the record, the save and the card all carry one chamber's pearls (2) and not the three kills'.
+
+**Gates.** `npm run typecheck`, `npm run lint` clean; `npm test` 503 of 503; `npm run balance:check` green (699.0 s, every metric inside its band, the new `medianPearls` bands included). Browser (SwiftShader, `GAME_TEST_WORKERS=2`): the new `combat.spec.ts` scenario, once clean and once planted. The full suite was not run locally; CI is the gate.

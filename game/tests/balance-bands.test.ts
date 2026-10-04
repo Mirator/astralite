@@ -59,3 +59,11 @@ test('the stair hall is read off the floors that reached it, and deaths before i
   assert.equal(summary.deathsBeforeBoss, 75, 'three of the four deaths came before the stair hall');
   assert.ok(!('deathsBeforeBoss' in summarise([run('escaped', [floor(1, 'cleared', 100)])])), 'a batch with no deaths has no share of them');
 });
+
+// Plan 023 (D2): what a run pays is a band like the rest, the median over the batch.
+test('the median pearls a run paid is in the summary, and a batch with no pearls on its reports leaves it out (plan 023)', () => {
+  const run = (pearls: number | undefined) => ({ outcome: 'escaped', seconds: 100, floors: [], ...(pearls === undefined ? null : { pearls }) }) as unknown as RunReport;
+  assert.equal(summarise([run(10), run(200), run(40)]).medianPearls, 40, 'the median of 10, 200 and 40 is 40, not their mean 83.3');
+  assert.equal(summarise([run(10), run(30), run(50), run(70)]).medianPearls, 40, 'an even batch takes the middle two');
+  assert.ok(!('medianPearls' in summarise([run(undefined), run(undefined)])), 'a batch whose reports carry no pearls reported one');
+});

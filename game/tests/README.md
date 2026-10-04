@@ -127,7 +127,7 @@ automated drivers; nothing in the game itself calls them.
 | `dungeonTest.setMeta(meta, slot?)` | Plan 019: writes a pearl save through the real storage path. Fixture setup only; see [The pearl save](#the-pearl-save). Plan 020: into the active slot, or into `slot` without choosing it |
 
 `dungeonTest.runLog()` is how a balance question stops being a memory: `copy(JSON.stringify(window.dungeonTest.runLog()))`
-gives every finished run since the log was capped, each one `{ at, floor, won, cause, seconds, rank, xp, kills, boons, seed, arm, upgrades, pearls }`,
+gives every finished run since the log was capped, each one `{ at, floor, won, cause, seconds, rank, xp, kills, boons, seed, arm, upgrades, pearls }` (plus `bosses`, and, when there are any, `bossKinds`, `elites`, and from plan 023 `chambers`: the fight chambers cleared, which a run pays `CHAMBER_PEARLS` each for),
 so deaths can be counted per floor and per `cause` (any enemy kind in `ENEMY_KINDS`, or `hazard`; null on a win)
 and any run worth seeing again replayed with `restart:<seed>`.
 

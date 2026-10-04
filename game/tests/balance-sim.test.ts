@@ -7,7 +7,7 @@ import { enemyStats } from '../app/dungeon-enemy.ts';
 import { generateFloor } from '../app/dungeon-floor.ts';
 import { BESTIARY, ELITE_MODIFIERS, type EliteModifier, type EnemyKind } from '../app/dungeon-bestiary.ts';
 import { weaponById } from '../app/dungeon-weapon.ts';
-import { freshMeta, type Meta } from '../app/dungeon-meta.ts';
+import { CHAMBER_PEARLS, freshMeta, type Meta } from '../app/dungeon-meta.ts';
 import { SHRINE } from '../app/dungeon-sim.ts';
 import { hurledBlow } from '../app/dungeon-combat.ts';
 import { landBlow } from '../app/dungeon-hits.ts';
@@ -211,21 +211,26 @@ test('the sim offers as many cards as the run it plays is owed', () => {
 });
 
 test('a run report says what banking it would pay', () => {
-  // Written out, not recomputed: a pearl a kill, 15 a floor behind him, 25 for getting out, (plan 021) ten for each boss the floors say fell and (plan 022) a second pearl for each elite they say fell.
+  // Written out, not recomputed: CHAMBER_PEARLS for each fight chamber the floors say were fought and cleared (plan 023 D1; the stair hall is its boss's), 15 a floor behind him, 25 for getting out, (plan 021) ten for each boss the floors
+  // say fell and (plan 022) a pearl of its own for each elite they say fell. The chambers are counted off the floors' own fight lists (`fightEncounters`, one entry per chamber fought and cleared), not off the number under test.
   const elitesOf = (report: ReturnType<typeof simulateRun>) => report.floors.reduce((sum, floor) => sum + Object.values(floor.eliteKills).reduce((a, b) => a + (b ?? 0), 0), 0);
   const felled = (report: ReturnType<typeof simulateRun>) => report.floors.filter(floor => floor.bossHpLeft !== null).length;
+  const fought = (report: ReturnType<typeof simulateRun>) => report.floors.reduce((sum, floor) => sum + floor.fightEncounters.filter(encounter => encounter !== 'warden').length, 0);
   // Seed 2 (plan 022 Stage E moved it from 0x1, whom the stronger Bone King now beats).
   const won = simulateRun(0x2, policy());
   assert.equal(won.outcome, 'escaped', 'precondition: the default knight escapes this seed');
   assert.equal(felled(won), 3, 'precondition: the escape went through three bosses');
   assert.ok(elitesOf(won) > 0, 'precondition: the escape felled an elite, so what an elite pays is in the sum');
-  assert.equal(won.pearls, won.kills + 3 * 15 + 25 + 3 * 10 + elitesOf(won), 'an escaped run report does not carry what a win pays');
+  assert.ok(fought(won) > 3 && won.kills > fought(won), `precondition: the run cleared ${fought(won)} fight chambers and felled ${won.kills} bodies, so a pearl a kill would pay differently`);
+  assert.equal(won.chambers, fought(won), 'the report counts the chambers the floors fought');
+  assert.equal(won.pearls, CHAMBER_PEARLS * fought(won) + 3 * 15 + 25 + 3 * 10 + elitesOf(won), 'an escaped run report does not carry what a win pays');
   // Seeds 2 and 85 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159; plan 022 Stage D (no top-up) moved them from 11 and 8.
   for (const [seed, floor] of [[2, 2], [85, 3]] as const) {
     const lost = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
     assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
     assert.equal(felled(lost), floor - 1, `precondition: a run lost on floor ${floor} felled the ${floor - 1} bosses behind it`);
-    assert.equal(lost.pearls, lost.kills + (floor - 1) * 15 + (floor - 1) * 10 + elitesOf(lost), `a run lost on floor ${floor} does not report what a death pays`);
+    assert.ok(fought(lost) > 0, 'precondition: the run cleared a chamber before it died');
+    assert.equal(lost.pearls, CHAMBER_PEARLS * fought(lost) + (floor - 1) * 15 + (floor - 1) * 10 + elitesOf(lost), `a run lost on floor ${floor} does not report what a death pays`);
   }
 });
 

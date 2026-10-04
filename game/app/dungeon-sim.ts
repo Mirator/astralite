@@ -2,7 +2,7 @@
 // running keep agree on the number.
 import { incomingDamage } from './dungeon-combat.ts';
 import { BESTIARY, type EnemyKind } from './dungeon-bestiary.ts';
-import type { Reward as ChamberReward } from './dungeon-floor.ts';
+import type { Reward as ChamberReward, Room } from './dungeon-floor.ts';
 import type { RunStart } from './dungeon-meta.ts';
 
 // The numeric half of a run: vitality, experience, rank, boons and the rules that decide whether a hit
@@ -63,6 +63,8 @@ export type Run = {
   bosses: number;
   // Plan 022: elites felled this run (an elite is also a kill).
   elites: number;
+  // Plan 023 (D1): fight chambers cleared this run (`clearChamber`), which is what `pearlsFor` pays a chamber's pearls for.
+  chambers: number;
   rankLevel: number; rankProgress: number; pendingRanks: number; choosing: boolean;
   // Boon-derived modifiers. `guardAgainst` and `dashSpan` are multipliers, the rest are additive.
   // `strike` is a bonus on top of whatever the knight is holding, not the damage itself: the weapon
@@ -85,7 +87,7 @@ export type Run = {
 // With no argument this is the run the game has always started. `start` carries what was bought between runs;
 // `arm` is the game's to equip and means nothing here.
 export const createRun = (start?: RunStart): Run => ({
-  hp: start?.maxHp ?? START_HP, maxHp: start?.maxHp ?? START_HP, kills: 0, totalXp: 0, bosses: 0, elites: 0,
+  hp: start?.maxHp ?? START_HP, maxHp: start?.maxHp ?? START_HP, kills: 0, totalXp: 0, bosses: 0, elites: 0, chambers: 0,
   rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
   strike: start?.strike ?? 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
   invuln: 0, taken: [], specialCooldown: 0,
@@ -201,6 +203,18 @@ export const chamberReward = (run: Run, reward: ChamberReward | null): Reward =>
   const xp = reward === 'cache' ? XP_CACHE : 0;
   const ranks = xp ? grantXp(run, xp).ranks : 0;
   return { xp, ranks, healed: heal(run, reward === 'mend' ? MEND : TOP_UP) };
+};
+
+/**
+ * Plan 023 (D1): whether a chamber is a fight that pays `CHAMBER_PEARLS` when it is cleared. A path chamber that holds bodies: not the Tide Gate (`start`) or a shrine (`sanctuary`), which hold none, and not
+ * the stair hall (`goal`), whose fight is a boss, paid by `BOSS_PEARLS` as it always was. `tests/dungeon-sim.test.ts` holds this against what `generateFloor` actually stands in each kind of chamber.
+ */
+export const fightChamber = (room: Pick<Room, 'role' | 'encounter'>) => room.role === 'path' && room.encounter !== 'sanctuary';
+
+/** A chamber settles: what its door promised (`chamberReward`), and a fight chamber is counted into `run.chambers` for `pearlsFor`. Whatever brought its last body down, the game and the balance sim both come through here. */
+export const clearChamber = (run: Run, room: Pick<Room, 'role' | 'encounter' | 'reward'>): Reward => {
+  if (fightChamber(room)) run.chambers += 1;
+  return chamberReward(run, room.reward);
 };
 
 // The way down. A cleared stair opens but only offers, like a rack: it takes the knight when he stands
