@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import { generateFloor, PACK_MIX, TILE, ARRIVAL_CLEAR, type Spawn } from '../app/dungeon-floor.ts';
 import { BESTIARY, reserveSize } from '../app/dungeon-bestiary.ts';
-import { CHAMBER_CAP, CORPSE_DEPTH, corpseSink, corpsesDue, dealWaves, fitWave, FIRST_WAVE_LAYERS, idleClock, springing, calledIn, roomTiles, spotOf, waveDue, waveSpots, WAVE_CAP, WAVE_CLEAR, WAVE_MARK, WAVE_PAUSE, WAVE_TABLE, wavedFloor, type WaveBody, type WaveClock, type WaveTable } from '../app/dungeon-waves.ts';
+import { CHAMBER_CAP, CORPSE_DEPTH, corpseSink, corpsesDue, dealWaves, fitWave, FIRST_WAVE_LAYERS, idleClock, isRanged, rangedKinds, withRanged, springing, calledIn, roomTiles, spotOf, waveDue, waveSpots, WAVE_CAP, WAVE_CLEAR, WAVE_MARK, WAVE_PAUSE, WAVE_TABLE, wavedFloor, type WaveBody, type WaveClock, type WaveTable } from '../app/dungeon-waves.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
 const SEEDS = Array.from({ length: 150 }, (_, i) => i * 7919 + 13);
@@ -75,8 +75,8 @@ test('later waves stand only in watch and purse chambers past the first two figh
       assert.ok(roomTiles(floor, room.id).some(t => t.x === spawn.x && t.z === spawn.z), `${where}: a wave body stands off its chamber's own floor`);
       assert.ok(Math.hypot(spawn.x - room.entry.x, spawn.z - room.entry.z) >= ARRIVAL_CLEAR, `${where}: a wave body stands on the arrival`);
       assert.ok(floor.doors.filter(d => d.from === room.id).every(d => Math.hypot(d.x - spawn.x, d.z - spawn.z) >= 2.5), `${where}: a wave body stands in a doorway`);
-      // 2.2 tiles apart, as the generator keeps a pack; only a pinned warden, in a chamber with no such tile left, stands closer (1.2).
-      for (const other of extra) if (other !== spawn && other.room === spawn.room) assert.ok(Math.hypot(other.x - spawn.x, other.z - spawn.z) >= (spawn.kind === 'warden' || other.kind === 'warden' ? 1.2 : 2.2), `${where}: two wave bodies stand ${Math.hypot(other.x - spawn.x, other.z - spawn.z).toFixed(2)} tiles apart`);
+      // 2.2 tiles apart, as the generator keeps a pack; only a pinned warden or a ranged body (plan 024 D4 moved the warden's from 1.2 to a tile's own, 1), in a chamber with no such tile left, stands closer.
+      for (const other of extra) if (other !== spawn && other.room === spawn.room) assert.ok(Math.hypot(other.x - spawn.x, other.z - spawn.z) >= (spawn.kind === 'warden' || other.kind === 'warden' || fightsFromRange(spawn.kind, level) || fightsFromRange(other.kind, level) ? 1 : 2.2), `${where}: two wave bodies stand ${Math.hypot(other.x - spawn.x, other.z - spawn.z).toFixed(2)} tiles apart`);
       checked++;
     }
   }
@@ -317,7 +317,8 @@ test('the shipped table is the one the plan decided (D2), and deals what it says
     for (const [room, set] of waves) {
       const seen = [...set].sort((a, b) => a - b);
       assert.deepEqual(seen, seen.length === 2 ? [2, 3] : [2], `seed ${seed} floor ${level} room ${room}: waves ${seen.join(', ')} - a chamber is dealt wave 2, or waves 2 and 3`);
-      if (seen.length === 2) { late++; assert.ok(dealt.some(s => s.room === room && s.wave === 3 && s.kind === 'warden'), `seed ${seed} floor ${level} room ${room}: a third wave without its warden`); }
+      // Plan 024 D4: a chamber with one tile left for the third wave stands the ranged body the wave is owed and not the warden (progress.md counts how often).
+      if (seen.length === 2) { late++; const third = dealt.filter(s => s.room === room && s.wave === 3); assert.ok(third.some(s => s.kind === 'warden') || (third.length === 1 && third[0].kind === 'archer' || third.length === 1 && third[0].kind === 'pyre'), `seed ${seed} floor ${level} room ${room}: a third wave without its warden`); }
       else if (floor.rooms[room].reward === 'cache') purse++; else middle++;
     }
     for (const spawn of dealt) assert.ok(floor.rooms[spawn.room].encounter === 'watch' && floor.rooms[spawn.room].layer > FIRST_WAVE_LAYERS, `seed ${seed}: a wave in an ambush, a gauntlet, a shrine, the stair hall or the first fight`);
@@ -344,4 +345,79 @@ test('the floor takes back the dead of the waves before, and only those, over th
   assert.ok(last > CORPSE_DEPTH * 0.7, `a corpse has only sunk ${last} by the end of the rings`);
   assert.deepEqual(corpseSink(WAVE_MARK), { depth: CORPSE_DEPTH, gone: true }, 'a corpse is not gone, and as deep as the floor takes it, when the wave stands');
   assert.equal(corpseSink(WAVE_MARK + 5).gone, true);
+});
+
+// Plan 024 Stage C (D4): every wave after the first holds a body that fights from range. Written out here from the plan, not read back from `withRanged`: an archer on any floor, a pyre from floor two. 1,000 seeds on each floor.
+const RANGED_SEEDS = Array.from({ length: 1000 }, (_, i) => i * 7919 + 13);
+const wavesOf = (floor: Floor, out: Spawn[]) => {
+  const byWave = new Map<string, Spawn[]>();
+  for (const spawn of out.slice(floor.spawns.length)) if (!spawn.buried) byWave.set(`${spawn.room}:${spawn.wave}`, [...(byWave.get(`${spawn.room}:${spawn.wave}`) ?? []), spawn]);
+  return byWave;
+};
+const fightsFromRange = (kind: string, level: number) => kind === 'archer' || (kind === 'pyre' && level >= 2);
+
+test('every wave after the first deals at least one ranged body, from floor one, over 1,000 seeds a floor (plan 024 D4)', () => {
+  for (const level of LEVELS) {
+    let waves = 0, bare = 0, archers = 0, pyres = 0;
+    for (const seed of RANGED_SEEDS) {
+      const floor = generateFloor(seed, level), out = waved(floor, level, WAVE_TABLE), without = dealWaves(floor, seed, level, WAVE_TABLE, false);
+      for (const [wave, bodies] of wavesOf(floor, out)) {
+        waves++;
+        assert.ok(bodies.some(b => fightsFromRange(b.kind, level)), `seed ${seed} floor ${level} wave ${wave}: ${bodies.map(b => b.kind).join(', ')} - not one fights from range`);
+        archers += bodies.filter(b => b.kind === 'archer').length; pyres += bodies.filter(b => b.kind === 'pyre').length;
+      }
+      // The precondition that makes "every wave has one" mean something: without the rule, the same floor deals waves that hold none.
+      for (const bodies of wavesOf(floor, without).values()) if (!bodies.some(b => fightsFromRange(b.kind, level))) bare++;
+    }
+    assert.ok(waves > 500, `precondition: only ${waves} later waves were dealt over 1,000 floors of floor ${level}`);
+    assert.ok(bare > waves * 0.2, `precondition: only ${bare} of ${waves} waves lack a ranged body without the rule on floor ${level}: the rule changes too little for the test to bind it`);
+    assert.ok(archers > 0, `floor ${level} dealt no archer in a later wave`);
+    if (level === 1) assert.equal(pyres, 0, 'a pyre was dealt in a later wave on floor one, where the rule asks an archer');
+    else assert.ok(pyres > 0, `floor ${level} dealt no pyre in a later wave: the rule may use one from floor two`);
+  }
+});
+
+test('the ranged rule trades melee bodies for ranged ones and adds few bodies and no warden loss worth the name (plan 024 D4)', () => {
+  for (const level of LEVELS) {
+    let on = 0, off = 0, wardensOn = 0, wardensOff = 0, rangedOn = 0, rangedOff = 0, melee = 0, meleeOff = 0;
+    for (const seed of RANGED_SEEDS.slice(0, 300)) {
+      const floor = generateFloor(seed, level), a = waved(floor, level, WAVE_TABLE), b = dealWaves(floor, seed, level, WAVE_TABLE, false);
+      assert.deepEqual(a.slice(0, floor.spawns.length), floor.spawns, `seed ${seed} floor ${level}: the rule touched a spawn generateFloor laid`);
+      const later = (spawns: Spawn[]) => spawns.slice(floor.spawns.length).filter(s => !s.buried);
+      on += later(a).length; off += later(b).length;
+      wardensOn += later(a).filter(s => s.kind === 'warden').length; wardensOff += later(b).filter(s => s.kind === 'warden').length;
+      rangedOn += later(a).filter(s => fightsFromRange(s.kind, level)).length; rangedOff += later(b).filter(s => fightsFromRange(s.kind, level)).length;
+      melee += later(a).filter(s => !fightsFromRange(s.kind, level) && s.kind !== 'warden').length; meleeOff += later(b).filter(s => !fightsFromRange(s.kind, level) && s.kind !== 'warden').length;
+    }
+    // Measured 2026-10-05 over 300 floors a level (later-wave bodies, rule on against off): floor 1 2667 against 2602, floor 2 7203 against 6979, floor 3 9538 against 9009; wardens 195 / 502 / 1434 against 198 / 512 / 1478; ranged 1127 / 2790 / 3929 against 0 / 1292 / 1522.
+    assert.ok(on >= off && on <= off * 1.1, `floor ${level}: ${on} later-wave bodies with the rule against ${off} without: it should add a few (bounds 1.0 to 1.1 times)`);
+    assert.ok(wardensOn >= wardensOff * 0.95, `floor ${level}: ${wardensOn} wardens with the rule against ${wardensOff} without: it took too many`);
+    assert.ok(rangedOn > rangedOff + 100, `floor ${level}: ${rangedOn} ranged bodies with the rule against ${rangedOff} without: the rule dealt too few`);
+    assert.ok(melee < meleeOff, `floor ${level}: ${melee} melee bodies with the rule against ${meleeOff} without: the ranged ones should have come out of them`);
+  }
+});
+
+test('withRanged: a wave that holds one is whole, a wave that holds none gets one, the warden stays, and the stream moves the same either way', () => {
+  const draws = (kinds: string[], level: number, pinned: boolean, rolls = [0.3, 0.6]) => {
+    let asked = 0;
+    const out = withRanged(kinds as never, level, () => rolls[asked++ % rolls.length], pinned);
+    return { out, asked };
+  };
+  assert.deepEqual(draws(['guard', 'archer', 'stalker'], 1, false), { out: ['guard', 'archer', 'stalker'], asked: 2 }, 'a wave with an archer is untouched, and still draws twice');
+  assert.deepEqual(draws(['guard', 'pyre'], 2, false), { out: ['guard', 'pyre'], asked: 2 }, 'a pyre is ranged on floor two');
+  assert.equal(draws(['guard', 'pyre'], 1, false).out.filter(k => k === 'pyre').length, 0, 'precondition: a pyre does not count on floor one, so the wave is changed');
+  assert.ok(draws(['guard', 'pyre'], 1, false).out.includes('archer'), 'a pyre is not ranged on floor one: the wave needs its archer');
+  const bare = draws(['guard', 'guard', 'stalker'], 1, false);
+  assert.equal(bare.asked, 2);
+  assert.equal(bare.out.filter(k => k === 'archer').length, 1, 'a bare wave gets exactly one archer on floor one');
+  assert.equal(bare.out.filter(k => k !== 'archer').length, 2, 'and loses exactly one body for it');
+  for (const roll of [0, 0.3, 0.6, 0.99]) assert.notEqual(draws(['warden', 'guard', 'stalker'], 2, true, [roll, roll]).out[0], 'archer', 'the pinned warden at the head of the wave was replaced');
+  assert.equal(draws(['warden', 'guard', 'stalker'], 2, true, [0, 0]).out[0], 'warden');
+  assert.deepEqual(draws(['warden'], 2, true), { out: ['warden'], asked: 2 }, 'a wave with room for nothing but its warden keeps it: the rule never takes the pinned warden (the chamber cap that would leave a wave that bare is not reached in 3,000 floors, above)');
+  assert.deepEqual(draws([], 2, false), { out: [], asked: 2 });
+  assert.deepEqual([...rangedKinds(1)], ['archer']);
+  assert.deepEqual([...rangedKinds(3)], ['archer', 'pyre']);
+  assert.equal(isRanged('archer', 1), true);
+  assert.equal(isRanged('pyre', 1), false);
+  assert.equal(isRanged('guard', 3), false);
 });

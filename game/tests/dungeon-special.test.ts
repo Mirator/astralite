@@ -219,8 +219,9 @@ test('the cooldown starts at contact, runs on the run clock, and a swap hands ov
 
 test('the balance batch only fires specials under the special policy, and then does', () => {
   // Existing policies are the proof that Stage B moved nothing else: they never touch the special.
-  const plain = simulateRun(0x2, { ...DEFAULT_POLICY, weapon: TIDEBLADE });
-  const armed = simulateRun(0x2, { ...DEFAULT_POLICY, weapon: TIDEBLADE, special: true });
+  // Seed 3 (plan 024 Stage E: a King that hits 1.4 times as hard beats the Tideblade knight on seed 2).
+  const plain = simulateRun(0x3, { ...DEFAULT_POLICY, weapon: TIDEBLADE });
+  const armed = simulateRun(0x3, { ...DEFAULT_POLICY, weapon: TIDEBLADE, special: true });
   assert.equal(plain.outcome, 'escaped');
   assert.equal(armed.outcome, 'escaped');
   assert.notDeepEqual(plain.floors.map(f => f.seconds), armed.floors.map(f => f.seconds), 'the lunge changed how the fights went');
@@ -368,9 +369,10 @@ test('the Flashpoint: every pool at once, each body once, and nothing to detonat
 });
 
 test('the balance batch fires every Stage C special under the special policy, and never otherwise', () => {
+  // Seed 4 (plan 024 Stage B moved it from 0x2, where the Twin Fangs' armed run fell on floor one and the two runs no longer saw the same floors): all four arms, plain and armed, reach floor three on it.
   for (const weapon of [TWIN_FANGS, WARDENS_CLEAVER, KEEP_CROSSBOW, TIDEFLASK]) {
-    const plain = simulateRun(0x2, { ...DEFAULT_POLICY, weapon });
-    const armed = simulateRun(0x2, { ...DEFAULT_POLICY, weapon, special: true });
+    const plain = simulateRun(0x4, { ...DEFAULT_POLICY, weapon });
+    const armed = simulateRun(0x4, { ...DEFAULT_POLICY, weapon, special: true });
     assert.equal(plain.floors.reduce((sum, f) => sum + f.specials, 0), 0, `${weapon.id}: off means off`);
     assert.ok(armed.floors.reduce((sum, f) => sum + f.specials, 0) > 0, `${weapon.id}: the bot used it`);
     assert.deepEqual(plain.floors.map(f => f.spawns), armed.floors.map(f => f.spawns), 'the same keep');

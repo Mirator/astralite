@@ -13,7 +13,7 @@
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
 import { boltBlow, canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
-import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, eliteStats, fallOf, moveOf, nearbyDozers, raiseSpot, scaledDamage, separateCrowd, type CrowdBody, type EliteModifier, type EnemyKind, type EnemyView, type Move, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
+import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, eliteStats, fallOf, moveOf, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, type CrowdBody, type EliteModifier, type EnemyKind, type EnemyView, type Move, type Pressed, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { bossPush, landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, bossOnFloor, cellKey, dealBosses, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
@@ -220,6 +220,8 @@ export type FloorReport = {
   /** Plan 024 D1: tells whose dodge was rolled this floor (one a tell, the first frame it was readable to him), and the tells he dashed at: what `dodge` is measured against. */
   tellsRolled: number;
   tellsDodged: number;
+  /** Plan 024 D3: tells a body was ready to begin and held back instead, so that it ended after the room's other tells (`pressure`, dungeon-enemy.ts): a tell counted once, however many frames it was held. */
+  tellsHeld: number;
   ordinaryDamage: number;
   chambersEntered: number;
   ordinaryDamagePerChamber: number;
@@ -275,6 +277,8 @@ type Body = {
   alertIn: number;
   // Plan 024 (D1). The one roll of this body's tell: null until the tell is readable to the knight (and again once it has ended), then whether he dodges this tell; and whether he has dashed at it.
   dodgeRoll: boolean | null; dodged: boolean;
+  // Plan 024 (D3): the seconds this body still holds before it may begin the tell it is ready to begin (`pressure`, dungeon-enemy.ts); 0 when it is not waiting.
+  held: number;
 };
 
 /** Seconds spent with no woken body this close counts as idle - see FloorReport.idle. */
@@ -427,7 +431,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       aim: { x: 0, z: 0 }, room: spawn.room, awake: !spawn.ambush && !spawn.buried, dead: false,
       face: 0, buried: !!spawn.buried, summoner: spawn.summoner ?? -1, maxHp: stats.hp, wave: spawn.wave ?? 1,
       move: 0, phase: 0, change: 0, winding: null, marks: [], get bossPhase() { return this.phase; },
-      anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity, dodgeRoll: null, dodged: false,
+      anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity, dodgeRoll: null, dodged: false, held: 0,
     };
   });
 
@@ -473,7 +477,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   // Plan 016 fight duration: when each room's fight started, and how long each finished one took.
   const fightStart = new Map<number, number>(), fights: number[] = [], fightEncounters: string[] = [];
   const eliteKills: Partial<Record<EliteModifier, number>> = {};
-  let ordinaryDamage = 0, tellsRolled = 0, tellsDodged = 0;
+  let ordinaryDamage = 0, tellsRolled = 0, tellsDodged = 0, tellsHeld = 0;
   const boonsTaken: string[] = [], offersSeen: number[] = [];
   // Plan 024 Stage 0: a blow or a bolt from a body that is not a boss, landed with the knight in a fight chamber. A pool's bite never comes through here (`poolDamage` has it).
   const ordinaryBlow = (kind: EnemyKind, dealt: number, room: number) => { if (dealt && !BESTIARY[kind].boss && room >= 0 && fightChamber(floor.rooms[room])) ordinaryDamage += dealt; };
@@ -531,7 +535,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     if (fall.reassembles) {
       const caller = bodies[body.summoner];
       body.buried = true; body.awake = false; body.hp = body.maxHp;
-      body.windup = 0; body.lunge = 0; body.hitFlash = 0; body.notice = 0;
+      body.windup = 0; body.lunge = 0; body.hitFlash = 0; body.notice = 0; body.held = 0;
       body.x = caller.x; body.z = caller.z;
       reassembledCount++;
       return;
@@ -891,7 +895,11 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         if (body.alertIn <= 0) { if (body.notice <= 0) body.notice = DT; body.alertIn = Infinity; }
       }
       const view: EnemyView = { kind: body.kind, x: body.x, z: body.z, room: body.room, cooldown: body.cooldown, hitFlash: body.hitFlash, windup: body.windup, lunge: body.lunge, tell: body.tell, speed: body.speed, aim: body.aim, anchor: body.anchor, notice: body.notice, hp: body.hp, maxHp: body.maxHp, move: body.move, phase: body.phase, change: body.change };
-      const intent = decideEnemy(view, player, { ...world, activeRoom }, DT);
+      // Plan 024 (D3): a tell this body was about to begin may be held back so it ends after the room's other tells (`pressed`); dungeon-game.tsx asks the same rule in the same place.
+      const pressure = pressed(view, decideEnemy(view, player, { ...world, activeRoom }, DT), i, () => bodies.map((b): Pressed => ({ kind: b.kind, room: b.room, dead: b.dead || b.buried || !b.awake, windup: b.windup, held: b.held, tell: b.tell })), DT);
+      const intent = pressure.intent;
+      if (pressure.held > 0 && body.held <= 0) tellsHeld++;
+      body.held = pressure.held;
       const startedNoticing = body.notice <= 0 && intent.notice > 0;
       body.cooldown = intent.cooldown; body.hitFlash = intent.hitFlash; body.windup = intent.windup;
       if (view.windup <= 0 && intent.windup > 0) { body.dodgeRoll = null; body.dodged = false; }
@@ -1109,7 +1117,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, boons: boonsTaken, offers: offersSeen, tellsRolled, tellsDodged, ordinaryDamage, chambersEntered, ordinaryDamagePerChamber: +(chambersEntered ? ordinaryDamage / chambersEntered : 0).toFixed(2), hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, boons: boonsTaken, offers: offersSeen, tellsRolled, tellsDodged, tellsHeld, ordinaryDamage, chambersEntered, ordinaryDamagePerChamber: +(chambersEntered ? ordinaryDamage / chambersEntered : 0).toFixed(2), hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

@@ -53,8 +53,8 @@ test('every boon lands exactly once, and only while a draft is open', () => {
 
   const draught = drafting();
   takeBoon(draught, 'draught');
-  assert.equal(draught.draught, 5, 'plan 022 Stage E: a Grave Draught is worth 5 a kill, down from 6');
-  assert.ok(BOONS.find(b => b.id === 'draught')!.detail.includes('+5 '), 'the card does not say what the boon is worth');
+  assert.equal(draught.draught, 2, 'plan 024 D6: a Grave Draught is worth 2 a kill, down from 5 (plan 022 Stage E took it from 6)');
+  assert.ok(BOONS.find(b => b.id === 'draught')!.detail.includes('+2 '), 'the card does not say what the boon is worth');
 
   const ward = drafting();
   takeBoon(ward, 'ward');

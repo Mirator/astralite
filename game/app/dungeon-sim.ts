@@ -13,7 +13,8 @@ export type Boon = { id: string; name: string; detail: string };
 
 // Plan 022 Stage E (D10): once a clear stopped healing, Grave Draught was what kept the bots at a full bar (30 runs: no draught at all took the default knight's escape from 80 to 63 and the weak one's from 20 to 0), so it
 // is one vitality a felled body smaller than it was (6). One dial: `takeBoon` and the card's text both read it.
-export const DRAUGHT = 5;
+// Plan 024 (D6, the operator's decision of 2026-10-05): 2 a kill. At 5 and three or four kills a chamber it healed more than ordinary bodies dealt, with no choice involved; 2 keeps the card worth taking without erasing every room.
+export const DRAUGHT = 2;
 export const BOONS: Boon[] = [
   { id: 'edge', name: 'Whetted Edge', detail: 'One more blade’s worth of bite on every strike' },
   { id: 'vigor', name: 'Tidal Vigor', detail: '+25 max vitality, filled now' },
