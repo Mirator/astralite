@@ -5854,3 +5854,82 @@ Moved to the next five beyond what was measured, none widened further: weak floo
 
 `tests/browser/pressure.spec.ts`, one scenario: the arena's two guards placed beside a knight who stands still (the fixture only places them), the snapshot read every frame. The first guard to run a tell and the second end 0.4 to 0.6 s apart (a frame's slack either side), inside the dash cooldown (`boons.dashSpan`, 0.8 s), neither tell shorter than the guard's 0.5 s, `held` was seen above 0 and a held body never showed a windup, and both blows landed on the knight (2 x the guard's damage: the second is more than `INVULN` behind the first). **Planted: the loop calls `decideEnemy` and never `pressed`** (`held` stays 0): `neither guard was ever held: the snapshot never reported a pressure delay`.
 - A scene that dashes at the first tell with the real key was tried first and abandoned: the dash leaves the held guard's reach, so it never swings and there is no second tell to time (the rule works, the scene could not read it). The standing knight is the honest read; the dash claim is held by the gap being under the dash cooldown, off the snapshot.
+
+## 2026-10-05 - Plan 024 Stage C: ranged bodies in later waves (D4)
+
+Branch `claude/beautiful-gauss-5o0cw4`. `app/dungeon-waves.ts`, `tests/dungeon-waves.test.ts`, `tests/balance-sim.test.ts` (one assertion), `bands.json`.
+
+### The rule
+
+Every wave after a chamber's first holds at least one body that fights from range: an archer on any floor, a pyre from floor two (`rangedKinds`, `isRanged`). `withRanged` runs after `fitWave` on the wave's bodies; a wave that already holds one is returned as it was, and one that holds none has a **drawn body** replaced by a ranged kind (the pinned warden, the first body of a `warden` rule's wave, is never the one replaced). The two numbers it draws (which kind, which slot) come from a salted stream of the same hash (`RANGED_SALT`, the wave stream's own mixing), asked twice whatever happens, so the draws of the wave stream that deals counts, kinds and tiles do not move with it, and `generateFloor` is not asked at all: its 900-floor SHA test is green and unchanged. `dealWaves` gains a fifth parameter `ranged` (default on) so a test can deal the waves without the rule.
+
+**What a crowded chamber made necessary.** Chambers are small (a late chamber has 16 to 50 open tiles) and a wave's bodies keep 2.2 tiles apart (`WAVE_SPACING`), so some bodies are never stood. A first version that only swapped a kind left 246 / 873 / 2,054 bare waves of 3,671 / 7,829 / 11,577 (7% / 11% / 18%; floors 1-3, 1,000 seeds each), nearly all a pinned warden alone, because the swapped-in body was the one the chamber then could not stand. Two changes closed it to 0 of 3,750 / 8,014 / 11,868:
+1. A ranged body that finds no tile at `WAVE_SPACING` takes the open tile farthest from everything standing, so long as it is at least `PINNED_SPACING` (1.2 tiles; 1.0 was tried and made two rings share a spot, because a tile is 1.48 world units and a ring relocation keeps 1.5) from it - the fallback the pinned warden already had.
+2. `standFirst` stands the wave's first ranged body before everything else (the warden included), so in a chamber with room for one more body it is the ranged body the wave is owed, and the other drawn bodies are what a full chamber drops, as they always were. **Consequence, counted:** a third wave in such a chamber can be one ranged body and no warden (the plan 022 pin yields to D4 only when the chamber has a single tile left for the wave).
+
+### Effect on the keep (300 floors a level, later-wave bodies, rule on against off)
+
+Floor 1 2,667 against 2,602 bodies (+2.5%), floor 2 7,203 against 6,979 (+3.2%), floor 3 9,538 against 9,009 (+5.9%); wardens 195 / 502 / 1,434 against 198 / 512 / 1,478; ranged bodies 1,127 / 2,790 / 3,929 against 0 / 1,292 / 1,522 (an archer is 42% of floor one's later-wave bodies, because floor one's waves are one to three bodies and each must hold one). A bonecaller's reserve is not counted.
+
+### Measured (30 runs a policy from seed 1, Stage B -> now)
+
+| policy | escape % | deaths f1 / f2 / f3 (% of arrivals; count) | deaths before the stair hall (count, share) | median vitality entering the stair hall f1 / f2 / f3 | ordinaryDamagePerChamber f1 / f2 / f3 | median pearls |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 86.7 → 90 | 0 / 3.3 / 10.3 (0/1/3) → 0 / 0 / 10 (0/0/3) | 1 of 4 (25%) → 0 of 3 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.58 / 5.01 / 7.46 → 1.73 / 4.76 / 7.1 | 106.5 → 107.5 |
+| skilled | 90 → 96.7 | 0 / 3.3 / 6.9 (0/1/2) → 0 / 0 / 3.3 (0/0/1) | 0 of 3 (0%) → 0 of 1 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 0.88 / 2.33 / 4.1 → 1.09 / 1.92 / 3.79 | 107 → 108 |
+| weak | 13.3 → 10 | 20 / 20.8 / 78.9 (6/5/15) → 20 / 29.2 / 82.4 (6/7/14) | 10 of 26 (38%) → 9 of 27 (33%) | 94 / 94.4 / 99.3 → 89 / 95.7 / 99.5 | 8.37 / 17.6 / 23.88 → 8.51 / 17.79 / 24.81 | 57 → 52 |
+| special | 93.3 → 86.7 | 0 / 0 / 6.7 (0/0/2) → 0 / 0 / 13.3 (0/0/4) | 0 of 2 (0%) → 0 of 4 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.39 / 4 / 5.83 → 1.48 / 3.83 / 6.12 | 107 → 107 |
+| special-fangs | 93.3 → 93.3 | 0 / 0 / 6.7 (0/0/2) → 0 / 0 / 6.7 (0/0/2) | 2 of 2 (100%) → 1 of 2 (50%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.61 / 4 / 5.95 → 1.77 / 3.91 / 6.11 | 107 → 108 |
+| special-cleaver | 80 → 86.7 | 0 / 0 / 20 (0/0/6) → 3.3 / 0 / 10.3 (1/0/3) | 0 of 6 (0%) → 0 of 4 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 2.26 / 5.44 / 7.6 → 2.33 / 5.48 / 8.22 | 106.5 → 107 |
+| special-crossbow | 50 → 36.7 | 0 / 26.7 / 31.8 (0/8/7) → 0 / 13.3 / 57.7 (0/4/15) | 13 of 15 (87%) → 16 of 19 (84%) | 100 / 100 / 93.6 → 100 / 100 / 86.8 | 0.97 / 13.71 / 22.84 → 1.06 / 10.94 / 26.05 | 85 → 64.5 |
+| special-flask | 70 → 66.7 | 0 / 0 / 30 (0/0/9) → 0 / 0 / 33.3 (0/0/10) | 0 of 9 (0%) → 0 of 10 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.25 / 4.01 / 6.88 → 1.76 / 5.6 / 7.05 | 106.5 → 106.5 |
+| meta-max | 100 → 100 | 0 / 0 / 0 (0/0/0) → 0 / 0 / 0 (0/0/0) | 0 of 0 (0%) → 0 of 0 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.24 / 4.29 / 6.48 → 1.44 / 4.58 / 6.89 | 107 → 108 |
+| weak-meta-max | 60 → 56.7 | 0 / 0 / 40 (0/0/12) → 0 / 0 / 43.3 (0/0/13) | 1 of 12 (8%) → 5 of 13 (38%) | 94.8 / 95.8 / 88.3 → 94.7 / 90.4 / 95.4 | 6.65 / 15.58 / 24.35 → 6.87 / 15.97 / 25.22 | 106 → 104 |
+
+Damage share by cause (ordinary enemies / bosses / hazards / pools):
+
+| policy | ordinary enemies % | bosses % | hazards (embers) % | pools (fire) % | vitality lost a run |
+| --- | --- | --- | --- | --- | --- |
+| default | 43.7 → 39.2 | 40.1 → 38.1 | 3.6 → 4.8 | 12.6 → 17.9 | 261 → 287 |
+| skilled | 31.4 → 28.9 | 42.3 → 38.3 | 6.2 → 7.1 | 20.2 → 25.7 | 190 → 196 |
+| weak | 65.5 → 65 | 29.2 → 28.4 | 0.2 → 0.2 | 5.2 → 6.4 | 423 → 420 |
+| special | 37.2 → 37.1 | 37.7 → 37.5 | 7.7 → 5.4 | 17.4 → 20 | 255 → 270 |
+| special-fangs | 49 → 44.5 | 18.9 → 14.8 | 6.2 → 5.4 | 25.9 → 35.3 | 203 → 236 |
+| special-cleaver | 44.2 → 46.1 | 39.6 → 37.5 | 7 → 6.3 | 9.2 → 10.2 | 286 → 280 |
+| special-crossbow | 76.8 → 73.8 | 13.5 → 10.4 | 0.8 → 0.4 | 8.9 → 15.3 | 305 → 330 |
+| special-flask | 40.5 → 41.5 | 43.9 → 38.2 | 3.5 → 2.6 | 12 → 17.7 | 246 → 281 |
+| meta-max | 41.6 → 42.1 | 40.9 → 35.7 | 5.2 → 5 | 12.3 → 17.3 | 244 → 259 |
+| weak-meta-max | 65.1 → 64.9 | 29.7 → 28.9 | 0.2 → 0.1 | 5.1 → 6.1 | 597 → 588 |
+
+Deaths by floor and cause (after; before):
+
+- default: after: f3 king 3; before: f3 king 3, f2 stalker 1
+- skilled: after: f3 king 1; before: f3 king 2, f2 mother 1
+- weak: after: f3 stalker 8, f2 stalker 6, f1 stalker 5, f3 king 3, f2 archer 1, f3 rattler 1, f3 archer 1, f1 captain 1, f3 warden 1; before: f3 stalker 11, f1 stalker 6, f2 stalker 5, f3 rattler 1, f3 archer 1, f3 king 1, f3 warden 1
+- special: after: f3 king 4; before: f3 king 2
+- special-fangs: after: f3 pyre 1, f3 king 1; before: f3 warden 2
+- special-cleaver: after: f3 king 3, f1 mother 1; before: f3 king 6
+- special-crossbow: after: f3 archer 4, f3 stalker 4, f3 warden 3, f3 guard 2, f3 pyre 1, f2 guard 1, f2 archer 1, f2 warden 1, f2 stalker 1, f3 king 1; before: f2 guard 5, f3 stalker 2, f3 guard 2, f2 stalker 2, f3 shieldbearer 1, f2 archer 1, f3 king 1, f3 warden 1
+- special-flask: after: f3 king 8, f3 guard 1, f3 stalker 1; before: f3 king 9
+- meta-max: after: no deaths; before: no deaths
+- weak-meta-max: after: f3 warden 5, f3 stalker 4, f3 king 3, f3 rattler 1; before: f3 stalker 7, f3 rattler 2, f3 king 2, f3 warden 1
+
+The default knight is not hurt by the new bodies (it escapes 90%, floor-1 ordinary damage 1.73, vitality at the stair hall 100) and the skilled knight is not either (96.7%); what it moves is the crossbow special (50 -> 36.7%, floor-3 deaths 31.8 -> 57.7%: 4 of its 19 deaths are archers, 3 more wardens), pools (fire 12.6 -> 17.9% of what the default knight loses: pyres in waves) and the weak knight (13.3 -> 10%). The crossbow special's D7 line ("at least half the default's" = 45) is therefore not met here; Stage E re-measures it.
+
+### Frame budget
+
+`frame-budget.spec.ts` "the biggest chamber the waves deal, at its last wave": **439 calls, 255,774 triangles, geometries 153, textures 28 - identical to the pinned budget**, passed locally (SwiftShader). The pinned room of seed 0x2 floor 3 (three waves of 3, 3 and 4) still holds those waves and the rule changed none of its kinds. `waves.spec.ts` (including "the sim and the game deal the same waves") passed locally.
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+`tests/dungeon-waves.test.ts` (1,000 seeds on each floor):
+- `every wave after the first deals at least one ranged body, from floor one` (bare-wave precondition: without the rule more than 20% of waves hold none; floor 1 deals no pyre; floors 2 and 3 deal both). **Rule dropped** (`ranged` default false): `seed 13 floor 1 wave 9:2: stalker, stalker - not one fights from range`. **A pyre counts on floor one:** `seed 13 floor 1 wave 16:2: pyre, stalker, stalker - not one fights from range`. **No fallback tile for a ranged body:** `seed 95041 floor 1 wave 18:2: warden - not one fights from range`.
+- `the ranged rule trades melee bodies for ranged ones and adds few bodies and no warden loss worth the name`: **rule dropped:** `floor 1: 0 ranged bodies with the rule against 0 without: the rule dealt too few`; **pinned warden replaceable:** `floor 1: 124 wardens with the rule against 198 without: it took too many` (and `a third wave without its warden` in the D2 table test, and `the pinned warden at the head of the wave was replaced` in the `withRanged` unit test).
+- Existing tests whose bound the rule moved, assertions otherwise unchanged: the wave spacing (2.2 tiles; a pinned warden or a ranged body 1.0 apart - a tile - where the chamber has no better), and the D2 table test's third wave (a warden, or the one ranged body that took the last tile).
+- **Survived:** sharing the wave stream with the ranged draws (instead of the salted stream) is seen by no test; the salt is a design choice that keeps the other draws' sequence, not a behaviour a test pins.
+- `generateFloor`'s SHA test stays green (it is the same test, untouched).
+- `tests/balance-sim.test.ts`: `the harness flies archers' bolts` said floor one bills no archer; it now bills one from a later wave (measured: seed 3, 10 vitality on floor one), and the test checks that floor one's own packs hold none (200 seeds).
+
+### Bands (`bands.json`, as text, `measured` for all ten policies)
+
+Moved to the next five (a half for the ordinary-damage metric) beyond what was measured, none widened further: default run length max 260 -> 270 (266.1); weak floor-3 deaths max 80 -> 85 (82.4); special floor-3 deaths max 10 -> 15 (13.3) and vitality min 50 -> 45 (48.8); special-fangs run length max 240 -> 245 (240.2); special-cleaver floor-3 vitality min 50 -> 45 (48.4); special-crossbow medianPearls min 70 -> 60 (64.5) and floor-1 ordinary damage max 1 -> 1.5 (1.06); special-flask floor-3 vitality min 40 -> 30 (33.6); weak-meta-max escape min 60 -> 55 (56.7). `npm run balance:check` on the committed bands: every metric inside its band (1356 s).

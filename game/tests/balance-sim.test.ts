@@ -55,15 +55,17 @@ test('fight duration is measured per room fought, inside the floor it was fought
   }
 });
 
-test('the harness flies archers\' bolts and bills what lands to the archer, from floor two on', () => {
+test('the harness flies archers\' bolts and bills what lands to the archer, on floor one only from a later wave (plan 024 D4)', () => {
   // A knight that never dodges, so a bolt that is loosed and flies true has nothing between it and him.
   const runs = [1, 2, 3, 4].map(seed => simulateRun(seed * 7919, policy({ dodge: 0 })));
   const deeper = runs.flatMap(run => run.floors.filter(floor => floor.level > 1));
   assert.ok(deeper.length >= runs.length, `the runs barely left floor one (${deeper.length} deeper floors), so this measured nothing`);
-  const onFloorOne = runs.reduce((sum, run) => sum + run.floors[0].damage.archer, 0);
   const deeperArcher = deeper.reduce((sum, floor) => sum + floor.damage.archer, 0);
-  assert.equal(onFloorOne, 0, 'something billed archer damage on a floor with no archers');
   assert.ok(deeperArcher > 0, 'archers on floors two and three never landed a bolt in the harness');
+  // Plan 024 D4: floor one deals no archer in a first wave (the generator's packs wait for floor two) but every later wave holds a ranged body, so one stands there in a wave. Measured 2026-10-05 (dodge 0, these four seeds): 10 vitality on floor one (seed 3 only).
+  for (let seed = 1; seed <= 200; seed++) assert.equal(generateFloor(seed * 7919, 1).spawns.filter(spawn => spawn.kind === 'archer').length, 0, `seed ${seed}: floor one's own packs hold an archer, so the bill below is not only the later waves'`);
+  const floorOne = runs.flatMap(run => run.floors.filter(floor => floor.level === 1));
+  assert.ok(floorOne.reduce((sum, floor) => sum + floor.damage.archer, 0) > 0, 'a floor-one archer never landed a bolt: a later wave there deals one (plan 024 D4), so the sim should bill it');
 });
 
 // Plan 018 Stage A: the sim models the three kinds' mechanics before anything deals them. Nothing in the floor

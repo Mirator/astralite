@@ -19,6 +19,8 @@ import { ARRIVAL_CLEAR, carves, drawKind, oneCaller, PACK_MIX, packSource, TILE,
 // ELITES (plan 022 Stage C) are dealt here too, by `dealElites`, after the waves, from a second stream of their own (`eliteStream`): `ELITE_RATE` is the share of a floor's eligible bodies (`eliteKind`, dungeon-bestiary.ts) that carry a modifier,
 // `ELITE_PER_WAVE` the most one wave of one chamber may hold, and floor one deals none. What a modifier does is the bestiary's `ELITES`; this file only says who gets one. A chamber's rolls are per body in spawn order and always draw the same two numbers
 // whether or not the body is eligible, so a rate change moves who is elite and never which kind a body is, and no wave rule moves an elite's draw.
+// RANGED BODIES (plan 024 D4): every wave after the first holds at least one body that fights from range - an archer on any floor, or a pyre from floor two (`isRanged`) - so a knight who only steps back from melee has something that punishes it. `withRanged` swaps one drawn body
+// of a wave that holds none for one, on a salted stream of its own (`RANGED_SALT`), and always draws the same two numbers whether or not it swaps: no wave rule, mix or placement draw moves, and `generateFloor` is not asked at all (its SHA test stays green).
 // After a change: `npm test` (tests/dungeon-waves.test.ts holds every cap and the append-only rule), `npm run balance:check` and re-measure the bands.
 // The hash stream is per chamber (`stream`), so adding a rule to one source moves no other source's bodies.
 
@@ -66,9 +68,37 @@ export const fitWave = (drawn: readonly EnemyKind[], warden: boolean, space: num
   return [...(warden ? ['warden' as const] : []), ...drawn.slice(0, Math.max(0, space - (warden ? 1 : 0)))];
 };
 
+/** Plan 024 (D4): the kinds that fight from range on this floor - an archer, and from floor two a pyre (its fire reaches past the blade) - in the order the stream picks from. */
+export const rangedKinds = (level: number): readonly EnemyKind[] => level >= 2 ? ['archer', 'pyre'] : ['archer'];
+export const isRanged = (kind: EnemyKind, level: number) => rangedKinds(level).includes(kind);
+/** The salt of the ranged-body stream, so no draw of the wave stream moves with it. */
+const RANGED_SALT = 0x72616e67;
+/**
+ * A wave's bodies with at least one ranged one (D4): a wave that already holds one comes back unchanged, and one that holds none has a drawn body replaced by a ranged kind - never the warden the rule pinned to it (`pinned`: the first body), unless the wave holds
+ * nothing else. `random` is asked twice whatever happens, so the stream keeps the same place for the next wave. Pure: a copy.
+ */
+export const withRanged = (kinds: readonly EnemyKind[], level: number, random: () => number, pinned: boolean): EnemyKind[] => {
+  const pick = random(), slotRoll = random(), out = [...kinds];
+  if (!out.length || out.some(kind => isRanged(kind, level))) return out;
+  const free = out.map((_, i) => i).filter(i => !(pinned && i === 0 && out[0] === 'warden'));
+  if (!free.length) return out;
+  const slot = free[Math.min(free.length - 1, Math.floor(slotRoll * free.length))], from = rangedKinds(level);
+  out[slot] = from[Math.min(from.length - 1, Math.floor(pick * from.length))];
+  return out;
+};
+
+/**
+ * The order a wave's bodies are stood in (D4): its first ranged body before everything else, the pinned warden included, then the rest as they were. A chamber too crowded for the whole wave keeps the body the wave is owed (and the warden, when there is
+ * room for a second); the other drawn bodies are the ones it drops, as they always were. A wave with no ranged body (the rule off) keeps its order.
+ */
+export const standFirst = (kinds: readonly EnemyKind[], level: number): EnemyKind[] => {
+  const at = kinds.findIndex(kind => isRanged(kind, level));
+  return at < 0 ? [...kinds] : [kinds[at], ...kinds.slice(0, at), ...kinds.slice(at + 1)];
+};
+
 /** A pure hash of the floor's seed, the level and a chamber, with its own mixing: a stream no other part of the keep draws from. */
-const stream = (seed: number, level: number, room: number) => {
-  let h = (Math.imul(seed >>> 0 ^ 0x77617665, 0x9e3779b1) ^ Math.imul(level + 1, 0x85ebca6b) ^ Math.imul(room + 1, 0xc2b2ae35)) >>> 0;
+const stream = (seed: number, level: number, room: number, salt = 0x77617665) => {
+  let h = (Math.imul(seed >>> 0 ^ salt, 0x9e3779b1) ^ Math.imul(level + 1, 0x85ebca6b) ^ Math.imul(room + 1, 0xc2b2ae35)) >>> 0;
   h = Math.imul(h ^ h >>> 16, 0x85ebca6b) >>> 0; h = Math.imul(h ^ h >>> 13, 0xc2b2ae35) >>> 0; h = (h ^ h >>> 16) >>> 0;
   let state = h;
   return () => { state = state + 0x6d2b79f5 >>> 0; let t = state; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; };
@@ -119,16 +149,16 @@ export const roomTiles = (floor: Pick<Floor, 'rooms' | 'tiles'>, id: number) => 
 /**
  * The floor's spawns with every chamber's later waves appended after **all** of them (the buried reserves `generateFloor` laid included), so no existing
  * spawn moves and no `summoner` index changes. A wave body is `ambush` (dormant and unseen until called) with `wave` 2 or more; a bonecaller dealt into
- * a wave buries its reserve after the wave bodies, wearing its caller's wave. `table` is a parameter so a test can deal a table the game does not.
+ * a wave buries its reserve after the wave bodies, wearing its caller's wave. `table` is a parameter so a test can deal a table the game does not, and `ranged` (plan 024 D4, on) so a test can deal the waves without the ranged rule.
  */
-export const dealWaves = (floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'spawns' | 'goal' | 'weaponDrop'>, seed: number, level: number, table: WaveTable = WAVE_TABLE): Spawn[] => {
+export const dealWaves = (floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'spawns' | 'goal' | 'weaponDrop'>, seed: number, level: number, table: WaveTable = WAVE_TABLE, ranged = true): Spawn[] => {
   const spawns: Spawn[] = [...floor.spawns], dealt: Spawn[] = [], goalLayer = floor.rooms[floor.goal].layer;
   for (const room of floor.rooms) {
     if (room.role !== 'path' || room.layer <= FIRST_WAVE_LAYERS) continue;
     // The former arm chamber was dealt as a non-hoard (`roster`); its source is read the same way.
     const rules = table[packSource(room.id === floor.weaponDrop.room ? { ...room, reward: null } : room, level, goalLayer)];
     if (!rules?.length) continue;
-    const random = stream(seed, level, room.id), int = (a: number, b: number) => a + Math.floor(random() * (b - a + 1));
+    const random = stream(seed, level, room.id), rangedRandom = stream(seed, level, room.id, RANGED_SALT), int = (a: number, b: number) => a + Math.floor(random() * (b - a + 1));
     const entry = room.entry, doors = floor.doors.filter(d => d.from === room.id);
     const open = roomTiles(floor, room.id).filter(t => Math.hypot(t.x - entry.x, t.z - entry.z) >= ARRIVAL_CLEAR && doors.every(d => Math.hypot(d.x - t.x, d.z - t.z) >= 2.5));
     const here = floor.spawns.filter(s => s.room === room.id && !s.buried);
@@ -140,7 +170,7 @@ export const dealWaves = (floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'spaw
       if (space <= 0) return;
       const wanted = int(rule.count[0], rule.count[1]) + (last && level >= 2 ? LAST_WAVE_EXTRA : 0);
       const pack = oneCaller(Array.from({ length: wanted }, () => drawKind(rule.mix, level, random())));
-      const kinds = fitWave(pack, !!rule.warden, space);
+      const fitted = fitWave(pack, !!rule.warden, space), kinds = ranged ? standFirst(withRanged(fitted, level, rangedRandom, !!rule.warden), level) : fitted;
       let placed = 0;
       for (const kind of kinds) {
         const neighbours = () => [...here, ...dealt].filter(other => other.room === room.id);
@@ -149,8 +179,8 @@ export const dealWaves = (floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'spaw
           const t = open[int(0, open.length - 1)];
           if (!neighbours().some(other => Math.hypot(other.x - t.x, other.z - t.z) < WAVE_SPACING)) at = t;
         }
-        // A pinned warden is never lost to a crowded chamber: failing the spacing, it takes the open tile farthest from everything standing, so long as it is not on top of it.
-        if (!at && rule.warden && kind === 'warden') {
+        // A pinned warden is never lost to a crowded chamber: failing the spacing, it takes the open tile farthest from everything standing, so long as it is not on top of it. Plan 024 (D4): nor is a ranged body, on the same terms. Plan 024 (D4): nor is a ranged body, which a wave is owed.
+        if (!at && ((rule.warden && kind === 'warden') || (ranged && isRanged(kind, level)))) {
           const gap = (t: { x: number; z: number }) => Math.min(...neighbours().map(other => Math.hypot(other.x - t.x, other.z - t.z)), Infinity);
           const best = [...open].sort((a, b) => gap(b) - gap(a))[0];
           if (best && gap(best) >= PINNED_SPACING) at = best;
