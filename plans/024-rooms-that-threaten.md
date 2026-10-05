@@ -251,3 +251,84 @@ Damage share by cause (ordinary enemies / bosses / hazards (embers) / pools):
 Pool-boss duels at stair-hall vitality (30 duels each): default Mother 3% → 10% (floor 1) and 7% → 20% (floor 2), Captain, Hound and Bastion 0% before and after; skilled Mother 3% and 13%, the others 0%; weak 0% everywhere; the King kills default 83% → 100% and skilled 97% from a full bar. D12 pool fairness is **not met** for the default knight (floor 1: Mother 3, Captain 0; floor 2: Mother 6, Captain 0) or the skilled one on floor 2 (Mother 4, Captain 0).
 
 D7 against the Stage A numbers (default / skilled / weak): escape 86.7 (asks 50-75) / 93.3 (75-95, met) / 23.3 (0-20); one of four default deaths before the stair hall (25%, asks at least a quarter: met on the edge); median vitality entering floor 1's stair hall 100 (asks 50-85); ordinary damage a chamber on floor 1 1.71 (asks at least 6). The plan's Why said 0.9 / 2.9 / 2.4 a chamber on floors 1-3 for the default knight; the Stage 0 field says 0.59 / 1.43 / 1.87 and Stage A 1.71 / 5.22 / 7.19. The default knight's embers fell from 32.3% to 3.5% of what it loses, and ordinary enemies rose from 14% to 41.6%.
+
+### Stage B: pressure (2026-10-05, D3)
+
+Full account, the planted bugs and their messages in `game/progress.md`, "Plan 024 Stage B". `pressure(bodies, index, dt)` and `pressed(view, intent, index, roster, dt)` in `dungeon-enemy.ts`, called by the game (`dungeon-game.tsx`, where the loop decides an intent) and by the sim; the snapshot's `enemies[].held` is the delay. `PRESSURE_GAP` 0.5 s inside the 0.4-0.6 window: a body that begins a tell lines its tell's end up that far after the last tell running or held in its room; a hold delays the start and never shortens a tell; held bodies count as scheduled, so three ready bodies never end tells inside `INVULN`; bosses are outside the rule. Pressure alone barely moves the bots (default 86.7% escape unchanged; floor-1 ordinary damage a chamber 1.71 -> 1.58). Stage A -> B, 30 runs a policy:
+
+| policy | escape % | deaths f1 / f2 / f3 (% of arrivals; count) | deaths before the stair hall (count, share) | median vitality entering the stair hall f1 / f2 / f3 | ordinaryDamagePerChamber f1 / f2 / f3 | median pearls |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 86.7 → 86.7 | 0 / 3.3 / 10.3 (0/1/3) → 0 / 3.3 / 10.3 (0/1/3) | 1 of 4 (25%) → 1 of 4 (25%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.71 / 5.22 / 7.19 → 1.58 / 5.01 / 7.46 | 107 → 106.5 |
+| skilled | 93.3 → 90 | 0 / 0 / 6.7 (0/0/2) → 0 / 3.3 / 6.9 (0/1/2) | 0 of 2 (0%) → 0 of 3 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 0.63 / 2.39 / 3.65 → 0.88 / 2.33 / 4.1 | 107 → 107 |
+| weak | 23.3 → 13.3 | 16.7 / 16 / 66.7 (5/4/14) → 20 / 20.8 / 78.9 (6/5/15) | 8 of 23 (35%) → 10 of 26 (38%) | 94 / 94.4 / 100 → 94 / 94.4 / 99.3 | 8.26 / 17.36 / 24.04 → 8.37 / 17.6 / 23.88 | 64.5 → 57 |
+| special | 100 → 93.3 | 0 / 0 / 0 (0/0/0) → 0 / 0 / 6.7 (0/0/2) | 0 of 0 (0%) → 0 of 2 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.43 / 3.62 / 5.11 → 1.39 / 4 / 5.83 | 107 → 107 |
+| special-fangs | 96.7 → 93.3 | 0 / 0 / 3.3 (0/0/1) → 0 / 0 / 6.7 (0/0/2) | 1 of 1 (100%) → 2 of 2 (100%) | 100 / 100 / 99.2 → 100 / 100 / 100 | 1.53 / 3.97 / 6.43 → 1.61 / 4 / 5.95 | 107 → 107 |
+| special-cleaver | 86.7 → 80 | 3.3 / 0 / 10.3 (1/0/3) → 0 / 0 / 20 (0/0/6) | 0 of 4 (0%) → 0 of 6 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.9 / 5.22 / 6.99 → 2.26 / 5.44 / 7.6 | 107 → 106.5 |
+| special-crossbow | 50 → 50 | 0 / 10 / 44.4 (0/3/12) → 0 / 26.7 / 31.8 (0/8/7) | 11 of 15 (73%) → 13 of 15 (87%) | 100 / 100 / 92.4 → 100 / 100 / 93.6 | 0.56 / 13.28 / 21.57 → 0.97 / 13.71 / 22.84 | 88 → 85 |
+| special-flask | 63.3 → 70 | 0 / 0 / 36.7 (0/0/11) → 0 / 0 / 30 (0/0/9) | 0 of 11 (0%) → 0 of 9 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.25 / 4.76 / 6.59 → 1.25 / 4.01 / 6.88 | 104 → 106.5 |
+| meta-max | 100 → 100 | 0 / 0 / 0 (0/0/0) → 0 / 0 / 0 (0/0/0) | 0 of 0 (0%) → 0 of 0 (0%) | 100 / 100 / 98.6 → 100 / 100 / 100 | 1.46 / 4.39 / 6.03 → 1.24 / 4.29 / 6.48 | 107 → 107 |
+| weak-meta-max | 60 → 60 | 0 / 0 / 40 (0/0/12) → 0 / 0 / 40 (0/0/12) | 1 of 12 (8%) → 1 of 12 (8%) | 96.2 / 94.7 / 92.3 → 94.8 / 95.8 / 88.3 | 6.57 / 15.24 / 24.1 → 6.65 / 15.58 / 24.35 | 106.5 → 106 |
+
+### Stage C: ranged bodies in later waves (2026-10-05, D4)
+
+`withRanged` / `standFirst` / `isRanged` in `dungeon-waves.ts`: every wave after the first holds an archer (any floor) or a pyre (from floor two), swapped in for a drawn body on a salted stream of the wave dealer; a crowded chamber stands the ranged body first and gives it the pinned warden's fallback tile (1.2 tiles), so 0 of 3,750 / 8,014 / 11,868 waves (floors 1-3, 1,000 seeds each) lack one (a plain swap left 7% / 11% / 18%). `generateFloor` is byte-identical (the 900-floor SHA test is green and untouched). A third wave in a chamber with one tile left can be one ranged body and no warden. Later-wave bodies +2.5% / +3.2% / +5.9%; ranged bodies 1,127 / 2,790 / 3,929 against 0 / 1,292 / 1,522 over 300 floors a level. The wave-chamber frame budget scene is unchanged (439 calls, 255,774 triangles). Default escape 86.7 -> 90, crossbow special 50 -> 36.7.
+
+### Stage D: tide marks
+
+Skipped by the operator (2026-10-05): Stage A showed embers were the bot's main damage only because it walked through them.
+
+### Stage E: healing and tuning (2026-10-05, D6, D7)
+
+Full tables (the D6-alone effect, the King's strength, the three ends of the D3 window, the ordinary-damage sweep, every duel) and the planted bugs in `game/progress.md`, "Plan 024 Stage E". Shipped: `DRAUGHT` 2; the D3 window kept at 0.5 s (0.4 / 0.5 / 0.6 moved nothing a 30-run batch can read); the Pyre Mother's volleys 10 and 8 -> 8 and 6, sweep 13 -> 10, ring fire 6 -> 4 a tick (D12 fairness met for the default and skilled bots: default 0 / 0 deaths to her in 30 duels on floors 1 / 2, skilled 0 / 1; was 3 / 6 and 1 / 4; the pinned test asserts `ok` again, with the Mother still the hardest-hitting); the Bone King's damage x1.4 (swing 27, sweep 22, volley 17, pounce 24).
+
+D7 against the honest bot, Stage A -> now (30 runs from seed 1):
+
+| line | asks | Stage A | now |
+| --- | --- | --- | --- |
+| default escape % | 50-75 | 86.7 | **63.3** met |
+| deaths before the stair hall (default) | at least a quarter | 1 of 4 (25%) | 0 of 11 (0%) **not met** |
+| median vitality entering floor 1's stair hall (default) | 50-85 | 100 | 100 **not met** |
+| ordinaryDamagePerChamber floor 1 (default) | at least 6 | 1.71 | 1.73 **not met** |
+| skilled escape % | 75-95 | 93.3 | **86.7** met |
+| weak escape % | 0-20 | 23.3 | **0** met |
+| weak-meta-max over weak | at least 15 points | +36.7 | **+20** met |
+| crossbow special over half the default's | at least 0 points | +6.7 | **-11.7** not met |
+| median pearls, default / weak | 80-130 / 30-55 | 107 / 64.5 | 106 / **33.5** met (plan 023 D2 re-met) |
+
+Every policy, Stage A -> now (escape %, deaths by floor, deaths before the stair hall, median vitality entering the stair hall, ordinaryDamagePerChamber, pearls):
+
+| policy | escape % | deaths f1 / f2 / f3 (% of arrivals; count) | deaths before the stair hall (count, share) | median vitality entering the stair hall f1 / f2 / f3 | ordinaryDamagePerChamber f1 / f2 / f3 | median pearls |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 86.7 → 63.3 | 0 / 3.3 / 10.3 (0/1/3) → 0 / 0 / 36.7 (0/0/11) | 1 of 4 (25%) → 0 of 11 (0%) | 100 / 100 / 100 → 100 / 99.7 / 99.2 | 1.71 / 5.22 / 7.19 → 1.73 / 4.76 / 7.1 | 107 → 106 |
+| skilled | 93.3 → 86.7 | 0 / 0 / 6.7 (0/0/2) → 0 / 0 / 13.3 (0/0/4) | 0 of 2 (0%) → 0 of 4 (0%) | 100 / 100 / 100 → 100 / 100 / 99.2 | 0.63 / 2.39 / 3.65 → 1.09 / 1.92 / 3.84 | 107 → 107 |
+| weak | 23.3 → 0 | 16.7 / 16 / 66.7 (5/4/14) → 20 / 50 / 100 (6/12/12) | 8 of 23 (35%) → 19 of 30 (63%) | 94 / 94.4 / 100 → 82.4 / 54.4 / 44.8 | 8.26 / 17.36 / 24.04 → 8.51 / 17.16 / 21.61 | 64.5 → 33.5 |
+| special | 100 → 63.3 | 0 / 0 / 0 (0/0/0) → 0 / 0 / 36.7 (0/0/11) | 0 of 0 (0%) → 0 of 11 (0%) | 100 / 100 / 100 → 100 / 98.5 / 94 | 1.43 / 3.62 / 5.11 → 1.48 / 3.83 / 6.56 | 107 → 104.5 |
+| special-fangs | 96.7 → 90 | 0 / 0 / 3.3 (0/0/1) → 0 / 0 / 10 (0/0/3) | 1 of 1 (100%) → 1 of 3 (33%) | 100 / 100 / 99.2 → 100 / 99.5 / 91 | 1.53 / 3.97 / 6.43 → 1.77 / 3.91 / 6.11 | 107 → 107.5 |
+| special-cleaver | 86.7 → 60 | 3.3 / 0 / 10.3 (1/0/3) → 0 / 0 / 40 (0/0/12) | 0 of 4 (0%) → 0 of 12 (0%) | 100 / 100 / 100 → 100 / 100 / 99.5 | 1.9 / 5.22 / 6.99 → 2.33 / 5.44 / 8.24 | 107 → 105.5 |
+| special-crossbow | 50 → 20 | 0 / 10 / 44.4 (0/3/12) → 0 / 23.3 / 73.9 (0/7/17) | 11 of 15 (73%) → 22 of 24 (92%) | 100 / 100 / 92.4 → 100 / 100 / 73.2 | 0.56 / 13.28 / 21.57 → 1.06 / 10.36 / 21.03 | 88 → 55.5 |
+| special-flask | 63.3 → 23.3 | 0 / 0 / 36.7 (0/0/11) → 0 / 0 / 76.7 (0/0/23) | 0 of 11 (0%) → 0 of 23 (0%) | 100 / 100 / 100 → 100 / 94.6 / 97.7 | 1.25 / 4.76 / 6.59 → 1.76 / 5.6 / 7.05 | 104 → 69 |
+| meta-max | 100 → 100 | 0 / 0 / 0 (0/0/0) → 0 / 0 / 0 (0/0/0) | 0 of 0 (0%) → 0 of 0 (0%) | 100 / 100 / 98.6 → 100 / 100 / 96.1 | 1.46 / 4.39 / 6.03 → 1.44 / 4.58 / 6.89 | 107 → 108 |
+| weak-meta-max | 60 → 20 | 0 / 0 / 40 (0/0/12) → 0 / 3.3 / 79.3 (0/1/23) | 1 of 12 (8%) → 6 of 24 (25%) | 96.2 / 94.7 / 92.3 → 88.9 / 61.9 / 55.5 | 6.57 / 15.24 / 24.1 → 6.87 / 15.97 / 24.99 | 106.5 → 67 |
+
+Damage share by cause (ordinary enemies / bosses / embers / pools):
+
+| policy | ordinary enemies % | bosses % | hazards (embers) % | pools (fire) % | vitality lost a run |
+| --- | --- | --- | --- | --- | --- |
+| default | 41.6 → 37.8 | 41.4 → 41.7 | 3.5 → 4.6 | 13.5 → 15.9 | 273 → 298 |
+| skilled | 28.3 → 27.9 | 40.9 → 42.2 | 7.7 → 6.8 | 23.1 → 23 | 198 → 205 |
+| weak | 65.3 → 68.8 | 29.6 → 24.6 | 0 → 0 | 5.2 → 6.6 | 457 → 277 |
+| special | 37.7 → 36.2 | 37.6 → 39.6 | 7.2 → 5 | 17.5 → 19.1 | 230 → 285 |
+| special-fangs | 49.6 → 43.5 | 17.5 → 16.8 | 6.3 → 5.3 | 26.6 → 34.5 | 210 → 241 |
+| special-cleaver | 43.8 → 45 | 39.4 → 40.1 | 7.9 → 6.7 | 8.9 → 8.2 | 259 → 294 |
+| special-crossbow | 75.6 → 72.3 | 12.8 → 11.3 | 0.9 → 0.6 | 10.7 → 15.9 | 334 → 240 |
+| special-flask | 43.1 → 40.5 | 43.2 → 40.7 | 3.4 → 2.5 | 10.3 → 16.3 | 238 → 289 |
+| meta-max | 41.2 → 39.6 | 41.4 → 40.4 | 5.3 → 4.7 | 12.1 → 15.3 | 240 → 275 |
+| weak-meta-max | 64.5 → 66.1 | 30.6 → 27.9 | 0.1 → 0.1 | 4.8 → 5.9 | 586 → 554 |
+
+Pool-boss duels at the stair-hall vitality each bot walks in with (30 duels each; default 100 / 100 / 99%, skilled 100 / 100 / 99%, weak 82 / 54 / 45%): default died 0 and 0 to the Mother, Captain, Hound and Bastion on floors 1 and 2; skilled 0 and 1 (Mother floor 2); weak 0 everywhere from 100% and 82%, and from floor 2's 54% the Captain, Hound and Bastion kill it in all 30 duels and the Mother in 3 (a consequence of Grave Draught 2 on a bot that never dodges; reported, not tuned). The Bone King kills every knight from a full bar, as before.
+
+**Stop rule tripped: D7's room-cost lines are not met and no lever Stage E may use moves them** (Draught, the D3 window and boss HP and damage do not touch ordinary damage; the sweep in progress.md shows ordinary damage x2 with recovery x0.7 only reaching 4.24 a chamber on floor one with the default knight still entering the stair hall at 100%, most likely because the healing outside the fight rooms (a mend, the shrine, the descent's quarter) refills it, which was not isolated; x1.5 would give 5 of 17 deaths before the stair hall but an escape of 43.3%, under the band). No tell was changed. The skilled bot never fell under 75% before the default bot reached its band (86.7 against 63.3).
+
+### Stage F: documents (2026-10-05)
+
+`GAME_OVERVIEW.md` (pressure, a ranged body in every later wave, Draught 2, the Mother and the King, the bots' numbers), the `plans/README.md` row and `game/progress.md`. The operator's five-run playtest on a GPU is not done: do rooms cost vitality, is a double threat readable, does the Draught still feel worth taking (the tide-mark question is moot).
