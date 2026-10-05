@@ -67,3 +67,25 @@ test('the median pearls a run paid is in the summary, and a batch with no pearls
   assert.equal(summarise([run(10), run(30), run(50), run(70)]).medianPearls, 40, 'an even batch takes the middle two');
   assert.ok(!('medianPearls' in summarise([run(undefined), run(undefined)])), 'a batch whose reports carry no pearls reported one');
 });
+
+// Plan 024 Stage 0: ordinary damage per fight chamber, pooled over the batch.
+test('ordinary damage per chamber is the batch\'s damage over its chambers, not a mean of each floor\'s ratio, and a floor that entered none leaves it out (plan 024)', () => {
+  const floor = (level: number, ordinaryDamage: number, chambersEntered: number) => ({ level, outcome: 'cleared', hpAfter: 50, maxHpAfter: 100, ordinaryDamage, chambersEntered }) as FloorReport;
+  const run = (floors: FloorReport[]) => ({ outcome: 'died', seconds: 100, floors }) as RunReport;
+  const summary = summarise([run([floor(1, 10, 1), floor(2, 6, 2)]), run([floor(1, 0, 3), floor(2, 0, 0)])]);
+  assert.equal(summary['floor1.ordinaryDamagePerChamber'], 2.5, '10 damage over 4 chambers is 2.5; the mean of the two floors\' own ratios (10 and 0) would be 5');
+  assert.equal(summary['floor2.ordinaryDamagePerChamber'], 3, '6 damage over the 2 chambers there were');
+  assert.ok(!('floor3.ordinaryDamagePerChamber' in summary), 'no run reached floor three');
+  assert.ok(!('floor1.ordinaryDamagePerChamber' in summarise([run([floor(1, 0, 0)])])), 'a floor with no fight chamber entered has no per-chamber figure');
+});
+
+// Plan 024 (D2): the three bots bracket a human, and the file spells them so.
+test('bands.json holds the skilled knight beside the default and the weak one, with the dodge and reaction D2 names (plan 024)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const file = JSON.parse(readFileSync(new URL('../scripts/balance/bands.json', import.meta.url), 'utf8')) as { policies: Record<string, { policy: Parameters<typeof buildPolicy>[0] }> };
+  assert.deepEqual(file.policies.skilled?.policy, { dodge: 0.95, reaction: 0.18 }, 'the skilled policy is not "dodge 0.95, reaction 0.18"');
+  assert.deepEqual(file.policies.default.policy, {}, 'the default knight is meant to be the sim\'s own default (dodge 0.8, reaction 0.22)');
+  const skilled = buildPolicy(file.policies.skilled.policy), plain = buildPolicy(file.policies.default.policy), weak = buildPolicy(file.policies.weak.policy);
+  assert.deepEqual([plain.dodge, plain.reaction, weak.dodge, weak.reaction], [0.8, 0.22, 0, 0.6], 'the default and weak knights moved');
+  assert.deepEqual({ ...skilled, dodge: 0, reaction: 0 }, { ...plain, dodge: 0, reaction: 0 }, 'the skilled knight differs from the default one in more than its dodge and its reaction');
+});

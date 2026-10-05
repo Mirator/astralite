@@ -5563,3 +5563,214 @@ Other tests moved with the numbers and say so: the Captain-duel test reads the p
 ## 2026-10-04 - Plan 023 Stage E: the documents
 
 `GAME_OVERVIEW.md` (pearls by chamber and floor, the elites on floor one, waves from the second fight, the crossbow's bolts against bosses, the softer pool bosses and the King's 630, the bots' numbers re-stated), `README.md` (the pearls line), `game/tests/README.md` (the balance report's D7 targets and `--at-stair`), the `plans/README.md` row for 023 and the plan's Evidence. No new snapshot field was added by this plan (the run record gained `chambers`, documented in `game/tests/README.md` under the run log). Stage F, the operator's playtest, is open: five runs or more on a real GPU, one with the crossbow; do rooms cost vitality, does a mend door feel needed, is the shop's pace right, can the crossbow beat a boss. The number the playtest most needs from a run is what `chambers` and `pearls` say in the copied run log.
+
+## 2026-10-04 - Plan 024 Stage 0: the baseline (main `a6fb211` + the plan), and `ordinaryDamagePerChamber`
+
+Branch `claude/beautiful-gauss-5o0cw4`. Stage 0 changes the harness's reporting and nothing it plays: the new report fields were added first and the nine `bands.json` policies then re-run at 30 runs a policy from seed 1 (`balance:check`'s own runs) by a scratch driver (not committed) on a copy of the tree. **Every number below that `bands.json` also holds is identical to its `measured` block** (default 90 / 3.3 / 3.4 / 3.6, weak 16.7, special-crossbow 50, special-flask 53.3, pearls 107 / 52.5), so the new fields moved nothing.
+
+### The new field
+
+`FloorReport.ordinaryDamage`, `chambersEntered` and `ordinaryDamagePerChamber` (`scripts/balance/sim.ts`), and `floorN.ordinaryDamagePerChamber` in `summarise` (`bands.ts`; pooled: the batch's ordinary damage over the batch's chambers, not a mean of floors' ratios).
+- **Ordinary damage** is the vitality that the blows and bolts of a kind that is not a boss took off him while he stood in a fight chamber (`fightChamber`: a path chamber that is not a sanctuary). A hazard (embers), a pool (a pyre's fire, a volatile body's, a boss's scatter rings) and a boss are not in it.
+- **Chambers entered** are the fight chambers he stood in at all, cleared or not.
+- On the 21 floors of eight weak-knight runs it equals the blows and bolts of every non-boss kind (damage minus pool damage) on every floor, so the "in a fight chamber" clause made no difference there (it would show as a King's reserve of rattlers landing blows in the stair hall); it stays because a stair hall is not a fight chamber by definition.
+- **The plan's Why says the default bot takes about 0.9, 2.9 and 2.4 a chamber on floors 1 to 3 (20 runs, measured by hand then).** The field says **0.59, 1.43 and 1.87** over the 30 `balance:check` runs (212, 220 and 246 chambers entered). The plan's numbers were a different count (probably chambers cleared and every non-boss cause); use these.
+
+Tests (plants in the next section): `tests/balance-sim.test.ts` two, `tests/balance-bands.test.ts` one.
+
+### Planted bugs, each restored after
+- **Mean of floor ratios instead of the pooled ratio** (`bands.ts`): `ordinary damage per chamber is the batch's damage over its chambers...` failed with `10 damage over 4 chambers is 2.5; the mean of the two floors' own ratios (10 and 0) would be 5`.
+- **A hazard (ember) tick counted as ordinary** (`sim.ts`): `ordinary damage is what blows and bolts...` failed with `seed 7919 floor 2: ordinary damage is not the blows and bolts of the bodies that are not bosses (hazard 10, fire 6, boss 33)`.
+- **A pool bite counted as ordinary**: the same test, `seed 7919 floor 1: ... (hazard 0, fire 12, boss 30)`.
+- **No fight-chamber rule** (every non-boss blow counted wherever he stands): `a body that hurts him outside a fight chamber...` failed with `damage in a sanctuary was counted as a fight chamber's` (four guards fought in the Tide Gate, a sanctuary).
+- The `!boss` clause cannot be seen by any plant: bosses only stand in the stair hall, which the room rule already excludes. It is there for a boss that is one day dealt to a path chamber.
+
+### Per policy (before Stage A: the knight rolls its dodge every frame, takes `offer[0]`, has no rule for embers)
+
+| policy | escape % | deaths f1 / f2 / f3 (% of arrivals; count) | deaths before the stair hall (count, share) | median vitality entering the stair hall f1 / f2 / f3 (least) | ordinaryDamagePerChamber f1 / f2 / f3 | median pearls | median run s |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| default | 90 | 3.3 / 3.4 / 3.6 (1 / 1 / 1) | 0 of 3 (0%) | 100 / 100 / 100 (66.4 / 67 / 62.4) | 0.59 / 1.43 / 1.87 | 107 | 259.7 |
+| weak | 16.7 | 16.7 / 28 / 72.2 (5 / 7 / 13) | 9 of 25 (36%) | 89.2 / 90.5 / 92 (8 / 17 / 32) | 7.82 / 16.54 / 26.2 | 52.5 | 160.7 |
+| special | 96.7 | 0 / 0 / 3.3 (0 / 0 / 1) | 0 of 1 (0%) | 100 / 100 / 100 (40 / 60 / 62.4) | 0.32 / 1.8 / 1.81 | 107 | 256.6 |
+| special-fangs | 96.7 | 0 / 0 / 3.3 (0 / 0 / 1) | 1 of 1 (100%) | 100 / 100 / 100 (40.8 / 74 / 54.4) | 0.69 / 1.58 / 3.07 | 107 | 235.7 |
+| special-cleaver | 93.3 | 6.7 / 0 / 0 (2 / 0 / 0) | 0 of 2 (0%) | 100 / 100 / 100 (44 / 53 / 76) | 0.74 / 1.84 / 2.57 | 107 | 297.3 |
+| special-crossbow | 50 | 0 / 10 / 44.4 (0 / 3 / 12) | 12 of 15 (80%) | 100 / 100 / 92.4 (61.6 / 53.6 / 19.2) | 0.34 / 11.55 / 22.53 | 87.5 | 316.6 |
+| special-flask | 53.3 | 0 / 0 / 46.7 (0 / 0 / 14) | 0 of 14 (0%) | 100 / 100 / 100 (64 / 64 / 71.2) | 1.39 / 3.69 / 5.86 | 103.5 | 362.9 |
+| meta-max | 100 | 0 / 0 / 0 (0 / 0 / 0) | 0 of 0 (0%) | 100 / 100 / 100 (53.8 / 66.9 / 87.1) | 0.61 / 1.27 / 1.68 | 107 | 249.1 |
+| weak-meta-max | 83.3 | 0 / 0 / 16.7 (0 / 0 / 5) | 2 of 5 (40%) | 92.3 / 98.7 / 96.8 (29.2 / 31.5 / 16.1) | 6.39 / 15.37 / 23.34 | 107 | 217.6 |
+
+Damage share by cause over the whole run (ordinary = blows and bolts of non-boss kinds, bosses = blows and bolts of boss kinds, hazards = ember grates, pools = every kind's fire including a boss's scatter rings; the four sum to what he lost):
+
+| policy | ordinary enemies % | bosses % | hazards (embers) % | pools (fire) % | vitality lost a run |
+| --- | --- | --- | --- | --- | --- |
+| default | 14 | 37.7 | 32.3 | 16 | 216 |
+| weak | 60 | 27.4 | 7.8 | 4.8 | 440 |
+| special | 16.6 | 32 | 31.7 | 19.7 | 197 |
+| special-fangs | 24.7 | 13.5 | 36.5 | 25.3 | 187 |
+| special-cleaver | 20 | 31.5 | 34.5 | 14 | 197 |
+| special-crossbow | 75.9 | 10.7 | 2.9 | 10.5 | 317 |
+| special-flask | 33.8 | 39.2 | 13 | 14.1 | 264 |
+| meta-max | 14.3 | 33.4 | 36 | 16.3 | 203 |
+| weak-meta-max | 59.6 | 28.3 | 7.8 | 4.4 | 603 |
+
+Deaths by floor and cause (30 runs; the cause is the kind that dealt most on the floor he died on):
+
+- default: f1 mother 1, f2 mother 1, f3 king 1
+- weak: f3 stalker 8, f2 stalker 6, f1 stalker 4, f3 warden 4, f1 hazard 1, f3 king 1, f2 archer 1
+- special: f3 king 1
+- special-fangs: f3 pyre 1
+- special-cleaver: f1 hazard 1, f1 mother 1
+- special-crossbow: f3 guard 5, f3 warden 4, f3 stalker 2, f2 guard 1, f2 archer 1, f3 pyre 1, f2 stalker 1
+- special-flask: f3 king 14
+- meta-max: 
+- weak-meta-max: f3 warden 3, f3 stalker 2
+
+Boons the bots end up with (runs holding each card at the end of the run; a card may be taken a second time once all six are held, hence 31/30; "first card" is the first draft's pick, `offer[0]`):
+
+| policy | boons a run | edge | vigor | step | reach | draught | ward | first card taken |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| default | 5.8 | 28/30 | 27/30 | 29/30 | 30/30 | 29/30 | 31/30 | draught 9, step 7, vigor 6, ward 4, reach 2, edge 2 |
+| weak | 4.6 | 22/30 | 20/30 | 27/30 | 24/30 | 18/30 | 27/30 | draught 9, step 7, vigor 6, ward 4, reach 2, edge 2 |
+| special | 6 | 30/30 | 29/30 | 30/30 | 30/30 | 30/30 | 31/30 | draught 9, step 7, vigor 6, ward 4, reach 2, edge 2 |
+| special-fangs | 6 | 30/30 | 29/30 | 30/30 | 30/30 | 30/30 | 31/30 | draught 9, step 7, vigor 6, ward 4, reach 2, edge 2 |
+| special-cleaver | 5.7 | 28/30 | 27/30 | 29/30 | 29/30 | 28/30 | 31/30 | draught 9, step 7, vigor 6, ward 4, reach 2, edge 2 |
+| special-crossbow | 5.5 | 25/30 | 25/30 | 29/30 | 27/30 | 27/30 | 31/30 | draught 9, step 7, vigor 6, ward 4, reach 2, edge 2 |
+| special-flask | 6 | 30/30 | 30/30 | 30/30 | 30/30 | 30/30 | 31/30 | draught 9, step 7, vigor 6, ward 4, reach 2, edge 2 |
+| meta-max | 6 | 30/30 | 29/30 | 30/30 | 30/30 | 30/30 | 31/30 | draught 9, step 7, vigor 6, ward 4, reach 2, edge 2 |
+| weak-meta-max | 5.9 | 30/30 | 29/30 | 30/30 | 30/30 | 28/30 | 31/30 | draught 9, step 7, vigor 6, ward 4, reach 2, edge 2 |
+
+
+The first cards are the same on every policy because the draft's stream is seeded the same, and every run that lives long enough holds all six cards: **`offer[0]` is no choice at all** (a draft shuffles the cards not yet held, so the first is a coin flip over the cards left, and a run takes every card sooner or later).
+
+### The pool-boss duels at stair-hall vitality (`balance:bosses -- --duels --at-stair`, 30 duels a boss, floor and policy; the default knight starts on 100% / 100% / 100%, the weak knight on 89% / 91% / 92% of its bar)
+
+| boss | floor | default start | default died | default boss s | default damage | weak start | weak died | weak boss s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| captain | 1 | 100% | 0% | 33.1 | 31 | 89% | 0% | 26.6 |
+| captain | 2 | 100% | 0% | 33 | 35 | 91% | 0% | 26.6 |
+| mother | 1 | 100% | 3% | 24.8 | 67 | 89% | 0% | 22.9 |
+| mother | 2 | 100% | 7% | 24.4 | 85 | 91% | 0% | 22.9 |
+| hound | 1 | 100% | 0% | 33 | 10 | 89% | 0% | 23.9 |
+| hound | 2 | 100% | 0% | 33.6 | 18 | 91% | 0% | 24.4 |
+| bastion | 1 | 100% | 0% | 33.4 | 20 | 89% | 0% | 24 |
+| bastion | 2 | 100% | 0% | 33.8 | 24 | 91% | 0% | 24.5 |
+| king | 3 | 100% | 83% | 73.5 | 92 | 92% | 100% | - |
+
+### What the baseline says
+
+- Every policy but the weak one walks into every stair hall at a median 100%, and the default knight's three deaths in 30 runs were all in a stair hall (0 of 3 before it).
+- Ordinary enemies cost the default knight 0.59, 1.43 and 1.87 a fight chamber; embers (hazards) are 32.3% of everything he loses and ordinary enemies 14%. The weak knight loses 60% to ordinary enemies and 7.8% to embers.
+- The crossbow special escapes 50% (plan 023 D3's "at least half the default's"), with 12 of its 15 deaths before the stair hall.
+
+## 2026-10-04 - Plan 024 Stage A: the honest bot (D1, D2), and every band re-taken
+
+Branch `claude/beautiful-gauss-5o0cw4`. Sim only: `app/dungeon-game.tsx` and every browser spec are untouched. Measured at 30 runs a policy from seed 1 (`balance:check`'s own runs); the scratch driver agrees with `balance:check` (same numbers, below). Before = Stage 0's table, after = this stage.
+
+### What changed in the bot (`scripts/balance/sim.ts`)
+
+1. **The dodge is one roll per tell.** The roll is taken the first frame a body's tell is readable to the knight (`reaction` seconds in), stored on the body (`dodgeRoll`), and cleared when the tell ends or a new one starts. A tell rolled "no" is never dashed at (ordinary movement may still take him out of reach); the dash-cooldown and contact-lock gates are as before. `FloorReport.tellsRolled` counts a tell once however often the roll is looked at and `tellsDodged` the tells he dashed at. The bug: at `dodge` 0.8 a guard's 17 readable frames missed with probability 0.2^17, so every policy that dodged at all dodged everything. Measured over about 1,000 Drowned Captain tells a policy (arena, floor 1, 77 to 100 duels): **dodge 1 missed 0 of 1003, 0.95 missed 4.6%, 0.8 missed 19.3% of 1011, 0.5 missed 50.0% of 1007, 0 missed all 1000.**
+2. **The card pick is a draw from the offer** on its own seeded stream (`pick`, a third beside `nerve` and `draft`, so taking a different card never moves how many numbers either of those has drawn). `Policy.pickBoon` still wins. `FloorReport` gains `boons` and `offers`.
+3. **Ember avoidance (`emberStep`).** A gauntlet grate that is flaring, or will flare within `policy.reaction` seconds (past phase 2.6 s minus the reaction of its 3.6 s cycle), and has him within 1.8 + 0.4 of it, is left like a pool: he takes the heading, of sixteen, that leaves him furthest from the nearest such grate a stride on (a row of overlapping grates is left across the row, not along it). Gated by `avoidFire`, the flag that gates pool avoidance, and lower priority than a pyre's fire and a marked ring. It uses the policy's reaction, so the weak knight (0.6 s) leaves earlier than the default one (0.22 s).
+4. **The `skilled` policy** (dodge 0.95, reaction 0.18; otherwise the default's) in `bands.json`, and the boss duels (`bosses.ts`) and run report now play it too.
+5. The `Policy.dodge` doc said "1.35s cooldown"; the dash cooldown is `run.dashSpan`, 0.8 s (0.56 with Quick Step).
+
+### Before and after (30 runs a policy)
+
+| policy | escape % | deaths f1 / f2 / f3 (% of arrivals; count) | deaths before the stair hall (count, share) | median vitality entering the stair hall f1 / f2 / f3 | ordinaryDamagePerChamber f1 / f2 / f3 | median pearls |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 90 → 86.7 | 3.3 / 3.4 / 3.6 (1/1/1) → 0 / 3.3 / 10.3 (0/1/3) | 0 of 3 (0%) → 1 of 4 (25%) | 100 / 100 / 100 → 100 / 100 / 100 | 0.59 / 1.43 / 1.87 → 1.71 / 5.22 / 7.19 | 107 → 107 |
+| skilled | (new) 93.3 | (new) 0 / 0 / 6.7 (0/0/2) | (new) 0 of 2 (0%) | (new) 100 / 100 / 100 | (new) 0.63 / 2.39 / 3.65 | (new) 107 |
+| weak | 16.7 → 23.3 | 16.7 / 28 / 72.2 (5/7/13) → 16.7 / 16 / 66.7 (5/4/14) | 9 of 25 (36%) → 8 of 23 (35%) | 89.2 / 90.5 / 92 → 94 / 94.4 / 100 | 7.82 / 16.54 / 26.2 → 8.26 / 17.36 / 24.04 | 52.5 → 64.5 |
+| special | 96.7 → 100 | 0 / 0 / 3.3 (0/0/1) → 0 / 0 / 0 (0/0/0) | 0 of 1 (0%) → 0 of 0 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 0.32 / 1.8 / 1.81 → 1.43 / 3.62 / 5.11 | 107 → 107 |
+| special-fangs | 96.7 → 96.7 | 0 / 0 / 3.3 (0/0/1) → 0 / 0 / 3.3 (0/0/1) | 1 of 1 (100%) → 1 of 1 (100%) | 100 / 100 / 100 → 100 / 100 / 99.2 | 0.69 / 1.58 / 3.07 → 1.53 / 3.97 / 6.43 | 107 → 107 |
+| special-cleaver | 93.3 → 86.7 | 6.7 / 0 / 0 (2/0/0) → 3.3 / 0 / 10.3 (1/0/3) | 0 of 2 (0%) → 0 of 4 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 0.74 / 1.84 / 2.57 → 1.9 / 5.22 / 6.99 | 107 → 107 |
+| special-crossbow | 50 → 50 | 0 / 10 / 44.4 (0/3/12) → 0 / 10 / 44.4 (0/3/12) | 12 of 15 (80%) → 11 of 15 (73%) | 100 / 100 / 92.4 → 100 / 100 / 92.4 | 0.34 / 11.55 / 22.53 → 0.56 / 13.28 / 21.57 | 87.5 → 88 |
+| special-flask | 53.3 → 63.3 | 0 / 0 / 46.7 (0/0/14) → 0 / 0 / 36.7 (0/0/11) | 0 of 14 (0%) → 0 of 11 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.39 / 3.69 / 5.86 → 1.25 / 4.76 / 6.59 | 103.5 → 104 |
+| meta-max | 100 → 100 | 0 / 0 / 0 (0/0/0) → 0 / 0 / 0 (0/0/0) | 0 of 0 (0%) → 0 of 0 (0%) | 100 / 100 / 100 → 100 / 100 / 98.6 | 0.61 / 1.27 / 1.68 → 1.46 / 4.39 / 6.03 | 107 → 107 |
+| weak-meta-max | 83.3 → 60 | 0 / 0 / 16.7 (0/0/5) → 0 / 0 / 40 (0/0/12) | 2 of 5 (40%) → 1 of 12 (8%) | 92.3 / 98.7 / 96.8 → 96.2 / 94.7 / 92.3 | 6.39 / 15.37 / 23.34 → 6.57 / 15.24 / 24.1 | 107 → 106.5 |
+
+Damage share by cause over a whole run (ordinary = blows and bolts of non-boss kinds, bosses = boss kinds, hazards = ember grates, pools = every kind's fire):
+
+| policy | ordinary enemies % | bosses % | hazards (embers) % | pools (fire) % | vitality lost a run |
+| --- | --- | --- | --- | --- | --- |
+| default | 14 → 41.6 | 37.7 → 41.4 | 32.3 → 3.5 | 16 → 13.5 | 216 → 273 |
+| skilled | (new) 28.3 | (new) 40.9 | (new) 7.7 | (new) 23.1 | (new) 198 |
+| weak | 60 → 65.3 | 27.4 → 29.6 | 7.8 → 0 | 4.8 → 5.2 | 440 → 457 |
+| special | 16.6 → 37.7 | 32 → 37.6 | 31.7 → 7.2 | 19.7 → 17.5 | 197 → 230 |
+| special-fangs | 24.7 → 49.6 | 13.5 → 17.5 | 36.5 → 6.3 | 25.3 → 26.6 | 187 → 210 |
+| special-cleaver | 20 → 43.8 | 31.5 → 39.4 | 34.5 → 7.9 | 14 → 8.9 | 197 → 259 |
+| special-crossbow | 75.9 → 75.6 | 10.7 → 12.8 | 2.9 → 0.9 | 10.5 → 10.7 | 317 → 334 |
+| special-flask | 33.8 → 43.1 | 39.2 → 43.2 | 13 → 3.4 | 14.1 → 10.3 | 264 → 238 |
+| meta-max | 14.3 → 41.2 | 33.4 → 41.4 | 36 → 5.3 | 16.3 → 12.1 | 203 → 240 |
+| weak-meta-max | 59.6 → 64.5 | 28.3 → 30.6 | 7.8 → 0.1 | 4.4 → 4.8 | 603 → 586 |
+
+Deaths by floor and cause:
+
+- default: after: f3 king 3, f2 pyre 1; before: f1 mother 1, f2 mother 1, f3 king 1
+- skilled: after: f3 king 2
+- weak: after: f3 stalker 7, f1 stalker 5, f2 stalker 4, f3 warden 4, f3 king 3; before: f3 stalker 8, f2 stalker 6, f1 stalker 4, f3 warden 4, f1 hazard 1, f3 king 1, f2 archer 1
+- special: after: no deaths; before: f3 king 1
+- special-fangs: after: f3 pyre 1; before: f3 pyre 1
+- special-cleaver: after: f3 king 2, f3 warden 1, f1 mother 1; before: f1 hazard 1, f1 mother 1
+- special-crossbow: after: f3 guard 5, f3 stalker 3, f3 warden 2, f2 warden 1, f2 guard 1, f3 archer 1, f2 archer 1, f3 king 1; before: f3 guard 5, f3 warden 4, f3 stalker 2, f2 guard 1, f2 archer 1, f3 pyre 1, f2 stalker 1
+- special-flask: after: f3 king 10, f3 stalker 1; before: f3 king 14
+- meta-max: after: no deaths; before: no deaths
+- weak-meta-max: after: f3 stalker 8, f3 king 3, f3 warden 1; before: f3 warden 3, f3 stalker 2
+
+Boons the bots end up holding (runs holding each card at the end of the run; a count over 30 means some runs took it twice):
+
+| policy | boons a run | edge | vigor | step | reach | draught | ward |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| default | 5.8 → 5.9 | 28 → 30 | 27 → 28 | 29 → 32 | 30 → 23 | 29 → 34 | 31 → 30 |
+| skilled | (new) 6 | (new) 32 | (new) 28 | (new) 32 | (new) 23 | (new) 35 | (new) 30 |
+| weak | 4.6 → 4.8 | 22 → 23 | 20 → 26 | 27 → 23 | 24 → 19 | 18 → 26 | 27 → 26 |
+| special | 6 → 6 | 30 → 32 | 29 → 28 | 30 → 32 | 30 → 23 | 30 → 35 | 31 → 30 |
+| special-fangs | 6 → 6 | 30 → 32 | 29 → 28 | 30 → 31 | 30 → 23 | 30 → 35 | 31 → 30 |
+| special-cleaver | 5.7 → 5.9 | 28 → 32 | 27 → 28 | 29 → 31 | 29 → 23 | 28 → 33 | 31 → 29 |
+| special-crossbow | 5.5 → 5.5 | 25 → 28 | 25 → 28 | 29 → 27 | 27 → 22 | 27 → 31 | 31 → 28 |
+| special-flask | 6 → 6 | 30 → 32 | 30 → 28 | 30 → 33 | 30 → 23 | 30 → 35 | 31 → 30 |
+| meta-max | 6 → 6 | 30 → 26 | 29 → 37 | 30 → 32 | 30 → 27 | 30 → 25 | 31 → 33 |
+| weak-meta-max | 5.9 → 6 | 30 → 26 | 29 → 36 | 30 → 32 | 30 → 27 | 28 → 25 | 31 → 33 |
+
+**Boons.** A draft shuffles the cards not yet held and a run takes cards until it dies or escapes, so under `offer[0]` every run that lived long enough held all six and the order was a coin flip. A draw changes less than it sounds: the knight still holds about six cards, but it now takes a repeat of one it holds before it has been offered every other (Long Guard 23 of 30 runs, Grave Draught 34 stacks over 30 runs, was 30 and 29). The first card a policy takes is identical across policies, because the draft stream is seeded the same: vigor 7, step 6, edge 5, draught 5, reach 4, ward 3 of 30 runs (default).
+
+### The pool-boss duels at stair-hall vitality (`balance:bosses -- --duels --at-stair`, 30 duels a boss, floor and policy; each bot starts on the median vitality it walks into that floor's stair hall with: default 100% / 100% / 100%, skilled 100% / 100% / 100%, weak 94% / 94% / 100% of its bar)
+
+| boss | floor | default: died, boss s, boss damage (before → after) | skilled: died, boss s, boss damage | weak: start, died, boss s, boss damage (before → after) |
+| --- | --- | --- | --- | --- |
+| captain | 1 | 0% → 0%, 33.1 → 31.8 s, 31 → 35 | 0%, 32.4 s, 31 | 89% → 94%: 0% → 0%, 26.6 s, 62 |
+| captain | 2 | 0% → 0%, 33 → 32 s, 35 → 42 | 0%, 32.7 s, 36 | 91% → 94%: 0% → 0%, 26.6 s, 72 |
+| mother | 1 | 3% → **10%**, 24.8 → 23.9 s, 67 → 68 | 3%, 24.6 s, 82 | 89% → 94%: 0% → 0%, 22.9 s, 59 |
+| mother | 2 | 7% → **20%**, 24.4 → 24.3 s, 85 → 90 | **13%**, 24.2 s, 95 | 91% → 94%: 0% → 0%, 22.9 s, 69 |
+| hound | 1 | 0% → 0%, 33 → 30.7 s, 10 → 24 | 0%, 34 s, 5 | 89% → 94%: 0% → 0%, 23.9 s, 56 |
+| hound | 2 | 0% → 0%, 33.6 → 31.3 s, 18 → 30 | 0%, 34.4 s, 6 | 91% → 94%: 0% → 0%, 24.4 s, 74 |
+| bastion | 1 | 0% → 0%, 33.4 → 31.4 s, 20 → 32 | 0%, 34.3 s, 22 | 89% → 94%: 0% → 0%, 24 s, 58 |
+| bastion | 2 | 0% → 0%, 33.8 → 32.2 s, 24 → 38 | 0%, 34.6 s, 26 | 91% → 94%: 0% → 0%, 24.5 s, 68 |
+| king | 3 | 83% → **100%**, 73.5 s → none, 92 → 97 | **97%**, 72.7 s, 98 | 92% → 100%: 100% → 100%, none, 66 |
+
+Pool fairness (D12 / plan 023 D7: no pool boss kills a bot more than twice as often as another, the fewest floored at one): default **NOT met** on floor 1 (Mother 3, Captain 0) and floor 2 (Mother 6, Captain 0); skilled met on floor 1 (Mother 1) and **NOT met** on floor 2 (Mother 4); weak met on both (no pool boss kills it).
+
+### What the honest bot says
+
+- **Embers were a third of what the default knight lost (32.3%) and are now 3.5%.** Ordinary enemies went from 14% to 41.6% of it, so the fight rooms cost it more than the plan's Why guessed (0.59 → 1.71, 1.43 → 5.22, 1.87 → 7.19 a chamber on floors 1 to 3) and the embers cost it almost nothing; the total it loses a run rose 216 → 273. The skilled knight loses 198.
+- **The default knight escapes 86.7% (was 90), the skilled one 93.3%, the weak one 23.3% (was 16.7).** D7 asks 50-75, 75-95 and 0-20: the default knight is 12 points over, the skilled knight is inside, the weak one is 3 over. The weak knight got better, not worse: it never dodged, so its blows are as they were, and what changed for it is that it steps out of the embers now (its embers 7.8% → 0 of what it loses) and draws its cards.
+- **The default knight still walks into every stair hall at a median 100%** (least 86.4 / 62.4 / 57.6; was 66.4 / 67 / 62.4). D7 asks 50-85. One of its four deaths came before the stair hall (25%; D7 asks at least a quarter). Ordinary damage a chamber on floor one is 1.71 against D7's 6. The healing (Grave Draught, mends, the shrine) still outruns what lands, which is Stage E's D6 and not this stage's.
+- **D12 pool fairness is broken by honesty, not fixed.** The Pyre Mother (fan and rings) is the one pool boss that out-paces a dash: she kills the default knight 3 times in 30 on floor 1 and 6 on floor 2 where the Captain, Hound and Bastion kill none (a stage ago 1 and 2), and the skilled one 4 on floor 2. The King kills the default knight in every duel from a full bar (was 83%) and the skilled one in 97%. This is the operator's to decide with D3-D6 (the Mother's vitality and damage are Stage E's tuning); the pinned test says so (below).
+- **Crossbow special** is unchanged at 50% escape (0 / 10 / 44.4% deaths by floor, 0 / 3 / 12 runs, as before); 11 of its 15 deaths are before the stair hall (was 12).
+- Whole-run times barely move (default 259.7 → 255.2 s; the weak knight 160.7 → 195.3 s because it lives longer).
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- `a tell is dodged or not once, for its whole length` (1,000 tells at dodge 1, 0, 0.8 and 0.5, bounds 15-25% and 43-57% from the measured 19.3% and 50.0%, a sure dodge missing nothing as the precondition). **Per-frame roll:** `dodge 0.8 missed 0.0% of 1004 tells: it should miss about 20% (bands 15 to 25%); a roll taken every frame misses almost none`. **A dash that ignores the roll:** `a knight who never dodges dashed at a tell`.
+- `the knight draws its card from the offer` (the same 40 arena seeds against a knight told to take the first card). **`offer[0]`:** `the drawn card was the first offered on 40 of 40 seeds: a draw of three should be about a third of them (6 to 22), and always taking the first is all 40`. Measured 24 of 60 agree (a third is 20).
+- `a knight who avoids fire walks out of a grate that is flaring or about to...` (`emberStep`, a unit). **No rule:** `a grate about to flare asked nothing of a knight standing on it`. **Away from the nearest grate only:** `he stood between two grates and went along the row (1.00, 0.00), where the next grate is, instead of across it`. **Only once flaring:** `a grate about to flare asked nothing of a knight standing on it` (the reaction window).
+- `the embers cost a knight who avoids them far less than one who does not, on the same floors` (four floor-two seeds: 30 vitality with the rule, 120 without). **The rule left unwired:** `embers took 120 with the rule and 120 without: the rule is not keeping him out of the grates (at most 40%)`.
+- `bands.json holds the skilled knight beside the default and the weak one` and the Stage 0 tests, with `avoidFire: false` where a test needs embers to hurt him.
+- **Seeds re-picked** where a test needed a particular outcome, assertions unchanged: the shield-bolt heading (seeds 3 and 7 became 11 and 28: pushing along the knight-to-body line gives 10 and 7 blocks there against the heading's 7 and 13), the weak knight lost on floors 2 and 3 for the pearls report (2 and 85 became 10 and 2), and the weak knight's death before / in the stair hall (2 and 1 swapped back to 1 and 2).
+- **The one assertion that changed meaning:** `no pool boss kills the default knight more than twice as often as another` (D12) no longer holds (above), so it now asserts the measured state (the Mother the worst, at least 3 and 5 deaths in 30 on floors 1 and 2, `ok` false) and says Stage E has to put the original back. I did not widen it and did not re-pick seeds: the rule is genuinely not met.
+
+### The bands (`bands.json`, edited as text)
+
+`measured` was re-taken for all ten policies and the new `floorN.ordinaryDamagePerChamber` metric joins each (measured plus a band of 0.6x to 1.6x of it, rounded outward to a half). The skilled policy is new, with the default knight's widths. Bands that no longer held moved to the next five beyond what was measured (never widened further): default floor-1 vitality min 75 -> 70 (74.8) and floor-3 min 50 -> 40 (43); weak median pearls max 55 -> 70 (64.5: D2's 30-55 is **not met** by the weak bot now, which lives longer; plan 023's pearls target is Stage E's to re-meet, not widened silently); special-fangs floor-3 vitality min 80 -> 75; special-cleaver floor-3 deaths max 10 -> 15 and vitality min 65 -> 55; meta-max floor-3 vitality min 70 -> 60; weak-meta-max floor-3 deaths max 35 -> 45 (40). Escape fell for the default (90 -> 86.7), special-cleaver (93.3 -> 86.7) and weak-meta-max (83.3 -> 60, floor-3 deaths 16.7 -> 40) and rose for the weak knight (16.7 -> 23.3), special (96.7 -> 100) and special-flask (53.3 -> 63.3); none of those escape bands moved.
+
+`npm run balance:check` run on the committed bands: **every metric inside its band** (ten policies, 30 runs each, 1226 s), and the scratch driver's numbers are the ones it printed.

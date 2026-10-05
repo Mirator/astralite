@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DEFAULT_POLICY, simulateArena, simulateLevel, simulateRun, type Policy } from '../scripts/balance/sim.ts';
+import { DEFAULT_POLICY, emberStep, simulateArena, simulateLevel, simulateRun, type Policy } from '../scripts/balance/sim.ts';
 import { arenaFloor } from '../app/dungeon-arena.ts';
 import { allElite } from '../app/dungeon-waves.ts';
 import { enemyStats } from '../app/dungeon-enemy.ts';
@@ -8,7 +8,7 @@ import { generateFloor } from '../app/dungeon-floor.ts';
 import { BESTIARY, ELITE_MODIFIERS, type EliteModifier, type EnemyKind } from '../app/dungeon-bestiary.ts';
 import { weaponById } from '../app/dungeon-weapon.ts';
 import { CHAMBER_PEARLS, FLOOR_PEARLS, freshMeta, type Meta } from '../app/dungeon-meta.ts';
-import { SHRINE } from '../app/dungeon-sim.ts';
+import { fightChamber, SHRINE } from '../app/dungeon-sim.ts';
 import { hurledBlow } from '../app/dungeon-combat.ts';
 import { BOSS_BOLT, landBlow } from '../app/dungeon-hits.ts';
 import { asReaper, TEST_BOSS, TEST_SCATTERER } from './fixtures/test-boss.ts';
@@ -86,14 +86,15 @@ test('a shieldbearer blocks the Tideblade plain strike, and the fight still ends
 });
 
 test('a shield turns a knight bolt by the heading the bolt left along, not the line from the knight to the body', () => {
-  // Measured 2026-09-30 in the arena at level 3, Keep Crossbow, roster shieldbearer x2 + guard. Seeds 3 and 7 are where the
+  // Measured 2026-09-30 in the arena at level 3, Keep Crossbow, roster shieldbearer x2 + guard. Seeds 11 and 28 are where the
   // knight has moved or the bolt pierces a second body off his line, so heading and knight-to-body direction disagree on
-  // whether the shield faces the bolt: pushing along knight-to-body gave 5 and 11 blocks there, the bolt's heading gives 7 and 10.
-  // Every other seed agrees between the two, so they cannot tell them apart and are not asserted.
+  // whether the shield faces the bolt: pushing along knight-to-body gives 10 and 7 blocks there, the bolt's heading gives 7 and 13.
+  // Plan 024 moved the seeds from 3 and 7 (5 and 11 against 7 and 10): the knight's dodges changed with the per-tell roll, so he stands elsewhere. Seeds 7, 14, 15, 16, 18, 20, 26, 30, 33 and 39 also differ, by one or two blocks
+  // (measured 2026-10-04 over seeds 1-40); every other seed agrees between the two, so they cannot tell them apart and are not asserted.
   const roster: EnemyKind[] = ['shieldbearer', 'shieldbearer', 'guard'];
-  const reports = fight(roster, { weapon: weaponById('crossbow') }, [3, 7]);
+  const reports = fight(roster, { weapon: weaponById('crossbow') }, [11, 28]);
   for (const r of reports) assert.ok(r.landed > 0, 'no bolt landed, so no push was ever passed to landBlow');
-  assert.deepEqual(reports.map(r => r.blocked), [7, 10], 'blocked bolts do not follow the bolt heading: the sim pushes along the knight-to-body line');
+  assert.deepEqual(reports.map(r => r.blocked), [7, 13], 'blocked bolts do not follow the bolt heading: the sim pushes along the knight-to-body line');
 });
 
 test('the harpoon breaks a raised shield, so the sim never has a blocked throw to withhold the drag from', () => {
@@ -224,8 +225,9 @@ test('a run report says what banking it would pay', () => {
   assert.ok(fought(won) > 3 && won.kills > fought(won), `precondition: the run cleared ${fought(won)} fight chambers and felled ${won.kills} bodies, so a pearl a kill would pay differently`);
   assert.equal(won.chambers, fought(won), 'the report counts the chambers the floors fought');
   assert.equal(won.pearls, CHAMBER_PEARLS * fought(won) + 3 * FLOOR_PEARLS + 25 + 3 * 10 + elitesOf(won), 'an escaped run report does not carry what a win pays');
-  // Seeds 2 and 85 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159; plan 022 Stage D (no top-up) moved them from 11 and 8.
-  for (const [seed, floor] of [[2, 2], [85, 3]] as const) {
+  // Seeds 10 and 2 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159; plan 022 Stage D (no top-up) moved them from 11 and 8;
+  // plan 024 Stage A (the weak knight steps out of the embers, and draws its cards) moved them from 2 and 85.
+  for (const [seed, floor] of [[10, 2], [2, 3]] as const) {
     const lost = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
     assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
     assert.equal(felled(lost), floor - 1, `precondition: a run lost on floor ${floor} felled the ${floor - 1} bosses behind it`);
@@ -324,10 +326,10 @@ test('the sim deals a floor its later waves, calls each only after the one befor
 
 test('a floor the knight died on says whether it was before the stair hall (plan 022 carry-over)', () => {
   const weak = policy({ dodge: 0, reaction: 0.6 });
-  // Read off the boss, which the report observes on its own: a knight who died before the stair hall never met it. Seeds 2 and 1 (plan 022 Stage D moved them from 0x3ddf and 0x7bbd; plan 023 Stage D swapped them).
-  const early = simulateRun(2, weak).floors.find(f => f.outcome === 'died');
-  const late = simulateRun(1, weak).floors.find(f => f.outcome === 'died');
-  assert.ok(early && late, 'seeds 2 and 1 no longer each end in a death with the weak knight: pick other seeds');
+  // Read off the boss, which the report observes on its own: a knight who died before the stair hall never met it. Seeds 1 and 2 (plan 022 Stage D moved them from 0x3ddf and 0x7bbd; plan 023 Stage D swapped them; plan 024 Stage A swapped them back).
+  const early = simulateRun(1, weak).floors.find(f => f.outcome === 'died');
+  const late = simulateRun(2, weak).floors.find(f => f.outcome === 'died');
+  assert.ok(early && late, 'seeds 1 and 2 no longer each end in a death with the weak knight: pick other seeds');
   assert.equal(early.bossDamage + early.bossSeconds, 0, 'precondition: the boss never met the knight who died on this floor');
   assert.equal(early.hpAtStair, null, 'precondition: he never reached the stair hall');
   assert.equal(early.deathsBeforeBoss, 1, 'a death before the stair hall is not counted as one');
@@ -373,4 +375,104 @@ test('the floors the sim lays are dealt elites as the rates say: a few on floor 
   }
   assert.ok(counts[1] > 5 && counts[2] > 12, `precondition: six floors of two and three stood ${counts[1]} and ${counts[2]} elites`);
   assert.ok(counts[0] < counts[1], `floor one (5%) stood ${counts[0]} elites against floor two's ${counts[1]} (15%)`);
+});
+
+// Plan 024 Stage 0: the report's direct measure of whether a fight room costs the knight anything.
+test('ordinary damage is what blows and bolts of bodies that are not bosses took off him in fight chambers: no hazard, no fire and no boss is in it (plan 024)', () => {
+  // A knight that never dodges and does not step out of embers (plan 024 gave every knight that), so there is damage of every cause to tell apart.
+  const floors = [1, 2, 3, 4].flatMap(i => simulateRun(i * 7919, policy({ dodge: 0, reaction: 0.6, avoidFire: false })).floors.map(floor => ({ floor, seed: i * 7919 })));
+  const sum = (read: (f: (typeof floors)[number]['floor']) => number) => floors.reduce((s, { floor }) => s + read(floor), 0);
+  const kinds = Object.keys(BESTIARY) as EnemyKind[];
+  assert.ok(sum(f => f.damage.hazard) > 0 && sum(f => kinds.reduce((s, k) => s + f.poolDamage[k], 0)) > 0 && sum(f => f.bossDamage) > 0, 'precondition: embers, fire and bosses all hurt him, so each exclusion has something to exclude');
+  assert.ok(sum(f => f.ordinaryDamage) > 100, 'precondition: ordinary bodies hurt him');
+  for (const { floor, seed } of floors) {
+    const blows = kinds.filter(k => !BESTIARY[k].boss).reduce((s, k) => s + floor.damage[k] - floor.poolDamage[k], 0);
+    assert.equal(floor.ordinaryDamage, blows, `seed ${seed} floor ${floor.level}: ordinary damage is not the blows and bolts of the bodies that are not bosses (hazard ${floor.damage.hazard}, fire ${kinds.reduce((s, k) => s + floor.poolDamage[k], 0)}, boss ${floor.bossDamage})`);
+    const fights = generateFloor(seed + floor.level - 1, floor.level).rooms.filter(fightChamber).length;
+    assert.ok(floor.chambersEntered > 0 && floor.chambersEntered <= fights, `seed ${seed} floor ${floor.level}: he entered ${floor.chambersEntered} of the floor's ${fights} fight chambers`);
+    assert.equal(floor.ordinaryDamagePerChamber, +(floor.ordinaryDamage / floor.chambersEntered).toFixed(2), `seed ${seed} floor ${floor.level}: the per-chamber figure is not the damage over the chambers entered`);
+  }
+});
+
+test('a body that hurts him outside a fight chamber is not ordinary damage, and a floor with no fight chamber entered reports zero and not NaN (plan 024)', () => {
+  // The arena is fought in the Tide Gate, a sanctuary: guards that hit him there are not a fight chamber's.
+  const reports = [1, 2, 3, 4, 5, 6, 7, 8].map(seed => simulateArena(seed, 3, ['guard', 'guard', 'guard', 'guard'], policy({ dodge: 0, reaction: 0.6 })));
+  assert.ok(reports.reduce((sum, r) => sum + r.damage.guard, 0) > 0, 'precondition: the guards hurt him');
+  for (const r of reports) {
+    assert.equal(r.ordinaryDamage, 0, 'damage in a sanctuary was counted as a fight chamber\'s');
+    assert.equal(r.chambersEntered, 0);
+    assert.equal(r.ordinaryDamagePerChamber, 0);
+  }
+});
+
+// Plan 024 Stage A (D1): the dodge is one roll per tell. Fought against the Drowned Captain in the arena, a body whose tells are long, dashable and many (12 a duel), so a thousand of them are about eighty duels. The knight is never killed
+// here (no duel below ended in his death), so no duel is cut short by one. `tellsRolled` counts a tell once however often the roll is looked at, and `tellsDodged` the tells he dashed at.
+const tellsAt = (dodge: number) => {
+  let rolled = 0, dodged = 0, duels = 0;
+  while (rolled < 1000 && duels < 400) {
+    const r = simulateArena(++duels, 1, ['captain'], policy({ dodge }));
+    assert.equal(r.outcome, 'cleared', `dodge ${dodge}, seed ${duels}: the knight did not fell the captain, so the duel was cut short`);
+    rolled += r.tellsRolled; dodged += r.tellsDodged;
+  }
+  assert.ok(rolled >= 1000, `dodge ${dodge}: ${duels} duels gave only ${rolled} tells`);
+  return { rolled, dodged, miss: 1 - dodged / rolled };
+};
+
+test('a tell is dodged or not once, for its whole length: the miss rate over a thousand tells is 1 minus the dodge (plan 024 D1)', () => {
+  // Measured 2026-10-04 over about 1,000 tells each (77 to 100 duels): dodge 1 missed 0 of 1003, 0.95 missed 4.6%, 0.8 missed 19.3% of 1011, 0.5 missed 50.0% of 1007, 0 missed all 1000. A binomial over 1,000 tells has a spread of
+  // 1.3 points at 0.8 and 1.6 at 0.5, so the bands are about four of them. Before the fix the roll was taken every frame of a tell that is readable for ten or more, so 0.8 missed none of them.
+  const sure = tellsAt(1);
+  assert.equal(sure.dodged, sure.rolled, `precondition: a knight who always dodges dodged ${sure.dodged} of ${sure.rolled} tells, so something other than the roll (the dash cooldown, the reach) is dropping tells`);
+  const never = tellsAt(0);
+  assert.equal(never.dodged, 0, 'a knight who never dodges dashed at a tell');
+  const eight = tellsAt(0.8);
+  assert.ok(eight.miss >= 0.15 && eight.miss <= 0.25, `dodge 0.8 missed ${(eight.miss * 100).toFixed(1)}% of ${eight.rolled} tells: it should miss about 20% (bands 15 to 25%); a roll taken every frame misses almost none`);
+  const half = tellsAt(0.5);
+  assert.ok(half.miss >= 0.43 && half.miss <= 0.57, `dodge 0.5 missed ${(half.miss * 100).toFixed(1)}% of ${half.rolled} tells: it should miss about half (bands 43 to 57%)`);
+});
+
+// The pick is a draw from the offer with the run's own seeded stream, so it is not the first card on every seed and it replays. Read off the first card an arena of eight guards (the first rank-up) hands the knight, against the knight who
+// is told to take the first card offered: the same seed offers both the same cards, so where they agree is where the draw landed on the first.
+test('the knight draws its card from the offer: it is not the first offered, it varies with the seed and it replays (plan 024 D1)', () => {
+  const eight: EnemyKind[] = Array(8).fill('guard');
+  const seeds = Array.from({ length: 40 }, (_, i) => i + 1);
+  const drawn = seeds.map(seed => simulateArena(seed, 3, eight, policy())), first = seeds.map(seed => simulateArena(seed, 3, eight, policy({ pickBoon: offer => offer[0].id })));
+  assert.ok(drawn.every(r => r.boons.length > 0 && r.offers[0] === 3) && first.every(r => r.boons.length > 0), 'precondition: every knight drafted a card from an offer of three');
+  const agree = seeds.filter((_, i) => drawn[i].boons[0] === first[i].boons[0]).length;
+  // Measured 2026-10-04: 24 of 60 seeds agree (a draw of three agrees with the first one time in three, 20 of 60), and 40 seeds are about 13 of them. The knight who always takes the first card agrees with itself on every one.
+  assert.ok(agree >= 6 && agree <= 22, `the drawn card was the first offered on ${agree} of 40 seeds: a draw of three should be about a third of them (6 to 22), and always taking the first is all 40`);
+  assert.ok(new Set(drawn.map(r => r.boons[0])).size >= 4, 'the first card the knight took was the same few on every seed');
+  assert.deepEqual(seeds.slice(0, 8).map(seed => simulateArena(seed, 3, eight, policy()).boons), drawn.slice(0, 8).map(r => r.boons), 'the same seed drew different cards the second time');
+});
+
+// Plan 024 D1: a gauntlet grate that is flaring, or will within his reaction time, is left like a pool. Phase `p` of a grate's 3.6 s cycle is (t + 0.7 room) mod 3.6, and it flares past 2.6.
+test('a knight who avoids fire walks out of a grate that is flaring or about to, across a row of overlapping grates, and not before it is within his reaction time (plan 024 D1)', () => {
+  const room = 3, at = (p: number) => 3.6 * 10 + p - 0.7 * room;
+  const row = [-2.5, 0, 2.5].map(x => ({ x, z: 0, room }));
+  const stand = { x: 1.25, z: 0 };
+  const gap = (from: { x: number; z: number }) => Math.min(...row.map(g => Math.hypot(from.x - g.x, from.z - g.z)));
+  // 2.5 is 0.1 s before the flare: inside the default knight's 0.22 s reaction.
+  const step = emberStep(at(2.5), row, stand, 0.22);
+  assert.ok(step, 'a grate about to flare asked nothing of a knight standing on it');
+  assert.ok(Math.hypot(step.x, step.z) > 0.999 && Math.hypot(step.x, step.z) < 1.001, 'the step is not a unit heading');
+  assert.ok(Math.abs(step.z) > Math.abs(step.x), `he stood between two grates and went along the row (${step.x.toFixed(2)}, ${step.z.toFixed(2)}), where the next grate is, instead of across it`);
+  assert.ok(gap({ x: stand.x + step.x, z: stand.z + step.z }) > gap(stand) + 0.3, 'the step did not take him further from the grates');
+  assert.ok(emberStep(at(3.0), row, stand, 0.22), 'a flaring grate asked nothing of a knight standing on it');
+  // Not before it is within his reaction time: 2.0 s is mid-charge, and 2.5 s is not yet in a knight whose reaction is 0.05 s.
+  assert.equal(emberStep(at(2.0), row, stand, 0.22), null, 'a grate still charging, with seconds to go, moved him');
+  assert.equal(emberStep(at(2.5), row, stand, 0.05), null, 'a grate 0.1 s from flaring moved a knight who reads only 0.05 s ahead');
+  assert.ok(emberStep(at(2.5), row, stand, 0.6), 'a slower reader (0.6 s) was not moved by a grate 0.1 s from flaring');
+  // Out of its reach, and the margin beyond it: nothing is asked.
+  assert.equal(emberStep(at(3.0), row, { x: 1.25, z: 2.6 }, 0.22), null, 'a knight 2.6 away from every grate was moved');
+  // A grate of the next room is 0.7 s on in its own cycle (phase 0.1 when this room's is 3.0): cold, whatever the first room's clock says.
+  assert.equal(emberStep(at(3.0), [{ x: 0, z: 0, room: room + 1 }], { x: 0, z: 0 }, 0.22), null, 'a grate of another room was read off this room\'s clock');
+});
+
+// The same rule as the floor plays it: the default knight against the same floors with no rule. Floor two's gauntlets over four seeds (measured 2026-10-04: 30 vitality of embers with the rule, 120 without).
+test('the embers cost a knight who avoids them far less than one who does not, on the same floors (plan 024 D1)', () => {
+  const seeds = [2, 4, 5, 12];
+  const embers = (patch: Partial<Policy>) => seeds.reduce((sum, seed) => sum + simulateLevel(seed, 2, policy(patch)).damage.hazard, 0);
+  const without = embers({ avoidFire: false }), withRule = embers({});
+  assert.ok(without >= 100, `precondition: with no rule the embers took ${without} vitality over four floors, so there is something to avoid`);
+  assert.ok(withRule <= without * 0.4, `embers took ${withRule} with the rule and ${without} without: the rule is not keeping him out of the grates (at most 40%)`);
 });

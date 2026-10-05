@@ -92,7 +92,8 @@ export function stairShares(policyName: string, runs: number): number[] {
 }
 
 function duelReport(seeds: number, atStair: boolean, runs: number) {
-  const policies = ['default', 'weak'];
+  // Plan 024 (D2): the skilled knight is the good player the default knight is not; the three bracket a human.
+  const policies = ['default', 'skilled', 'weak'];
   const shares = Object.fromEntries(policies.map(name => [name, atStair ? stairShares(name, runs) : [1, 1, 1]])) as Record<string, number[]>;
   const duels = BOSS_FLOORS.flatMap(([kind, floor]) => policies.flatMap(policy => [...new Set([1, shares[policy][floor - 1]])].map(start => duel(kind, floor, policy, seeds, expected.firstSeed, start))));
   const starts = [...new Set(duels.map(d => `${d.policy}:${d.floor}:${d.start}`))].map(key => { const [policy, floor, start] = key.split(':'); return { policy, floor: Number(floor), start: Number(start) }; });
@@ -169,7 +170,7 @@ export const TARGETS: { policy: string; label: string; read: (s: RunSummary, all
 export const judge = (summaries: readonly RunSummary[]) => TARGETS.map(t => { const s = summaries.find(x => x.policy === t.policy)!, measured = t.read(s, summaries); return { policy: t.policy, label: t.label, measured, lo: t.lo, hi: t.hi, met: measured >= t.lo && measured <= t.hi }; });
 
 function runReport(runs: number) {
-  const summaries = ['default', 'weak', 'weak-meta-max', 'special-crossbow'].map(name => runSummary(name, runs));
+  const summaries = ['default', 'skilled', 'weak', 'weak-meta-max', 'special-crossbow'].map(name => runSummary(name, runs));
   const targets = judge(summaries);
   // The 70% stop rule: one boss may not account for more than 70% of everything that died to a boss, over the three policies.
   const total: Record<string, number> = {};
