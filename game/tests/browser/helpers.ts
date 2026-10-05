@@ -446,6 +446,8 @@ export type Snapshot = {
     blocked: number;
     visible: boolean;
     windup: number;
+    /** Plan 024 (D3): the seconds this body still holds before it may begin the tell it is ready to begin (`pressure`, dungeon-enemy.ts); 0 when it is not waiting. */
+    held: number;
     lunge: number;
     cooldown: number;
     aim: Point;

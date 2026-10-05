@@ -13,7 +13,7 @@ import { weaponTrail } from './dungeon-weapon-trail';
 // used to sit inline in the world closure in dungeon-game.tsx.
 
 export type { EnemyKind } from './dungeon-enemy';
-export type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; death: DeathAnimation | null; phase: number; windup: number; lunge: number; aim: THREE.Vector3; room: number; kind: EnemyKind; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; alert: THREE.Sprite; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[];
+export type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: number; hitFlash: number; dead: boolean; death: DeathAnimation | null; phase: number; windup: number; held: number; lunge: number; aim: THREE.Vector3; room: number; kind: EnemyKind; awake: boolean; maxHp: number; tell: number; damage: number; cue: THREE.Mesh; bar: THREE.Mesh; alert: THREE.Sprite; attackAge: number; trails: { effect: ReturnType<typeof weaponTrail>; anchor: THREE.Object3D; inner: THREE.Vector3; tip: THREE.Vector3 }[];
   // Where it spawned, for a dozing body's pace; how far into noticing it is; a countdown to a contagion
   // kick a neighbour scheduled for it, or Infinity while none is pending. scripts/balance/sim.ts carries
   // the identical bookkeeping so a room wakes the same way in both sims.
@@ -164,7 +164,7 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   if (spawn.elite) tintEyes(body, spawn.elite);
   const skins: THREE.MeshStandardMaterial[] = [];
   body.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial && !skins.includes(o.material)) skins.push(o.material); });
-  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush && !spawn.buried, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity, buried:!!spawn.buried, summoner:spawn.summoner ?? -1, blocked:0, wave:spawn.wave ?? 1, elite:spawn.elite, move:0, bossPhase:0, change:0, doing:null, surge, art: boss ? art : null };
+  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, held:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush && !spawn.buried, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity, buried:!!spawn.buried, summoner:spawn.summoner ?? -1, blocked:0, wave:spawn.wave ?? 1, elite:spawn.elite, move:0, bossPhase:0, change:0, doing:null, surge, art: boss ? art : null };
 };
 
 /**
