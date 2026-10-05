@@ -5933,3 +5933,182 @@ The default knight is not hurt by the new bodies (it escapes 90%, floor-1 ordina
 ### Bands (`bands.json`, as text, `measured` for all ten policies)
 
 Moved to the next five (a half for the ordinary-damage metric) beyond what was measured, none widened further: default run length max 260 -> 270 (266.1); weak floor-3 deaths max 80 -> 85 (82.4); special floor-3 deaths max 10 -> 15 (13.3) and vitality min 50 -> 45 (48.8); special-fangs run length max 240 -> 245 (240.2); special-cleaver floor-3 vitality min 50 -> 45 (48.4); special-crossbow medianPearls min 70 -> 60 (64.5) and floor-1 ordinary damage max 1 -> 1.5 (1.06); special-flask floor-3 vitality min 40 -> 30 (33.6); weak-meta-max escape min 60 -> 55 (56.7). `npm run balance:check` on the committed bands: every metric inside its band (1356 s).
+
+## 2026-10-05 - Plan 024 Stage E: healing and tuning (D6, D7)
+
+Branch `claude/beautiful-gauss-5o0cw4`. Shipped: `DRAUGHT` 5 -> 2 (`dungeon-sim.ts`), the Pyre Mother softer, the Bone King harder (`dungeon-bestiary.ts`), `PRESSURE_GAP` unchanged at 0.5 s. **A stop rule tripped** (below): D7's room-cost lines are not met and no allowed lever moves them. This is the best green state; the evidence is the tables.
+
+### What was shipped and why
+
+1. **D6, `DRAUGHT = 2`** (the operator's decision). Alone: the default knight 90 -> 86.7% escape and still walks into every stair hall at a median 100%; the weak knight 10 -> 0% and enters floor 2's and floor 3's stair hall at 54% and 45% (it was 95.7% and 99.5%), so D6 is what makes the never-dodging bot bleed.
+2. **The D3 window stays at 0.5 s.** 0.4, 0.5 and 0.6 s (the three ends of the operator's range; 30 runs each, King x1.4 and the softer Mother in all three): default escape 73.3 / 63.3 / 66.7, skilled 83.3 / 86.7 / 80, weak 0 / 0 / 0, floor-1 ordinary damage a chamber 1.71 / 1.73 / 1.75 for the default knight. That is one run or two on every line, which a 30-run batch cannot tell from luck, and the damage per chamber does not move with the gap at all. The centre of the window was kept: it is the one the node and browser tests were written against, and a hold can run a frame or two late, so at 0.6 a measured gap could land over the operator's range.
+3. **The Pyre Mother (D12 fairness, for both default and skilled).** Her volleys 10 and 8 -> 8 and 6, her sweep 13 -> 10, the fire a ring leaves 6 -> 4 a tick (her HP stays 150, her moves, tells and the number of rings are the design and untouched). The pool-fire damage is the lever (6 -> 5 alone halves her floor-2 deaths; `{8,6,10,6}` still killed the default knight 11 times in 90 on floor two against `{8,6,10,4}` 1 in 90). Measured over 90 duels each, default floor 1 / floor 2 and skilled floor 1 / floor 2, died: before 6 / 11 / 2 / 11 (of 60 duels); `{8,6,10,5}` 1 / 5 / 0 / 3; shipped `{8,6,10,4}` 0 / 1 / 0 / 2 (of 90). She still hurts most of the four (median damage 51 / 68 on floors 1 / 2 against 24-42 for the others), and a test says so, so the fairness is not bought by taking her teeth.
+4. **The Bone King hits 1.4 times as hard** (swing 19 -> 27, sweep 16 -> 22, volley 12 -> 17, pounce 17 -> 24; his vitality, tells and moves are unchanged). After D6 the default knight escaped 86.7% (D7 asks 50-75) and the skilled one 96.7% (asks 75-95), and every one of their deaths was the King's. The sweep:
+
+**D6 alone (Draught 5 -> 2; stage C bots, King and Mother unchanged), default / skilled / weak:**
+
+| policy | escape % before -> after | median vitality entering the stair hall f1 / f2 / f3 before -> after | deaths before the stair hall before -> after |
+| --- | --- | --- | --- |
+| default | 90 -> 86.7 | 100 / 100 / 100 -> 100 / 99.7 / 96 | 0 of 3 -> 0 of 4 |
+| skilled | 96.7 -> 96.7 | 100 / 100 / 100 -> 100 / 100 / 99.2 | 0 of 1 -> 0 of 1 |
+| weak | 10 -> 0 | 89 / 95.7 / 99.5 -> 82.4 / 54.4 / 44.8 | 9 of 27 -> 17 of 30 |
+| weak-meta-max | 56.7 -> 26.7 | 94.7 / 90.4 / 95.4 -> 88.9 / 61.9 / 55.5 | 5 of 13 -> 10 of 22 |
+| special-crossbow | 36.7 -> 23.3 | 100 / 100 / 86.8 -> 100 / 100 / 73.2 | 16 of 19 -> 22 of 23 |
+
+**The Bone King's strength (on D6; 30 runs):**
+
+| King | default escape | skilled escape | default deaths | skilled deaths |
+| --- | --- | --- | --- | --- |
+| as before (630 vitality, damage x1) | 86.7 | 96.7 | 4 | 1 |
+| damage x1.2 | 73.3 | 96.7 | 8 | 1 |
+| damage x1.4 | 63.3 | 86.7 | 11 | 4 |
+| vitality 750 | 76.7 | 83.3 | 7 | 5 |
+| vitality 750, damage x1.2 | 60 | 76.7 | 12 | 7 |
+
+**The D3 window (gap 0.4 / 0.5 / 0.6 s; with the King x1.4 and the softer Mother):**
+
+| policy | gap 0.4 escape | gap 0.5 | gap 0.6 | floor-1 ordinary damage a chamber 0.4 / 0.5 / 0.6 |
+| --- | --- | --- | --- | --- |
+| default | 73.3 | 63.3 | 66.7 | 1.71 / 1.73 / 1.75 |
+| skilled | 83.3 | 86.7 | 80 | 1.17 / 1.09 / 1.13 |
+| weak | 0 | 0 | 0 | 8.62 / 8.51 / 8.32 |
+| special-crossbow | 10 | 20 | 13.3 | 1.06 / 1.06 / 0.95 |
+| weak-meta-max | 23.3 | 20 | 20 | 6.83 / 6.87 / 6.65 |
+
+**What would move the room-cost lines (informational only, NOT shipped): every ordinary body's damage x1.5 or x2, and its recovery x0.7; King x1.4, Mother softened as shipped; 30 runs:**
+
+| ordinary bodies | default escape | before the stair hall | default vitality at floor 1 stair hall | ordinary damage a chamber f1 / f2 / f3 | skilled escape | weak escape |
+| --- | --- | --- | --- | --- | --- | --- |
+| as shipped | 63.3 | 0 of 11 | 100 | 1.73 / 4.76 / 7.1 | 86.7 | 0 |
+| damage x1.5 | 43.3 | 5 of 17 | 100 | 2.61 / 7.31 / 11.34 | 86.7 | 0 |
+| damage x2 | 33.3 | 9 of 20 | 100 | 3.47 / 9.28 / 14.58 | 83.3 | 0 |
+| damage x1.5, recovery x0.7 | 46.7 | 4 of 16 | 100 | 3.18 / 8.87 / 12.69 | 73.3 | 0 |
+| damage x2, recovery x0.7 | 20 | 16 of 24 | 100 | 4.24 / 10.88 / 17.01 | 66.7 | 0 |
+
+   Damage x1.4 puts both bots in their bands with room on both sides (63.3 and 86.7). Damage x1.2 leaves the skilled knight over 95%; the vitality route (750) pulls the skilled knight to 83.3 while the default only reaches 76.7; both together (60 / 76.7) put the skilled knight one run from the 75% stop rule. The King's damage was chosen because it moves the default knight and leaves the skilled one inside its band; the stop rule (skilled under 75 before default reaches its band) did **not** trip.
+
+### D7 against the honest bot (30 runs from seed 1; Stage A -> now)
+
+| line | asks | Stage A | now | |
+| --- | --- | --- | --- | --- |
+| default escape % | 50-75 | 86.7 | **63.3** | met |
+| deaths before the stair hall (default) | at least a quarter | 1 of 4 (25%) | 0 of 11 (0%) | **NOT met** |
+| median vitality entering floor 1's stair hall (default) | 50-85 | 100 | 100 | **NOT met** |
+| ordinaryDamagePerChamber floor 1 (default) | at least 6 | 1.71 | 1.73 | **NOT met** |
+| skilled escape % | 75-95 | 93.3 | **86.7** | met |
+| weak escape % | 0-20 | 23.3 | **0** | met |
+| weak-meta-max escape over weak | at least 15 points | 36.7 | **20** | met |
+| crossbow special over half the default's | at least 0 points | 50 vs 43.4: +6.7 | 20 vs 31.7: **-11.7** | **NOT met** |
+| median pearls, default | 80-130 | 107 | 106 | met |
+| median pearls, weak | 30-55 | 64.5 | **33.5** | met (plan 023 D2) |
+
+### The stop rule: why D7's room-cost lines cannot be met with the levers Stage E may use
+
+- **Draught, the D3 window and boss numbers do not touch ordinary damage.** The default knight's ordinary damage a chamber is 1.73 / 4.76 / 7.1 on floors 1-3 whatever the gap (1.71-1.75) and whatever the King does, and it enters every stair hall at a median 100% (Draught 2 left it at 99.7 / 96; the mends, the shrine and the quarter a descent restores out-heal what lands).
+- **Even doubling every ordinary body's damage does not get there** (informational, not shipped, table above): at x2 damage and x0.7 recovery the default knight's floor-1 ordinary damage is 4.24 a chamber (asks 6) and it still enters the floor-1 stair hall at 100%, because the healing outside the fight rooms refills it; what does move is the dying (9 of 20 deaths before the stair hall at x2; 5 of 17 at x1.5, with escape 43.3% under the band). So the lines "ordinary damage 6 a chamber" and "vitality 50-85 at floor 1's stair hall" need a change to what heals the knight between chambers (the door choice, the mends, the shrine, the descent quarter) as well as to ordinary bodies, and the quarter-of-deaths line needs ordinary bodies to hit about 1.25-1.5 times as hard. None of that is on the Stage E list (D3 window, boss HP and damage), and no tell was touched. **Reported for the operator.**
+- **The crossbow special** (D3/D7: at least half the default's escape): 20% against 31.7. It dies on floors 2 and 3 to guards, stalkers, archers and wardens (22 of its 24 deaths before the stair hall), not to a boss, so boss numbers cannot move it; D4's archer in every later wave made it worse (50 -> 36.7 at Stage C, then 20 with D6 and the King).
+
+### Pool-boss duels (30 duels each; start = 100%, and the median vitality each bot walks into that floor's stair hall with: default 100 / 100 / 99%, skilled 100 / 100 / 99%, weak 82 / 54 / 45%)
+
+| boss | floor | policy | start | died | boss seconds | boss damage |
+| --- | --- | --- | --- | --- | --- | --- |
+| captain | 1 | default | 100% | 0% | 31.8 s | 35 |
+| captain | 1 | skilled | 100% | 0% | 32.4 s | 31 |
+| captain | 1 | weak | 100% | 0% | 26.6 s | 62 |
+| captain | 1 | weak | 82% | 0% | 26.6 s | 62 |
+| captain | 2 | default | 100% | 0% | 32.0 s | 42 |
+| captain | 2 | default | 100% | 0% | 32.0 s | 42 |
+| captain | 2 | skilled | 100% | 0% | 32.7 s | 36 |
+| captain | 2 | weak | 100% | 0% | 26.6 s | 72 |
+| captain | 2 | weak | 54% | 100% | - s | 58 |
+| mother | 1 | default | 100% | 0% | 23.9 s | 51 |
+| mother | 1 | skilled | 100% | 0% | 24.5 s | 59 |
+| mother | 1 | weak | 100% | 0% | 22.9 s | 46 |
+| mother | 1 | weak | 82% | 0% | 22.9 s | 46 |
+| mother | 2 | default | 100% | 0% | 24.4 s | 68 |
+| mother | 2 | default | 100% | 0% | 24.4 s | 68 |
+| mother | 2 | skilled | 100% | 3% | 24.2 s | 71 |
+| mother | 2 | weak | 100% | 0% | 22.9 s | 53 |
+| mother | 2 | weak | 54% | 10% | 22.9 s | 53 |
+| hound | 1 | default | 100% | 0% | 30.7 s | 24 |
+| hound | 1 | skilled | 100% | 0% | 34.0 s | 5 |
+| hound | 1 | weak | 100% | 0% | 23.9 s | 56 |
+| hound | 1 | weak | 82% | 0% | 23.9 s | 56 |
+| hound | 2 | default | 100% | 0% | 31.3 s | 30 |
+| hound | 2 | default | 100% | 0% | 31.3 s | 30 |
+| hound | 2 | skilled | 100% | 0% | 34.4 s | 6 |
+| hound | 2 | weak | 100% | 0% | 24.4 s | 74 |
+| hound | 2 | weak | 54% | 100% | - s | 57 |
+| bastion | 1 | default | 100% | 0% | 31.4 s | 32 |
+| bastion | 1 | skilled | 100% | 0% | 34.3 s | 22 |
+| bastion | 1 | weak | 100% | 0% | 24.0 s | 58 |
+| bastion | 1 | weak | 82% | 0% | 24.0 s | 58 |
+| bastion | 2 | default | 100% | 0% | 32.2 s | 38 |
+| bastion | 2 | default | 100% | 0% | 32.2 s | 38 |
+| bastion | 2 | skilled | 100% | 0% | 34.6 s | 26 |
+| bastion | 2 | weak | 100% | 0% | 24.5 s | 68 |
+| bastion | 2 | weak | 54% | 100% | - s | 54 |
+| king | 3 | default | 100% | 100% | - s | 90 |
+| king | 3 | default | 99% | 100% | - s | 87 |
+| king | 3 | skilled | 100% | 100% | - s | 99 |
+| king | 3 | skilled | 99% | 100% | - s | 99 |
+| king | 3 | weak | 100% | 100% | - s | 57 |
+| king | 3 | weak | 45% | 100% | - s | 35 |
+
+Pool fairness (D12): default **met** on floor 1 (Mother 0, Captain 0) and floor 2 (Mother 0, Captain 0); skilled **met** on floor 1 (0, 0) and floor 2 (Mother 1, Captain 0); weak met from a full bar and from floor 1's 82%. **Not met, a consequence of D6 and not a boss number: the weak knight on floor 2 from the 54% it now walks in with** (the Captain, the Hound and the Bastion kill it in all 30 duels, the Mother in 3): a never-dodging bot that has already lost half its bar, and the plan 023 weak-knight test (`no pool boss kills the weak knight more than twice as often...`) is pinned at 86%, the bar it used to walk in with. Reported, not tuned: softening three bosses until a 54% weak knight survives them would make them nothing to the default knight (24-42 off a full bar today).
+
+### Final measured table (30 runs a policy; Stage A -> now)
+
+| policy | escape % | deaths f1 / f2 / f3 (% of arrivals; count) | deaths before the stair hall (count, share) | median vitality entering the stair hall f1 / f2 / f3 | ordinaryDamagePerChamber f1 / f2 / f3 | median pearls |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 86.7 → 63.3 | 0 / 3.3 / 10.3 (0/1/3) → 0 / 0 / 36.7 (0/0/11) | 1 of 4 (25%) → 0 of 11 (0%) | 100 / 100 / 100 → 100 / 99.7 / 99.2 | 1.71 / 5.22 / 7.19 → 1.73 / 4.76 / 7.1 | 107 → 106 |
+| skilled | 93.3 → 86.7 | 0 / 0 / 6.7 (0/0/2) → 0 / 0 / 13.3 (0/0/4) | 0 of 2 (0%) → 0 of 4 (0%) | 100 / 100 / 100 → 100 / 100 / 99.2 | 0.63 / 2.39 / 3.65 → 1.09 / 1.92 / 3.84 | 107 → 107 |
+| weak | 23.3 → 0 | 16.7 / 16 / 66.7 (5/4/14) → 20 / 50 / 100 (6/12/12) | 8 of 23 (35%) → 19 of 30 (63%) | 94 / 94.4 / 100 → 82.4 / 54.4 / 44.8 | 8.26 / 17.36 / 24.04 → 8.51 / 17.16 / 21.61 | 64.5 → 33.5 |
+| special | 100 → 63.3 | 0 / 0 / 0 (0/0/0) → 0 / 0 / 36.7 (0/0/11) | 0 of 0 (0%) → 0 of 11 (0%) | 100 / 100 / 100 → 100 / 98.5 / 94 | 1.43 / 3.62 / 5.11 → 1.48 / 3.83 / 6.56 | 107 → 104.5 |
+| special-fangs | 96.7 → 90 | 0 / 0 / 3.3 (0/0/1) → 0 / 0 / 10 (0/0/3) | 1 of 1 (100%) → 1 of 3 (33%) | 100 / 100 / 99.2 → 100 / 99.5 / 91 | 1.53 / 3.97 / 6.43 → 1.77 / 3.91 / 6.11 | 107 → 107.5 |
+| special-cleaver | 86.7 → 60 | 3.3 / 0 / 10.3 (1/0/3) → 0 / 0 / 40 (0/0/12) | 0 of 4 (0%) → 0 of 12 (0%) | 100 / 100 / 100 → 100 / 100 / 99.5 | 1.9 / 5.22 / 6.99 → 2.33 / 5.44 / 8.24 | 107 → 105.5 |
+| special-crossbow | 50 → 20 | 0 / 10 / 44.4 (0/3/12) → 0 / 23.3 / 73.9 (0/7/17) | 11 of 15 (73%) → 22 of 24 (92%) | 100 / 100 / 92.4 → 100 / 100 / 73.2 | 0.56 / 13.28 / 21.57 → 1.06 / 10.36 / 21.03 | 88 → 55.5 |
+| special-flask | 63.3 → 23.3 | 0 / 0 / 36.7 (0/0/11) → 0 / 0 / 76.7 (0/0/23) | 0 of 11 (0%) → 0 of 23 (0%) | 100 / 100 / 100 → 100 / 94.6 / 97.7 | 1.25 / 4.76 / 6.59 → 1.76 / 5.6 / 7.05 | 104 → 69 |
+| meta-max | 100 → 100 | 0 / 0 / 0 (0/0/0) → 0 / 0 / 0 (0/0/0) | 0 of 0 (0%) → 0 of 0 (0%) | 100 / 100 / 98.6 → 100 / 100 / 96.1 | 1.46 / 4.39 / 6.03 → 1.44 / 4.58 / 6.89 | 107 → 108 |
+| weak-meta-max | 60 → 20 | 0 / 0 / 40 (0/0/12) → 0 / 3.3 / 79.3 (0/1/23) | 1 of 12 (8%) → 6 of 24 (25%) | 96.2 / 94.7 / 92.3 → 88.9 / 61.9 / 55.5 | 6.57 / 15.24 / 24.1 → 6.87 / 15.97 / 24.99 | 106.5 → 67 |
+
+Damage share by cause over a whole run (ordinary enemies / bosses / hazards / pools):
+
+| policy | ordinary enemies % | bosses % | hazards (embers) % | pools (fire) % | vitality lost a run |
+| --- | --- | --- | --- | --- | --- |
+| default | 41.6 → 37.8 | 41.4 → 41.7 | 3.5 → 4.6 | 13.5 → 15.9 | 273 → 298 |
+| skilled | 28.3 → 27.9 | 40.9 → 42.2 | 7.7 → 6.8 | 23.1 → 23 | 198 → 205 |
+| weak | 65.3 → 68.8 | 29.6 → 24.6 | 0 → 0 | 5.2 → 6.6 | 457 → 277 |
+| special | 37.7 → 36.2 | 37.6 → 39.6 | 7.2 → 5 | 17.5 → 19.1 | 230 → 285 |
+| special-fangs | 49.6 → 43.5 | 17.5 → 16.8 | 6.3 → 5.3 | 26.6 → 34.5 | 210 → 241 |
+| special-cleaver | 43.8 → 45 | 39.4 → 40.1 | 7.9 → 6.7 | 8.9 → 8.2 | 259 → 294 |
+| special-crossbow | 75.6 → 72.3 | 12.8 → 11.3 | 0.9 → 0.6 | 10.7 → 15.9 | 334 → 240 |
+| special-flask | 43.1 → 40.5 | 43.2 → 40.7 | 3.4 → 2.5 | 10.3 → 16.3 | 238 → 289 |
+| meta-max | 41.2 → 39.6 | 41.4 → 40.4 | 5.3 → 4.7 | 12.1 → 15.3 | 240 → 275 |
+| weak-meta-max | 64.5 → 66.1 | 30.6 → 27.9 | 0.1 → 0.1 | 4.8 → 5.9 | 586 → 554 |
+
+Deaths by floor and cause (after; before):
+
+- default: after: f3 king 10, f3 stalker 1; before: f3 king 3, f2 pyre 1
+- skilled: after: f3 king 4; before: f3 king 2
+- weak: after: f2 stalker 11, f3 stalker 6, f1 stalker 5, f3 warden 4, f2 archer 1, f3 archer 1, f1 hound 1, f3 king 1; before: f3 stalker 7, f1 stalker 5, f2 stalker 4, f3 warden 4, f3 king 3
+- special: after: f3 king 11; before: no deaths
+- special-fangs: after: f3 pyre 1, f3 stalker 1, f3 king 1; before: f3 pyre 1
+- special-cleaver: after: f3 king 10, f3 stalker 2; before: f3 king 2, f3 warden 1, f1 mother 1
+- special-crossbow: after: f3 stalker 6, f3 guard 4, f2 stalker 4, f3 archer 3, f3 warden 3, f2 archer 2, f2 guard 1, f3 king 1; before: f3 guard 5, f3 stalker 3, f3 warden 2, f2 warden 1, f2 guard 1, f3 archer 1, f2 archer 1, f3 king 1
+- special-flask: after: f3 king 21, f3 guard 1, f3 stalker 1; before: f3 king 10, f3 stalker 1
+- meta-max: after: no deaths; before: no deaths
+- weak-meta-max: after: f3 stalker 11, f3 warden 6, f3 king 5, f2 stalker 1, f3 rattler 1; before: f3 stalker 8, f3 king 3, f3 warden 1
+
+The King is the cause of every default, skilled, special, special-cleaver and special-flask death; the weak knight dies to stalkers on floors 1-3 and to wardens, and its median run is 109 s (was 195). special-flask falls 63.3 -> 23.3% (its slow fights meet the King longer) and weak-meta-max 60 -> 20%: the bands follow them, below.
+
+### Bands (`bands.json`, as text, `measured` for all ten policies)
+
+Moved to the next five beyond what was measured, none widened further: default escape min 75 -> 60 (63.3), floor-3 deaths max 15 -> 40 (36.7), floor-3 vitality min 40 -> 30 (32); skilled floor-3 vitality min 60 -> 55 (59.6); weak escape min 5 -> 0, floor-3 deaths max 85 -> 100; special escape min 85 -> 60, floor-3 deaths max 15 -> 40, vitality min 45 -> 30; special-fangs floor-3 vitality min 75 -> 60; special-cleaver escape min 75 -> 60, floor-3 deaths max 20 -> 40; special-crossbow medianPearls min 60 -> 55; special-flask escape min 45 -> 20, floor-3 deaths max 55 -> 80, medianPearls min 80 -> 65; meta-max floor-3 vitality min 55 -> 40; weak-meta-max escape min 55 -> 20, floor-3 deaths max 45 -> 80, floor-2 vitality min 45 -> 40, floor-3 vitality min 20 -> 10, medianPearls min 85 -> 65. The weak knight's `floor3.medianHpLeft` (measured and band) is removed rather than widened: it clears no floor three at all (`floor3.deathRate` holds the same fact; the same was done for the crossbow special at plan 022 Stage B). `npm run balance:check` on the committed bands: every metric inside its band.
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- `tests/balance-bosses.test.ts`: the pinned `the Pyre Mother kills the default knight more than twice as often...` is flipped back to the original assertion: `no pool boss kills the default knight or the skilled knight more than twice as often as another, from a full bar, on either floor, and the Pyre Mother still hurts most` (30 duels a boss, floor and policy; ok on both floors for both bots, and the Mother's median damage above every other pool boss's on the same floor). **Planted: the Mother's old numbers** (volleys 10 and 8, sweep 13, fire 6): `default, floor 1: died to mother 3 times and to captain 0: more than twice as often (the fewest floored at one)`. **Planted: a toothless Mother** (every damage 1): `default, floor 1: the Pyre Mother took 8.5 off him, and another pool boss took more (captain 35, mother 8.5, hound 24, bastion 32): fairness by taking her teeth is not the fix`.
+- `tests/dungeon-sim.test.ts`: the Draught card is worth 2 and says so. **Planted: `DRAUGHT = 5`:** `plan 024 D6: a Grave Draught is worth 2 a kill, down from 5 (plan 022 Stage E took it from 6)`.
+- `tests/dungeon-enemy.test.ts` pins the Mother's row damage (8) beside the first move's (the stat/move agreement the test `a boss's blow costs what its move says` holds).
+- Seeds re-picked where a test needed a particular outcome, assertions unchanged: the King felled by the meta-max knight (sweep seed 2, 15841, replaces 7922: the first a death since plan 023, the second since the King hits harder), the escaped run for the pearls report (seed 3 replaces 2) and the special-policy batch (seed 3 replaces 2).

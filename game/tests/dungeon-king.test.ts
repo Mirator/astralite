@@ -155,8 +155,8 @@ test('felling the King crumbles everything he called, standing or buried, and a 
 
 test('the sim fells the King and the stair opens: every body in the stair hall falls with him, so the floor is cleared and not stuck', () => {
   // A floor-three keep fought by the knight with every upgrade bought (a fresh default knight dies to the tuned King). A reserve that was left standing or buried would hold the stair hall open for ever, and the report would be `stuck`.
-  // The second sweep seed: plan 023 Stage D (a King of 630) moved the first to a death.
-  const seed = sweepSeeds(3)[1], floor = generateFloor(seed, 3), report = simulateLevel(seed, 3, buildPolicy({ meta: 'max' }), floor);
+  // The third sweep seed: plan 023 Stage D (a King of 630) moved the first to a death, and plan 024 Stage E (his damage x1.4) the second.
+  const seed = sweepSeeds(3)[2], floor = generateFloor(seed, 3), report = simulateLevel(seed, 3, buildPolicy({ meta: 'max' }), floor);
   assert.equal(report.bossKind, 'king', 'the floor\'s boss is not the King');
   assert.notEqual(report.outcome, 'stuck', 'the floor hit its timeout: something he called was left to hold the stair shut');
   assert.equal(report.outcome, 'cleared', 'the knight did not clear the floor, so the King was not felled');

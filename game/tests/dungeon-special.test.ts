@@ -219,8 +219,9 @@ test('the cooldown starts at contact, runs on the run clock, and a swap hands ov
 
 test('the balance batch only fires specials under the special policy, and then does', () => {
   // Existing policies are the proof that Stage B moved nothing else: they never touch the special.
-  const plain = simulateRun(0x2, { ...DEFAULT_POLICY, weapon: TIDEBLADE });
-  const armed = simulateRun(0x2, { ...DEFAULT_POLICY, weapon: TIDEBLADE, special: true });
+  // Seed 3 (plan 024 Stage E: a King that hits 1.4 times as hard beats the Tideblade knight on seed 2).
+  const plain = simulateRun(0x3, { ...DEFAULT_POLICY, weapon: TIDEBLADE });
+  const armed = simulateRun(0x3, { ...DEFAULT_POLICY, weapon: TIDEBLADE, special: true });
   assert.equal(plain.outcome, 'escaped');
   assert.equal(armed.outcome, 'escaped');
   assert.notDeepEqual(plain.floors.map(f => f.seconds), armed.floors.map(f => f.seconds), 'the lunge changed how the fights went');

@@ -102,19 +102,21 @@ test('a run summary counts the bosses a policy met and what killed it', () => {
   assert.ok(s.bossDeaths <= s.deaths);
 });
 
-// Plan 022 D12 held, on the shipped numbers, until plan 024 Stage A: the default knight, from a full bar, was killed by no pool boss more than twice as often as another, on either floor. It no longer is, and this test says so instead of
-// pretending. The default knight now rolls its dodge once a tell (80%) instead of dodging every tell, and the Pyre Mother, whose fan and rings are the one pool boss that out-paces a dash, kills it 3 times in 30 on floor one and 6 on floor two,
-// against none for the Captain (measured 2026-10-04, 30 duels each, `balance:bosses -- --duels --at-stair`; the Hound and the Bastion killed none either). That is a finding for the operator, not a number to tune here: Stage E has to bring the rule
-// back (the Mother's vitality or damage), and when it does this test goes back to asserting `ok` on both floors, as it did.
-test('the Pyre Mother kills the default knight more than twice as often as another pool boss does, now that it dodges once a tell: D12 is not met until Stage E (plan 024 Stage A)', () => {
-  const duels = BOSS_FLOORS.filter(([kind, floor]) => floor <= 2 && BOSS_POOL.includes(kind)).map(([kind, floor]) => duel(kind, floor, 'default', 30));
-  assert.equal(duels.length, 8, 'precondition: four pool bosses on two floors');
-  assert.ok(duels.every(d => d.duels === 30 && d.damage > 0), 'precondition: every duel was fought and the boss hurt him');
-  for (const [floor, mostAtLeast, measured] of [[1, 3, 3], [2, 5, 6]] as const) {
-    const result = fairness(duels, floor, 'default')!;
-    assert.equal(result.most, 'mother', `floor ${floor}: the pool boss that killed the default knight most was ${result.most}`);
-    assert.ok(result.mostDeaths >= mostAtLeast, `floor ${floor}: the Mother killed the default knight only ${result.mostDeaths} times in 30 (it was ${measured} when measured, and the floor is ${mostAtLeast}): if this is a fix, restore the fairness assertion`);
-    assert.equal(result.ok, false, `floor ${floor}: D12 is met again (${result.most} ${result.mostDeaths}, ${result.least} ${result.leastDeaths}): put the fairness assertion back and delete this test`);
+// Plan 022 D12, on the shipped numbers: the default knight, from a full bar, is killed by no pool boss more than twice as often as another, on either floor, and plan 024 holds the skilled knight (dodge 0.95) to it too. It failed from plan 024 Stage A (the
+// default knight rolls its dodge once a tell, 80%, instead of dodging every tell) until Stage E: the Pyre Mother, whose fan and rings are the one pool boss that out-paces a dash, killed the default knight 3 times in 30 on floor one and 6 on floor two and the skilled one
+// 1 and 4, against none for the Captain, the Hound and the Bastion (measured 2026-10-04, 30 duels each, `balance:bosses -- --duels`). Stage E cut her damage (volleys 10 and 8 to 8 and 6, the sweep 13 to 10, a ring's fire 6 to 4 a tick) and this test is the original assertion again.
+// It cannot be passed by taking the Mother's teeth: she must still be the hardest-hitting of the four (her median damage to a knight is asserted above every other pool boss's on the same floor), so the fairness is of how often she kills, not of whether she hurts.
+test('no pool boss kills the default knight or the skilled knight more than twice as often as another, from a full bar, on either floor, and the Pyre Mother still hurts most (plan 022 D12, restored by plan 024 Stage E)', () => {
+  for (const policy of ['default', 'skilled']) {
+    const duels = BOSS_FLOORS.filter(([kind, floor]) => floor <= 2 && BOSS_POOL.includes(kind)).map(([kind, floor]) => duel(kind, floor, policy, 30));
+    assert.equal(duels.length, 8, `${policy}: precondition: four pool bosses on two floors`);
+    assert.ok(duels.every(d => d.duels === 30 && d.damage > 0), `${policy}: precondition: every duel was fought and the boss hurt him`);
+    for (const floor of [1, 2]) {
+      const result = fairness(duels, floor, policy)!;
+      assert.ok(result.ok, `${policy}, floor ${floor}: died to ${result.most} ${result.mostDeaths} times and to ${result.least} ${result.leastDeaths}: more than twice as often (the fewest floored at one)`);
+      const own = duels.filter(d => d.floor === floor), mother = own.find(d => d.kind === 'mother')!;
+      assert.ok(own.filter(d => d.kind !== 'mother').every(d => mother.damage > d.damage), `${policy}, floor ${floor}: the Pyre Mother took ${mother.damage} off him, and another pool boss took more (${own.map(d => `${d.kind} ${d.damage}`).join(', ')}): fairness by taking her teeth is not the fix`);
+    }
   }
 });
 

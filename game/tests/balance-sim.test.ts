@@ -220,8 +220,8 @@ test('a run report says what banking it would pay', () => {
   const elitesOf = (report: ReturnType<typeof simulateRun>) => report.floors.reduce((sum, floor) => sum + Object.values(floor.eliteKills).reduce((a, b) => a + (b ?? 0), 0), 0);
   const felled = (report: ReturnType<typeof simulateRun>) => report.floors.filter(floor => floor.bossHpLeft !== null).length;
   const fought = (report: ReturnType<typeof simulateRun>) => report.floors.reduce((sum, floor) => sum + floor.fightEncounters.filter(encounter => encounter !== 'warden').length, 0);
-  // Seed 2 (plan 022 Stage E moved it from 0x1, whom the stronger Bone King now beats).
-  const won = simulateRun(0x2, policy());
+  // Seed 3 (plan 022 Stage E moved it from 0x1, whom the stronger Bone King beats; plan 024 Stage E, a King that hits 1.4 times as hard, from 0x2).
+  const won = simulateRun(0x3, policy());
   assert.equal(won.outcome, 'escaped', 'precondition: the default knight escapes this seed');
   assert.equal(felled(won), 3, 'precondition: the escape went through three bosses');
   assert.ok(elitesOf(won) > 0, 'precondition: the escape felled an elite, so what an elite pays is in the sum');
