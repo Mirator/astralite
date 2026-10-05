@@ -63,6 +63,13 @@ reasons. This plan fixes the stick first, then changes the design.
 | D7 | Targets | Measured after D1, at 30 runs.<br>**Default bot:**<br>- Escape 50–75%.<br>- At least a quarter of deaths before the stair hall.<br>- Median vitality entering floor 1's stair hall 50–85%.<br>- Ordinary-enemy damage per fight chamber ≥ 6 on floor 1.<br>**Skilled bot:** escape 75–95%.<br>**Weak bot:** escape 0–20%.<br>**weak-meta-max:** escape at least 15 points above weak.<br>**Crossbow special:** escape at least half the default's.<br>**Pearls:** plan 023 D2's bands, re-measured. | Rooms must cost a dodging player something every time, and a good player must still win most runs. The per-chamber damage figure is the direct measure of "rooms threaten", and needs a new report field. |
 | D8 | What stays | Tells, boss move lists, room layout and count, prices, the wave telegraph and the elite modifiers. | The design changes here are pressure, mix and floor. The readability contract is not touched. |
 
+### Operator decisions after Stage A (2026-10-05)
+
+- **D3 (pressure), D4 (ranged in later waves), D6 (Grave Draught 5 → 2): approved.**
+- **D5 (tide marks): skipped.** Stage A showed embers were the bot's main damage only because it walked through them (32% → 3.5% of its losses once it avoids them), so the case for a floor hazard is weaker than the Why claimed. Stage D is not done.
+- **The Pyre Mother** is the one pool boss that kills the honest default bot (10% / 20% of duels on floors 1 / 2, the others 0%). Stage E brings D12 fairness back within HP/damage and flips the pinned test in `tests/balance-bosses.test.ts` back to asserting `ok`.
+- Targets stay D7, measured against the honest bot.
+
 ## Design
 
 ### Pure rules
