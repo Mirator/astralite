@@ -86,15 +86,16 @@ test('a shieldbearer blocks the Tideblade plain strike, and the fight still ends
 });
 
 test('a shield turns a knight bolt by the heading the bolt left along, not the line from the knight to the body', () => {
-  // Measured 2026-09-30 in the arena at level 3, Keep Crossbow, roster shieldbearer x2 + guard. Seeds 11 and 28 are where the
+  // Measured 2026-09-30 in the arena at level 3, Keep Crossbow, roster shieldbearer x2 + guard. Seeds 11 and 39 are where the
   // knight has moved or the bolt pierces a second body off his line, so heading and knight-to-body direction disagree on
-  // whether the shield faces the bolt: pushing along knight-to-body gives 10 and 7 blocks there, the bolt's heading gives 7 and 13.
+  // whether the shield faces the bolt: pushing along knight-to-body gives 10 and 10 blocks there, the bolt's heading gives 7 and 6.
   // Plan 024 moved the seeds from 3 and 7 (5 and 11 against 7 and 10): the knight's dodges changed with the per-tell roll, so he stands elsewhere. Seeds 7, 14, 15, 16, 18, 20, 26, 30, 33 and 39 also differ, by one or two blocks
   // (measured 2026-10-04 over seeds 1-40); every other seed agrees between the two, so they cannot tell them apart and are not asserted.
+  // Plan 024 Stage B (pressure holds a second tell back, so the fight runs differently) moved seed 28 to 39 (13 against 10 became 6 against 10); the pairs that differ are 5, 7, 11, 14, 16, 26, 28, 33 and 39.
   const roster: EnemyKind[] = ['shieldbearer', 'shieldbearer', 'guard'];
-  const reports = fight(roster, { weapon: weaponById('crossbow') }, [11, 28]);
+  const reports = fight(roster, { weapon: weaponById('crossbow') }, [11, 39]);
   for (const r of reports) assert.ok(r.landed > 0, 'no bolt landed, so no push was ever passed to landBlow');
-  assert.deepEqual(reports.map(r => r.blocked), [7, 13], 'blocked bolts do not follow the bolt heading: the sim pushes along the knight-to-body line');
+  assert.deepEqual(reports.map(r => r.blocked), [7, 6], 'blocked bolts do not follow the bolt heading: the sim pushes along the knight-to-body line');
 });
 
 test('the harpoon breaks a raised shield, so the sim never has a blocked throw to withhold the drag from', () => {
@@ -225,9 +226,9 @@ test('a run report says what banking it would pay', () => {
   assert.ok(fought(won) > 3 && won.kills > fought(won), `precondition: the run cleared ${fought(won)} fight chambers and felled ${won.kills} bodies, so a pearl a kill would pay differently`);
   assert.equal(won.chambers, fought(won), 'the report counts the chambers the floors fought');
   assert.equal(won.pearls, CHAMBER_PEARLS * fought(won) + 3 * FLOOR_PEARLS + 25 + 3 * 10 + elitesOf(won), 'an escaped run report does not carry what a win pays');
-  // Seeds 10 and 2 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159; plan 022 Stage D (no top-up) moved them from 11 and 8;
-  // plan 024 Stage A (the weak knight steps out of the embers, and draws its cards) moved them from 2 and 85.
-  for (const [seed, floor] of [[10, 2], [2, 3]] as const) {
+  // Seeds 10 and 3 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159; plan 022 Stage D (no top-up) moved them from 11 and 8;
+  // plan 024 Stage A (the weak knight steps out of the embers, and draws its cards) moved them from 2 and 85; Stage B (pressure) moved the second from 2 (now lost on floor 1) to 3.
+  for (const [seed, floor] of [[10, 2], [3, 3]] as const) {
     const lost = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
     assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
     assert.equal(felled(lost), floor - 1, `precondition: a run lost on floor ${floor} felled the ${floor - 1} bosses behind it`);
@@ -475,4 +476,16 @@ test('the embers cost a knight who avoids them far less than one who does not, o
   const without = embers({ avoidFire: false }), withRule = embers({});
   assert.ok(without >= 100, `precondition: with no rule the embers took ${without} vitality over four floors, so there is something to avoid`);
   assert.ok(withRule <= without * 0.4, `embers took ${withRule} with the rule and ${without} without: the rule is not keeping him out of the grates (at most 40%)`);
+});
+
+// Plan 024 Stage B (D3): the sim holds a second tell back exactly as the game does (`pressed`, dungeon-enemy.ts; the rule's own tests are tests/dungeon-pressure.test.ts). Read off the report: `tellsHeld` counts tells a body was ready to begin
+// and held instead. A room of guards holds some; one boss on its own holds none, because a boss is outside the rule.
+test('the sim holds a second tell back in a room of guards and holds none for a boss on its own (plan 024 D3)', () => {
+  const eight: EnemyKind[] = Array(8).fill('guard');
+  const rooms = [1, 2, 3, 4, 5].map(seed => simulateArena(seed, 3, eight, policy()));
+  assert.ok(rooms.every(r => r.outcome === 'cleared' && r.kills === 8), 'precondition: the knight cleared eight guards on every seed');
+  assert.ok(rooms.every(r => r.tellsHeld > 0), `eight guards held ${rooms.map(r => r.tellsHeld).join(', ')} tells on five seeds: a room that is ready together should hold at least one on each`);
+  const duels = [1, 2, 3].map(seed => simulateArena(seed, 1, ['captain'], policy()));
+  assert.ok(duels.every(r => r.tellsRolled > 0), 'precondition: the captain threatened him');
+  assert.deepEqual(duels.map(r => r.tellsHeld), [0, 0, 0], 'a boss on its own was held');
 });

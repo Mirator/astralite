@@ -5774,3 +5774,76 @@ Pool fairness (D12 / plan 023 D7: no pool boss kills a bot more than twice as of
 `measured` was re-taken for all ten policies and the new `floorN.ordinaryDamagePerChamber` metric joins each (measured plus a band of 0.6x to 1.6x of it, rounded outward to a half). The skilled policy is new, with the default knight's widths. Bands that no longer held moved to the next five beyond what was measured (never widened further): default floor-1 vitality min 75 -> 70 (74.8) and floor-3 min 50 -> 40 (43); weak median pearls max 55 -> 70 (64.5: D2's 30-55 is **not met** by the weak bot now, which lives longer; plan 023's pearls target is Stage E's to re-meet, not widened silently); special-fangs floor-3 vitality min 80 -> 75; special-cleaver floor-3 deaths max 10 -> 15 and vitality min 65 -> 55; meta-max floor-3 vitality min 70 -> 60; weak-meta-max floor-3 deaths max 35 -> 45 (40). Escape fell for the default (90 -> 86.7), special-cleaver (93.3 -> 86.7) and weak-meta-max (83.3 -> 60, floor-3 deaths 16.7 -> 40) and rose for the weak knight (16.7 -> 23.3), special (96.7 -> 100) and special-flask (53.3 -> 63.3); none of those escape bands moved.
 
 `npm run balance:check` run on the committed bands: **every metric inside its band** (ten policies, 30 runs each, 1226 s), and the scratch driver's numbers are the ones it printed.
+
+## 2026-10-05 - Plan 024 Stage B: pressure (D3)
+
+Branch `claude/beautiful-gauss-5o0cw4`. Commit chunk 1: the rule (`app/dungeon-enemy.ts`), the sim (`scripts/balance/sim.ts`), the node tests and `bands.json`. The game's wiring and its browser spec are the next chunk.
+
+### The rule
+
+`pressure(bodies, index, dt)` and `pressed(view, intent, index, roster, dt)` (`dungeon-enemy.ts`), pure and deterministic:
+- A body that begins a tell this frame (it was not winding, `decideEnemy`'s intent winds) asks `pressure`. A body already holding counts its hold down by `dt` and begins the frame it reaches 0. Otherwise it looks at the other bodies of its room: a body mid-tell ends in `windup` seconds, a held body's would end in `held + tell`; its own tell is lined up `PRESSURE_GAP` (**0.5 s**, window 0.4 to 0.6) after the latest of those: `held = max(0, latest + gap - tell)`. An empty room holds nothing, so a lone body is never slowed.
+- A held body shows nothing: `windup` 0, no warning sound, the aim it had; `held` is fed back next frame. It never shortens a tell. Held bodies count as scheduled, so three bodies ready together are placed one after the other (each at least the gap behind the last), which is what keeps three tell ends from falling inside `INVULN` (0.35 s, below the window's 0.4 floor).
+- **Interpretations.** (1) Bosses are outside the rule, both ways: a boss is never held and its tell never holds another body (its fight is its move rows, tuned on their own). (2) The room is the body's `room`. (3) "Tell end" is the frame `windup` reaches 0; a stalker's pounce lands up to `LUNGE_TIME` (0.32 s) after that, so for a pouncer the 0.35 s statement is about tell ends (three blows cannot land inside 0.35 s even so: two ends are at least 0.4 apart and a pounce adds at most 0.32). (4) The hold is recomputed only at the frame a tell would begin, so a body whose line to the knight is lost while held simply stops waiting.
+- The sim and the game call the same `pressed`. `FloorReport.tellsHeld` counts tells that were held (once each).
+
+### Measured (30 runs a policy from seed 1, Stage A -> now)
+
+| policy | escape % | deaths f1 / f2 / f3 (% of arrivals; count) | deaths before the stair hall (count, share) | median vitality entering the stair hall f1 / f2 / f3 | ordinaryDamagePerChamber f1 / f2 / f3 | median pearls |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 86.7 → 86.7 | 0 / 3.3 / 10.3 (0/1/3) → 0 / 3.3 / 10.3 (0/1/3) | 1 of 4 (25%) → 1 of 4 (25%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.71 / 5.22 / 7.19 → 1.58 / 5.01 / 7.46 | 107 → 106.5 |
+| skilled | 93.3 → 90 | 0 / 0 / 6.7 (0/0/2) → 0 / 3.3 / 6.9 (0/1/2) | 0 of 2 (0%) → 0 of 3 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 0.63 / 2.39 / 3.65 → 0.88 / 2.33 / 4.1 | 107 → 107 |
+| weak | 23.3 → 13.3 | 16.7 / 16 / 66.7 (5/4/14) → 20 / 20.8 / 78.9 (6/5/15) | 8 of 23 (35%) → 10 of 26 (38%) | 94 / 94.4 / 100 → 94 / 94.4 / 99.3 | 8.26 / 17.36 / 24.04 → 8.37 / 17.6 / 23.88 | 64.5 → 57 |
+| special | 100 → 93.3 | 0 / 0 / 0 (0/0/0) → 0 / 0 / 6.7 (0/0/2) | 0 of 0 (0%) → 0 of 2 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.43 / 3.62 / 5.11 → 1.39 / 4 / 5.83 | 107 → 107 |
+| special-fangs | 96.7 → 93.3 | 0 / 0 / 3.3 (0/0/1) → 0 / 0 / 6.7 (0/0/2) | 1 of 1 (100%) → 2 of 2 (100%) | 100 / 100 / 99.2 → 100 / 100 / 100 | 1.53 / 3.97 / 6.43 → 1.61 / 4 / 5.95 | 107 → 107 |
+| special-cleaver | 86.7 → 80 | 3.3 / 0 / 10.3 (1/0/3) → 0 / 0 / 20 (0/0/6) | 0 of 4 (0%) → 0 of 6 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.9 / 5.22 / 6.99 → 2.26 / 5.44 / 7.6 | 107 → 106.5 |
+| special-crossbow | 50 → 50 | 0 / 10 / 44.4 (0/3/12) → 0 / 26.7 / 31.8 (0/8/7) | 11 of 15 (73%) → 13 of 15 (87%) | 100 / 100 / 92.4 → 100 / 100 / 93.6 | 0.56 / 13.28 / 21.57 → 0.97 / 13.71 / 22.84 | 88 → 85 |
+| special-flask | 63.3 → 70 | 0 / 0 / 36.7 (0/0/11) → 0 / 0 / 30 (0/0/9) | 0 of 11 (0%) → 0 of 9 (0%) | 100 / 100 / 100 → 100 / 100 / 100 | 1.25 / 4.76 / 6.59 → 1.25 / 4.01 / 6.88 | 104 → 106.5 |
+| meta-max | 100 → 100 | 0 / 0 / 0 (0/0/0) → 0 / 0 / 0 (0/0/0) | 0 of 0 (0%) → 0 of 0 (0%) | 100 / 100 / 98.6 → 100 / 100 / 100 | 1.46 / 4.39 / 6.03 → 1.24 / 4.29 / 6.48 | 107 → 107 |
+| weak-meta-max | 60 → 60 | 0 / 0 / 40 (0/0/12) → 0 / 0 / 40 (0/0/12) | 1 of 12 (8%) → 1 of 12 (8%) | 96.2 / 94.7 / 92.3 → 94.8 / 95.8 / 88.3 | 6.57 / 15.24 / 24.1 → 6.65 / 15.58 / 24.35 | 106.5 → 106 |
+
+Damage share by cause (ordinary enemies / bosses / hazards / pools):
+
+| policy | ordinary enemies % | bosses % | hazards (embers) % | pools (fire) % | vitality lost a run |
+| --- | --- | --- | --- | --- | --- |
+| default | 41.6 → 43.7 | 41.4 → 40.1 | 3.5 → 3.6 | 13.5 → 12.6 | 273 → 261 |
+| skilled | 28.3 → 31.4 | 40.9 → 42.3 | 7.7 → 6.2 | 23.1 → 20.2 | 198 → 190 |
+| weak | 65.3 → 65.5 | 29.6 → 29.2 | 0 → 0.2 | 5.2 → 5.2 | 457 → 423 |
+| special | 37.7 → 37.2 | 37.6 → 37.7 | 7.2 → 7.7 | 17.5 → 17.4 | 230 → 255 |
+| special-fangs | 49.6 → 49 | 17.5 → 18.9 | 6.3 → 6.2 | 26.6 → 25.9 | 210 → 203 |
+| special-cleaver | 43.8 → 44.2 | 39.4 → 39.6 | 7.9 → 7 | 8.9 → 9.2 | 259 → 286 |
+| special-crossbow | 75.6 → 76.8 | 12.8 → 13.5 | 0.9 → 0.8 | 10.7 → 8.9 | 334 → 305 |
+| special-flask | 43.1 → 40.5 | 43.2 → 43.9 | 3.4 → 3.5 | 10.3 → 12 | 238 → 246 |
+| meta-max | 41.2 → 41.6 | 41.4 → 40.9 | 5.3 → 5.2 | 12.1 → 12.3 | 240 → 244 |
+| weak-meta-max | 64.5 → 65.1 | 30.6 → 29.7 | 0.1 → 0.2 | 4.8 → 5.1 | 586 → 597 |
+
+Deaths by floor and cause (after; before):
+
+- default: after: f3 king 3, f2 stalker 1; before: f3 king 3, f2 pyre 1
+- skilled: after: f3 king 2, f2 mother 1; before: f3 king 2
+- weak: after: f3 stalker 11, f1 stalker 6, f2 stalker 5, f3 rattler 1, f3 archer 1, f3 king 1, f3 warden 1; before: f3 stalker 7, f1 stalker 5, f2 stalker 4, f3 warden 4, f3 king 3
+- special: after: f3 king 2; before: no deaths
+- special-fangs: after: f3 warden 2; before: f3 pyre 1
+- special-cleaver: after: f3 king 6; before: f3 king 2, f3 warden 1, f1 mother 1
+- special-crossbow: after: f2 guard 5, f3 stalker 2, f3 guard 2, f2 stalker 2, f3 shieldbearer 1, f2 archer 1, f3 king 1, f3 warden 1; before: f3 guard 5, f3 stalker 3, f3 warden 2, f2 warden 1, f2 guard 1, f3 archer 1, f2 archer 1, f3 king 1
+- special-flask: after: f3 king 9; before: f3 king 10, f3 stalker 1
+- meta-max: after: no deaths; before: no deaths
+- weak-meta-max: after: f3 stalker 7, f3 rattler 2, f3 king 2, f3 warden 1; before: f3 stalker 8, f3 king 3, f3 warden 1
+
+**Pressure alone barely moves the bots.** The default knight escapes 86.7% (unchanged) and still enters every stair hall at a median 100%; its ordinary damage a chamber is 1.58 / 5.01 / 7.46 (was 1.71 / 5.22 / 7.19). The skilled knight falls 93.3 -> 90, weak 23.3 -> 13.3, special-cleaver 86.7 -> 80, special 100 -> 93.3. The fights are short (the knight fells a guard in a swing or two) so a second tell is held for a body that is usually dead before it begins; `tellsHeld` is the evidence the rule fires (eight arena guards hold 4-6 tells a duel). D7 is not met by this stage and is not the stage's to meet (Stage E: Draught 5 -> 2).
+
+### Bands (`bands.json`, as text via a scratch script, `measured` for all ten policies)
+
+Moved to the next five beyond what was measured, none widened further: weak floor-3 deaths max 75 -> 80 (78.9); special floor-3 vitality min 60 -> 50 (51.6); special-cleaver floor-3 deaths max 15 -> 20 and vitality min 55 -> 50; special-flask floor-1 vitality min 80 -> 75 (79.6); meta-max floor-3 vitality min 60 -> 55 (57). `npm run balance:check` on the committed bands: every metric inside its band (1290 s).
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+`tests/dungeon-pressure.test.ts` (drives `decideEnemy` + `pressed` the way the game and the sim do, reading the frame a tell began and the frame it ran out):
+- **No pressure** (`pressure` returns 0): `two ready guards...`: `neither guard was held, so there was nothing for the pressure to do`; `a second body that becomes ready while the first is mid-tell...`: `guard 1 ready 0.1 s after guard 0 began: its tell ended 0.100 s after guard 0's, should be 0.4 to 0.6`; `three or more ready bodies...`: `guard+guard+guard: nobody was held`.
+- **Held bodies not counted as scheduled**: `three or more ready bodies never end their tells within 0.35 s`: `guard+guard+guard+guard+rattler: three tells ended within 0.017 s of each other (at 1.02, 1.03, 1.03 s); the knight is only untouchable for 0.35 s`.
+- **A shortened tell instead of a hold** (the held body begins at once with `tell - held`): `no tell is shorter than its kind's`: `a guard tell ran 0.117 s, shorter than its 0.5 s` (and the window test: `its tell ended -0.300 s after guard 0's`).
+- **Gap 0.2**: `the gap is inside the window`: `the gap 0.2 is outside 0.4 to 0.6`; `two ready guards`: `the second tell ended 0.200 s after the first ... it should end 0.4 to 0.6 s after`.
+- **Bosses held**: `the numbers`: `a boss was held`. **Other rooms count**: `a tell in another room held this body`.
+- Preconditions asserted: the pair was ready together and one was held; every room held someone; each kind ran at least two tells; the shortest tell is the guard/warden/stalker/pyre/rattler mix's.
+`tests/balance-sim.test.ts` `the sim holds a second tell back...`: **`pressed` unwired in the sim**: `eight guards held 0, 0, 0, 0, 0 tells on five seeds: a room that is ready together should hold at least one on each` (a boss on its own holds none).
+- Seeds re-picked where a test needed a particular outcome, assertions unchanged: the shield-bolt heading (11 and 28 became 11 and 39: pushing along the knight-to-body line gives 10 and 10 blocks there against the heading's 7 and 6), the weak knight's lost floors for the pearls report (seed 2 now dies on floor 1: 10 and 2 became 10 and 3), and the special-batch `same keep` check (seed 2 -> 4: the Twin Fangs' armed run fell on floor one and the plain run saw other floors).

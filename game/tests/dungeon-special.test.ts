@@ -368,9 +368,10 @@ test('the Flashpoint: every pool at once, each body once, and nothing to detonat
 });
 
 test('the balance batch fires every Stage C special under the special policy, and never otherwise', () => {
+  // Seed 4 (plan 024 Stage B moved it from 0x2, where the Twin Fangs' armed run fell on floor one and the two runs no longer saw the same floors): all four arms, plain and armed, reach floor three on it.
   for (const weapon of [TWIN_FANGS, WARDENS_CLEAVER, KEEP_CROSSBOW, TIDEFLASK]) {
-    const plain = simulateRun(0x2, { ...DEFAULT_POLICY, weapon });
-    const armed = simulateRun(0x2, { ...DEFAULT_POLICY, weapon, special: true });
+    const plain = simulateRun(0x4, { ...DEFAULT_POLICY, weapon });
+    const armed = simulateRun(0x4, { ...DEFAULT_POLICY, weapon, special: true });
     assert.equal(plain.floors.reduce((sum, f) => sum + f.specials, 0), 0, `${weapon.id}: off means off`);
     assert.ok(armed.floors.reduce((sum, f) => sum + f.specials, 0) > 0, `${weapon.id}: the bot used it`);
     assert.deepEqual(plain.floors.map(f => f.spawns), armed.floors.map(f => f.spawns), 'the same keep');

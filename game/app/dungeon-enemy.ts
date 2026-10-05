@@ -458,3 +458,41 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   moveOnFloor(world.cells, landed, direction.x * enemy.speed * dt, direction.z * enemy.speed * dt);
   return { ...rest, act: 'ready', face, x: landed.x, z: landed.z, distance };
 }
+
+// Plan 024 (D3): pressure. Left alone, the bodies of a chamber threaten one at a time: each starts its tell when its own cooldown runs out, and a knight with one dash per 0.8 s answers every one. Two bodies ready to begin are
+// therefore not allowed to end their tells together: the later one holds back until its tell would END `PRESSURE_GAP` seconds after the last tell already running (or already held) in its room. You dodge the first, and the second is
+// already coming, inside the knight's dash cooldown, so one dash per threat stops being the answer and where he stands starts to matter.
+// Every blow keeps its full tell: a hold delays the START of a tell, never shortens one (a held body shows nothing at all, so there is no half tell to misread). No randomness, so a seed replays it.
+// A boss is outside the rule: its fight is its move rows, tuned on their own (plan 021, like `RECOVERY_SCALE`). A tell that already ends more than the gap after the last one is not delayed.
+/** Seconds between one tell's end and the next's, for two bodies of a room that were ready together. The window it must stay in is `PRESSURE_WINDOW`; the knight's invulnerability after a hit (`INVULN`, 0.35 s) must fit under the lower end. */
+export const PRESSURE_GAP = 0.5;
+export const PRESSURE_WINDOW = { min: 0.4, max: 0.6 } as const;
+/** What `pressure` reads of a body: the kind (a boss is exempt), the room it claims, whether it is out of the fight, the tell it is running, the hold it is serving and the tell it would run. */
+export type Pressed = { kind: EnemyKind; room: number; dead: boolean; windup: number; held: number; tell: number };
+/**
+ * The seconds body `index` must still hold before it may begin the tell it is ready to begin; 0 means it begins this frame. A body already holding counts that hold down by `dt` (so it begins on the frame it reaches 0, within one frame of
+ * its time); a body not yet holding looks at its room - the tell a body is running ends in `windup` seconds, and a held body's would end in `held + tell` - and lines its own end up `gap` after the latest of those, so an empty room holds
+ * nothing and a lone body is never slowed. Held bodies count as scheduled, which is what keeps three bodies ready together from landing within `INVULN` of each other: each is placed after the one before.
+ */
+export function pressure(bodies: readonly Pressed[], index: number, dt: number, gap = PRESSURE_GAP): number {
+  const self = bodies[index];
+  if (!self || BESTIARY[self.kind].boss) return 0;
+  if (self.held > 0) return Math.max(0, self.held - step(dt));
+  let latest = 0;
+  bodies.forEach((other, at) => {
+    if (at === index || other.dead || other.room !== self.room || BESTIARY[other.kind].boss) return;
+    latest = Math.max(latest, other.windup > 0 ? other.windup : other.held > 0 ? other.held + other.tell : 0);
+  });
+  return latest > 0 ? Math.max(0, latest + gap - self.tell) : 0;
+}
+
+/**
+ * `decideEnemy`'s intent with pressure applied: a body that began a tell this frame (it was not winding, the intent winds) may be told to hold instead, in which case the tell does not start - no windup, no warning sound, the aim it had -
+ * and `held` is what to feed back next frame (0 for a body that is not waiting). Any other intent passes through unchanged. `roster` is asked for only when a tell begins, so the common frame builds nothing; the game and the balance sim both call this
+ * with their own bodies as they stand when this one is decided.
+ */
+export function pressed(view: EnemyView, intent: EnemyIntent, index: number, roster: () => readonly Pressed[], dt: number): { intent: EnemyIntent; held: number } {
+  if (!(view.windup <= 0 && intent.windup > 0 && intent.act === 'ready')) return { intent, held: 0 };
+  const held = pressure(roster(), index, dt);
+  return held > 0 ? { intent: { ...intent, windup: 0, sound: null, aim: { x: view.aim.x, z: view.aim.z } }, held } : { intent, held: 0 };
+}
