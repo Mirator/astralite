@@ -262,13 +262,18 @@ export function sweptContact(from: Point, to: Point, target: Point, radius = LUN
 // Resolve a crowd so bodies do not stack into one silhouette. Two short passes keep the correction
 // gentle; a body mid-windup carries no weight, because shoving a guard out of its own committed swing
 // reads as the swing missing for no reason the player can see. Returns fresh points, in input order.
+// The game hands it every body on the floor, corpses and the dormant waves included, so the dead are dropped
+// before the pairing rather than inside it, and a pair already a spacing apart on either axis is passed over
+// without a square root: on a late floor most pairs are bodies in other rooms.
 export function separateCrowd(cells: Set<string>, bodies: readonly CrowdBody[], dt: number): Point[] {
   const moved = bodies.map(body => ({ x: body.x, z: body.z }));
   if (!(step(dt) > 0)) return moved;
-  for (let pass = 0; pass < 2; pass++) for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
-    if (bodies[i].dead || bodies[j].dead) continue;
-    const a = moved[i], b = moved[j];
+  const live: number[] = [];
+  for (let i = 0; i < bodies.length; i++) if (!bodies[i].dead) live.push(i);
+  for (let pass = 0; pass < 2; pass++) for (let p = 0; p < live.length; p++) for (let q = p + 1; q < live.length; q++) {
+    const i = live[p], j = live[q], a = moved[i], b = moved[j];
     let dx = b.x - a.x, dz = b.z - a.z;
+    if (dx >= CROWD_SPACING || dx <= -CROWD_SPACING || dz >= CROWD_SPACING || dz <= -CROWD_SPACING) continue;
     const distance = Math.hypot(dx, dz);
     if (distance >= CROWD_SPACING) continue;
     // Two bodies exactly on top of each other have no direction to separate along; any axis will do.
