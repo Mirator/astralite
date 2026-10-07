@@ -39,7 +39,7 @@ import { createSparks } from './dungeon-sparks';
 import { nearestFirst } from './dungeon-nearest';
 import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
-import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, migrateStored, readBest, readMeta, readRuns, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
+import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, readBest, readMeta, readRuns, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
 import { bank, buyArm, buyUpgrade, chooseArm, freshMeta, pearlsFor, runStart as metaRunStart, UPGRADES, type Meta } from './dungeon-meta';
 import { clearChamber, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, SHRINE, SHRINE_REACH, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
@@ -1250,8 +1250,7 @@ export default function DungeonGame() {
     // The stored seed is still written per slot (the run log and `start:<seed>` replay it), but the title no longer
     // offers it: as in Hades, every attempt leaves from the hall (plan 020 D9, extended to LAST KEEP by the operator).
     const restoreSave = () => { setBest(readBest(activeSlot)); setRunLog(readRuns(activeSlot)); setMeta(readMeta(activeSlot)); };
-    // Plan 020, D2: a pre-slot save is copied into slot 1 once, before anything reads a slot, and only into a slot 1 that holds nothing. The legacy cells stay.
-    migrateStored(); setSlotOn(activeSlot);
+    setSlotOn(activeSlot);
     restoreSave();
     // Floor 1 is not built here. The menu is in the prerendered page and is what a visitor sees first, and
     // nothing below runs until ENTER THE KEEP asks for it (see `boot`, called on demand from the press

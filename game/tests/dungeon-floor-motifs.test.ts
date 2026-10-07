@@ -16,6 +16,7 @@ const MAX_Y = 0.045;
 const SEEDS = [1, 7, 42, 999, 0x1234, 0x60, 0x150, 4242, 8080, 13];
 
 test('every attached triangle is finite, faces up, and stays inside the height budget', () => {
+  let planned = 0, attached = 0;
   for (const seed of SEEDS) {
     for (const level of [1, 2, 3]) {
       const floor = generateFloor(seed, level);
@@ -50,11 +51,15 @@ test('every attached triangle is finite, faces up, and stays inside the height b
       }
       if (layouts.length) assert.ok(triangles > 0, `seed ${seed} level ${level} planned motifs but attached no geometry`);
       else assert.equal(triangles, 0, `seed ${seed} level ${level} planned nothing but attached geometry anyway`);
+      planned += layouts.length; attached += triangles;
     }
   }
+  // An empty plan passes every check above, so the sweep must have planned and built something.
+  assert.ok(planned > 0 && attached > 0, `the sweep planned ${planned} motifs and attached ${attached} triangles, so nothing was checked`);
 });
 
 test('every vertex stays inside some room\'s own planned bed, not spilling into a neighbour', () => {
+  let vertices = 0;
   for (const seed of SEEDS) {
     const floor = generateFloor(seed, 2);
     const layouts = planFloorMotifs(floor);
@@ -68,9 +73,11 @@ test('every vertex stays inside some room\'s own planned bed, not spilling into 
       for (let i = 0; i < position.count; i++) {
         const x = position.getX(i), z = position.getZ(i);
         assert.ok(withinAnyBed(x, z), `seed ${seed}: a vertex at (${x.toFixed(2)}, ${z.toFixed(2)}) is outside every planned bed`);
+        vertices++;
       }
     }
   }
+  assert.ok(vertices > 0, 'no floor in the sample built a motif, so no vertex was checked against its bed');
 });
 
 test('a sanctuary keeps its clear centre empty but still shows a real motif outside it', () => {

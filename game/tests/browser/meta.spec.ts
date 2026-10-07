@@ -39,7 +39,7 @@ test.describe('through the hall', () => {
     expect((await game.state()).mode, 'the staged blow never landed').toBe('lost');
 
     const logged = (await page.evaluate(
-      () => (window as unknown as { dungeonTest: { runLog: () => { floor: number; won: boolean; kills: number; cause: string | null; pearls: number }[] } }).dungeonTest.runLog(),
+      () => (window as unknown as { dungeonTest: { runLog: () => { floor: number; won: boolean; kills: number; chambers: number; cause: string | null; pearls: number }[] } }).dungeonTest.runLog(),
     )).at(-1)!;
     expect(logged.cause, 'the run did not end by the body that was staged').toBe(kind);
     const earned = pearlsFor(logged);

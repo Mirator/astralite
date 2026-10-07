@@ -1,64 +1,16 @@
 import { buyUpgrade, freshMeta, WHET_STRIKE, type Meta } from '../../app/dungeon-meta.ts';
-import type { RunEnd } from '../../app/dungeon-save.ts';
 import { DEFAULT_SEEDS, expect, type GameWindow, openSlots, test } from './helpers.ts';
 
 // Plan 020 Stage B: ENTER THE KEEP opens a slot picker, and the slot chosen on it is the one every read and write of progress speaks for.
-// The rules (what a slot's key is, what the summary counts, what migration copies, what erase removes) are held in node, in
-// tests/dungeon-save.test.ts. These scenarios hold the wiring: that the running game migrates at mount, that the picker shows what the
+// The rules (what a slot's key is, what the summary counts, what erase removes) are held in node, in
+// tests/dungeon-save.test.ts. These scenarios hold the wiring: that the picker shows what the
 // slots hold, that a run is dealt from the slot chosen, that Erase asks twice, and that the picker is reachable by keyboard and fits a phone.
 // Each reads what the game did: the card's text, the snapshot's `slot` and `run.start`, and the save through `dungeonTest.meta(slot)`.
 
-const ORIGIN = `http://127.0.0.1:${process.env.GAME_TEST_PORT ?? 3000}`;
 const NOTHING = freshMeta();
 const card = (page: import('@playwright/test').Page, slot: number) => page.locator(`.slot-choose[data-slot="${slot}"]`);
 const stats = (page: import('@playwright/test').Page, slot: number) => page.locator(`.slot-choose[data-slot="${slot}"] span`);
 const back = (page: import('@playwright/test').Page) => page.getByRole('button', { name: /Back/ });
-
-// A save as the build before slots wrote it: the four per-player cells without a slot in their names.
-const LEGACY_META = { pearls: 137, upgrades: { lungs: 1 }, arms: ['tideblade', 'maul'], arm: 'maul' };
-const LEGACY_BEST = { floor: 2, xp: 415, kills: 12, won: false };
-const LEGACY_RUNS: RunEnd[] = [
-  { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 20, bosses: 0 },
-  { at: 1_700_000_500_000, floor: 1, won: false, cause: 'guard', seconds: 31, rank: 1, xp: 20, kills: 2, boons: [], seed: 7, arm: 'tideblade', upgrades: {}, pearls: 1, bosses: 0 },
-];
-
-test.describe('a save from before slots', () => {
-  // A stored blob is read at mount, so this scenario gets its own page (helpers.ts `needsOwnPage`).
-  test.use({
-    storageState: {
-      cookies: [],
-      origins: [{
-        origin: ORIGIN,
-        localStorage: [
-          { name: 'drowned-keep:meta', value: JSON.stringify(LEGACY_META) },
-          { name: 'drowned-keep:best', value: JSON.stringify(LEGACY_BEST) },
-          { name: 'drowned-keep:runs', value: JSON.stringify(LEGACY_RUNS) },
-        ],
-      }],
-    },
-  });
-
-  test('arrives in slot 1, shows on its card, and the run chosen there is dealt from it', async ({ game, page }) => {
-    await openSlots(page);
-    // The picker shows what the game migrated, not what the fixture wrote: the legacy cells are not slot cells.
-    await expect(stats(page, 1), 'slot 1\'s card does not show the legacy save\'s pearls, floor, runs and arms').toHaveText('137 pearls · deepest floor 2 · 2 runs logged · 2 arms');
-    await expect(stats(page, 2), 'the legacy save was copied into a slot other than the first').toHaveText('Empty');
-    await expect(stats(page, 3)).toHaveText('Empty');
-    // Copied, not moved (D2): the pre-slot cells are still there, so a rollback finds its save.
-    const legacy = await page.evaluate(() => ({ meta: localStorage.getItem('drowned-keep:meta'), runs: localStorage.getItem('drowned-keep:runs') }));
-    expect(legacy.meta, 'the legacy meta cell was removed').toBe(JSON.stringify(LEGACY_META));
-    expect(JSON.parse(legacy.runs!), 'the legacy run log was rewritten').toEqual(LEGACY_RUNS);
-
-    await back(page).click();
-    await game.enter(1);
-    const state = await game.state();
-    expect(state.slot, 'the run is not in slot 1').toBe(1);
-    expect(state.mode).toBe('playing');
-    expect(state.run.start, 'the run was not dealt from the migrated save (Deep Lungs rank 1, the maul in hand)').toEqual({ arm: 'maul', maxHp: 110, strike: 0, draftSize: 3, defiance: 0 });
-    expect(state.weapon.id, 'the knight is not holding the migrated save\'s arm').toBe('maul');
-    expect(await page.evaluate(() => localStorage.getItem('drowned-keep:slot')), 'the slot chosen was not remembered as the one last played').toBe('1');
-  });
-});
 
 test('slots are separate: a purchase in slot 2 leaves slot 1\'s card alone, and each slot deals its own run', async ({ game, page }) => {
   const slot1: Meta = { ...NOTHING, pearls: 55, upgrades: { lungs: 1 } };

@@ -14,17 +14,6 @@ export const buildRunExport = (runs: readonly RunEnd[], now: Date): RunExport =>
 
 export const serialiseRunExport = (runs: readonly RunEnd[], now: Date): string => JSON.stringify(buildRunExport(runs, now), null, 1);
 
-// Plan 021 added `bosses` (and an optional `bossKinds`, which an older record simply lacks). Plan 019 added `arm`, `upgrades` and `pearls`. An export written before then has none of the three, and
-// `parseRun` fills them in; so a record is held to "survives the parse unchanged" after the same defaults
-// are appended to it, in the order `parseRun` writes them. A record that has some of them, or has them
-// wrong, still differs and still rejects the paste.
-const withDefaults = (record: unknown, parsed: RunEnd) => {
-  if (!record || typeof record !== 'object') return record;
-  const out: Record<string, unknown> = { ...record };
-  for (const key of ['arm', 'upgrades', 'pearls', 'bosses'] as const) if (!Object.hasOwn(out, key)) out[key] = parsed[key];
-  return out;
-};
-
 // Accepts only what `buildRunExport` writes: the exact envelope keys, a real ISO time, and records that
 // survive `parseRun` unchanged. Anything else is null - unlike the save's tolerant reader, one bad record
 // rejects the whole paste, since a developer reading it wants to know the log was damaged.
@@ -40,7 +29,7 @@ export const parseRunExport = (raw: string): RunExport | null => {
   const runs: RunEnd[] = [];
   for (const record of doc.runs) {
     const end = parseRun(record);
-    if (!end || JSON.stringify(end) !== JSON.stringify(withDefaults(record, end))) return null;
+    if (!end || JSON.stringify(end) !== JSON.stringify(record)) return null;
     runs.push(end);
   }
   return { format: RUN_EXPORT_FORMAT, version: RUN_EXPORT_VERSION, exported: doc.exported, runs };

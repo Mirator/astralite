@@ -206,7 +206,7 @@ purchases out of the next.
 
 The result card's one button, RETURN TO THE ALTAR, and the shop it leads to are driven with real clicks and keys (`tests/browser/meta.spec.ts`, `death.spec.ts`); the Tide Altar's panel
 left the title for the hall's shop overlay in plan 020. `tests/browser/armoury.spec.ts` walks into a rack's ring and uses the swap key. The rules live in node:
-`tests/dungeon-meta.test.ts`. The slot picker is driven with real clicks and keys in `tests/browser/slots.spec.ts`; the rules behind it (keys, summary, migration, erase) are in
+`tests/dungeon-meta.test.ts`. The slot picker is driven with real clicks and keys in `tests/browser/slots.spec.ts`; the rules behind it (keys, summary, erase) are in
 `tests/dungeon-save.test.ts`.
 
 ### The hall
@@ -299,7 +299,7 @@ asserts it is present rather than skipping when it is not.
 
 Plan 020 keeps three save slots. Per slot, four `localStorage` keys, `drowned-keep:<slot>:best`, `drowned-keep:<slot>:seed`, `drowned-keep:<slot>:runs` and `drowned-keep:<slot>:meta` (slot 1, 2 or 3),
 hold the deepest run (XP breaks a tie on the same floor), the current run's floor-1 seed, the last 100 finished runs and (plan 019) the pearls, upgrades and unlocked arms. Per device, `drowned-keep:settings` holds what the
-player asked the game to be, and `drowned-keep:slot` the slot last played. The first mount of a build with slots copies the four pre-slot keys (`drowned-keep:best` and so on, which are left in place) into slot 1 if slot 1 is empty. The meta blob is re-validated field by field like the settings (`parseMeta`), and a run abandoned by reloading banks nothing. Nothing leaves the
+player asked the game to be, and `drowned-keep:slot` the slot last played. The meta blob is re-validated field by field like the settings (`parseMeta`), and a run abandoned by reloading banks nothing. Nothing leaves the
 browser. Every read and write is wrapped, and a missing, blocked or corrupt value reads as absent — the
 game plays identically with storage disabled, and a single malformed entry is dropped without costing
 the rest of the history. `tests/dungeon-save.test.ts` covers the comparison, the parsing, the cap, the
@@ -418,9 +418,7 @@ id means the Tideblade.
 | Tideflask | Flashpoint (needs a pool burning) | <http://127.0.0.1:3000/?arm=flask> |
 
 The console hooks cover the rest: `dungeonTest.equip('maul')` swaps mid-run, `dungeonTest.descend()`
-skips a floor, `dungeonTest.grantXp(500)` opens a boon draft. A settings blob from before plan 016
-keeps Space on strike; reset the binds on the settings card, or run
-`localStorage.removeItem('drowned-keep:settings')` and reload.
+skips a floor, `dungeonTest.grantXp(500)` opens a boon draft.
 
 What to check for plan 016:
 
