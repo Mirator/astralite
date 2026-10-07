@@ -169,10 +169,14 @@ test('deeper floors are meaner', () => {
 
 test('generation stays cheap enough to rebuild a floor mid-run', () => {
   for (let warm = 0; warm < 20; warm++) generateFloor(warm * 13, 3);
-  const started = performance.now(), runs = 40;
+  // CPU time, not wall-clock: node runs the test files side by side, and the balance tests starve this one of a
+  // core. Measured on 4 cores, 2026-10-07: about 10 ms CPU and 6 ms wall alone; with 8 copies at once, wall rose
+  // to about 28 ms (over the old wall-clock 25) while CPU stayed at about 14. A floor that really is 2.5x dearer
+  // still fails.
+  const started = process.cpuUsage(), runs = 40;
   for (let i = 0; i < runs; i++) generateFloor(i * 7919, 3);
-  const each = (performance.now() - started) / runs;
-  assert.ok(each < 25, `generateFloor took ${each.toFixed(1)} ms per floor`);
+  const used = process.cpuUsage(started), each = (used.user + used.system) / 1000 / runs;
+  assert.ok(each < 25, `generateFloor took ${each.toFixed(1)} ms of CPU per floor`);
 });
 
 test('encounter roles provide safe shrines, hidden ambushes and live gauntlets', () => {
