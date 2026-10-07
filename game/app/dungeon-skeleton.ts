@@ -507,8 +507,7 @@ function copySkeleton(template: THREE.Group) {
       // `clone` does not carry a shader hook set on the instance (the bone's weathering, `weatherBone`), nor the
       // program key set beside it: losing the first would silently draw plain bone, losing the second would
       // compile a program of its own for every copy rather than share the template's.
-      if (Object.hasOwn(material, 'onBeforeCompile')) copy.onBeforeCompile = material.onBeforeCompile;
-      if (Object.hasOwn(material, 'customProgramCacheKey')) copy.customProgramCacheKey = material.customProgramCacheKey;
+      for (const hook of ['onBeforeCompile', 'customProgramCacheKey'] as const) if (Object.hasOwn(material, hook)) Object.defineProperty(copy, hook, Object.getOwnPropertyDescriptor(material, hook)!);
       materials.set(material, copy);
     }
     return copy;
