@@ -418,9 +418,7 @@ id means the Tideblade.
 | Tideflask | Flashpoint (needs a pool burning) | <http://127.0.0.1:3000/?arm=flask> |
 
 The console hooks cover the rest: `dungeonTest.equip('maul')` swaps mid-run, `dungeonTest.descend()`
-skips a floor, `dungeonTest.grantXp(500)` opens a boon draft. A settings blob from before plan 016
-keeps Space on strike; reset the binds on the settings card, or run
-`localStorage.removeItem('drowned-keep:settings')` and reload.
+skips a floor, `dungeonTest.grantXp(500)` opens a boon draft.
 
 What to check for plan 016:
 
