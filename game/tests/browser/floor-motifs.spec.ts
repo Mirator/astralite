@@ -83,23 +83,47 @@ test.describe('the floor realizes exactly the motifs the planner plans', () => {
   });
 
   // The one rebuild-leak test in the suite (polish.spec.ts and footsteps.spec.ts each used to keep a weaker
-  // copy). Floor three, because it carries everything a floor can hold: water, wet masonry, niches, foliage.
-  test('repeated rebuilds of the same floor settle at stable geometry and texture counts', async ({ game }) => {
+  // copy). It used to rebuild floor three four times over; a leak that only shows when the floor changes - a
+  // per-floor texture or material kept from one seed to the next - passed that, since the same floor rebuilt
+  // replaces like with like. So the run descends one keep, restarts, descends another, and comes back to the
+  // first: each floor must cost on its return what it cost the first time, whatever was built in between,
+  // and once both keeps have been seen no build may link a shader program the game had not linked before.
+  test('a descent, a restart and another keep leave geometry, texture and program counts where they were', async ({ game, page }) => {
     await game.enter();
     await game.step(SETTLE);
-    const counts: { geometries: number; textures: number }[] = [];
-    for (let i = 0; i < 4; i++) {
-      await game.buildFloor(3);
+    type Cost = { geometries: number; textures: number; programs: number };
+    const visit = async (level: number, seed: number): Promise<Cost> => {
+      await page.evaluate(([value, from]) => {
+        const hook = (window as import('./helpers.ts').GameWindow).dungeonTest;
+        if (!hook) throw new Error('dungeonTest is gone');
+        hook.buildFloor(value, from);
+      }, [level, seed] as const);
+      await game.settle();
       await game.step(0, true);
-      const state = await game.state();
-      if (i === 0) expect((state.floor as typeof state.floor & { waterfalls: unknown[] }).waterfalls.length, 'floor three lost its water, so this no longer rebuilds it').toBeGreaterThan(0);
-      const { geometries, textures } = state.render;
-      counts.push({ geometries, textures });
-    }
-    const last = counts[counts.length - 1];
-    for (const count of counts.slice(1)) {
-      expect(count, 'geometry/texture counts drifted across identical rebuilds - a leak, not a motif').toEqual(last);
-    }
+      const { geometries, textures, programs } = (await game.state()).render;
+      return { geometries, textures, programs };
+    };
+    const restart = async (seed: number) => {
+      await page.evaluate((from) => (window as import('./helpers.ts').GameWindow).dungeonTest!.reset(from), seed);
+      await game.settle();
+    };
+    const A = 0x1, B = 0x5eed, levels = [1, 2, 3];
+    const first: Cost[] = [];
+    for (const level of levels) first.push(await visit(level, A));
+    await restart(B);
+    const other: Cost[] = [];
+    for (const level of levels) other.push(await visit(level, B));
+    const seenBoth = other[other.length - 1].programs;
+    await restart(A);
+    const again: Cost[] = [];
+    for (const level of levels) again.push(await visit(level, A));
+    // Precondition: the second keep's floors are not the first's, or "whatever was built in between" built the same thing.
+    expect(other.map(c => c.geometries), 'seed B built the same floors as seed A, so nothing changed between the visits').not.toEqual(first.map(c => c.geometries));
+    levels.forEach((level, i) => {
+      expect({ geometries: again[i].geometries, textures: again[i].textures }, `floor ${level} of seed A cost more on its return than on its first visit - a leak across floors or the restart`)
+        .toEqual({ geometries: first[i].geometries, textures: first[i].textures });
+      expect(again[i].programs, `floor ${level} of seed A linked a shader program after both keeps had been seen`).toBe(seenBoth);
+    });
   });
 });
 

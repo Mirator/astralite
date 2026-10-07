@@ -39,6 +39,7 @@ import { createSparks } from './dungeon-sparks';
 import { nearestFirst } from './dungeon-nearest';
 import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
+import { createGovernor, observeFrame, startPixelRatio, type QualityStage } from './dungeon-quality';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, readBest, readMeta, readRuns, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
 import { bank, buyArm, buyUpgrade, chooseArm, freshMeta, pearlsFor, runStart as metaRunStart, UPGRADES, type Meta } from './dungeon-meta';
 import { clearChamber, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, SHRINE, SHRINE_REACH, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
@@ -519,7 +520,7 @@ export default function DungeonGame() {
     scene.background = new THREE.Color(0x0a1b24);
     scene.fog = new THREE.FogExp2(0x081820, 0.027);
     const environment = vaultEnvironment(); scene.environment = environment; scene.environmentIntensity = .34;
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.setPixelRatio(startPixelRatio(devicePixelRatio)); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.42;
     mount.appendChild(renderer.domElement);
     const camera = new THREE.OrthographicCamera(-8, 8, 5, -5, 0.1, 70);
@@ -527,8 +528,18 @@ export default function DungeonGame() {
     // Plan 014, lever 3: bloom (flames, eyes, the THREAT/COMMIT marks, the water's own glow), a
     // teal-shadow/orange-highlight grade, a tilt-shift blur and a
     // vignette - see dungeon-post.ts for why no OutputPass follows it.
-    const post = createPostChain(renderer, scene, camera, mount.clientWidth || 1, mount.clientHeight || 1, postQuality(renderer, window.location.search));
+    // `?adapt=full` starts at full quality with the governor on, whatever the renderer: on a software rasteriser that is a keep too slow
+    // to hold, which is how the browser suite watches the governor step down in real time. `?quality=` pins a level and turns it off.
+    const search = new URLSearchParams(window.location.search);
+    const post = createPostChain(renderer, scene, camera, mount.clientWidth || 1, mount.clientHeight || 1, search.get('adapt') === 'full' ? 'full' : postQuality(renderer, window.location.search));
     setPlainVeil(post.quality === 'reduced');
+    // Adaptive quality (dungeon-quality.ts): the rule decides from the intervals of drawn frames; this applies the rung it lands on.
+    const governor = search.has('quality') ? null : createGovernor({ ao: post.gtaoPass.enabled, bloom: post.bloomPass.enabled, pixelRatio: renderer.getPixelRatio() });
+    const applyStage = (next: QualityStage) => {
+      post.gtaoPass.enabled = next.ao; post.bloomPass.enabled = next.bloom;
+      if (renderer.getPixelRatio() !== next.pixelRatio) { renderer.setPixelRatio(next.pixelRatio); post.composer.setPixelRatio(next.pixelRatio); resize(); }
+      dirty = true;
+    };
     const flameKeeper = flameShaderKeeper(); scene.add(flameKeeper);
     // Ambient is the enemy of a lit pool: it paid for every unlit corner, so a brazier could only ever
     // read as a decal on an already-bright floor. Half of it moves into the moon, which models form
@@ -2548,7 +2559,9 @@ export default function DungeonGame() {
       // Plan 019: read off the scene - where each rack's group really stands and whether it is attached to the floor - not off the layout that placed it.
       racks: racks.map(rack => ({ x: rack.group.position.x, z: rack.group.position.z, kind: rack.kind, radius: PICKUP_RADIUS, over: rack === overRack, inScene: rack.group.parent === floorGroup, offered: rack === overRack && offered && offered !== 'stair' && offered !== 'altar' && offered !== 'down' && !offered.startsWith('door:') ? offered : null })),
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, perBoss: XP_PER_BOSS, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
-      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, shadow: post.shadow, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: pointLightCount(scene), programs: linkedPrograms(renderer), warmUp, quality: post.quality },
+      render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, shadow: post.shadow, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: pointLightCount(scene), programs: linkedPrograms(renderer), warmUp, quality: post.quality,
+        // What the frame is drawn with now, read off the passes and the renderer rather than the governor's own rung.
+        stage: { ao: post.gtaoPass.enabled, bloom: post.bloomPass.enabled, pixelRatio: renderer.getPixelRatio(), buffer: post.composer.readBuffer.width, adaptive: governor !== null } },
       effects: { impacts: impacts.active, sparks: sparks.active, shock: impacts.shock, flares: flares.length, lane: lane.visible ? { length: lane.scale.y * 1.15, opacity: lane.material.opacity } : null, footsteps: { active: footsteps.active, drawn: footsteps.mesh.visible, emitted: footsteps.emitted, contacts: stepLog.contacts, skipped: stepLog.skipped, kinds: { ...stepLog.kinds }, last: stepLog.last } },
       // Added keys, never changed ones: `muted` above still means what it always did. `filter` is what the
       // canvas is actually wearing this frame, so a driver can see the hurt tint rather than infer it.
@@ -2589,7 +2602,11 @@ export default function DungeonGame() {
         // Plan 015 Stage B: a frozen frame (paused, drafting, complete, or simply nothing since invalidated)
         // matches the one already on screen, so it is not redrawn. `update` sets `dirty` itself whenever it
         // actually advances; everything else that can change the picture while frozen sets it directly.
-        if (dirty) { try { post.render(elapsed); } catch (error) { fail(error); return; } dirty = false; }
+        if (dirty) {
+          try { post.render(elapsed); } catch (error) { fail(error); return; } dirty = false;
+          // Only frames that drew, and only the one animation frame before them: a pause draws nothing and so adds nothing.
+          if (governor && last !== null) { const next = observeFrame(governor, now - last); if (next) applyStage(next); }
+        }
       }
       last = now;
     };

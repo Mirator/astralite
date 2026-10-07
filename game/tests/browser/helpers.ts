@@ -345,6 +345,8 @@ export type Snapshot = {
     pointLights: number;
     programs: number;
     quality: 'full' | 'reduced';
+    /** What the frame is drawn with now: the passes' own flags and the renderer's pixel ratio. `adaptive` is false when `?quality=` pinned it. */
+    stage: { ao: boolean; bloom: boolean; pixelRatio: number; buffer: number; adaptive: boolean };
   };
   /** Live effect pools. `footsteps` is plan 008's contact feedback: particles alive, whether the batch
    * is drawn, contacts emitted, phase crossings seen, crossings skipped for want of stone support, per

@@ -489,10 +489,12 @@ test.describe('the full post chain', () => {
     const frame = await page.evaluate(() => {
       (window as GameWindow).advanceTime!(16, true);
       const canvas = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
-      const state = JSON.parse((window as GameWindow).render_game_to_text!()) as { render: { quality: string; passes: string[]; shadow: { draws: number; calls: number } } };
+      const state = JSON.parse((window as GameWindow).render_game_to_text!()) as { render: { quality: string; passes: string[]; shadow: { draws: number; calls: number }; stage: { ao: boolean; bloom: boolean; adaptive: boolean } } };
       return { ...state.render, antialias: canvas.getContext('webgl2')!.getContextAttributes()!.antialias };
     });
     expect(frame.quality).toBe('full');
+    // `?quality=` pins the level: the governor is off, so a software rasteriser's slow frames never step this page down.
+    expect(frame.stage, 'a pinned quality left the governor on, or the passes off').toMatchObject({ ao: true, bloom: true, adaptive: false });
     expect(frame.passes, 'GTAO is in the chain, so the scene is rendered twice a frame').toContain('GTAOPass');
     expect(frame.shadow.draws, 'the shadow map is drawn by the scene pass and not again by GTAO').toBe(1);
     expect(frame.shadow.calls, 'and that one draw still covers the casters').toBeGreaterThan(0);
