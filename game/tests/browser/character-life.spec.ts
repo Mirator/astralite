@@ -1,6 +1,6 @@
 import { expect, strikeStance, test, press, type Snapshot } from './helpers.ts';
 
-type Corpse={kind:string;x:number;y:number;z:number;scale:number[];rotation:number;age:number;settled:boolean;visible:boolean;cue:boolean;bar:boolean;trails:boolean};
+type Corpse={kind:string;x:number;y:number;z:number;scale:number[];rotation:number;age:number;settled:boolean;parts:number;visible:boolean;cue:boolean;bar:boolean;trails:boolean};
 const corpses=(state:Snapshot)=>(state as Snapshot&{corpses:Corpse[]}).corpses;
 
 // The corpse wiring does not depend on the kind (the per-kind fall itself is tests/dungeon-death.test.ts), so
@@ -10,12 +10,21 @@ for(const kind of ['guard','stalker','warden'])test(`${kind} falls, persists, fr
   expect(index).toBeGreaterThanOrEqual(0);await game.teleport(stance.x,stance.z);
   await game.configureCombat({enemies:[{index,x:0,z:0,hp:1,cooldown:10,windup:0}]});
   await page.keyboard.down(stance.key);await game.step(1);await page.keyboard.up(stance.key);await press(page, 'attack');await game.step(240);
-  const killed=await game.state(),falling=corpses(killed)[0];expect(falling.kind).toBe(kind);expect(falling.settled).toBe(false);expect(falling.visible).toBe(true);
+  const killed=await game.state(),falling=corpses(killed)[0];await game.step(0,true);const fallingCost=(await game.state()).render;expect(falling.kind).toBe(kind);expect(falling.settled).toBe(false);expect(falling.visible).toBe(true);
   expect(falling.cue||falling.bar||falling.trails).toBe(false);expect(killed.enemies).toHaveLength(opening.enemies.length-1);
   await game.capture(`${kind}-falling`);
   await page.keyboard.press('Escape');await game.step(900);expect(corpses(await game.state())[0]).toEqual(falling);
   await page.keyboard.press('Escape');await game.step(1300);const landed=corpses(await game.state())[0];
   expect(landed.settled).toBe(true);expect(landed.scale).toEqual(kind==='warden'?[1.3,1.3,1.3]:kind==='stalker'?[.94,1,.94]:[1,1,1]);expect(Math.abs(landed.rotation)).toBeCloseTo(Math.PI/2,4);
+  // Landed, it is merged into a mesh a material (dungeon-death's `bakeCorpse`, held per kind in tests/dungeon-corpse.test.ts): the meshes it draws, read off the scene.
+  await game.step(0,true);const landedCost=(await game.state()).render;
+  console.log(`CORPSE ${kind} parts falling=${falling.parts} landed=${landed.parts} calls falling=${fallingCost.calls} landed=${landedCost.calls} shadow falling=${fallingCost.shadow.calls} landed=${landedCost.shadow.calls}`);
+  expect(falling.parts,'precondition: a falling body draws several parts').toBeGreaterThan(3);
+  expect(landed.parts,'a landed corpse still draws every part on its own').toBeLessThanOrEqual(falling.parts/1.5);
+  // And the renderer draws that many fewer: the shadow pass, which nothing else here changes between the two frames (the kill's burst casts none), fell by exactly
+  // the parts merged away on SwiftShader, 2026-10-07: guard 73 to 64, stalker 65 to 59, warden 73 to 61. The main pass falls further, but the burst fades in it too.
+  expect(fallingCost.shadow.calls,'precondition: the corpse is in the shadow pass').toBeGreaterThan(falling.parts);
+  expect(fallingCost.shadow.calls-landedCost.shadow.calls,'the shadow pass did not draw the merged corpse in fewer calls').toBe(falling.parts-landed.parts);
   await game.capture(`${kind}-corpse`);
   await press(page, 'attack');await game.step(500);expect((await game.state()).experience.total).toBe(killed.experience.total);
   await page.keyboard.down(stance.key);await game.step(550);await page.keyboard.up(stance.key);
