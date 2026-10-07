@@ -5,7 +5,7 @@ import { freshMeta, PEARL_CAP, type Meta } from '../app/dungeon-meta.ts';
 
 const run = (floor: number, xp: number): BestRun => ({ floor, xp, kills: 0, won: false });
 // A plausible death on floor 2, which every history test varies one field of.
-const end = (over: Partial<RunEnd> = {}): RunEnd => ({ at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 0, bosses: 0, ...over });
+const end = (over: Partial<RunEnd> = {}): RunEnd => ({ at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee, arm: 'tideblade', upgrades: {}, pearls: 0, bosses: 0, chambers: 0, ...over });
 const won = (over: Partial<RunEnd> = {}): RunEnd => end({ floor: 3, won: true, cause: null, ...over });
 
 test('the best run is the deepest, with XP only breaking a tie on the same floor', () => {
@@ -82,7 +82,8 @@ test('an entry is kept only if it still says where and how the run ended', () =>
   assert.equal(parseRun({ ...end(), won: true }), null);
   assert.equal(parseRun({ ...won(), won: false }), null);
   // Fields that only colour an entry degrade to a floor rather than sinking it.
-  assert.deepEqual(parseRun({ at: 9, floor: 2, won: false, cause: 'warden', seed: 3 }), { at: 9, floor: 2, won: false, cause: 'warden', seconds: 0, rank: 1, xp: 0, kills: 0, boons: [], seed: 3, arm: 'tideblade', upgrades: {}, pearls: 0, bosses: 0 });
+  const bare = { at: 9, floor: 2, won: false, cause: 'warden', seed: 3, arm: 'tideblade', upgrades: {}, pearls: 0, bosses: 0, chambers: 0 };
+  assert.deepEqual(parseRun(bare), { ...bare, seconds: 0, rank: 1, xp: 0, kills: 0, boons: [] });
   assert.deepEqual(parseRun({ ...end(), boons: ['edge', 7, null, 'ward'] })?.boons, ['edge', 'ward']);
   assert.deepEqual(parseRun({ ...end(), boons: 'edge' })?.boons, []);
   assert.deepEqual(parseRun({ ...end(), boons: Array(30).fill('edge') })?.boons.length, 12);
@@ -151,60 +152,42 @@ test('a history that is missing, hostile or unwritable costs the log and nothing
   }
 });
 
-// --- Plan 019: what a run leaves behind (the record) and what it buys (the meta save) --------------------
-// A record written before the meta existed has no `arm`, `upgrades` or `pearls`. It is a good record: it reads
-// as a Tideblade run on no upgrades that paid nothing, and is not dropped.
-const PRE_019 = { at: 1_700_000_000_000, floor: 2, won: false, cause: 'guard', seconds: 94, rank: 3, xp: 415, kills: 12, boons: ['edge', 'ward'], seed: 0xc0ffee };
+// --- Plans 019, 021, 023: what a run leaves behind ------------------------------------------------------
+// `arm`, `upgrades`, `pearls`, `bosses` and `chambers` are on every record the game writes. There are no saves from
+// before them to honour, so a record without one is malformed and dropped, as a record with no seed is.
+const REQUIRED = ['arm', 'upgrades', 'pearls', 'bosses', 'chambers'] as const;
 
-test('a record from before the meta save parses, with the Tideblade, no upgrades and no pearls', () => {
-  assert.ok(!('arm' in PRE_019) && !('upgrades' in PRE_019) && !('pearls' in PRE_019), 'precondition: the fixture really lacks the new fields');
-  assert.deepEqual(parseRun(PRE_019), { ...PRE_019, arm: 'tideblade', upgrades: {}, pearls: 0, bosses: 0 }, 'a pre-019 record was not read as a Tideblade run on no upgrades, felling no boss');
-  // And a whole old log keeps every entry, rather than dropping the lot for the missing fields.
-  assert.deepEqual(parseRuns(JSON.stringify([PRE_019, { ...PRE_019, at: 2 }])).map(run => run.at), [1_700_000_000_000, 2]);
+test('a record missing any of arm, upgrades, pearls, bosses or chambers, or holding a bad one, is dropped', () => {
+  assert.notEqual(parseRun(end()), null, 'precondition: the full record parses, or every drop below is vacuous');
+  for (const key of REQUIRED) {
+    const { [key]: _, ...without } = end();
+    assert.equal(parseRun(without), null, `a record with no ${key} was kept`);
+  }
+  for (const arm of ['lance', 7, 'toString']) assert.equal(parseRun({ ...end(), arm }), null, `an arm of ${String(arm)} was kept`);
+  for (const upgrades of ['lungs', null, ['lungs']]) assert.equal(parseRun({ ...end(), upgrades }), null, `upgrades of ${JSON.stringify(upgrades)} were kept`);
+  for (const key of ['pearls', 'bosses', 'chambers'] as const) for (const bad of [-1, 'nine', null, NaN]) assert.equal(parseRun({ ...end(), [key]: bad }), null, `${key} of ${String(bad)} was kept`);
+  // One such record costs itself, not the log.
+  const { chambers: _, ...stale } = end({ at: 2 });
+  assert.deepEqual(parseRuns(JSON.stringify([end({ at: 1 }), stale, end({ at: 3 })])).map(run => run.at), [1, 3]);
 });
 
-// Plan 021: a run records the bosses it felled and the boss each floor it reached held. Older records have neither and keep none.
-test('an old record parses with no bosses felled and no boss list, and a new one keeps both', () => {
-  const old = parseRun(PRE_019)!;
-  assert.equal(old.bosses, 0, 'an old record did not read as felling no boss');
-  assert.ok(!('bossKinds' in old), 'an old record grew a boss list');
-  const kept = parseRun({ ...PRE_019, bosses: 2, bossKinds: ['captain', 'captain'] })!;
-  assert.deepEqual([kept.bosses, kept.bossKinds], [2, ['captain', 'captain']]);
-  // Only boss kinds survive, and a count that is not a whole number is none.
-  assert.deepEqual(parseRun({ ...PRE_019, bossKinds: ['guard', 'captain', 7, 'ghost'] })!.bossKinds, ['captain']);
-  assert.ok(!('bossKinds' in parseRun({ ...PRE_019, bossKinds: ['guard', 'ghost'] })!), 'a list of no bosses was kept');
-  assert.equal(parseRun({ ...PRE_019, bosses: -1 })!.bosses, 0);
-  assert.equal(parseRun({ ...PRE_019, bosses: 'two' })!.bosses, 0);
-  // Written back and read again, a record is the same.
-  const written = JSON.stringify(kept);
-  assert.deepEqual(parseRun(JSON.parse(written)), kept);
-});
-
-// Plan 023: a run records the fight chambers it cleared. An older record has none and keeps none (`pearlsFor` reads that as a pearl a kill); a stored 0 is a run that cleared none and is kept.
-test('a record keeps the chambers it cleared, an old one has none, and a bad count is none', () => {
-  assert.ok(!('chambers' in parseRun(PRE_019)!), 'an old record grew a chamber count');
-  assert.equal(parseRun({ ...PRE_019, chambers: 9 })!.chambers, 9);
-  assert.equal(parseRun({ ...PRE_019, chambers: 0 })!.chambers, 0, 'a run that cleared no chamber lost its zero, which would make it read as an old record');
-  assert.equal(parseRun({ ...PRE_019, chambers: 4.9 })!.chambers, 4);
-  assert.equal(parseRun({ ...PRE_019, chambers: 1e9 })!.chambers, 999);
-  for (const bad of [-1, 'nine', null, NaN]) assert.ok(!('chambers' in parseRun({ ...PRE_019, chambers: bad })!), `a chamber count of ${String(bad)} was kept`);
-  const kept = parseRun({ ...PRE_019, chambers: 7 })!;
-  assert.deepEqual(parseRun(JSON.parse(JSON.stringify(kept))), kept, 'a record with chambers does not survive a write and a read');
-});
-
-test('the new record fields are kept when sane and defaulted one by one when not', () => {
-  const full = parseRun({ ...PRE_019, arm: 'maul', upgrades: { lungs: 2, tide: 1 }, pearls: 77 });
-  assert.deepEqual([full?.arm, full?.upgrades, full?.pearls], ['maul', { lungs: 2, tide: 1 }, 77]);
-  // An arm this build has not heard of is the Tideblade, not a reason to lose the run.
-  assert.equal(parseRun({ ...PRE_019, arm: 'lance' })?.arm, 'tideblade');
-  assert.equal(parseRun({ ...PRE_019, arm: 7 })?.arm, 'tideblade');
-  assert.equal(parseRun({ ...PRE_019, arm: 'toString' })?.arm, 'tideblade');
+test('the record fields are kept when sane and clamped when too big, and a record survives a write and a read', () => {
+  const full = parseRun({ ...end(), arm: 'maul', upgrades: { lungs: 2, tide: 1 }, pearls: 77, chambers: 9 });
+  assert.deepEqual([full?.arm, full?.upgrades, full?.pearls, full?.chambers], ['maul', { lungs: 2, tide: 1 }, 77, 9]);
   // Ranks are held to the table: unknown ids go, a rank over its maximum is clamped, zero is absent.
-  assert.deepEqual(parseRun({ ...PRE_019, upgrades: { lungs: 99, ghost: 1, eye: 0, whet: -1, toString: 2 } })?.upgrades, { lungs: 3 });
-  assert.deepEqual(parseRun({ ...PRE_019, upgrades: 'lungs' })?.upgrades, {});
-  assert.equal(parseRun({ ...PRE_019, pearls: -5 })?.pearls, 0);
-  assert.equal(parseRun({ ...PRE_019, pearls: 12.9 })?.pearls, 12);
-  assert.equal(parseRun({ ...PRE_019, pearls: 1e12 })?.pearls, PEARL_CAP);
+  assert.deepEqual(parseRun({ ...end(), upgrades: { lungs: 99, ghost: 1, eye: 0, whet: -1, toString: 2 } })?.upgrades, { lungs: 3 });
+  assert.equal(parseRun({ ...end(), pearls: 12.9 })?.pearls, 12);
+  assert.equal(parseRun({ ...end(), pearls: 1e12 })?.pearls, PEARL_CAP);
+  assert.equal(parseRun({ ...end(), chambers: 0 })?.chambers, 0, 'a run that cleared no chamber lost its zero');
+  assert.equal(parseRun({ ...end(), chambers: 4.9 })?.chambers, 4);
+  assert.equal(parseRun({ ...end(), chambers: 1e9 })?.chambers, 999);
+  // Plan 021: the bosses felled and the boss each floor held. Only boss kinds survive; a list of none is left out.
+  const kept = parseRun({ ...end(), bosses: 2, bossKinds: ['captain', 'captain'], chambers: 7 })!;
+  assert.deepEqual([kept.bosses, kept.bossKinds], [2, ['captain', 'captain']]);
+  assert.deepEqual(parseRun({ ...end(), bossKinds: ['guard', 'captain', 7, 'ghost'] })!.bossKinds, ['captain']);
+  assert.ok(!('bossKinds' in parseRun({ ...end(), bossKinds: ['guard', 'ghost'] })!), 'a list of no bosses was kept');
+  assert.equal(parseRun({ ...end(), bosses: 9 })!.bosses, 3);
+  assert.deepEqual(parseRun(JSON.parse(JSON.stringify(kept))), kept, 'a record does not survive a write and a read');
 });
 
 // --- The meta save -------------------------------------------------------------------------------
@@ -434,22 +417,14 @@ test('plan 016: mouse buttons are codes like keys, round-trip through a blob and
   }
 });
 
-test('plan 016: a blob from before special and map fills them from the defaults it has not claimed', () => {
-  // The whole of what the previous build wrote for an untouched card. No migration (decision 5): the
-  // strike stays on Space because the blob says so, and the two new actions come from the defaults.
-  const old = JSON.stringify({ binds: { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], attack: ['Space'], dash: ['ShiftLeft', 'ShiftRight'], swap: ['KeyE'], pause: ['Escape'], mute: ['KeyM'], fullscreen: ['KeyF'] } });
-  const binds = parseSettings(old).binds;
-  assert.deepEqual(binds.attack, ['Space']);
-  assert.deepEqual(binds.special, ['Mouse2', 'KeyK']);
-  assert.deepEqual(binds.dash, ['ShiftLeft', 'ShiftRight']);
-  assert.deepEqual(binds.map, ['Tab']);
-  // An earlier action that took one of a new action's defaults keeps it, and the new action keeps the rest.
+test('a blob missing an action fills it from the defaults no other action has claimed', () => {
+  // An action that took one of a missing action's defaults keeps it, and the missing action keeps the rest.
   assert.deepEqual(parseSettings('{"binds":{"attack":["KeyK"]}}').binds.special, ['Mouse2']);
   assert.deepEqual(parseSettings('{"binds":{"up":["Mouse2"]}}').binds.special, ['KeyK']);
-  // One that took all of them would leave the new action empty, so the set goes back to defaults entire.
+  // One that took all of them would leave the missing action empty, so the set goes back to defaults entire.
   assert.deepEqual(parseSettings('{"binds":{"up":["Tab"]}}').binds, DEFAULT_BINDS);
   assert.deepEqual(parseSettings('{"binds":{"up":["Mouse2"],"attack":["KeyK"]}}').binds, DEFAULT_BINDS);
-  for (const raw of [old, '{"binds":{"attack":["KeyK"]}}', '{"binds":{"up":["Tab"]}}']) {
+  for (const raw of ['{"binds":{"attack":["KeyK"]}}', '{"binds":{"up":["Tab"]}}']) {
     const parsed = parseSettings(raw).binds;
     const all = ACTIONS.flatMap(a => parsed[a]);
     assert.equal(new Set(all).size, all.length, raw);

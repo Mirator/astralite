@@ -10,7 +10,7 @@ import type { RunCause, RunEnd } from '../app/dungeon-save.ts';
 import { formatReport, median, readRuns, summariseReport } from '../scripts/runs/report.ts';
 
 const NOW = new Date('2026-09-30T08:00:00.000Z');
-const run = (over: Partial<RunEnd> & { floor: number; seed: number }): RunEnd => ({ at: 1_700_000_000_000 + over.seed, won: false, cause: 'guard', seconds: 60, rank: 2, xp: 100, kills: 5, boons: [], arm: 'tideblade', upgrades: {}, pearls: 0, bosses: 0, ...over });
+const run = (over: Partial<RunEnd> & { floor: number; seed: number }): RunEnd => ({ at: 1_700_000_000_000 + over.seed, won: false, cause: 'guard', seconds: 60, rank: 2, xp: 100, kills: 5, boons: [], arm: 'tideblade', upgrades: {}, pearls: 0, bosses: 0, chambers: 0, ...over });
 const lost = (floor: number, seed: number, cause: RunCause, seconds: number, boons: string[] = []) => run({ floor, seed, cause, seconds, boons });
 // Six deaths (seconds 30, 60, 90, 100, 200, 250: an even count, so the median is the mean of 90 and 100 and an
 // off-by-one lands on 90 or 100), two escapes (400 and 520, median 460), a bare win, one boon id the build does not know.
@@ -134,10 +134,3 @@ test('escapes and deaths are counted per total of upgrade ranks held at the star
   assert.match(formatReport(summariseReport(log)), / 6 ranks +1 runs +escapes +1 +deaths +0/);
 });
 
-test('a log from before the meta save reports as Tideblade runs on no upgrades', () => {
-  const old = LOG.map(({ arm: _arm, upgrades: _upgrades, pearls: _pearls, ...record }) => record);
-  const read = readRuns(JSON.stringify(old));
-  assert.equal(read?.length, LOG.length, 'precondition: every old record was read');
-  assert.deepEqual(summariseReport(read!).byArm, [{ arm: 'tideblade', runs: 8, escapes: 2, deaths: 6 }], 'old records were not all filed under the Tideblade');
-  assert.deepEqual(summariseReport(read!).byUpgrades, [{ ranks: 0, runs: 8, escapes: 2, deaths: 6 }], 'old records were not all filed under zero ranks');
-});

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { ARM_ORDER, ARM_PRICES, bank, buyArm, buyUpgrade, CHAMBER_PEARLS, chooseArm, ELITE_PEARLS, FLOOR_PEARLS, FLOORS, freshMeta, maxedMeta, pearlsFor, PEARL_CAP, PRICE_TOTAL, rankOf, runStart, UPGRADES, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
+import { ARM_ORDER, ARM_PRICES, bank, BOSS_PEARLS, buyArm, buyUpgrade, CHAMBER_PEARLS, chooseArm, ELITE_PEARLS, FLOOR_PEARLS, FLOORS, freshMeta, maxedMeta, pearlsFor, PEARL_CAP, PRICE_TOTAL, rankOf, runStart, UPGRADES, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
 import { FLOORS as SIM_FLOORS } from '../scripts/balance/sim.ts';
 import { STRIKE_BONUS } from '../app/dungeon-sim.ts';
 import { FOUND_WEAPONS } from '../app/dungeon-weapon.ts';
@@ -48,46 +48,30 @@ test('an elite pays ELITE_PEARLS on top of its chamber, and a boss BOSS_PEARLS',
   assert.equal(pearlsFor({ floor: 2, won: false, kills: 30, chambers: 5, bosses: 1 }) - plain, 10);
 });
 
-// A record from before plan 023 has no `chambers`. Nothing re-pays a stored run (its `pearls` is in the record), but the type must read it as it was paid then.
-test('a record with no chambers reads as it was paid before: a pearl a kill', () => {
-  assert.equal(pearlsFor({ floor: 3, won: true, kills: 76 }), 76 + 45 + 25, 'a record with no chambers no longer reads as a pearl a kill');
-  assert.equal(pearlsFor({ floor: 2, won: false, kills: 20 }), 20 + 15);
-  assert.equal(pearlsFor({ floor: 3, won: false, kills: 50 }), 50 + 30, 'a floor-3 death has two floors behind it, not three');
-  assert.notEqual(pearlsFor({ floor: 2, won: false, kills: 20 }), pearlsFor({ floor: 2, won: false, kills: 20, chambers: 0 }), 'precondition: a stored 0 chambers is a run that cleared none, not an old record');
-});
-
-test('a pearl a kill, as before plan 023 (a record without chambers), 15 a floor behind him and 25 for getting out', () => {
-  // Written out as arithmetic rather than through the function under test.
-  assert.equal(pearlsFor({ floor: 1, won: false, kills: 0 }), 0, 'a floor-1 death with no kills has no floor behind it');
-  assert.equal(pearlsFor({ floor: 1, won: false, kills: 9 }), 9);
-  assert.equal(pearlsFor({ floor: 2, won: false, kills: 20 }), 20 + 15);
-  assert.equal(pearlsFor({ floor: 3, won: false, kills: 50 }), 50 + 30, 'a floor-3 death has two floors behind it, not three');
-  assert.equal(pearlsFor({ floor: 3, won: true, kills: 76 }), 76 + 45 + 25);
-});
-
-// Plan 021 (D10): ten pearls for every boss felled, on top of a pearl a kill (a boss is also a kill), and a run that dies to a boss still pays for the bosses behind it.
-test('every boss felled pays ten pearls, however many other bodies fell', () => {
-  assert.equal(pearlsFor({ floor: 2, won: false, kills: 20, bosses: 1 }), 20 + 15 + 10, 'a boss on floor one is ten pearls, not ten for each of the twenty kills');
-  assert.equal(pearlsFor({ floor: 3, won: false, kills: 50, bosses: 2 }), 50 + 30 + 20, 'a death to the last boss pays for the two behind it');
-  assert.equal(pearlsFor({ floor: 3, won: true, kills: 76, bosses: 3 }), 76 + 45 + 25 + 30);
-  assert.equal(pearlsFor({ floor: 2, won: false, kills: 20 }), pearlsFor({ floor: 2, won: false, kills: 20, bosses: 0 }), 'a record with no boss count pays what it always paid');
-  assert.equal(bank(rich({ pearls: 5 }), { floor: 2, won: false, kills: 20, bosses: 1 }).pearls, 5 + 45, 'banking leaves the boss pearls out');
+// Plan 021 (D10): ten pearls for every boss felled, on top of the chambers (a boss's chamber is also a chamber), and a run that dies to a boss still pays for the bosses behind it.
+test('every boss felled pays BOSS_PEARLS, however many other bodies fell', () => {
+  const chambers = (n: number) => n * CHAMBER_PEARLS;
+  assert.equal(pearlsFor({ floor: 2, won: false, kills: 20, chambers: 4, bosses: 1 }), chambers(4) + FLOOR_PEARLS + BOSS_PEARLS, 'a boss on floor one is BOSS_PEARLS, not that for each of the twenty kills');
+  assert.equal(pearlsFor({ floor: 3, won: false, kills: 50, chambers: 9, bosses: 2 }), chambers(9) + 2 * FLOOR_PEARLS + 2 * BOSS_PEARLS, 'a death to the last boss pays for the two behind it');
+  assert.equal(pearlsFor({ floor: 3, won: true, kills: 76, chambers: 14, bosses: 3 }), chambers(14) + 3 * FLOOR_PEARLS + 25 + 3 * BOSS_PEARLS);
+  assert.equal(pearlsFor({ floor: 2, won: false, kills: 20, chambers: 4 }), pearlsFor({ floor: 2, won: false, kills: 20, chambers: 4, bosses: 0 }), 'no boss count is not the same as no bosses');
+  assert.equal(bank(rich({ pearls: 5 }), { floor: 2, won: false, kills: 20, chambers: 4, bosses: 1 }).pearls, 5 + chambers(4) + FLOOR_PEARLS + BOSS_PEARLS, 'banking leaves the boss pearls out');
 });
 
 test('banking adds exactly what the run paid, to a new meta, and never touches the old one', () => {
   const before = rich({ pearls: 40, upgrades: { lungs: 1 }, arms: ['tideblade', 'maul'], arm: 'maul' });
   const snapshot = JSON.parse(JSON.stringify(before)) as Meta;
-  const end = { floor: 2, won: false, kills: 20 };
-  assert.equal(pearlsFor(end), 35, 'precondition: the run pays something, or "added exactly" is vacuous');
+  const end = { floor: 2, won: false, kills: 20, chambers: 4 };
+  assert.equal(pearlsFor(end), 4 * CHAMBER_PEARLS + FLOOR_PEARLS, 'precondition: the run pays something, or "added exactly" is vacuous');
   const after = bank(before, end);
-  assert.equal(after.pearls, 75);
+  assert.equal(after.pearls, 40 + 4 * CHAMBER_PEARLS + FLOOR_PEARLS);
   assert.notEqual(after, before, 'bank returned the meta it was given');
   assert.deepEqual(before, snapshot, 'the input meta was changed');
   assert.deepEqual({ ...after, pearls: 0 }, { ...snapshot, pearls: 0 }, 'banking changed something besides the balance');
   // Nor do the new meta's lists alias the old one's.
   after.arms.push('spear'); after.upgrades.tide = 1;
   assert.deepEqual(before, snapshot);
-  assert.equal(bank(rich({ pearls: PEARL_CAP - 1 }), { floor: 3, won: true, kills: 50 }).pearls, PEARL_CAP);
+  assert.equal(bank(rich({ pearls: PEARL_CAP - 1 }), { floor: 3, won: true, kills: 50, chambers: 14 }).pearls, PEARL_CAP);
 });
 
 test('an upgrade is bought one rank at a time, at the price of the rank it buys', () => {

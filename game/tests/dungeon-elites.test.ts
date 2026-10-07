@@ -148,16 +148,16 @@ test('an elite pays double experience and 2 pearls, a plain body one of each, an
   assert.deepEqual([plain.kills, plain.elites, plain.totalXp], [1, 0, 25]);
   assert.deepEqual([elite.kills, elite.elites, elite.totalXp], [1, 1, 50], 'an elite is a kill, an elite kill and 50 experience');
   assert.equal(resolveKill(createRun(), 'captain', true).xp, 100, 'a boss pays the boss\'s purse whatever it carries');
-  const end = (patch: Partial<RunEnd> = {}) => ({ floor: 2, won: false, kills: 10, ...patch });
+  const end = (patch: Partial<RunEnd> = {}) => ({ floor: 2, won: false, kills: 10, chambers: 5, ...patch });
   assert.equal(pearlsFor(end({ elites: 3 })) - pearlsFor(end()), 3 * ELITE_PEARLS);
   assert.equal(ELITE_PEARLS, 1, 'an elite is worth a kill (1 pearl) and one more: 2');
   assert.equal(bank(freshMeta(), end({ elites: 3 })).pearls - bank(freshMeta(), end()).pearls, 3);
 });
 
-test('a run that felled elites says so in its record, and an old record or a run with none has no field', () => {
-  const base = { at: 1, floor: 2, won: false, cause: 'guard', seconds: 90, rank: 2, xp: 300, kills: 12, boons: [], seed: 5, arm: 'tideblade', upgrades: {}, pearls: 40, bosses: 0 };
+test('a run that felled elites says so in its record, and a run with none has no field', () => {
+  const base = { at: 1, floor: 2, won: false, cause: 'guard', seconds: 90, rank: 2, xp: 300, kills: 12, boons: [], seed: 5, arm: 'tideblade', upgrades: {}, pearls: 40, bosses: 0, chambers: 3 };
   assert.equal(parseRun({ ...base, elites: 4 })?.elites, 4);
-  assert.ok(!('elites' in (parseRun(base) ?? {})), 'a record from before elites gained a field');
+  assert.ok(!('elites' in (parseRun(base) ?? {})), 'a run that felled no elite gained a field');
   assert.ok(!('elites' in (parseRun({ ...base, elites: 0 }) ?? {})));
   assert.ok(!('elites' in (parseRun({ ...base, elites: -3 }) ?? {})), 'a negative count was kept');
 });

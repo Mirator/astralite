@@ -15,16 +15,19 @@ export type BestRun = { floor: number; xp: number; kills: number; won: boolean }
 //
 // Plan 019 added the last three, because runs on different meta levels are not comparable: `arm` is the arm
 // the run was fought with, `upgrades` the ranks held when it began (id to rank, only ids above zero) and
-// `pearls` what it paid. A record from before then reads as a Tideblade run on no upgrades that paid nothing.
+// `pearls` what it paid.
 //
-// Plan 021 added `bosses` (how many bosses the run felled; 0 on a record from before) and `bossKinds`, the boss each floor the run reached
-// held, in floor order, so a playtest report can say which bosses a run met. A record from before has no `bossKinds` and keeps none.
+// Plan 021 added `bosses` (how many bosses the run felled) and `bossKinds`, the boss each floor the run reached
+// held, in floor order, so a playtest report can say which bosses a run met; a run that met none has no `bossKinds` field.
 //
-// Plan 022 added `elites`, the elites the run felled (each paid a pearl of its own in `pearls`); a record from before, or a run that felled none, has no `elites` field.
+// Plan 022 added `elites`, the elites the run felled (each paid a pearl of its own in `pearls`); a run that felled none has no `elites` field.
 //
-// Plan 023 added `chambers`, the fight chambers the run cleared (each paid `CHAMBER_PEARLS`); a record from before has no `chambers` field, and `pearlsFor` reads that as a pearl a kill, as it was paid then.
+// Plan 023 added `chambers`, the fight chambers the run cleared (each paid `CHAMBER_PEARLS`).
+//
+// There are no players with older saves, so a record missing `arm`, `upgrades`, `pearls`, `bosses` or `chambers` is not
+// read the way an older build wrote it: it is malformed, and `parseRun` drops it.
 export type RunCause = EnemyKind | 'hazard';
-export type RunEnd = { at: number; floor: number; won: boolean; cause: RunCause | null; seconds: number; rank: number; xp: number; kills: number; boons: string[]; seed: number; arm: WeaponId; upgrades: Meta['upgrades']; pearls: number; bosses: number; bossKinds?: EnemyKind[]; elites?: number; chambers?: number };
+export type RunEnd = { at: number; floor: number; won: boolean; cause: RunCause | null; seconds: number; rank: number; xp: number; kills: number; boons: string[]; seed: number; arm: WeaponId; upgrades: Meta['upgrades']; pearls: number; bosses: number; bossKinds?: EnemyKind[]; elites?: number; chambers: number };
 
 // What the player has asked the game to be, as opposed to what one run left behind. Every default here
 // reproduces the game exactly as it shipped, so a blank, blocked or corrupt cell is not a different game:
@@ -145,7 +148,7 @@ export const parseBest = (raw: string | null): BestRun | null => {
   return { floor, xp, kills: whole(run.kills) ?? 0, won: run.won === true };
 };
 
-// One bad entry costs that entry, never the log: a run written by an older build, or a cell somebody
+// One bad entry costs that entry, never the log: a record missing a field, or a cell somebody
 // hand-edited, must not throw away every other run already recorded. A death with no recognisable cause
 // is dropped rather than filed under a guess — the cause distribution is the whole reason this exists,
 // so an invented one is worse than a missing row.
@@ -158,14 +161,13 @@ export const parseRun = (value: unknown): RunEnd | null => {
   if (won ? cause !== null : cause === null) return null;
   // A stored boon list is capped on the way in too, so a hand-grown array cannot bloat the log.
   const boons = Array.isArray(end.boons) ? end.boons.filter((id): id is string => typeof id === 'string').slice(0, 12) : [];
-  // Plan 019 fields. A record from an older build has none of them, and is not thereby damaged.
-  const arm = typeof end.arm === 'string' && ARM_ORDER.includes(end.arm as WeaponId) ? end.arm as WeaponId : STARTING_WEAPON;
+  // Fields every record this build writes carries (plans 019, 021, 023); without one it is not a run, and is dropped.
+  const arm = end.arm, pearls = whole(end.pearls), bosses = whole(end.bosses), chambers = whole(end.chambers);
+  if (typeof arm !== 'string' || !ARM_ORDER.includes(arm as WeaponId) || !end.upgrades || typeof end.upgrades !== 'object' || Array.isArray(end.upgrades) || pearls === null || bosses === null || chambers === null) return null;
   // Plan 021 fields: a stored boss list keeps only kinds that are bosses, at most one a floor, and is left out when nothing survives.
   const bossKinds = Array.isArray(end.bossKinds) ? end.bossKinds.filter((kind): kind is EnemyKind => typeof kind === 'string' && (ENEMY_KINDS as readonly string[]).includes(kind) && !!BESTIARY[kind as EnemyKind].boss).slice(0, 3) : [];
   const elites = Math.min(999, whole(end.elites) ?? 0);
-  // Plan 023: the fight chambers the run cleared, which a record from before it lacks (and reads as lacking: a stored `0` is a run that cleared none).
-  const chambers = whole(end.chambers) === null ? null : Math.min(999, whole(end.chambers) as number);
-  return { at, floor, won, cause, seconds: whole(end.seconds) ?? 0, rank: whole(end.rank) || 1, xp: whole(end.xp) ?? 0, kills: whole(end.kills) ?? 0, boons, seed, arm, upgrades: parseUpgrades(end.upgrades), pearls: Math.min(PEARL_CAP, whole(end.pearls) ?? 0), bosses: Math.min(3, whole(end.bosses) ?? 0), ...(bossKinds.length ? { bossKinds } : null), ...(elites ? { elites } : null), ...(chambers !== null ? { chambers } : null) };
+  return { at, floor, won, cause, seconds: whole(end.seconds) ?? 0, rank: whole(end.rank) || 1, xp: whole(end.xp) ?? 0, kills: whole(end.kills) ?? 0, boons, seed, arm: arm as WeaponId, upgrades: parseUpgrades(end.upgrades), pearls: Math.min(PEARL_CAP, pearls), bosses: Math.min(3, bosses), ...(bossKinds.length ? { bossKinds } : null), ...(elites ? { elites } : null), chambers: Math.min(999, chambers) };
 };
 
 // A log that is not a list is not a log. A list keeps exactly the entries that survive re-validation,

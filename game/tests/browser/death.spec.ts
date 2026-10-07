@@ -8,7 +8,7 @@ import { expect, press, stageBlow, test, veilSeen, watchVeil } from './helpers.t
 test.use({ hall: true });
 
 const runLog = (game: { page: import('@playwright/test').Page }) => game.page.evaluate(
-  () => (window as unknown as { dungeonTest: { runLog: () => { floor: number; won: boolean; kills: number; cause: string | null; pearls: number }[] } }).dungeonTest.runLog(),
+  () => (window as unknown as { dungeonTest: { runLog: () => { floor: number; won: boolean; kills: number; chambers: number; cause: string | null; pearls: number }[] } }).dungeonTest.runLog(),
 );
 
 test('a death returns to the hall: the card has one button and no other way off, a seed is retried by the hook alone, and what the run banked waits in the shop', async ({ game, page }) => {
