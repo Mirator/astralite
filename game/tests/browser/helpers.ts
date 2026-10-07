@@ -206,9 +206,8 @@ export type Snapshot = {
   fault: boolean;
   /** Plan 020: the save slot every read and write of progress speaks for, read off the game's closure. */
   slot: Slot;
-  /** Plan 020: whether the floor drawn is the Tide Altar's hall (read off the floor that was built), and whether its shop overlay is open. */
+  /** Plan 020: whether the floor drawn is the Tide Altar's hall (read off the floor that was built). Plan 025 retired the shop overlay's `altarOpen`: the list is a page of the pause card. */
   hall: boolean;
-  altarOpen: boolean;
   /**
    * Plan 020: what the scene actually placed in the hall, read off the groups it was attached to, or null on any other floor. `inScene` is true when the
    * piece's meshes are children of the floor being drawn; `stair` is whether a stair was built (it must not be).
@@ -216,6 +215,16 @@ export type Snapshot = {
   hallProps: {
     altar: { x: number; z: number; radius: number; over: boolean; inScene: boolean } | null;
     racks: string[];
+    /**
+     * Plan 025 (D8): the upgrade shrines as the scene holds them: `lit` counts the notches wearing the lit material, `plaque` is the price on the plaque
+     * attached to the floor (null when there is none). `buying` is the press of the swap key in progress, `pearls` the pearls in flight from the altar,
+     * `pulse` what the bank before this hall put newly in reach, and `tried` the arm in hand when it is not owned.
+     */
+    shrines: { id: string; x: number; z: number; over: boolean; inScene: boolean; ranks: number; lit: number; plaque: number | null }[];
+    buying: { target: string | null; fill: number };
+    pearls: number;
+    pulse: string[];
+    tried: string | null;
     wayDown: { x: number; z: number; radius: number; open: boolean; over: boolean; inScene: boolean; sign: string } | null;
     stair: boolean;
   } | null;
@@ -319,6 +328,10 @@ export type Snapshot = {
     inScene: boolean;
     /** The arm the swap prompt is currently naming while the knight stands in this ring, or null when it is not on screen. */
     offered: string | null;
+    /** Plan 025 (D8): a rack of the hall whose arm the save does not own (drawn as a silhouette), the price on its plaque, and whether the plaque burns as affordable. */
+    locked: boolean;
+    plaque: number | null;
+    plaqueReady: boolean;
   }[];
   stair: { x: number; z: number; radius: number };
   experience: {
@@ -1167,14 +1180,15 @@ export class Game {
     expect((await this.state()).hall, 'the way down led back to the hall').toBe(false);
   }
 
-  /** Plan 020: from the hall, stands the knight at the altar (a teleport) and opens its shop with the real swap key. */
+  /** Plan 020: from the hall, stands the knight at the altar (a teleport) and opens its list with the real swap key. Plan 025: the list is a page of the pause card. */
   async openAltar() {
     const altar = (await this.state()).hallProps!.altar!;
     await this.teleport(altar.x, altar.z);
     await this.step(64);
     await press(this.page, 'swap');
     await this.step(16);
-    expect((await this.state()).altarOpen, 'the swap key at the altar did not open the shop').toBe(true);
+    expect((await this.state()).mode, 'the swap key at the altar did not pause the hall on its list').toBe('paused');
+    await expect(this.page.locator('.altar-view .altar-panel'), 'the swap key at the altar did not open its list').toBeVisible();
   }
 
   /**

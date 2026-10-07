@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { altarHall, ARRIVAL_CLEAR, buryReserves, canStand, carves, dealBosses, drawKind, parseBoss, GATE_ARMS, GATE_SPACING, gateRacks, generateFloor, HALL_SEED, HEART_CLEAR, cellKey, moveOnFloor, oneCaller, PACK_MIX, TILE, type Spawn } from '../app/dungeon-floor.ts';
+import { altarHall, HALL_SHRINES, hallShrines, ARRIVAL_CLEAR, buryReserves, canStand, carves, dealBosses, drawKind, parseBoss, GATE_ARMS, GATE_SPACING, gateRacks, generateFloor, HALL_SEED, HEART_CLEAR, cellKey, moveOnFloor, oneCaller, PACK_MIX, TILE, type Spawn } from '../app/dungeon-floor.ts';
 import { arenaFloor } from '../app/dungeon-arena.ts';
 import { BESTIARY, BOSS_POOL, type EnemyKind } from '../app/dungeon-bestiary.ts';
 import { HOSTILE_POOL_RINGS } from '../app/dungeon-projectile.ts';
 import { PICKUP_RADIUS } from '../app/dungeon-sim.ts';
 import { FOUND_WEAPONS, STARTING_WEAPON } from '../app/dungeon-weapon.ts';
+import { UPGRADES } from '../app/dungeon-meta.ts';
 import { sweepSeeds, takeCensus } from '../scripts/balance/census.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
@@ -744,4 +745,44 @@ test('only the hall carries the hall marker: no generated floor has the key at a
   }
   // And the hall is not floor one of its own seed: the same seed's generated floor is a keep of many rooms, the hall a single one.
   assert.ok(generateFloor(HALL_SEED, 1).rooms.length > 1 && altarHall().rooms.length === 1, 'HALL_SEED\'s generated floor is as small as the hall, so the marker is not what tells them apart');
+});
+
+// --- Plan 025 Stage C: the hall's upgrade shrines ------------------------------------------------------------------------
+
+test('the hall seats one shrine for each upgrade, on its own floor, clear of every rack ring, the altar, the way in, the way down, every prop and each other', () => {
+  assert.equal(HALL_SHRINES, UPGRADES.length, 'a shrine for each upgrade');
+  const check = (hall: Floor, at: string) => {
+    const gate = hall.rooms[0], spots = hallShrines(hall), slots = gateRacks(hall);
+    assert.equal(slots.length, 7, `${at}: precondition: the racks were seated, or "clear of every rack" is vacuous`);
+    for (const spot of spots) {
+      const tile = { x: Math.round(spot.x / TILE), z: Math.round(spot.z / TILE) }, where = `${at} shrine at ${tile.x},${tile.z}`;
+      assert.equal(hall.roomByCell.get(cellKey(tile.x, tile.z)), gate.id, `${where}: off the hall's floor`);
+      assert.ok(ownFloor(gate, tile.x, tile.z), `${where}: in a door's alcove`);
+      assert.ok(Math.hypot(spot.x - gate.x * TILE, spot.z - gate.z * TILE) > HEART_CLEAR + PICKUP_RADIUS, `${where}: inside the altar's reach`);
+      assert.ok(Math.hypot(tile.x - gate.entry.x, tile.z - gate.entry.z) >= 2, `${where}: at the knight's arrival`);
+      for (const door of hall.doors) {
+        assert.ok(Math.hypot(tile.x - door.x, tile.z - door.z) >= 2, `${where}: in the way down`);
+        const mouth = doorMouth(gate, door);
+        assert.ok(Math.hypot(tile.x - mouth.x, tile.z - mouth.z) >= 2, `${where}: in the mouth of the way down`);
+      }
+      for (const prop of hall.props) assert.ok(Math.hypot(tile.x - prop.x, tile.z - prop.z) >= 1.5, `${where}: in a ${prop.kind}`);
+      for (const slot of slots) assert.ok(Math.hypot(spot.x - slot.x, spot.z - slot.z) >= 2 * PICKUP_RADIUS - 1e-9, `${where}: one ring could hold it and the ${slot.arm} rack`);
+    }
+    for (let a = 0; a < spots.length; a++) for (let b = a + 1; b < spots.length; b++) assert.ok(Math.hypot(spots[a].x - spots[b].x, spots[a].z - spots[b].z) >= 2 * PICKUP_RADIUS - 1e-9, `${at}: two shrines share a ring`);
+    return spots;
+  };
+  // The hall the game builds seats all four.
+  assert.equal(check(altarHall(), `hall ${HALL_SEED}`).length, HALL_SHRINES, 'the hall seats fewer shrines than there are upgrades');
+  // Other halls never break the spacing, even where they seat fewer.
+  for (const seed of HALL_SWEEP.slice(0, 60)) assert.ok(check(altarHall(seed), `hall ${seed}`).length <= HALL_SHRINES);
+});
+
+test('hallShrines is the same for the same hall and draws nothing', () => {
+  const real = Math.random;
+  try {
+    Math.random = () => { throw new Error('hallShrines drew a random number'); };
+    const hall = altarHall(), first = hallShrines(hall);
+    assert.deepEqual(hallShrines(altarHall()), first, 'two halls seat their shrines differently');
+    assert.deepEqual(altarHall(), hall, 'seating the shrines changed the hall');
+  } finally { Math.random = real; }
 });

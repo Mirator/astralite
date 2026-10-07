@@ -82,7 +82,8 @@ test('a death returns to the hall: the card has one button and no other way off,
   expect(hall.health, 'the run that brought him back was not dealt afresh').toBe(hall.maxHealth);
   await expect(card).toHaveCount(0);
 
-  // The pearls are in the shop, visible and spendable.
+  // The pearls are in the shop, visible and spendable: on the hall's counter (plan 025, in the hall only) and on the altar's list.
+  await expect(page.locator('.hall-purse'), "the hall's counter does not show what the run banked").toHaveAttribute('data-pearls', String(total));
   const altar = hall.hallProps!.altar!;
   await game.teleport(altar.x, altar.z);
   await game.step(64);
@@ -91,12 +92,12 @@ test('a death returns to the hall: the card has one button and no other way off,
   await expect(page.locator('.altar-purse')).toHaveText(`${total} pearls held`);
   await page.keyboard.press('Escape');
   await game.step(16);
-  expect((await game.state()).altarOpen).toBe(false);
+  expect((await game.state()).mode, "Escape did not put the altar's list away").toBe('playing');
 
   // The hall's pause menu has LEAVE TO TITLE, and it goes to the slot picker with the run still no further on.
   await page.keyboard.press('Escape');
   await game.step(16);
-  await expect(pauseMenu.getByRole('button')).toHaveText([/^RESUME/, 'LEAVE TO TITLE', /^Controls & journey/, /^Settings/]);
+  await expect(pauseMenu.getByRole('button')).toHaveText([/^RESUME/, /^The altar’s list/, 'LEAVE TO TITLE', /^Controls & journey/, /^Settings/]);
   await pauseMenu.getByRole('button', { name: 'LEAVE TO TITLE' }).click();
   await expect(page.locator('.slot-picker'), 'LEAVE TO TITLE did not go to the slot picker').toBeVisible();
   expect((await game.state()).mode, 'the title is not showing').toBe('ready');

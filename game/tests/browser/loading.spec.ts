@@ -360,7 +360,9 @@ test.describe('the hall', () => {
     await game.built();
     const sliced = await capture();
     expect(sliced.hall, 'the reset did not rebuild the hall').toBe(true);
-    expect((sliced.racks as unknown[]).length, 'the fixture needs racks in the hall for the comparison to cover them').toBe(2);
+    // Plan 025 (D8): every arm but the one in hand, owned or locked, and the four shrines.
+    expect((sliced.racks as unknown[]).length, 'the fixture needs racks in the hall for the comparison to cover them').toBe(6);
+    expect((sliced.hallProps as { shrines: unknown[] }).shrines.length, 'the fixture needs the shrines in the hall for the comparison to cover them').toBe(4);
     // The synchronous reference.
     await page.evaluate(() => (window as GameWindow).dungeonTest!.buildHall());
     const unsliced = await capture();

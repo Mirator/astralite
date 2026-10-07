@@ -30,7 +30,7 @@ export function createDungeonAudio() {
     // What the mixer is actually set to, for a driver that wants to see the lever moved rather than trust it.
     level: () => ({ volume: level, muted, target: mix(), gain: master?.gain.value ?? null, state: context?.state ?? 'none' }),
     pause(value: boolean) { if (context) void (value ? context.suspend() : context.resume()).catch(() => undefined); },
-    play(kind: 'step' | 'slash' | 'hit' | 'hurt' | 'dash' | 'clear' | 'warn' | 'win' | 'lunge' | 'harpoon' | 'toll' | 'charge' | 'ready' | 'vault' | 'backstab' | 'whirl' | 'draw' | 'heavybolt' | 'flashpoint') {
+    play(kind: 'step' | 'slash' | 'hit' | 'hurt' | 'dash' | 'clear' | 'warn' | 'win' | 'lunge' | 'harpoon' | 'toll' | 'charge' | 'ready' | 'vault' | 'backstab' | 'whirl' | 'draw' | 'heavybolt' | 'flashpoint' | 'chime' | 'refuse') {
       if (kind === 'step') tone(100, 0.065, 0.045, 40, 'triangle');
       if (kind === 'slash') tone(540, 0.13, 0.06, 80, 'triangle');
       if (kind === 'hit') { tone(170, 0.12, 0.18, 38, 'triangle'); tone(1100, 0.08, 0.035, 220, 'square'); }
@@ -50,6 +50,9 @@ export function createDungeonAudio() {
       if (kind === 'heavybolt') { tone(70, 0.3, 0.2, 35, 'square'); tone(1800, 0.14, 0.04, 400, 'sawtooth'); }
       if (kind === 'flashpoint') { tone(60, 0.6, 0.22, 25, 'sawtooth'); tone(900, 0.25, 0.05, 120, 'triangle', 0.02); }
       if (kind === 'ready') { tone(880, 0.22, 0.035, 880, 'sine'); tone(1320, 0.3, 0.025, 1320, 'sine', 0.07); }
+      // Plan 025 (D8): a purchase in the hall rings, three rising bells; a hold on something the purse cannot cover is a dull knock.
+      if (kind === 'chime') [660, 990, 1320].forEach((f, i) => tone(f, 0.6, 0.06, f, 'sine', i * 0.08));
+      if (kind === 'refuse') tone(120, 0.16, 0.08, 90, 'triangle');
       if (kind === 'clear' || kind === 'win') [220, 330, 440, 660].forEach((f,i) => tone(f, 0.8, 0.09, f, 'sine', i * 0.14));
     },
     dispose() { if (context) void context.close().catch(() => undefined); },
