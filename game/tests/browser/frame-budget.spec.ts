@@ -223,10 +223,18 @@ test.describe('the widest room', () => {
 //   six racks  289 calls, 119,695 triangles, 100 shadow calls (+71 calls, +33%; +5,066 triangles, +4.4%; +31 shadow calls, +45%).
 // Against the old gate's 298 / 203,164 / 87 that is -3.0% on calls and -41% on triangles (the hall is one room, the gate was one room of a
 // floor's many islands), and 13 more shadow calls than the gate: the altar's disc and crystal, and two braziers where the gate had none lit.
-// Each ceiling is the figure measured (counts are deterministic: three.js's own tally of a fixed scene); each floor is 95% of it.
-const ARMOURY = { empty: { calls: 218, triangles: 114_629, shadowCalls: 69 }, full: { calls: 289, triangles: 119_695, shadowCalls: 100 } };
+// Plan 025 (D8) put every arm on its rack whether it is owned or not (a locked one as a silhouette with a price plaque) and four upgrade shrines in the
+// hall's corners, so there is no bare hall left to difference against. The bound is the hall with nothing owned (six locked racks, four shrines) and with
+// the whole armoury owned (six racks in the knight's palette, four shrines), from the same stand. Measured 2026-10-07 on d3d11, whose counters have
+// equalled SwiftShader's on every scene here (three.js's own tally of a fixed scene):
+//   nothing owned  283 calls, 120,605 triangles, 86 shadow calls;
+//   all owned      310 calls, 120,587 triangles, 104 shadow calls.
+// Against plan 020's six racks (289 / 119,695 / 100) the whole armoury now costs +21 calls (the shrines), +892 triangles and +4 shadow calls, 198 calls
+// under the 508 the worst chamber is held to. A locked rack costs less than an owned one: its arm bakes into one material.
+// Each ceiling is the figure measured (counts are deterministic); each floor is 95% of it.
+const ARMOURY = { locked: { calls: 283, triangles: 120_605, shadowCalls: 86 }, owned: { calls: 310, triangles: 120_587, shadowCalls: 104 } };
 test.describe('the Tide Altar\'s hall with the whole armoury bought', () => {
-  test('six racks stand in the hall, and their cost stays where it was measured', async ({ game }) => {
+  test('six racks stand in the hall, owned or locked, and their cost stays where it was measured', async ({ game }) => {
     const drawn = async () => {
       const floor = altarHall();
       const racks = (await game.state()).racks;
@@ -235,22 +243,22 @@ test.describe('the Tide Altar\'s hall with the whole armoury bought', () => {
       await game.step(640);
       await game.step(0, true);
       const { render } = await game.state();
-      return { racks: racks.length, calls: render.calls, triangles: render.triangles, shadowCalls: render.shadow.calls };
+      return { racks: racks.length, locked: racks.filter((rack) => rack.locked).length, calls: render.calls, triangles: render.triangles, shadowCalls: render.shadow.calls };
     };
     await game.setMeta({ ...freshMeta(), arms: [...ARM_ORDER], arm: 'tideblade' });
     await game.enter();
     await game.buildHall();
     expect((await game.state()).hall, 'precondition: the scene drawn is the hall').toBe(true);
-    const full = await drawn();
-    // A bare hall from the same stand: the difference is the racks and nothing else.
+    const owned = await drawn();
+    // Nothing owned, from the same stand: the same six racks, every one locked.
     await game.setMeta(freshMeta());
     await game.buildHall();
     await game.step(0);
-    const empty = await drawn();
-    console.log(`ARMOURY empty=${JSON.stringify(empty)} full=${JSON.stringify(full)}`);
-    expect(empty.racks, 'the bare hall stood a rack').toBe(0);
-    expect(full.racks, 'the armoury is not six racks: seven arms, one in hand').toBe(6);
-    for (const [name, got, want] of [['empty', empty, ARMOURY.empty], ['full', full, ARMOURY.full]] as const) {
+    const locked = await drawn();
+    console.log(`ARMOURY locked=${JSON.stringify(locked)} owned=${JSON.stringify(owned)}`);
+    expect([locked.racks, locked.locked], 'the hall with nothing owned does not stand six locked racks').toEqual([6, 6]);
+    expect([owned.racks, owned.locked], 'the armoury is not six open racks: seven arms, one in hand').toEqual([6, 0]);
+    for (const [name, got, want] of [['locked', locked, ARMOURY.locked], ['owned', owned, ARMOURY.owned]] as const) {
       expect(got.calls, `${name} hall draws more often than measured; say what bought it and raise the number deliberately`).toBeLessThanOrEqual(want.calls);
       expect(got.calls, `${name} hall draws far fewer calls than it was measured at`).toBeGreaterThanOrEqual(want.calls * 0.95);
       expect(got.triangles, `${name} hall pushes more triangles than measured`).toBeLessThanOrEqual(want.triangles);
@@ -258,10 +266,8 @@ test.describe('the Tide Altar\'s hall with the whole armoury bought', () => {
       expect(got.shadowCalls, `${name} hall casts more shadow draws than measured`).toBeLessThanOrEqual(want.shadowCalls);
       expect(got.shadowCalls, `${name} hall casts far fewer shadow draws than measured`).toBeGreaterThanOrEqual(want.shadowCalls * 0.95);
     }
-    // And the racks themselves are what was added: some draw calls and some triangles, and not the order of a second hall.
-    expect(full.calls - empty.calls, 'six racks added no draw calls, so they are not being drawn').toBeGreaterThan(20);
-    expect(full.triangles - empty.triangles, 'six racks added no triangles').toBeGreaterThan(1000);
-    expect(full.calls, 'six racks cost more than half again the bare hall').toBeLessThan(empty.calls * 1.5);
+    // And what tells the two apart is the racks' palettes: an owned arm is drawn in the knight's materials, a locked one baked into one dark stone.
+    expect(owned.calls - locked.calls, 'an owned rack costs no more than a locked one, so the silhouettes are not what is drawn').toBeGreaterThan(10);
   });
 });
 

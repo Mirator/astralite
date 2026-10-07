@@ -42,7 +42,7 @@ import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
 import { createGovernor, observeFrame, startPixelRatio, type QualityStage } from './dungeon-quality';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, readBest, readMeta, readRuns, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
-import { armForRun, bank, buyArm, buyItem, buyUpgrade, canTry, freshMeta, holdFill, holdStep, idleHold, newlyAffordable, pearlsFor, runStart as metaRunStart, sameMeta, settleArm, shopItem, UPGRADES, type Meta } from './dungeon-meta';
+import { armForRun, bank, BUY_HOLD, buyArm, buyItem, buyUpgrade, canTry, freshMeta, holdFill, holdStep, idleHold, newlyAffordable, pearlsFor, runStart as metaRunStart, sameMeta, settleArm, shopItem, UPGRADES, type Meta } from './dungeon-meta';
 import { clearChamber, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, SHRINE, SHRINE_REACH, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
@@ -737,7 +737,7 @@ export default function DungeonGame() {
     // under the knight. `hold` follows one press of the swap key toward a purchase (dungeon-meta `holdStep`). `lastOwned` is the owned arm he last held, which
     // is what the way down takes if he walks down trying one he does not own. `bankedFrom` is the save before the last run banked, read once by the next
     // hall to pulse the counter when that bank put something newly in reach (`pulse` is what it found).
-    let kit: HallKit | null = null, shrines: Shrine[] = [], overShrine: Shrine | null = null, hold = idleHold(), lastOwned: WeaponId = STARTING_WEAPON, bankedFrom: Meta | null = null, pulse: string[] = [], shopMeta: Meta = freshMeta();
+    let kit: HallKit | null = null, shrines: Shrine[] = [], overShrine: Shrine | null = null, hold = idleHold(), lastOwned: WeaponId = STARTING_WEAPON, bankedFrom: Meta | null = null, pulse: string[] = [], shopMeta: Meta = freshMeta(), refusing = 0;
     // Plan 017: the door the knight is standing at, and the fade he is crossing to the next chamber behind.
     let overDoor: Door | null = null, crossing: { door: Door; time: number; flipped: boolean } | null = null;
     // Put a different arm in the knight's hand. The old geometry is released; the materials are his own
@@ -1934,7 +1934,10 @@ export default function DungeonGame() {
         }
         if (hall) {
           const down = held('swap') || keys.has('Touchswap'), candidate = buyCandidate();
-          if (down && !hold.down && candidate && !candidate.affordable) audio.play('refuse');
+          // Held as long as a purchase on something the purse cannot cover: one dull knock, not a knock on every press that only tries an arm.
+          const wanting = down && !!candidate && !candidate.affordable, waited = wanting ? refusing + dt : 0;
+          if (wanting && refusing < BUY_HOLD && waited >= BUY_HOLD) audio.play('refuse');
+          refusing = waited;
           const step = holdStep(hold, down, candidate?.affordable ? candidate.key : null, dt); hold = step.hold;
           if (step.buys && hold.target) purchase(hold.target);
           buyRing.current?.style.setProperty('--fill', String(holdFill(hold)));

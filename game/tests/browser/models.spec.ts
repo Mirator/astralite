@@ -33,7 +33,9 @@ test('actorStats reads the knight, every living enemy and the racks off the live
   await game.buildHall();
   const hall = await game.state();
   const hallStats = await game.actorStats();
-  expect(hall.racks.map((rack) => rack.kind), 'the hall shows the two arms owned besides the sword in hand').toEqual(['spear', 'maul']);
+  // Plan 025 (D8): the hall stands every arm on a rack, the ones not owned locked, so the open racks are the owned ones.
+  expect(hall.racks.filter((rack) => !rack.locked).map((rack) => rack.kind), 'the hall shows the two arms owned besides the sword in hand').toEqual(['spear', 'maul']);
+  expect(hall.racks.filter((rack) => rack.locked).length, 'the arms not owned are not on locked racks').toBe(4);
   expect(hallStats.racks.map((rack) => rack.kind)).toEqual(hall.racks.map((rack) => rack.kind));
   expect(hallStats.enemies, 'someone stands in the hall').toEqual([]);
   // Plan 009: the arm, its plinth and collar, the glow and the ring - baked, a rack is at most eight.
@@ -73,7 +75,9 @@ test('tearing a floor down leaves the knight his own materials', async ({ game }
   await game.buildHall();
   await game.step(0, true);
   const before = await game.actorStats();
-  expect(before.racks.map((rack) => rack.kind), 'the fixture needs a rack on the floor being torn down').toEqual(['maul']);
+  // Plan 025 (D8): the hall stands every arm on a rack, the ones not owned locked, so the open racks are the owned ones. The locked ones are drawn in the hall's own dark stone, which the teardown releases with the hall.
+  expect((await game.state()).racks.filter((rack) => !rack.locked).map((rack) => rack.kind), 'the fixture needs an owned rack on the floor being torn down').toEqual(['maul']);
+  expect(before.racks.length, 'the fixture needs the locked racks too').toBe(6);
   // Torn down as the hall laid it, then the hall rebuilt holding the maul so the rack is the Tideblade, then a deeper floor.
   await game.buildFloor(2);
   await game.step(0, true);
@@ -81,7 +85,7 @@ test('tearing a floor down leaves the knight his own materials', async ({ game }
   await game.equip('maul');
   await game.buildHall();
   await game.step(0, true);
-  expect((await game.actorStats()).racks.map((rack) => rack.kind), 'the rebuilt hall did not lay the arm just set down').toEqual(['tideblade']);
+  expect((await game.state()).racks.filter((rack) => !rack.locked).map((rack) => rack.kind), 'the rebuilt hall did not lay the arm just set down').toEqual(['tideblade']);
   await game.buildFloor(3);
   await game.step(0, true);
   const after = await game.actorStats();

@@ -6116,3 +6116,79 @@ Moved to the next five beyond what was measured, none widened further: default e
 ## 2026-10-05 - Plan 024 Stage F: documents
 
 `GAME_OVERVIEW.md` (the pressure rule, a ranged body in every later wave, Grave Draught 2, the softer Pyre Mother and harder Bone King, the bots' numbers), the `plans/README.md` row for 024, this log and the plan's Evidence. Documents only: **the operator's playtest is not done** (five runs on a GPU: do rooms cost vitality, is a double threat readable, does the Draught still feel worth taking; the tide-mark question is moot). Open for the operator: D7's room-cost lines are not met (Stage E's stop rule) and want a decision on ordinary-enemy damage and on what heals between chambers.
+
+## 2026-10-07 - Plan 025 Stage C: the altar hall as a shop (D8)
+
+The Tide Altar's hall is the shop (D8, settled by the operator 2026-10-07). D9's in-run arm reward is Stage F and is not here. **The operator has not
+played the hall yet; plan 025 asks for that verdict before this merges.**
+
+### What changed
+
+- **Every arm on its rack.** The hall lays all seven slots of `gateRacks` but the arm in hand, owned or not. An unowned arm stands as a silhouette (the
+  arm baked in one dark stone, glow and ring cooled) with its price on a plaque, which burns when the purse covers it and is dimmed when it does not.
+  Standing in a rack's ring shows a card (`RackCard`: damage in blows, reach or range, swings a second, special, locked price or Owned).
+- **Try before buy.** The swap key at a locked rack takes the arm into the hand, in the hall only (`canTry`); it swings like any other. The arm set down
+  goes on that slot, as plan 019's racks always did. The way down refuses a tried arm (`settleArm` / `armForRun`): the run takes the owned arm he last
+  held, and the save never gains the tried one. The way-down prompt says so ("Into the keep with the Twin Fangs; the Salt Spear is only tried, and stays").
+- **Hold to buy.** One press of the swap key held `BUY_HOLD` (0.6 s) on one target buys it once (`holdStep`): the arm tried in hand, or the shrine under
+  the knight. A press that starts off a target or moves to another is spent until released, and a long hold never buys a second rank. The key's press at
+  a locked rack tries the arm at once, so one hold there is try-then-buy. A fill ring on the prompt (`--fill`, from the frame loop), a chime, ten pearls
+  flown from the altar to what was bought (one instanced draw, a fixed arc each), a pearl burst where they land, and the counter ticking down. A hold on
+  something the purse cannot cover fills nothing, knocks (`refuse`), and the prompt says how many pearls short.
+- **Upgrade shrines.** `hallShrines(floor)` (dungeon-floor.ts, pure, no draws) seats four on the hall's corners, clear of every rack ring, the altar, the
+  way in, the way down, every prop and each other; the decor layout reserves them as it does the rack slots. Each shrine: a plinth, a crystal that burns
+  when the next rank is affordable, a notch per rank lit for each rank held, a ring, and the next rank's price on a plaque.
+- **The pearl counter** (`HallPurse`) sits in the HUD in the hall only; it ticks to a new balance and pulses three times on arriving when the run just
+  banked put something newly in reach (`newlyAffordable` against the save before the bank).
+- **The dialog is a pause-card page.** The overlay, `altarOpen`, `closeAltar` and the `shop-close` command are gone. The hall's pause menu has "The
+  altar's list"; the altar's swap key opens the pause card on that page. Resuming re-lays the racks and shrines from whatever the list bought.
+- **Touch.** The prompt is pressed and held like the key (`hold-swap` / `release-swap`), so a phone can hold it to buy; the list stays the touch fallback.
+- Pure rules in `dungeon-meta.ts`: `BUY_HOLD`, `holdStep`, `holdFill`, `shopItem`, `buyItem`, `affordable`, `newlyAffordable`, `canTry`, `armForRun`,
+  `settleArm`, `armFacts`, `sameMeta`. The hall's meshes are a kit in the new `dungeon-hall.ts`, built with the hall and released with its floor. No light was
+  added (Stage B owns the pool); everything that glows is unlit or emissive.
+- **A latent bug in the altar's list, fixed.** `buy` compared the save it read back with the one it wrote by `JSON.stringify`; the save keeps upgrades in
+  the table's order, so buying Second Tide before Deep Lungs reported a working save as "could not be saved". `sameMeta` compares what the saves hold.
+
+### Measurements (d3d11, 2026-10-07)
+
+- Hall draw calls with the hall test's save (spear and maul owned, Tideblade in hand), framed from the way in: **212 calls, 114,368 triangles, 79 shadow
+  calls before; 255 calls, 118,196 triangles, 91 shadow calls after** (six racks, four of them locked with plaques, four shrines). 253 under the 508 the
+  frame budget holds the keep's worst chamber to. `tests/browser/hall.spec.ts` holds the hall between 212 (exclusive) and 255.
+- The frame budget's hall scene (`frame-budget.spec.ts`, the whole armoury) had no bare hall left to difference against, so it is now the hall with nothing
+  owned against the hall with everything owned, from the same stand: **nothing owned 283 calls, 120,605 triangles, 86 shadow calls; all owned 310 /
+  120,587 / 104**. Plan 020's six racks were 289 / 119,695 / 100 (SwiftShader), so the whole armoury costs +21 calls (the shrines), 198 under the 508.
+  Planted: locked racks in the knight's palette ("locked hall draws more often than measured").
+- `npm run figures` was not run: the bench lists figures, not racks or shrines, so it shows nothing this stage drew.
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- Node (`tests/dungeon-meta.test.ts`): hold duration (never on the press, once at BUY_HOLD, once however long, spent on a retarget), shop item prices and
+  shortfall, the rank cap, affordability and what a bank newly puts in reach, "a tried arm is not owned" (`canTry`, `armForRun`, `settleArm`), the rack
+  card's numbers, `sameMeta`. Planted: buy on the press ("the press itself bought"); lock whatever is in hand ("the run takes the arm tried"); no latch ("a
+  long hold bought more than once"); no rank cap ("at the top rank there is still a price"); affordability ignoring the purse; JSON in `sameMeta` ("the
+  same ranks in another order are not the same save").
+- Node (`tests/dungeon-floor.test.ts`): the shrines' spacing over the hall and a 60-hall sweep, and that seating them draws nothing. Planted: ignore the
+  rack spacing ("hall 1 shrine at 2,4: one ring could hold it and the cleaver rack").
+- Browser (`hall.spec.ts`, new scenario, real keyboard): a shrine bought by a hold exactly once, a locked arm tried and bought by one hold, a too-dear arm
+  tried and refused, and the way down taking the owned arm. Planted: buy on keydown ("the press bought before the hold had run"); lock whatever is in hand
+  ("the run did not start with the owned arm he last held (the Twin Fangs), with the spear only tried"); `enter()` not re-laying the shrines ("the Second
+  Tide shrine does not show the rank the save holds").
+- Browser (`meta.spec.ts`, new scenario): the counter pulses on the return when the bank put the Twin Fangs in reach, and a hall raised without a bank does
+  not. Planted: no memory of the bank ("the hall did not find what the bank put newly in reach").
+- Browser (`hall.spec.ts`, the altar scenario): the list's purchase is on the shrine when the hall resumes. Planted: no re-lay on resume ("the list's
+  purchase is not on the Deep Lungs shrine").
+- Updated for the new truth, not loosened: armoury, loading, meta, a11y and death specs read the owned racks among the locked ones, the pause card's list,
+  and six racks in the sliced-against-synchronous hall. One threshold moved: the 360 x 740 phone check allows half a pixel on a row's bottom edge (a row
+  scrolled flush with the edge measured 740.016 on the pause card; a cut-off row is many pixels over).
+
+### Gates
+
+- `npm run typecheck`: clean. `npm run lint`: clean. `npm test`: 569 passed, 0 failed.
+- PR-gate browser run (`GAME_TEST_GL=d3d11`, one worker, port 3300, `--grep-invert "@capture|@nightly"`): **174 passed, 8 failed** (14.5 min on a shared
+  machine). Seven were scenarios I had not updated that read the hall's racks by index or expected only owned arms on racks (controls pad X, the frame
+  budget's hall, models actorStats and teardown, special harpoon swap and swap-back, weapon rack offer); all seven updated and those five spec files re-run:
+  **51 passed**. The eighth, `quality.spec.ts` (the governor stepping down on "a software rasteriser"), never left full quality: on d3d11 the GPU holds
+  the frame, so there is nothing to step down from. It is a floor-one scenario this stage does not touch, and it needs SwiftShader; not re-run.
+
+Screenshots (d3d11, not committed; `output/**/*.png` is ignored): `output/plan-025/hall-shop-overview-d3d11.png`, `hall-shop-rack-d3d11.png`,
+`hall-shop-shrine-hold-d3d11.png`.
