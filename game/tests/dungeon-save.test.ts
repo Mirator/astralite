@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ACTIONS, appendRun, betterRun, bindKey, DEFAULT_BINDS, defaultSettings, eraseSlot, legacyKey, migrateLegacy, migrateStored, parseBest, parseMeta, parseRun, parseRuns, parseSeed, parseSettings, parseSlot, readBest, readCells, readLegacyCells, readMeta, readRuns, readSeed, readSettings, readSlot, RESERVED, RUN_LOG_CAP, slotKey, slotSummary, SLOT_CELLS, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunEnd, type Settings, type Slot, type SlotCells } from '../app/dungeon-save.ts';
+import { ACTIONS, appendRun, betterRun, bindKey, DEFAULT_BINDS, defaultSettings, eraseSlot, parseBest, parseMeta, parseRun, parseRuns, parseSeed, parseSettings, parseSlot, readBest, readMeta, readRuns, readSeed, readSettings, readSlot, RESERVED, RUN_LOG_CAP, slotKey, slotSummary, SLOT_CELLS, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunEnd, type Settings, type Slot } from '../app/dungeon-save.ts';
 import { freshMeta, PEARL_CAP, type Meta } from '../app/dungeon-meta.ts';
 
 const run = (floor: number, xp: number): BestRun => ({ floor, xp, kills: 0, won: false });
@@ -558,41 +558,6 @@ test('a slot reads only its own cells, and writing slot 2 leaves slots 1 and 3 a
   });
 });
 
-test('migrating a pre-slot save copies its cells into an empty slot 1, writes nothing when slot 1 has anything, and deletes no legacy key', () => {
-  const cells = (over: Partial<SlotCells>): SlotCells => ({ meta: null, best: null, seed: null, runs: null, ...over });
-  const legacy = cells({ meta: '{"pearls":210}', best: '{"floor":2,"xp":50,"kills":3,"won":false}', seed: '4242', runs: '[]' });
-  // Pure: the writes are exactly the four legacy cells, verbatim, under slot 1's keys.
-  assert.deepEqual(migrateLegacy(legacy, cells({})), [
-    { key: 'drowned-keep:1:meta', value: '{"pearls":210}' }, { key: 'drowned-keep:1:best', value: '{"floor":2,"xp":50,"kills":3,"won":false}' },
-    { key: 'drowned-keep:1:seed', value: '4242' }, { key: 'drowned-keep:1:runs', value: '[]' },
-  ]);
-  // A cell the old build never wrote is not invented; nothing legacy means nothing to write.
-  assert.deepEqual(migrateLegacy(cells({ seed: '7' }), cells({})), [{ key: 'drowned-keep:1:seed', value: '7' }]);
-  assert.deepEqual(migrateLegacy(cells({}), cells({})), []);
-  // Slot 1 holding any one cell - even a seed, even a cell that will not parse - is a slot somebody played.
-  for (const name of SLOT_CELLS) assert.deepEqual(migrateLegacy(legacy, cells({ [name]: name === 'meta' ? '{"pearls":5}' : '{' })), [], `slot 1 held a ${name} and was migrated over`);
-  withStore(cell => {
-    for (const name of SLOT_CELLS) if (legacy[name] !== null) cell.set(legacyKey(name), legacy[name]!);
-    cell.set('drowned-keep:settings', '{"volume":0.2}');
-    assert.deepEqual(readLegacyCells(), legacy, 'precondition: the legacy cells are there to be read');
-    assert.equal(readCells(1).meta, null, 'precondition: slot 1 is empty');
-    assert.equal(migrateStored(), 4);
-    assert.deepEqual(readCells(1), legacy);
-    assert.equal(readMeta(1).pearls, 210, 'the migrated save does not read as the legacy one');
-    assert.equal(readBest(1)?.floor, 2);
-    assert.equal(readSeed(1), 4242);
-    // Nothing legacy was deleted, so rolling back to the old build finds its save; the settings were never in play.
-    assert.deepEqual(readLegacyCells(), legacy, 'a legacy cell was removed or rewritten');
-    assert.equal(cell.get('drowned-keep:settings'), '{"volume":0.2}');
-    assert.equal(cell.size, 9);
-    // Once slot 1 has been migrated (or played), a later boot copies nothing, even over a changed legacy cell.
-    writeMeta(1, { ...freshMeta(), pearls: 999 });
-    cell.set(legacyKey('meta'), '{"pearls":1}');
-    assert.equal(migrateStored(), 0);
-    assert.equal(readMeta(1).pearls, 999, 'a second boot overwrote slot 1 with the legacy save');
-  });
-});
-
 test('a slot summary reads pearls, the deepest floor, the runs in the log and the arms owned; an empty slot says so', () => {
   withStore(cell => {
     // Pearls, floor, runs and arms are told apart on purpose (140, 3, 2, 3), so a field read from the wrong cell is a different number.
@@ -612,14 +577,13 @@ test('a slot summary reads pearls, the deepest floor, the runs in the log and th
   });
 });
 
-test('erasing a slot removes its four cells and nothing else: not the other slots, the legacy cells, the settings or the slot last played', () => {
+test('erasing a slot removes its four cells and nothing else: not the other slots, the settings or the slot last played', () => {
   withStore(cell => {
     for (const slot of SLOTS) play(slot);
     writeSettings({ ...defaultSettings(), volume: 0.3 });
     writeSlot(2);
-    for (const name of SLOT_CELLS) cell.set(legacyKey(name), `legacy ${name}`);
     const before = new Map(cell);
-    assert.equal(before.size, 12 + 1 + 1 + 4, 'precondition: three slots, the settings, the slot last played and four legacy cells');
+    assert.equal(before.size, 12 + 1 + 1, 'precondition: three slots, the settings and the slot last played');
     assert.ok(keysOf(2).every(key => cell.has(key)), 'precondition: slot 2 holds its four cells');
     eraseSlot(2);
     assert.deepEqual(keysOf(2).filter(key => cell.has(key)), [], 'a cell of the erased slot is still there');

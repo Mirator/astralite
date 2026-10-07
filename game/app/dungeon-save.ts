@@ -95,15 +95,13 @@ export const bindKey = (binds: Binds, action: Action, code: string): Binds | nul
 const SETTINGS_KEY = 'drowned-keep:settings';
 // Plan 020: progress belongs to a save slot, the machine's own choices do not. A slot holds four cells (the pearls and
 // arms, the deepest run, the last keep's seed and the run log) under `drowned-keep:<slot>:<cell>`; the settings and the
-// bindings stay one per device, and so does `drowned-keep:slot`, the slot last played. The pre-slot build wrote the same
-// four cells without the slot, and they are only ever read by `migrateLegacy`.
+// bindings stay one per device, and so does `drowned-keep:slot`, the slot last played.
 export type Slot = 1 | 2 | 3;
 export const SLOTS: readonly Slot[] = [1, 2, 3];
 export const SLOT_CELLS = ['meta', 'best', 'seed', 'runs'] as const;
 export type SlotCell = typeof SLOT_CELLS[number];
 export type SlotCells = Record<SlotCell, string | null>;
 export const slotKey = (slot: Slot, name: SlotCell) => `drowned-keep:${slot}:${name}`;
-export const legacyKey = (name: SlotCell) => `drowned-keep:${name}`;
 const LAST_SLOT_KEY = 'drowned-keep:slot';
 const CAUSES: readonly string[] = [...ENEMY_KINDS, 'hazard'];
 
@@ -282,11 +280,10 @@ export const parseSlot = (raw: string | null): Slot | null => { const slot = raw
 export const readSlot = () => parseSlot(read(LAST_SLOT_KEY));
 export const writeSlot = (slot: Slot) => write(LAST_SLOT_KEY, String(slot));
 
-/** A slot's four cells exactly as stored, unparsed: what the picker summarises and what migration copies. */
+/** A slot's four cells exactly as stored, unparsed: what the picker summarises. */
 export const readCells = (slot: Slot): SlotCells => ({ meta: read(slotKey(slot, 'meta')), best: read(slotKey(slot, 'best')), seed: read(slotKey(slot, 'seed')), runs: read(slotKey(slot, 'runs')) });
-export const readLegacyCells = (): SlotCells => ({ meta: read(legacyKey('meta')), best: read(legacyKey('best')), seed: read(legacyKey('seed')), runs: read(legacyKey('runs')) });
 
-/** A slot is empty when none of its cells has ever been written. A cell that is there but unreadable still counts as a slot somebody played, so it is never copied over or shown as new. */
+/** A slot is empty when none of its cells has ever been written. A cell that is there but unreadable still counts as a slot somebody played, so it is never shown as new. */
 export const cellsEmpty = (cells: SlotCells) => SLOT_CELLS.every(name => cells[name] === null);
 
 /**
@@ -300,20 +297,5 @@ export const summariseSlot = (cells: SlotCells) => {
 };
 export const slotSummary = (slot: Slot) => summariseSlot(readCells(slot));
 
-/** Forget one slot: its four cells and nothing else, so the other slots, the settings and the slot last played stay. The legacy cells are left alone as well. */
+/** Forget one slot: its four cells and nothing else, so the other slots, the settings and the slot last played stay. */
 export const eraseSlot = (slot: Slot) => { for (const name of SLOT_CELLS) remove(slotKey(slot, name)); };
-
-/**
- * The writes that bring a pre-slot save into slot 1 (plan 020, D2): each legacy cell that exists, copied verbatim under
- * its slot-1 key, and none at all when slot 1 holds anything - a slot somebody has already played is never overwritten,
- * so running this on every boot is safe. It deletes nothing; the legacy cells stay, which is what makes a rollback safe.
- * Pure: the game reads the cells, calls this, and applies what comes back (`migrateStored`).
- */
-export const migrateLegacy = (legacy: SlotCells, slot1: SlotCells): { key: string; value: string }[] => {
-  const writes: { key: string; value: string }[] = [];
-  if (!cellsEmpty(slot1)) return writes;
-  for (const name of SLOT_CELLS) { const value = legacy[name]; if (value !== null) writes.push({ key: slotKey(1, name), value }); }
-  return writes;
-};
-/** `migrateLegacy` against the real store; returns how many cells it wrote. */
-export const migrateStored = () => { const writes = migrateLegacy(readLegacyCells(), readCells(1)); for (const { key, value } of writes) write(key, value); return writes.length; };

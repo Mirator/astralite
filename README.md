@@ -13,7 +13,7 @@ Built with React 19 RSC on [vinext](https://www.npmjs.com/package/vinext)
 ## Play
 
 ENTER THE KEEP opens three save slots (each keeps its own pearls, arms and run
-log; a save from before slots arrives in slot 1). Choosing one wakes you in the
+log). Choosing one wakes you in the
 Tide Altar's hall: the altar spends pearls, a rack for every unlocked arm lets
 you choose one (walk into its ring and press the swap key), and the door in the
 far wall, the way down, settles the arm and starts the descent. Each floor is
