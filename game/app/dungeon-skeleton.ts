@@ -477,7 +477,60 @@ const PALETTE: Record<SkeletonKind, { bone: number; iron: number; ironRoughness:
   rattler: { bone: 0xb0aa98, iron: 0x3f4a53, ironRoughness: 0.5, brass: 0x6f6244, eye: 0xfff0a0, cloth: 0x3d3a33, pool: .42 },
 };
 
+// One body is built per kind and every later body is a copy of it. A build makes every part's geometry from the spec,
+// only for the bake to find its merged copy already cached and throw the parts away: about 4 ms a body in node, and
+// the enemies phase was 40-55% of a floor build (124-278 ms for 33-68 bodies, SwiftShader, 2026-10-07). A copy
+// shares the template's geometry and gets materials of its own, which the hit flash, the windup glow and an elite's
+// tint all write to per body.
+const templates = new Map<SkeletonKind, THREE.Group>();
+const LINKS = ['rig', 'weapon', 'skull', 'shield'] as const, LISTS = ['eyes', 'limbs'] as const;
+
+/** A body of this kind: a copy of the kind's template, with its own materials and its `userData` pointing into itself. */
 export function makeSkeleton(kind: SkeletonKind) {
+  let template = templates.get(kind);
+  if (!template) {
+    template = buildSkeleton(kind);
+    // The template is never drawn and lives as long as the page, like the bake cache: floor teardown must not
+    // dispose what every copy of it is still drawing with.
+    template.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.userData.shared = true; });
+    templates.set(kind, template);
+  }
+  return copySkeleton(template);
+}
+
+function copySkeleton(template: THREE.Group) {
+  const nodes = new Map<THREE.Object3D, THREE.Object3D>(), materials = new Map<THREE.Material, THREE.Material>();
+  const own = (material: THREE.Material) => {
+    let copy = materials.get(material);
+    if (!copy) {
+      copy = material.clone();
+      // `clone` does not carry a shader hook set on the instance (the bone's weathering, `weatherBone`), nor the
+      // program key set beside it: losing the first would silently draw plain bone, losing the second would
+      // compile a program of its own for every copy rather than share the template's.
+      if (Object.hasOwn(material, 'onBeforeCompile')) copy.onBeforeCompile = material.onBeforeCompile;
+      if (Object.hasOwn(material, 'customProgramCacheKey')) copy.customProgramCacheKey = material.customProgramCacheKey;
+      materials.set(material, copy);
+    }
+    return copy;
+  };
+  const copy = (node: THREE.Object3D): THREE.Object3D => {
+    // `clone` would JSON-copy `userData`, and the root's holds live nodes; only the root has any, and it is rebuilt below.
+    const data = node.userData; node.userData = {};
+    const clone = node.clone(false); node.userData = data;
+    if (clone instanceof THREE.Mesh) clone.material = Array.isArray(clone.material) ? clone.material.map(own) : own(clone.material);
+    nodes.set(node, clone);
+    for (const child of node.children) clone.add(copy(child));
+    return clone;
+  };
+  const body = copy(template) as THREE.Group;
+  const find = (node: THREE.Object3D) => nodes.get(node)!;
+  for (const key of LINKS) body.userData[key] = find(template.userData[key]);
+  for (const key of LISTS) body.userData[key] = (template.userData[key] as THREE.Object3D[]).map(find);
+  return body;
+}
+
+/** Builds one body from the spec. `makeSkeleton` calls it once a kind; it is exported so a test can hold a copy to a fresh build. */
+export function buildSkeleton(kind: SkeletonKind) {
   const palette = PALETTE[kind];
   // Bone used to sit at the knight's own value, which is why four figures in one hall read as four of the
   // same thing. It comes down and goes cold, and the three kinds part company: the guard a flat grey, the
