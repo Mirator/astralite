@@ -289,6 +289,18 @@ export function archivolt(span: number, segments = 20) {
   return geometry;
 }
 
+// The blind lancet's recess and bronze frame: a shape and a 40-segment tube along a Catmull-Rom curve, built afresh
+// for every lancet until now - 123 of each on a floor-three keep, the largest part of the carved work's build
+// (SwiftShader profile, 2026-10-07). Built once and shared. Not marked shared: floor teardown frees them with the
+// rest of the floor, and the next floor uploads them again on first draw, as it did its own copies before.
+let lancetGeometry: { recess: THREE.ShapeGeometry; frame: THREE.TubeGeometry } | null = null;
+const lancet = () => {
+  if (lancetGeometry) return lancetGeometry;
+  const recess = new THREE.Shape(); recess.moveTo(-.38, 0); recess.lineTo(.38, 0); recess.lineTo(.38, 1.05); recess.quadraticCurveTo(.3, 1.43, 0, 1.66); recess.quadraticCurveTo(-.3, 1.43, -.38, 1.05); recess.closePath();
+  const points = recess.getPoints(18).map(p => new THREE.Vector3(p.x, p.y, .012));
+  return lancetGeometry = { recess: new THREE.ShapeGeometry(recess), frame: new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points, true), 40, .055, 4, true) };
+};
+
 // These are surface details and silhouettes on existing walls, never new obstacles.
 export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<typeof generateFloor>) {
   // Both of these carried a green of their own on top of the moss tint, in every room of the keep.
@@ -441,11 +453,11 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
         put(tx, .48, tz, .70, .16, .70, pale, Math.PI / 4);
         put(tx, .3, tz, .92, .2, .92, pale);
         if (room.theme === 'ruins') continue;
-        // A narrow blind lancet, entirely inside the existing wall thickness.
-        const recess = new THREE.Shape(); recess.moveTo(-.38, 0); recess.lineTo(.38, 0); recess.lineTo(.38, 1.05); recess.quadraticCurveTo(.3, 1.43, 0, 1.66); recess.quadraticCurveTo(-.3, 1.43, -.38, 1.05); recess.closePath();
-        const niche = mesh(new THREE.ShapeGeometry(recess), dark, tx - dx * .46, .9, tz - dz * .46); if (dx) niche.rotation.y = Math.PI / 2;
-        const points = recess.getPoints(18).map(p => new THREE.Vector3(p.x, p.y, .012));
-        const frame = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points, true), 40, .055, 4, true), bronze); niche.add(frame);
+        // A narrow blind lancet, entirely inside the existing wall thickness. Its recess and frame are the same
+        // shape on every wall, so they are built once (`lancet`) and shared, each lancet still its own mesh.
+        const { recess, frame: arch } = lancet();
+        const niche = mesh(recess, dark, tx - dx * .46, .9, tz - dz * .46); if (dx) niche.rotation.y = Math.PI / 2;
+        const frame = new THREE.Mesh(arch, bronze); niche.add(frame);
         const mullion = new THREE.Mesh(box, bronze); mullion.scale.set(.045, 1.2, .045); mullion.position.set(0, .64, .03); niche.add(mullion);
       }
     }
