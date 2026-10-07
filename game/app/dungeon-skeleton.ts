@@ -490,9 +490,10 @@ export function makeSkeleton(kind: SkeletonKind) {
   let template = templates.get(kind);
   if (!template) {
     template = buildSkeleton(kind);
-    // The template is never drawn and lives as long as the page, like the bake cache: floor teardown must not
-    // dispose what every copy of it is still drawing with.
-    template.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.userData.shared = true; });
+    // Its geometry is left as the build marks it. What the bake shares stays shared; the rest (eyes, loose parts)
+    // is freed with each floor as before and uploaded again when a copy next draws it. Marking it all shared kept
+    // every kind's parts on the GPU once any floor had drawn them, so a later floor's count rose with what the
+    // floors before it happened to show (212 then 215 geometries for the same floor, CI, 2026-10-07).
     templates.set(kind, template);
   }
   return copySkeleton(template);
