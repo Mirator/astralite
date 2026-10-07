@@ -50,15 +50,21 @@ test('Tab opens and closes the floor map while playing, and moves focus everywhe
 
   await game.enter();
   await game.step(120);
+  // Plan 025 D1: no minimap. While the knight plays there is no room graph on screen at all; Tab is how it is seen.
+  expect((await game.state()).mode, 'precondition: the knight is playing').toBe('playing');
+  await expect(page.locator('.floor-map'), 'the corner minimap is still on the HUD').toHaveCount(0);
   await press(page, 'map');
   await game.step(16);
   await expect(page.locator('.map-screen')).toBeVisible();
   expect((await game.state()).mode, 'the map holds the world like a pause').toBe('paused');
+  await expect(page.locator('.floor-map'), 'Tab opened the map screen without the room graph').toBeVisible();
+  await expect(page.locator('.floor-map circle[id^="map-room-"]'), 'the map drew no rooms').toHaveCount((await game.floor()).rooms.length);
   const focus = () => page.evaluate(() => { const el = document.activeElement as HTMLElement | null; return el ? `${el.tagName}.${el.className}` : null; });
   const held = await focus();
   await press(page, 'map');
   await game.step(16);
   await expect(page.locator('.map-screen')).toHaveCount(0);
+  await expect(page.locator('.floor-map'), 'the room graph outlived the map screen').toHaveCount(0);
   expect(await focus(), 'the Tab that closed the map moved no focus').toBe(held);
   expect((await game.state()).mode).toBe('playing');
 

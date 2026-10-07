@@ -121,6 +121,8 @@ export default function DungeonGame() {
   const [floorMap, setFloorMap] = useState<Floor | null>(null);
   const [visitedCount, setVisitedCount] = useState(1);
   const mapPlayer = useRef<SVGCircleElement>(null);
+  // Plan 025 D1: the map is drawn only while it is open, so what the run has painted on it and where the knight stands are handed to it as it opens.
+  const [mapView, setMapView] = useState<{ fills: Record<number, string>; at: number }>({ fills: {}, at: 0 });
   const crossFade = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<'playing' | 'complete' | 'won' | 'lost'>('playing');
   const [mapOpen, setMapOpen] = useState(false);
@@ -359,7 +361,8 @@ export default function DungeonGame() {
     // parts, the flood, the atmosphere pass and the walking-surface index - written by `raiseFloor`
     // (dungeon-floor-scene.ts) and replaced field by field by the next build.
     const stage = createFloorStage();
-    let visited = new Set<number>([0]), cleared = new Set<number>([0]), spineRooms = new Set<number>();
+    let visited = new Set<number>([0]), cleared = new Set<number>([0]), spineRooms = new Set<number>(), mapAt = 0;
+    const mapFills = new Map<number, string>();
     let reached = 0, level = 1;
     let floorStart = 0, floorKills = 0, floorXp = 0;
     // Run-scoped, not floor-scoped: these three outlive a descent and are reset only by `restart`, which
@@ -472,7 +475,7 @@ export default function DungeonGame() {
         setNotice(`${room.name} · ${ways.length ? 'the way on opens' : 'cleansed'}`);
         noticeTime = 3.5; rewardTime = 1.4; audio.play('clear'); burst(player.position,0x71f4c4,18);
         for (const view of ways) burst(view.spot, view.color, 14);
-        document.getElementById(`map-room-${id}`)?.setAttribute('fill', '#a8d5b0');
+        mapFills.set(id, '#a8d5b0'); document.getElementById(`map-room-${id}`)?.setAttribute('fill', '#a8d5b0');
       }
       if (id === floor.goal && stairClear()) openStair();
     };
@@ -1162,7 +1165,7 @@ export default function DungeonGame() {
       // endSpecial first: a spear in the air is one of the shots, and dropping it without it leaves the arm out of hand.
       swingHits.clear();slash.clear();endSpecial();clearShots();blood.clear();posePlayer(0);
       setBossBar(null); bossKey = '';
-      visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
+      visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine); mapFills.clear(); mapAt = 0;
       reached = 0; activeRoom = 0; pathCell = ''; distances.clear(); overDoor = null; crossing = null; if (crossFade.current) crossFade.current.style.opacity = '0';
       // The floor itself - paving, flood, parapets, atmosphere, the walking-surface index, hazards, shrines,
       // the stair and every skeleton - is raised by dungeon-floor-scene.ts, one timed phase per yield.
@@ -1486,7 +1489,7 @@ export default function DungeonGame() {
     const toggleMute = () => updateSettings({ muted: !settingsRef.current.muted });
     // The map is a pause with the floor on it, so it opens through the pause and closes the same way.
     // The hall is one room with nothing to chart (and no map button), so the map key and the pad's VIEW are inert there.
-    const openMap = () => { if (!hasStarted || run.choosing || gameStatus !== 'playing' || hall) return; if (!isPaused) togglePause(); setMapOpen(true); mapShown = true; };
+    const openMap = () => { if (!hasStarted || run.choosing || gameStatus !== 'playing' || hall) return; if (!isPaused) togglePause(); setMapView({ fills: Object.fromEntries(mapFills), at: mapAt }); setMapOpen(true); mapShown = true; };
     const toggleMap = () => { if (mapShown) togglePause(); else openMap(); };
     const fullscreen = () => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); else void mount.parentElement?.requestFullscreen?.().catch(() => undefined); };
     const keyDown = (e: KeyboardEvent) => {
@@ -1811,14 +1814,14 @@ export default function DungeonGame() {
         const entered = activeRoom !== roomId;
         if (entered) { activeRoom = roomId; setRoomName(currentRoom?.name ?? 'Passage'); }
         if (currentRoom && entered) {
-          if (!visited.has(roomId)) { visited.add(roomId); setVisitedCount(visited.size); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#6a9995'); }
+          if (!visited.has(roomId)) { visited.add(roomId); setVisitedCount(visited.size); mapFills.set(roomId, '#6a9995'); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#6a9995'); }
           // Only the trunk counts as progress; a dead end must never read as ground gained.
           if (spineRooms.has(currentRoom.id) && currentRoom.depth > reached) { reached = currentRoom.depth; setAdvance(reached); }
           if (currentRoom.id === floor.goal && !stairClear()) { const holder = stage.enemies.find(e => e.room === floor.goal && !e.dead && BESTIARY[e.kind].boss); setNotice(`${goalRoom().name} · ${holder ? BESTIARY[holder.kind].title : 'wardens'} bars the stair`); noticeTime = 4; }
           // Plan 017: a chamber with nobody in it has nothing to hold the knight for, so its ways on are
           // open the moment he arrives. Any other seals behind him until its last body falls.
-          if (!cleared.has(roomId) && !stage.enemies.some(e => e.room === roomId)) { cleared.add(roomId); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#a8d5b0'); }
-          const node = mapNode(floor, roomId); mapPlayer.current?.setAttribute('cx', String(node.x)); mapPlayer.current?.setAttribute('cy', String(node.y));
+          if (!cleared.has(roomId) && !stage.enemies.some(e => e.room === roomId)) { cleared.add(roomId); mapFills.set(roomId, '#a8d5b0'); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#a8d5b0'); }
+          mapAt = roomId; const node = mapNode(floor, roomId); mapPlayer.current?.setAttribute('cx', String(node.x)); mapPlayer.current?.setAttribute('cy', String(node.y));
           const sprung = springing(stage.enemies, currentRoom.id);
           if (sprung.length) {
             sprung.forEach(e => { e.awake = true; e.group.visible = true; e.cooldown = Math.max(e.cooldown, 0.9); burst(e.group.position, 0xff4529, 10); });
@@ -2778,11 +2781,11 @@ export default function DungeonGame() {
         </div>
         {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
         {ammo && <div className="quiver" role="progressbar" aria-label="Bolts in hand" aria-valuemin={0} aria-valuemax={ammo.of} aria-valuenow={ammo.held}>{Array.from({ length: ammo.of }, (_, i) => <i key={i} className={i < ammo.held ? 'held' : ''} />)}</div>}{!hallOn && <progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} />}</section>
-      {floorMap && !hallOn && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action(mapOpen ? 'pause' : 'map')} aria-label={mapOpen ? 'Close floor map' : 'Open floor map'}><svg key={floorBuild} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g>
+      {floorMap && !hallOn && mapOpen && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action('pause')} aria-label="Close floor map"><svg key={floorBuild} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g>
         {floorMap.doors.map(d => <line key={`door-${d.id}`} x1={mapNodes[d.from].x} y1={mapNodes[d.from].y} x2={mapNodes[d.to].x} y2={mapNodes[d.to].y} stroke="#3f6572" strokeWidth="1.1" />)}
-        {floorMap.rooms.map(r => <circle key={r.id} id={`map-room-${r.id}`} cx={mapNodes[r.id].x} cy={mapNodes[r.id].y} r="2.6" fill={r.id===0?'#6fd1c0':r.role==='goal'?'#d9a24f':'#5c9aa5'} />)}
+        {floorMap.rooms.map(r => <circle key={r.id} id={`map-room-${r.id}`} cx={mapNodes[r.id].x} cy={mapNodes[r.id].y} r="2.6" fill={mapView.fills[r.id] ?? (r.id===0?'#6fd1c0':r.role==='goal'?'#d9a24f':'#5c9aa5')} />)}
         <circle className="map-mark" cx={mapNodes[floorMap.goal].x} cy={mapNodes[floorMap.goal].y} r="4.4" fill="none" stroke="#ffc573" strokeWidth="0.9" opacity="0.9" />
-        <circle ref={mapPlayer} className="map-mark" cx={mapNodes[0].x} cy={mapNodes[0].y} r="1.6" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
+        <circle ref={mapPlayer} className="map-mark" cx={mapNodes[mapView.at]?.x ?? mapNodes[0].x} cy={mapNodes[mapView.at]?.y ?? mapNodes[0].y} r="1.6" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
       </g></svg></button>}
       {notice && started && !paused && status === 'playing' && boonChoice.length === 0 && <output className="chamber-notice"><b>{notice.split(' · ').pop()}</b></output>}
       {/* The one prompt allowed to sit in the world, and it is not persistent: it exists only while the knight

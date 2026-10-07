@@ -1,4 +1,4 @@
-import { ARROW_KEYS, expect, laneSpot, press, SCREEN_DIRECTIONS, settleBoss, strikeStance, test, TILE, canStand, hasClearPath, GameError, type Floor, type Game, type ScreenDirection } from './helpers.ts';
+import { ARROW_KEYS, expect, keyToward, laneSpot, press, SCREEN_DIRECTIONS, settleBoss, strikeStance, test, TILE, canStand, hasClearPath, GameError, type Floor, type Game, type ScreenDirection } from './helpers.ts';
 import type { Page } from '@playwright/test';
 import { BESTIARY, reserveSize } from '../../app/dungeon-bestiary.ts';
 
@@ -93,6 +93,9 @@ test('the fight is wired: the Captain winds up its moves in order with each move
   await expect(bar).toHaveAttribute('aria-valuenow', '250');
   await expect(bar).toHaveAttribute('aria-valuemax', '290');
   await expect(bar.locator('u')).toHaveCount(1);
+  // Plan 025 D5: big enough to read across the room - an 18px track, a 20px name and 3px phase ticks, as the page lays them out.
+  const size = await bar.evaluate((node) => { const css = (selector: string) => getComputedStyle(node.querySelector(selector)!); return { track: css('.boss-track').height, name: css('b').fontSize, tick: css('u').width }; });
+  expect(size, 'the boss bar is not the size plan 025 D5 set').toEqual({ track: '18px', name: '20px', tick: '3px' });
   const ticked = await bar.evaluate((node) => (node.querySelector('u') as HTMLElement).style.left);
   expect(ticked, 'the tick is not at the half way phase').toBe('50%');
   // The rest of the rotation, as the real fight plays it: swing, then a sweep drawn as the ring it reaches, each with a cue of its own.
@@ -333,6 +336,50 @@ test('with the knight\'s own fire on the ground she marks no more rings than are
   expect(state.scatterMarks.length, `she marked ${state.scatterMarks.length} rings with only ${free} free`).toBeLessThanOrEqual(free);
   expect(state.scatterMarks.every((m) => m.drawn), 'a ring she marked is not drawn').toBe(true);
   expect(state.hostileRings, 'the rings showing are not the pools burning and the rings marked').toBe(state.hostilePools.length + state.scatterMarks.length);
+});
+
+// Plan 025 D4: a body comes down on the floor. The playtest saw the Mother, backed against a wall, fall backwards into it. The rule (`deathFall`) and the
+// real figure (`startDeath` with the floor) are held in tests/dungeon-fall.test.ts; this holds the game to handing her fall the floor, read off what the
+// scene drew: every point of the corpse's footprint lies over a floor cell.
+test('the Mother killed with a wall at her back leaves her corpse on the floor, not in the wall', async ({ game, page }) => {
+  await arena(game, page, 'mother');
+  const floor = await game.floor(), room = (await game.state()).enemies[0].room;
+  const open = (x: number, z: number) => floor.cells.has(`${x},${z}`);
+  // A straight wall: stone one tile along `d`, floor three tiles back from it and on both sides, so she stands with the room in front of her and the wall behind.
+  const sides = [{ x: 1, z: 0 }, { x: -1, z: 0 }, { x: 0, z: 1 }, { x: 0, z: -1 }];
+  const staged = floor.tiles.filter((t) => t.room === room).flatMap((t) => sides.map((d) => ({ t, d })))
+    .find(({ t, d }) => !open(t.x + d.x, t.z + d.z) && [1, 2, 3].every((k) => open(t.x - d.x * k, t.z - d.z * k) && open(t.x - d.x * k + d.z, t.z - d.z * k + d.x) && open(t.x - d.x * k - d.z, t.z - d.z * k - d.x)) && open(t.x + d.z, t.z + d.x) && open(t.x - d.z, t.z - d.x));
+  if (!staged) throw new GameError('the arena has no straight wall to back the Mother against\npick another seed for this scenario');
+  const { t, d } = staged, gap = 0.55;
+  const her = { x: t.x * TILE + d.x * (TILE / 2 - gap), z: t.z * TILE + d.z * (TILE / 2 - gap) }, stance = { x: her.x - d.x * 1.05, z: her.z - d.z * 1.05 };
+  expect(canStand(floor.cells, stance.x, stance.z) && hasClearPath(floor.cells, stance, her), 'precondition: the knight has a stance in front of her').toBe(true);
+  // One blow from death crosses her phase threshold: the change runs out first (`settleBoss`), then she is put back against the wall and struck.
+  await game.configureCombat({ enemies: [{ index: 0, x: her.x, z: her.z, hp: 1, cooldown: 10, windup: 0 }] });
+  await settleBoss(game);
+  await game.teleport(stance.x, stance.z);
+  await game.configureCombat({ health: 100, enemies: [{ index: 0, x: her.x, z: her.z, cooldown: 10, windup: 0 }] });
+  const before = (await game.state()).enemies[0];
+  // How far from stone she stood when the blow fell: the nearest edge of any cell around her that is not floor.
+  const wall = Math.min(...[-1, 0, 1].flatMap((dx) => [-1, 0, 1].map((dz) => ({ x: Math.round(before.x / TILE) + dx, z: Math.round(before.z / TILE) + dz })))
+    .filter((c) => !open(c.x, c.z)).map((c) => Math.hypot(Math.max(0, Math.abs(before.x - c.x * TILE) - TILE / 2), Math.max(0, Math.abs(before.z - c.z * TILE) - TILE / 2))));
+  expect(wall, `precondition: she stood ${wall.toFixed(2)} from the wall when struck, not within 0.6 of it`).toBeLessThanOrEqual(0.6);
+  await strike(page, keyToward(d).key);
+  await game.step(240);
+  type Corpse = { kind: string; settled: boolean; footprint: number[][] };
+  const fallen = () => game.state().then((s) => (s as unknown as { corpses: Corpse[] }).corpses);
+  expect((await fallen()).map((c) => c.kind), 'precondition: the blow killed her').toEqual(['mother']);
+  for (let waited = 0; waited < 3000 && !(await fallen())[0].settled; waited += 100) await game.step(100);
+  const [corpse] = await fallen();
+  expect(corpse.settled, 'precondition: the corpse came to rest').toBe(true);
+  expect(corpse.footprint, 'precondition: the snapshot read a footprint off the corpse').toHaveLength(4);
+  // The footprint is a rectangle on the floor (its corners in order): sample it at a tenth of a unit.
+  const [a, b, , c] = corpse.footprint, stray: string[] = [];
+  for (let i = 0; i <= 1.0001; i += 0.02) for (let j = 0; j <= 1.0001; j += 0.02) {
+    const x = a[0] + (b[0] - a[0]) * i + (c[0] - a[0]) * j, z = a[1] + (b[1] - a[1]) * i + (c[1] - a[1]) * j;
+    if (!open(Math.round(x / TILE), Math.round(z / TILE))) stray.push(`${x.toFixed(2)},${z.toFixed(2)}`);
+  }
+  console.log(`MOTHER CORPSE wall ${wall.toFixed(3)} footprint ${JSON.stringify(corpse.footprint.map((p) => p.map((v) => +v.toFixed(2))))} stray ${stray.length}`);
+  expect(stray, `her corpse lies over stone at ${stray.slice(0, 4).join(' ')}`).toEqual([]);
 });
 
 test('the Tide Hound is wired: a lane drawn for its pounce, the bar names it, and below half its second pounce follows the first with no recovery between', async ({ game, page }) => {

@@ -1,7 +1,7 @@
 // Plan 025 D4: bodies and walls. A body's footprint grows with its `look.scale` (`bodyRadius`), for every step it takes and every shove it
 // is given, and a body comes down where all of it lies on floor (`deathFall`, which `startDeath` asks when handed the floor's cells). The
 // playtest found the Pyre Mother (scale 1.5) standing half in the wall she had backed against, and her corpse lying through it. The running
-// game's wiring is death.spec.ts's Mother scenario.
+// game's wiring is boss.spec.ts's Mother-against-a-wall scenario.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
