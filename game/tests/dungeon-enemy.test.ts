@@ -495,7 +495,9 @@ const BEFORE_PLAN_021: Record<string, Omit<Recorded, 'neutral'>> = {
   warden: { kind: 'warden', digest: 'fd8f6709', frames: 2400, windups: 7, hits: 5, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1817, dozing: 200 },
   archer: { kind: 'archer', digest: '2460d9ae', frames: 2400, windups: 18, hits: 0, looses: 11, raises: 0, lunges: 0, noticing: 40, ready: 1493, dozing: 200 },
   shieldbearer: { kind: 'shieldbearer', digest: 'c70db169', frames: 2400, windups: 7, hits: 4, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1884, dozing: 200 },
-  reaper: { kind: 'reaper', digest: 'bbc7ada5', frames: 2400, windups: 6, hits: 3, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1733, dozing: 200 },
+  // Plan 025 D4 (2026-10-07): a body's footprint grows with its scale, and the reaper (1.1) is the one kind the scripted fight walks near a wall, so it stops a
+  // hair farther from it. Every count is unchanged; only the digest moved (from bbc7ada5). The warden (1.3) and shieldbearer (1.05) never touch a wall here.
+  reaper: { kind: 'reaper', digest: '1e936e7d', frames: 2400, windups: 6, hits: 3, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1733, dozing: 200 },
   pyre: { kind: 'pyre', digest: 'd11fa9eb', frames: 2400, windups: 9, hits: 6, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1829, dozing: 200 },
   bonecaller: { kind: 'bonecaller', digest: 'c280ec6d', frames: 2400, windups: 12, hits: 0, looses: 0, raises: 8, lunges: 0, noticing: 40, ready: 1313, dozing: 200 },
   rattler: { kind: 'rattler', digest: 'ce119782', frames: 2400, windups: 11, hits: 5, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1866, dozing: 200 },

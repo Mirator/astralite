@@ -4,7 +4,7 @@
 // each of them. Everything works over plain {x, z} points, so a whole fight can be replayed in node
 // instead of by hand-driving a browser, which is how every spatial regression here has been caught.
 import { BESTIARY, byKind, ELITES, type Archetype, type EliteModifier, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
-import { TILE, canStand, cellKey, hasClearPath, moveOnFloor } from './dungeon-floor.ts';
+import { TILE, bodyRadius, canStand, cellKey, hasClearPath, moveOnFloor } from './dungeon-floor.ts';
 
 export { ENEMY_KINDS, BESTIARY, ELITES, type EliteModifier, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
 export type Point = { x: number; z: number };
@@ -211,7 +211,7 @@ export type EnemyIntent = {
   distance: number;
 };
 
-export type CrowdBody = { x: number; z: number; windup: number; dead: boolean };
+export type CrowdBody = { x: number; z: number; windup: number; dead: boolean; radius?: number };
 
 // The shape `nearbyDozers` needs from a body: where it is, which room it claims, whether it has already
 // started noticing, and whether it is still around to notice anything at all.
@@ -281,8 +281,8 @@ export function separateCrowd(cells: Set<string>, bodies: readonly CrowdBody[], 
     const weightA = bodies[i].windup > 0 ? 0 : 1, weightB = bodies[j].windup > 0 ? 0 : 1, total = weightA + weightB;
     if (!total) continue;
     const push = Math.min(CROWD_SPACING - distance, dt * CROWD_PUSH_RATE);
-    moveOnFloor(cells, a, -dx * push * weightA / total, -dz * push * weightA / total);
-    moveOnFloor(cells, b, dx * push * weightB / total, dz * push * weightB / total);
+    moveOnFloor(cells, a, -dx * push * weightA / total, -dz * push * weightA / total, bodies[i].radius);
+    moveOnFloor(cells, b, dx * push * weightB / total, dz * push * weightB / total, bodies[j].radius);
   }
   return moved;
 }
@@ -309,7 +309,7 @@ function dozeIntent(enemy: EnemyView, world: World, dt: number, rest: Omit<Enemy
   if (forward && along >= PATROL_SPAN) { dirX = -heading.x; dirZ = -heading.z; }
   else if (!forward && along <= -PATROL_SPAN) { dirX = heading.x; dirZ = heading.z; }
   const landed = { x: enemy.x, z: enemy.z };
-  moveOnFloor(world.cells, landed, dirX * PATROL_SPEED * dt, dirZ * PATROL_SPEED * dt);
+  moveOnFloor(world.cells, landed, dirX * PATROL_SPEED * dt, dirZ * PATROL_SPEED * dt, bodyRadius(enemy.kind));
   return { ...rest, act: 'dozing', notice: 0, x: landed.x, z: landed.z, aim: { x: dirX, z: dirZ }, face: Math.atan2(-dirX, -dirZ), distance: 0 };
 }
 
@@ -322,13 +322,13 @@ export const RAISE_SPREAD = 0.7;
  * one side and 1 on the other, rather than on top of each other; a slot whose spot is stone falls back
  * to the centre of the pace, and that to the caller's own spot.
  */
-export function raiseSpot(cells: Set<string>, caller: Point, knight: Point, slot = 0): Point {
+export function raiseSpot(cells: Set<string>, caller: Point, knight: Point, slot = 0, radius?: number): Point {
   const toward = unit(knight.x - caller.x, knight.z - caller.z, Math.hypot(knight.x - caller.x, knight.z - caller.z));
   const side = slot % 2 ? -RAISE_SPREAD : RAISE_SPREAD;
   for (const at of [
     { x: caller.x + toward.x * 1.3 - toward.z * side, z: caller.z + toward.z * 1.3 + toward.x * side },
     { x: caller.x + toward.x * 1.3, z: caller.z + toward.z * 1.3 },
-  ]) if (canStand(cells, at.x, at.z)) return at;
+  ]) if (canStand(cells, at.x, at.z, radius)) return at;
   return { x: caller.x, z: caller.z };
 }
 
@@ -400,7 +400,7 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
 
   if (enemy.lunge > 0) {
     const landed = { x: enemy.x, z: enemy.z };
-    moveOnFloor(world.cells, landed, enemy.aim.x * LUNGE_SPEED * dt, enemy.aim.z * LUNGE_SPEED * dt);
+    moveOnFloor(world.cells, landed, enemy.aim.x * LUNGE_SPEED * dt, enemy.aim.z * LUNGE_SPEED * dt, bodyRadius(enemy.kind));
     // Connecting ends the pounce outright, so one leap can never bill the knight twice.
     const hit = sweptContact(enemy, landed, player), lunge = hit ? 0 : Math.max(0, enemy.lunge - dt);
     // A pounce is a boss's move done when the leap is over, not when its tell ran out: that is when the rotation moves on.
@@ -444,7 +444,7 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   const keepAway = BESTIARY[enemy.kind].keepAway;
   if (distance < keepAway) {
     const away = unit(-toX, -toZ, distance), landed = { x: enemy.x, z: enemy.z };
-    moveOnFloor(world.cells, landed, away.x * enemy.speed * dt, away.z * enemy.speed * dt);
+    moveOnFloor(world.cells, landed, away.x * enemy.speed * dt, away.z * enemy.speed * dt, bodyRadius(enemy.kind));
     return { ...rest, act: 'ready', face, x: landed.x, z: landed.z, distance };
   }
   // Hold position when already in place with a clear line, and let a stalker stand still late in its
@@ -460,7 +460,7 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   }
   const direction = unit(dirX, dirZ, Math.hypot(dirX, dirZ));
   const landed = { x: enemy.x, z: enemy.z };
-  moveOnFloor(world.cells, landed, direction.x * enemy.speed * dt, direction.z * enemy.speed * dt);
+  moveOnFloor(world.cells, landed, direction.x * enemy.speed * dt, direction.z * enemy.speed * dt, bodyRadius(enemy.kind));
   return { ...rest, act: 'ready', face, x: landed.x, z: landed.z, distance };
 }
 

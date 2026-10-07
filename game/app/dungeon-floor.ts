@@ -424,17 +424,56 @@ export function altarHall(seed = HALL_SEED): Floor {
   return { seed, level: 1, rooms: [gate], edges: [], doors: [kept], cells, tiles, roomByCell: new Map(tiles.map(t => [cellKey(t.x, t.z), t.room])), bounds, props: floor.props.filter(p => p.room === gate.id), spawns: [], weaponDrop: floor.weaponDrop, start: 0, goal: gate.id, spine: [gate.id], guardCount: 0, hall: true };
 }
 
-export function canStand(cells: Set<string>, x: number, z: number, radius = 0.32) {
+/** The footprint of a body at scale 1, the knight's. Plan 025 D4: a bigger body's grows with its `look.scale` (`bodyRadius`). */
+export const BODY_RADIUS = 0.32;
+// Never smaller than the knight's: a lane is sampled at his radius (`hasClearPath`), so a stalker or an archer let within 0.32 of a wall stood where no
+// blow could reach it, and the balance sim's knight stood on one forever (2026-10-07, seed 126707 floor 3, before the floor was put in).
+export const bodyRadius = (kind: EnemyKind) => BODY_RADIUS * Math.max(1, BESTIARY[kind].look.scale[0], BESTIARY[kind].look.scale[2]);
+
+export function canStand(cells: Set<string>, x: number, z: number, radius = BODY_RADIUS) {
   for (const dx of [-radius, radius]) for (const dz of [-radius, radius]) if (!cells.has(cellKey(Math.round((x + dx) / TILE), Math.round((z + dz) / TILE)))) return false;
   return true;
 }
 
-export function moveOnFloor(cells: Set<string>, position: { x: number; z: number }, dx: number, dz: number) {
+// A body already overlapping stone at its own radius (staged there, or grown since) walks as a scale-1 body until it is clear, rather than freezing where it stands.
+export function moveOnFloor(cells: Set<string>, position: { x: number; z: number }, dx: number, dz: number, radius = BODY_RADIUS) {
+  const r = radius > BODY_RADIUS && !canStand(cells, position.x, position.z, radius) ? BODY_RADIUS : radius;
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dz)) / 0.15));
   for (let i = 0; i < steps; i++) {
-    if (canStand(cells, position.x + dx / steps, position.z)) position.x += dx / steps;
-    if (canStand(cells, position.x, position.z + dz / steps)) position.z += dz / steps;
+    if (canStand(cells, position.x + dx / steps, position.z, r)) position.x += dx / steps;
+    if (canStand(cells, position.x, position.z + dz / steps, r)) position.z += dz / steps;
   }
+}
+
+/** A fallen body's extent on the floor in its own frame (forward is -z), in world units with its scale applied: what `deathFall` has to find floor for. */
+export type Fallen = { minX: number; maxX: number; minZ: number; maxZ: number };
+/** The turns a fall tries, off the body's own way down: its own, the opposite, then either side. */
+export const FALL_TURNS = [0, Math.PI, Math.PI / 2, -Math.PI / 2] as const;
+
+/** Whether every point of `fallen`, turned to `yaw` (a group's `rotation.y`) at `at`, lies on floor; sampled at a quarter unit, edges included. */
+export function liesOnFloor(cells: Set<string>, at: { x: number; z: number }, yaw: number, fallen: Fallen) {
+  const cos = Math.cos(yaw), sin = Math.sin(yaw), nx = Math.max(1, Math.ceil((fallen.maxX - fallen.minX) / .25)), nz = Math.max(1, Math.ceil((fallen.maxZ - fallen.minZ) / .25));
+  for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
+    const x = fallen.minX + (fallen.maxX - fallen.minX) * i / nx, z = fallen.minZ + (fallen.maxZ - fallen.minZ) * j / nz;
+    if (!cells.has(cellKey(Math.round((at.x + x * cos + z * sin) / TILE), Math.round((at.z - x * sin + z * cos) / TILE)))) return false;
+  }
+  return true;
+}
+
+/**
+ * Plan 025 D4: which way a body goes down so that all of it lands on floor. Its own way first (backwards for the armoured, forwards for the
+ * low), then the opposite, then either side; when none fits where it stands, the same four from the nearest point it can slide to, a
+ * quarter unit at a time out to three. `turn` is added to its facing; `shift` moves its feet. Nothing fitting anywhere leaves it as it was.
+ */
+export function deathFall(position: { x: number; z: number }, facing: number, fallen: Fallen, cells: Set<string>): { turn: number; shift: { x: number; z: number } } {
+  const fits = (dx: number, dz: number) => FALL_TURNS.find(turn => liesOnFloor(cells, { x: position.x + dx, z: position.z + dz }, facing + turn, fallen));
+  const here = fits(0, 0);
+  if (here !== undefined) return { turn: here, shift: { x: 0, z: 0 } };
+  for (let ring = .25; ring <= 3; ring += .25) for (let k = 0; k < 16; k++) {
+    const dx = Math.cos(k * Math.PI / 8) * ring, dz = Math.sin(k * Math.PI / 8) * ring, turn = fits(dx, dz);
+    if (turn !== undefined) return { turn, shift: { x: dx, z: dz } };
+  }
+  return { turn: 0, shift: { x: 0, z: 0 } };
 }
 
 // Sample at less than a tile width, including body radius, so corners and props block attack lanes.

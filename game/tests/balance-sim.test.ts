@@ -94,10 +94,12 @@ test('a shield turns a knight bolt by the heading the bolt left along, not the l
   // Plan 024 moved the seeds from 3 and 7 (5 and 11 against 7 and 10): the knight's dodges changed with the per-tell roll, so he stands elsewhere. Seeds 7, 14, 15, 16, 18, 20, 26, 30, 33 and 39 also differ, by one or two blocks
   // (measured 2026-10-04 over seeds 1-40); every other seed agrees between the two, so they cannot tell them apart and are not asserted.
   // Plan 024 Stage B (pressure holds a second tell back, so the fight runs differently) moved seed 28 to 39 (13 against 10 became 6 against 10); the pairs that differ are 5, 7, 11, 14, 16, 26, 28, 33 and 39.
+  // Plan 025 D4 (a body's footprint grows with its scale; the shieldbearer is 1.05) moved seed 11 from 7 to 6 blocks; along knight-to-body both seeds give 9 (measured 2026-10-07 over
+  // seeds 1-40: the pairs that differ are 5, 7, 11, 14, 16, 19, 26, 28, 33 and 39).
   const roster: EnemyKind[] = ['shieldbearer', 'shieldbearer', 'guard'];
   const reports = fight(roster, { weapon: weaponById('crossbow') }, [11, 39]);
   for (const r of reports) assert.ok(r.landed > 0, 'no bolt landed, so no push was ever passed to landBlow');
-  assert.deepEqual(reports.map(r => r.blocked), [7, 6], 'blocked bolts do not follow the bolt heading: the sim pushes along the knight-to-body line');
+  assert.deepEqual(reports.map(r => r.blocked), [6, 6], 'blocked bolts do not follow the bolt heading: the sim pushes along the knight-to-body line');
 });
 
 test('the harpoon breaks a raised shield, so the sim never has a blocked throw to withhold the drag from', () => {

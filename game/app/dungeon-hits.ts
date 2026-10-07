@@ -6,7 +6,7 @@
 // it; what a kill pays, and every spark, sound and shake around a blow, stays with the game.
 
 import { BESTIARY, BOSS_PUSH_MARGIN, bossReach, HIT_COOLDOWN, hitCooldown, interruptsWindup, type EnemyKind } from './dungeon-enemy.ts';
-import { moveOnFloor } from './dungeon-floor.ts';
+import { bodyRadius, moveOnFloor } from './dungeon-floor.ts';
 import { normalise, type Heading } from './dungeon-player.ts';
 
 /**
@@ -66,7 +66,7 @@ export const landBlow = (cells: Set<string>, target: Struck, at: Heading, blow: 
   if (unhittable(target)) return { broke: false, killed: false, blocked: false, immune: true as const };
   // Turned aside: no wound, no flinch, the tell untouched and only a third of the shove.
   if (facing && blocks(target, facing, push, blow.stagger)) {
-    moveOnFloor(cells, at, push.x * blow.knockback / 3, push.z * blow.knockback / 3);
+    moveOnFloor(cells, at, push.x * blow.knockback / 3, push.z * blow.knockback / 3, bodyRadius(target.kind));
     return { broke: false, killed: false, blocked: true };
   }
   target.hp -= blow.bolt && BESTIARY[target.kind].boss ? blow.damage * BOSS_BOLT : blow.damage; target.hitFlash = HIT_FLASH;
@@ -74,7 +74,7 @@ export const landBlow = (cells: Set<string>, target: Struck, at: Heading, blow: 
   if (broke) target.windup = 0;
   target.cooldown = Math.max(target.cooldown, hitCooldown(target.kind, broke, blow.stagger));
   const shove = BESTIARY[target.kind].steadfast ? blow.wardenKnockback : blow.knockback;
-  moveOnFloor(cells, at, push.x * shove, push.z * shove);
+  moveOnFloor(cells, at, push.x * shove, push.z * shove, bodyRadius(target.kind));
   return { broke, killed: target.hp <= 0, blocked: false };
 };
 

@@ -17,7 +17,7 @@ import { getFlagstoneTexturesSteps, getMasonryTexturesSteps } from './dungeon-te
 import { createDungeonAudio } from './dungeon-audio';
 import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidate } from './dungeon-occlusion';
 import { animateCloth } from './dungeon-motion';
-import { altarHall, canStand, dealBosses, gateRacks, generateFloor, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
+import { altarHall, bodyRadius, canStand, dealBosses, gateRacks, generateFloor, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
 import { FINAL_BOSS } from './dungeon-bestiary';
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
 import { allElite, corpseSink, corpsesDue, idleClock, parseElite, roomTiles, springing, waveDue, waveSpots, wavedFloor, WAVE_CAP, WAVE_MARK, type WaveClock } from './dungeon-waves';
@@ -427,7 +427,7 @@ export default function DungeonGame() {
     const fell = (enemy: Enemy) => {
       const fall = fallOf(stage.enemies, stage.enemies.indexOf(enemy));
       if (fall.reassembles) { rebury(enemy, stage.enemies[enemy.summoner]); return; }
-      enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind); dropMarks(enemy);
+      enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind, floor.cells); dropMarks(enemy);
       award(resolveKill(run, enemy.kind, !!enemy.elite)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
       if (BESTIARY[enemy.kind].boss) { setBossBar(null); bossKey = ''; unmark(enemy); }
       // A pyre leaves its fire where it fell (dungeon-projectile's `deathPool`), which bites the knight.
@@ -437,7 +437,7 @@ export default function DungeonGame() {
       for (const at of fall.crumble) {
         const body = stage.enemies[at];
         body.dead = true;
-        if (!body.buried) { body.death = startDeath(body.group, body.kind); dropMarks(body); burst(body.group.position, 0xd9d1bd, 10); }
+        if (!body.buried) { body.death = startDeath(body.group, body.kind, floor.cells); dropMarks(body); burst(body.group.position, 0xd9d1bd, 10); }
       }
     };
     // A raised body cut down while its caller stands: a puff of bone dust, and it is back in the reserve
@@ -455,7 +455,7 @@ export default function DungeonGame() {
     const raise = (caller: Enemy, index: number, perTell = BESTIARY[caller.kind].summons?.perTell ?? 0) => {
       const reserve = stage.enemies.filter(e => e.buried && !e.dead && e.summoner === index).slice(0, perTell);
       reserve.forEach((body, slot) => {
-        const at = raiseSpot(floor.cells, caller.group.position, player.position, slot);
+        const at = raiseSpot(floor.cells, caller.group.position, player.position, slot, bodyRadius(body.kind));
         body.buried = false; body.awake = true; body.group.visible = true; body.room = caller.room;
         body.group.position.set(at.x, .03, at.z); body.anchor = { x: at.x, z: at.z }; body.cooldown = Math.max(body.cooldown, .6);
         burst(body.group.position, 0xb9a4ff, 14);
@@ -2222,7 +2222,7 @@ export default function DungeonGame() {
         if (barKey !== bossKey) { bossKey = barKey; setBossBar(shown ? { name: BESTIARY[shown.kind].title ?? shown.kind, hp: Math.max(0, Math.ceil(shown.hp)), maxHp: shown.maxHp, phases: BESTIARY[shown.kind].phases ?? [], phase: shown.bossPhase } : null); }
         // Separate bodies without moving a guard during its committed windup; the rule itself lives in
         // dungeon-enemy, and only the write back into the scene graph belongs here.
-        const spread = separateCrowd(floor.cells, stage.enemies.map(e => ({ x: e.group.position.x, z: e.group.position.z, windup: e.windup, dead: e.dead || e.buried })), dt);
+        const spread = separateCrowd(floor.cells, stage.enemies.map(e => ({ x: e.group.position.x, z: e.group.position.z, windup: e.windup, dead: e.dead || e.buried, radius: bodyRadius(e.kind) })), dt);
         stage.enemies.forEach((e, i) => { e.group.position.x = spread[i].x; e.group.position.z = spread[i].z; });
         // Bolts at the knight. The rule - stone stops them, a dash's opening frames let them through - is
         // dungeon-projectile's; the mesh, the sparks off stone and the hurt are what is left here.
@@ -2299,7 +2299,7 @@ export default function DungeonGame() {
               if (drags && hurled?.hurl && harpoon) {
                 harpoon.dragged = true;
                 const pull = dragToward(enemy.group.position, player.position, hurled.hurl.drag);
-                moveOnFloor(floor.cells, enemy.group.position, pull.x, pull.z);
+                moveOnFloor(floor.cells, enemy.group.position, pull.x, pull.z, bodyRadius(enemy.kind));
               }
               burst(enemy.group.position, 0xffb24a, 7); burst(enemy.group.position, 0xe0202c, 22); blood.spawn(enemy.group.position, BESTIARY[enemy.kind].look.blood); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffedbb, BESTIARY[enemy.kind].look.heavy || !!live.heavy);
               shake = live.heavy ? 0.09 : 0.05; pc.hitStop = 0.025;
@@ -2522,7 +2522,7 @@ export default function DungeonGame() {
       testHooks.drainGpu = () => drainGpu(renderer);
       testHooks.lightDiagnostics = (index, radius = 2) => lightDiagnostics(scene, stage.enemies[index], index, radius);
       // Moves actors the floor already spawned and nothing else; the refusals are in dungeon-fixture.ts.
-      testHooks.configureCombatFixture = (fixture) => applyCombatFixture(fixture, { started: hasStarted, held: isPaused || manualTime, run, enemies: stage.enemies, canStand: (x, z) => canStand(floor.cells, x, z), healthSet: setHealth });
+      testHooks.configureCombatFixture = (fixture) => applyCombatFixture(fixture, { started: hasStarted, held: isPaused || manualTime, run, enemies: stage.enemies, canStand: (x, z, index) => canStand(floor.cells, x, z, bodyRadius(stage.enemies[index].kind)), healthSet: setHealth });
     }
     const advanceTime = (ms: number, draw = true) => {
       manualTime = true;
@@ -2582,7 +2582,7 @@ export default function DungeonGame() {
       graphics: { motifs: stage.atmosphere?.motifs ?? [], flames: stage.atmosphere?.flames ?? [], paving: stage.pavingSummary },
       floor: { level, waterfalls: stage.atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
       player: { x: player.position.x, z: player.position.z, facing: { x: pc.facing.x, z: pc.facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime: pc.attackTime, attackBuffer: pc.attackBuffer, dashBuffer: pc.dashBuffer, dashTime: pc.dashTime, dashCooldown: pc.dashCooldown, chain: { beat: pc.chainBeat, beats: chainLength(pc.weapon), idle: Number.isFinite(pc.chainIdle) ? pc.chainIdle : null, damage: pc.swing.damage + run.strike, duration: pc.swing.duration }, invulnerable: run.invuln, hurtFlash, special: pc.weapon.special ? { id: pc.weapon.special.id, ready: specialAvailable(pc.weapon.special, { cooled: specialReady(run), quiver, out: !!harpoon }), cooldown: run.specialCooldown, charging: charging !== null, charge: charging !== null ? chargeLevel(pc.weapon.special, charging) : 0, held: charging ?? 0, live: pc.swingKind === 'special' && pc.attackTime > 0, buffered: specialBuffer, harpoon: harpoon ? { phase: harpoon.phase, x: harpoon.x, z: harpoon.z } : null, bare: !!harpoon, vault: vault ? { target: vault.target ? stage.enemies.filter(e => !e.dead).indexOf(vault.target) : null, distance: vault.distance, landed: vault.landed } : null } : null, swordAngle: player.userData.sword.rotation.y, cloak:{anchor:player.userData.cape.position.toArray(),pitch:player.userData.cape.rotation.x}, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, locomotion: {speed:gaitSpeed,phase:walkPhase,sprint:locomotion.sprint,pitch:player.userData.torso.rotation.x,height:player.position.y,arm:player.userData.arm.rotation.x,tabard:player.userData.tabard.rotation.x,knees:player.userData.legs.map((leg:THREE.Group)=>leg.userData.knee.rotation.x)}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
-      corpses: stage.enemies.filter(e=>e.dead).map(e=>({kind:e.kind,x:e.group.position.x,y:e.group.position.y,z:e.group.position.z,scale:e.group.scale.toArray(),rotation:e.group.userData.rig.rotation.x,age:e.death?.age,settled:e.death?.settled,parts:(()=>{let drawn=0;e.group.traverseVisible(o=>{if(o instanceof THREE.Mesh)drawn++;});return drawn;})(),visible:e.group.visible,cue:e.cue.visible,bar:e.bar.visible,trails:e.trails.some(trail=>trail.effect.mesh.visible)})),
+      corpses: stage.enemies.filter(e=>e.dead).map(e=>({kind:e.kind,x:e.group.position.x,y:e.group.position.y,z:e.group.position.z,scale:e.group.scale.toArray(),rotation:e.group.userData.rig.rotation.x,footprint:(()=>{e.group.updateWorldMatrix(true,true);const toBody=e.group.matrixWorld.clone().invert(),box=new THREE.Box3();e.group.traverseVisible(o=>{if(!(o instanceof THREE.Mesh)||o.parent===e.group&&o.name!=='corpse')return;if(!o.geometry.boundingBox)o.geometry.computeBoundingBox();box.union(o.geometry.boundingBox!.clone().applyMatrix4(toBody.clone().multiply(o.matrixWorld)));});return box.isEmpty()?[]:[[box.min.x,box.min.z],[box.max.x,box.min.z],[box.max.x,box.max.z],[box.min.x,box.max.z]].map(([x,z])=>{const at=e.group.localToWorld(new THREE.Vector3(x,0,z));return [at.x,at.z];});})(),age:e.death?.age,settled:e.death?.settled,parts:(()=>{let drawn=0;e.group.traverseVisible(o=>{if(o instanceof THREE.Mesh)drawn++;});return drawn;})(),visible:e.group.visible,cue:e.cue.visible,bar:e.bar.visible,trails:e.trails.some(trail=>trail.effect.mesh.visible)})),
       enemies: stage.enemies.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, buried: e.buried, summoner: e.summoner, blocked: e.blocked, visible: e.group.visible, windup: e.windup, held: e.held, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, wave: e.wave, maxHp: e.maxHp, elite: e.elite ?? null, tell: e.tell, speed: e.speed, damage: e.damage, wears: { emissive: e.skins[0]?.emissive.getHex() ?? 0, intensity: e.skins[0]?.emissiveIntensity ?? 0, eye: (e.group.userData.eyes[0].material as THREE.MeshBasicMaterial).color.getHex(), frame: e.elite ? ((e.bar.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).color.getHex() : null }, pose: {shieldArm:e.group.userData.limbs[0].rotation.x,shieldTilt:e.group.userData.shield.rotation.x,pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x,weaponYaw:e.group.userData.weapon.rotation.y,attackAge:Number.isFinite(e.attackAge)?e.attackAge:null,trails:e.trails.filter(trail=>trail.effect.mesh.visible).length,cue:e.cue.visible} })),
     });
     const animate = (now: number) => {

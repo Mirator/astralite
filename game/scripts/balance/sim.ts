@@ -16,7 +16,7 @@ import { boltBlow, canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow,
 import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, eliteStats, fallOf, moveOf, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, type CrowdBody, type EliteModifier, type EnemyKind, type EnemyView, type Move, type Pressed, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { bossPush, landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
-import { TILE, bossOnFloor, cellKey, dealBosses, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
+import { TILE, bodyRadius, bossOnFloor, cellKey, dealBosses, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
 import { arenaFloor, type Floor } from '../../app/dungeon-arena.ts';
 import { calledIn, idleClock, roomTiles, springing, waveDue, wavedFloor, waveSpots, type WaveClock } from '../../app/dungeon-waves.ts';
 import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
@@ -558,7 +558,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const raise = (caller: Body, index: number, perTell = BESTIARY[caller.kind].summons?.perTell ?? 0) => {
     const reserve = bodies.filter(e => e.buried && !e.dead && e.summoner === index).slice(0, perTell);
     reserve.forEach((body, slot) => {
-      const at = raiseSpot(floor.cells, caller, player, slot);
+      const at = raiseSpot(floor.cells, caller, player, slot, bodyRadius(body.kind));
       body.buried = false; body.awake = true; body.room = caller.room;
       body.x = at.x; body.z = at.z; body.anchor = { x: at.x, z: at.z }; body.cooldown = Math.max(body.cooldown, 0.6);
       raisedCount++;
@@ -1001,7 +1001,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           if (drags && hurled?.hurl && harpoon) {
             harpoon.dragged = true;
             const pull = dragToward(body, player, hurled.hurl.drag);
-            moveOnFloor(floor.cells, body, pull.x, pull.z);
+            moveOnFloor(floor.cells, body, pull.x, pull.z, bodyRadius(body.kind));
           }
           if (body.hp <= 0) {
             fell(body);
@@ -1062,7 +1062,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     }
     else aloneRun = 0;
 
-    const crowd: CrowdBody[] = bodies.map(b => ({ x: b.x, z: b.z, windup: b.windup, dead: b.dead || !b.awake }));
+    const crowd: CrowdBody[] = bodies.map(b => ({ x: b.x, z: b.z, windup: b.windup, dead: b.dead || !b.awake, radius: bodyRadius(b.kind) }));
     separateCrowd(floor.cells, crowd, DT).forEach((spot, i) => { if (!crowd[i].dead) { bodies[i].x = spot.x; bodies[i].z = spot.z; } });
 
     // dungeon-game.tsx:1865 (`SHRINE`): the first step within reach of an unused shrine, with vitality to mend, mends it for good.
