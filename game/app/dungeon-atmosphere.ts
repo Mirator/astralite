@@ -96,7 +96,11 @@ const PROP = {
  * pay for all of them, and changed the light count - and so recompiled everything - from floor to floor.
  * The game lends a fixed pool of real lights to whichever anchors are nearest the knight each frame.
  */
-export type LightAnchor={x:number;y:number;z:number;color:number;intensity:number;distance:number};
+export type LightAnchor={x:number;y:number;z:number;color:number;intensity:number;distance:number;
+  /** Plan 025 D6 step 1: the chamber it burns in and what it is, so the snapshot can count a chamber's sources. */
+  room:number;kind:'sconce'|'bounce';
+  /** A wall sconce's wall: face direction and the line it stands on. Absent on a pillar sconce and a bounce. */
+  wall?:string};
 
 /** The banner cloth, drawn in greys so the chamber can hang its own colour on it. A `MeshStandardMaterial`
  * map only ever multiplies, so the field has to be the darker of the two for the device to stay the lighter
@@ -183,7 +187,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const coalGlow=new THREE.MeshBasicMaterial({color:0xff8040,toneMapped:false});
   const plinthStone=new THREE.MeshStandardMaterial({color:0x2a2d30,roughness:.9});weatherStone(plinthStone,true);applyStoneTextures(plinthStone,getMasonryTextures(),.8);
   const bowlIron=new THREE.MeshStandardMaterial({color:0x1e1c1b,roughness:.55,metalness:.7,side:THREE.DoubleSide});
-  const flames:{handle:FlameHandle;theme:FlameTheme;phase:number;y:number}[]=[],staticFlames:FlameHandle[]=[],torchPositions:THREE.Vector3[]=[],lightAnchors:LightAnchor[]=[],banners:THREE.Mesh[]=[],seals:THREE.Mesh[]=[],sealTints:number[]=[],falls:THREE.Mesh[]=[],ripples:THREE.Mesh[]=[];
+  const flames:{handle:FlameHandle;theme:FlameTheme;phase:number;y:number}[]=[],staticFlames:FlameHandle[]=[],torchPositions:THREE.Vector3[]=[],torchRooms:number[]=[],lightAnchors:LightAnchor[]=[],banners:THREE.Mesh[]=[],seals:THREE.Mesh[]=[],sealTints:number[]=[],falls:THREE.Mesh[]=[],ripples:THREE.Mesh[]=[];
   // Plan 014 round 6 (lever 3): a hash on the wall tile decides *where* a corridor's urn/rubble/chain
   // dressing is eligible to go, but the tile count it is eligible over grows with the floor - a big
   // floor's corridors are a lot of wall segments, and one non-instanced mesh per rock/urn/chain-link
@@ -261,7 +265,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
       // flame's own centre plus a real clearance puts the light inside the flame body it is meant to
       // represent, and roughly doubles its distance to the rim - a ~4x drop in irradiance there
       // (physical inverse-square) for a light that still reaches the room the same way it always did.
-      torchPositions.push(new THREE.Vector3(x,flameY+1.0,z));
+      torchPositions.push(new THREE.Vector3(x,flameY+1.0,z));torchRooms.push(p.room);
       const haloScale=FLAME_HALO_SCALE[theme];
       const halo=new THREE.Sprite(haloMaterial.clone());halo.position.set(x,1.7,z);halo.scale.set(haloScale.x,haloScale.y,1);world.add(halo);halos.push(halo);haloBases.push(haloScale);
     } else if(p.kind==='barrel'){
@@ -324,7 +328,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
         const facing=Math.floor(random()*4)*Math.PI/2,fx=Math.sin(facing)*.5,fz=Math.cos(facing)*.5,by=Math.min(h-.3,1.9);
         mesh(new THREE.BoxGeometry(.2,.13,.2),trim,x+fx*.86,by-.15,z+fz*.86).castShadow=false;
         const sconceHandle=makeFlameBillboard(.38,.5,random()*Math.PI*2);sconceHandle.group.position.set(x+fx*.86,by-.08,z+fz*.86);world.add(sconceHandle.group);staticFlames.push(sconceHandle);
-        lightAnchors.push({x:x+fx*1.9,y:by,z:z+fz*1.9,color:0xff9c52,intensity:14,distance:6.5});
+        lightAnchors.push({x:x+fx*1.9,y:by,z:z+fz*1.9,color:0xff9c52,intensity:14,distance:6.5,room:p.room,kind:'sconce'});
       }
       // Plan 007: the shaft and cap are the "pillar shafts/caps" the local actor cutaway is allowed to
       // open a window in - the low plinth is a foot, not a wall, and stays out of it.
@@ -341,7 +345,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   }
   const packed=(x:number,z:number)=>(x+4096)*8192+(z+4096);
   const solid=new Set<number>();for(const t of floor.tiles)solid.add(packed(t.x,t.z));
-  const shore=shorelineMaterial(),shoreEdges=floor.tiles.flatMap(t=>[[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dz])=>!solid.has(packed(t.x+dx,t.z+dz))).map(([dx,dz])=>({x:t.x,z:t.z,dx,dz})));
+  const shore=shorelineMaterial(),shoreEdges=floor.tiles.flatMap(t=>[[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dz])=>!solid.has(packed(t.x+dx,t.z+dz))).map(([dx,dz])=>({x:t.x,z:t.z,dx,dz,room:t.room})));
   const shoreline=new THREE.InstancedMesh(new THREE.PlaneGeometry(TILE*1.04,.7),shore.material,shoreEdges.length),shoreMatrix=new THREE.Matrix4(),shoreRotation=new THREE.Quaternion();
   shoreEdges.forEach((e,i)=>{shoreRotation.setFromEuler(new THREE.Euler(-Math.PI/2,0,e.dx?Math.PI/2:0));shoreMatrix.compose(new THREE.Vector3((e.x+e.dx*.65)*TILE,-2.71,(e.z+e.dz*.65)*TILE),shoreRotation,new THREE.Vector3(1,1,1));shoreline.setMatrixAt(i,shoreMatrix);});world.add(shoreline);
   // Plan 014 round 9 (lever 3): "characters standing next to water get no cyan bounce" - a real bounce
@@ -354,7 +358,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const waterBounceEvery=8,waterBounceMax=6;
   for(let i=0,n=0;i<shoreEdges.length&&n<waterBounceMax;i+=waterBounceEvery,n++){
     const e=shoreEdges[i];
-    lightAnchors.push({x:(e.x+e.dx*.4)*TILE,y:.55,z:(e.z+e.dz*.4)*TILE,color:0x3fd0e8,intensity:3.2,distance:5.5});
+    lightAnchors.push({x:(e.x+e.dx*.4)*TILE,y:.55,z:(e.z+e.dz*.4)*TILE,color:0x3fd0e8,intensity:3.2,distance:5.5,room:e.room,kind:'bounce'});
   }
   const contactMap=sharedContact??=contactTexture(),contactMaterial=new THREE.MeshBasicMaterial({map:contactMap,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-1});
   const contacts=new THREE.InstancedMesh(new THREE.PlaneGeometry(2.65,2.65),contactMaterial,floor.props.length),contactMatrix=new THREE.Matrix4();
@@ -433,7 +437,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
         const sconceHandle=makeFlameBillboard(.4,.55,random()*Math.PI*2);sconceHandle.group.position.set(bx,by-.1,bz);world.add(sconceHandle.group);staticFlames.push(sconceHandle);
         // A visible warm pool on the floor and the wall behind it is the whole point - not a
         // decorative flicker light lost among the room's own lamps. Bright and short-range.
-        lightAnchors.push({x:bx,y:by,z:bz,color:0xff9c52,intensity:16,distance:7.5});
+        lightAnchors.push({x:bx,y:by,z:bz,color:0xff9c52,intensity:16,distance:7.5,room:tile.room,kind:'sconce',wall:`${dx},${dz}:${dx?tile.x:tile.z}`});
       }
       // Plan 014 round 6 (lever 3): a corridor is bare furniture-wise even once it is lit - every prop
       // the floor generator places is a room fixture (`FloorProp['kind']` is never assigned outside
@@ -579,7 +583,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const paleTint=new THREE.Color(),bowlTint=new THREE.Color(),black=new THREE.Color(0x000000);
   const inlayTint=new THREE.Color(),runnerTint=new THREE.Color(),trimTint=new THREE.Color();
   const brassCast=new THREE.Color(0xb08a4e);
-  return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,lightAnchors,motifs:carved.motifs,
+  return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,torchRooms,lightAnchors,motifs:carved.motifs,
     // Plan 014 round 6: a billboard flame has no single "body" mesh to read a bounding box off any
     // more (three quads, each its own draw). A driver that wants a brazier's footprint reads
     // `FLAME_FOOTPRINT`/`FLAME_BASE_Y` directly (both exported from their own modules) instead of
