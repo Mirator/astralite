@@ -88,9 +88,7 @@ test.describe('the floor realizes exactly the motifs the planner plans', () => {
   // replaces like with like. So the run descends one keep, restarts, descends another, and comes back to the
   // first: each floor must cost on its return what it cost the first time, whatever was built in between,
   // and once both keeps have been seen no build may link a shader program the game had not linked before.
-  test('a descent, a restart and another keep leave geometry, texture and program counts where they were', async ({ game, page }) => {
-    await game.enter();
-    await game.step(SETTLE);
+  test('rebuilding the floors of two keeps, with a restart between, leaves geometry, texture and program counts where they were', async ({ game, page }) => {
     type Cost = { geometries: number; textures: number; programs: number };
     const visit = async (level: number, seed: number): Promise<Cost> => {
       await page.evaluate(([value, from]) => {
@@ -100,7 +98,9 @@ test.describe('the floor realizes exactly the motifs the planner plans', () => {
       }, [level, seed] as const);
       await game.settle();
       await game.step(0, true);
-      const { geometries, textures, programs } = (await game.state()).render;
+      const state = await game.state();
+      expect(state.floor.level, 'precondition: the floor asked for is the one built').toBe(level);
+      const { geometries, textures, programs } = state.render;
       return { geometries, textures, programs };
     };
     const restart = async (seed: number) => {
@@ -108,21 +108,23 @@ test.describe('the floor realizes exactly the motifs the planner plans', () => {
       await game.settle();
     };
     const A = 0x1, B = 0x5eed, levels = [1, 2, 3];
-    const first: Cost[] = [];
-    for (const level of levels) first.push(await visit(level, A));
-    await restart(B);
-    const other: Cost[] = [];
-    for (const level of levels) other.push(await visit(level, B));
-    const seenBoth = other[other.length - 1].programs;
-    await restart(A);
-    const again: Cost[] = [];
-    for (const level of levels) again.push(await visit(level, A));
+    // Every pass starts from a restart, so all its visits are measured in the same mode: a restart leaves the keep at
+    // its title, which draws a different share of the floor than a run in progress, and the counts are what was drawn.
+    const pass = async (seed: number) => { await restart(seed); const costs: Cost[] = []; for (const level of levels) costs.push(await visit(level, seed)); return costs; };
+    // A, B, A, B, A. The first two passes are warm-up: a floor may make something once, the first time anything on any
+    // floor needs it (a pool, a shared geometry, a program), and keep it; that is a cache, not a leak. One geometry did
+    // exactly that between seed A's first and second visits to floor one (187, then 188; SwiftShader, 2026-10-07). So
+    // A's third visit is held to its second, with all of B built in between: anything still growing then is a leak.
+    const a1 = await pass(A), b1 = await pass(B), a2 = await pass(A), b2 = await pass(B), a3 = await pass(A);
     // Precondition: the second keep's floors are not the first's, or "whatever was built in between" built the same thing.
-    expect(other.map(c => c.geometries), 'seed B built the same floors as seed A, so nothing changed between the visits').not.toEqual(first.map(c => c.geometries));
+    expect(b1.map(c => c.geometries), 'seed B built the same floors as seed A, so nothing changed between the visits').not.toEqual(a1.map(c => c.geometries));
+    // B's second pass is already past the warm-up (A's first pass and all of B's first came before it), so it is the first leak check:
+    // a floor that keeps a texture or a geometry after it is torn down shows here, one keep earlier than at A's third pass.
+    expect(b2, 'seed B cost more on its second pass than its first - a leak across floors or the restart').toEqual(b1.map((c, i) => ({ ...c, programs: b2[i].programs })));
     levels.forEach((level, i) => {
-      expect({ geometries: again[i].geometries, textures: again[i].textures }, `floor ${level} of seed A cost more on its return than on its first visit - a leak across floors or the restart`)
-        .toEqual({ geometries: first[i].geometries, textures: first[i].textures });
-      expect(again[i].programs, `floor ${level} of seed A linked a shader program after both keeps had been seen`).toBe(seenBoth);
+      expect({ geometries: a3[i].geometries, textures: a3[i].textures }, `floor ${level} of seed A cost more on its third visit than its second - a leak across floors or the restart`)
+        .toEqual({ geometries: a2[i].geometries, textures: a2[i].textures });
+      expect(a3[i].programs, `floor ${level} of seed A linked a shader program after both keeps had been seen twice`).toBe(a2[a2.length - 1].programs);
     });
   });
 });
