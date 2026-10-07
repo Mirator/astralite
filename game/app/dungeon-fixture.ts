@@ -23,8 +23,7 @@ export type FixtureWorld = {
   held: boolean;
   run: { hp: number; maxHp: number };
   enemies: FixtureEnemy[];
-  /** Whether the enemy at spawn index `index` fits at x, z with its own footprint (plan 025 D4: it grows with the body's scale). */
-  canStand: (x: number, z: number, index: number) => boolean;
+  canStand: (x: number, z: number) => boolean;
   /** Told the new vitality the moment it is written, before anything later in the fixture can refuse. */
   healthSet?: (hp: number) => void;
 };
@@ -54,7 +53,7 @@ export const applyCombatFixture = (fixture: CombatFixture, world: FixtureWorld) 
     if (change.x !== undefined || change.z !== undefined) {
       const x = finite(change.x ?? enemy.group.position.x, 'x');
       const z = finite(change.z ?? enemy.group.position.z, 'z');
-      if (!world.canStand(x, z, change.index)) throw new Error(`enemy ${change.index} cannot stand at ${x}, ${z}`);
+      if (!world.canStand(x, z)) throw new Error(`enemy ${change.index} cannot stand at ${x}, ${z}`);
       enemy.group.position.x = x; enemy.group.position.z = z;
     }
     if (change.hp !== undefined) {

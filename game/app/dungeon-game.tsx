@@ -2525,7 +2525,7 @@ export default function DungeonGame() {
       testHooks.drainGpu = () => drainGpu(renderer);
       testHooks.lightDiagnostics = (index, radius = 2) => lightDiagnostics(scene, stage.enemies[index], index, radius);
       // Moves actors the floor already spawned and nothing else; the refusals are in dungeon-fixture.ts.
-      testHooks.configureCombatFixture = (fixture) => applyCombatFixture(fixture, { started: hasStarted, held: isPaused || manualTime, run, enemies: stage.enemies, canStand: (x, z, index) => canStand(floor.cells, x, z, bodyRadius(stage.enemies[index].kind)), healthSet: setHealth });
+      testHooks.configureCombatFixture = (fixture) => applyCombatFixture(fixture, { started: hasStarted, held: isPaused || manualTime, run, enemies: stage.enemies, canStand: (x, z) => canStand(floor.cells, x, z), healthSet: setHealth });
     }
     const advanceTime = (ms: number, draw = true) => {
       manualTime = true;

@@ -6116,3 +6116,68 @@ Moved to the next five beyond what was measured, none widened further: default e
 ## 2026-10-05 - Plan 024 Stage F: documents
 
 `GAME_OVERVIEW.md` (the pressure rule, a ranged body in every later wave, Grave Draught 2, the softer Pyre Mother and harder Bone King, the bots' numbers), the `plans/README.md` row for 024, this log and the plan's Evidence. Documents only: **the operator's playtest is not done** (five runs on a GPU: do rooms cost vitality, is a double threat readable, does the Draught still feel worth taking; the tide-mark question is moot). Open for the operator: D7's room-cost lines are not met (Stage E's stop rule) and want a decision on ordinary-enemy damage and on what heals between chambers.
+
+## 2026-10-07 - Plan 025 Stage A: quick fixes (D1, D4, D5, D7)
+
+### What was shipped
+
+- **D1, no minimap.** The corner `.floor-map` widget is gone, markup and CSS (the corner, the 720px and coarse-pointer rules, the mark scaling). The room graph is drawn only while the map is open (Tab, the pad's View, the pause menu's Floor map), from the fills and the knight's room the run kept while it was shut and hands over as it opens (`openMap`), since the imperative `#map-room-*` writes land on nothing when it is not mounted.
+- **D4, bodies and walls.** `canStand`/`moveOnFloor` take a radius; every enemy step, lunge, shove, crowd push, raise spot and harpoon drag passes `bodyRadius(kind)` = 0.32 x `look.scale`, **floored at the knight's 0.32** (deviation, below). A body already overlapping stone at its radius walks as a scale-1 body until clear. The pure `deathFall(position, facing, fallen, cells)` in `dungeon-floor.ts` tries the body's own way down, the opposite, then either side, then slides out to three units a quarter at a time, until the whole fallen footprint lies on floor; `startDeath(group, kind, cells)` measures that footprint off the landing pose (in the body's frame, at its scale) and asks it. The corpse snapshot reports its observed footprint corners. The balance sim passes the same radii (raise, drag, crowd).
+- **D5, boss bar.** Track 18px, name 20px, ticks 3px, `min(640px, calc(100% - 700px))` (300px at the suite's 1000px viewport, 580px at 1280, 640px from 1340). Below 900px it keeps today's size as well as its insets (deviation, below).
+- **D7, blood.** `texture.colorSpace = SRGBColorSpace`, and warmer, stronger reds (176,18,0 / 136,11,0 / 88,6,0, were 140,12,16 / 110,8,12 / 70,4,6), because the colour-space fix alone failed D7's own 15-degree rule.
+
+### Measurements
+
+Blood splat, d3d11 (local GPU), 2026-10-07, the gate of seed 0x1: a guard struck at (0,0), everyone parked out of view, the frame with the splat differenced against the same view before the blow; the splat is the changed pixels in its screen box that moved toward red (about 900-1,050 px). SwiftShader was not run; no reference frame was produced.
+
+| splat | mean rendered RGB | HSV hue (off red) | OKLCh L / C / h |
+| --- | --- | --- | --- |
+| before (no colour space) | 164, 45, 67 | 349 (11) | .486 / .154 / 14.9 |
+| sRGB, old reds | 94, 21, 44 | 341 (19) | .328 / .106 / 6.8 |
+| sRGB, new reds (shipped) | 121, 19, 42 | 347 (13) | .378 / .134 / 15.1 |
+| the floor under it | 31, 59, 82 | - | .34 / .053 / 246 |
+
+The plan's premise was half right: unencoded, the splat was lighter (L .49) but not greyer (C .154, more chromatic than either sRGB version); on screen it read pink. Read as sRGB, the old reds are dark enough to fall into the grade's shadow branch, whose teal lift adds blue and turns them crimson-magenta. `shots:compare --base HEAD` on d3d11 (96 s + 79 s) shows the minimap gone and the bigger bar; every scene also moves by sub-8 grain and water noise (about 33% of pixels, 2-4% above 8), and no scene puts a splat where it can be read, so the table above is the blood measurement.
+
+Pool-boss duels, `duel(kind, floor, policy, 100)`, before D4 (every radius 0.32) -> after:
+
+| policy, floor | Mother deaths / 100 | Mother median damage | Captain, Hound, Bastion deaths |
+| --- | --- | --- | --- |
+| default, 1 | 0 -> 1 | 54 -> 60 | 0, 0, 0 both |
+| default, 2 | 2 -> **18** | 68 -> 76 | 0, 0, 0 both |
+| skilled, 1 | 0 -> 0 | 57 -> 59 | 0, 0, 0 both |
+| skilled, 2 | 2 -> **11** | 72 -> 75.5 | 0, 0, 0 both |
+
+At 30 duels (the test's size) default floor 2 is 0 -> 4 and skilled floor 2 is 1 -> 3. Either radius site alone (her keep-away step, or the blow's shove) brings default floor 2 back to 0 of 30, so it is the Mother no longer backing to within 0.32 of the wall she was cornered against.
+
+Mother corpse in the running game (boss.spec, d3d11): staged 0.550 from a straight wall, facing the room; the corpse's footprint (about 4.2 x 2.5) lies wholly on floor, 0 of 2,601 samples over stone; with `fell` not handing `startDeath` the floor, 1,736 are.
+
+### Deviations from the plan
+
+- `bodyRadius` is never below 0.32. With the plain `0.32 * look.scale`, the stalker (.94), archer (.96) and rattler (.72) could stand within 0.32 of a wall, where `hasClearPath` (sampled at the knight's radius) finds no lane to them: the balance sim's knight stood on an archer until the timeout (seed 126707 floor 3, `balance-sim` "walking into a chamber that holds a bonecaller"), and four other sim tests went `stuck`.
+- `deathFall` takes the measured footprint (`Fallen`: x and z extents in the body's frame, scale applied) instead of `scale`: the extent differs by kind, not only by scale (the Mother lies -1.0..3.4 along her fall and -1.1..1.4 across; the Bastion's shield makes it about 5 across at 1.7), and prone kinds lie forwards. It tries the kind's own way first (forwards for the prone), which for the armoured is the plan's "backwards first". Big bodies in small chambers will slide visibly as they fall.
+- Below 900px the boss bar keeps today's 15px name and 10px track: a 20px name wraps at 360px and the bar ran into the vitality row (the phone scenario failed on it).
+- The combat fixture still places a staged body by the knight's 0.32 (a scale-aware placement refused special.spec's Flashpoint warden staging); a big body staged overlapping stone walks out of it by the overlap escape.
+- D7's second branch was taken (re-authored reds rather than exempting the splat from the grade), by the plan's own rule.
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- `tests/dungeon-fall.test.ts` (new): `deathFall` with a wall behind, a wall behind and in front (falls to a side without sliding), a corner (slides), the open floor; `moveOnFloor` at the Mother's 0.48; an overlapping body walking out; the Mother backing into a wall through `decideEnemy`; `startDeath` with the real Mother figure. **Planted: `deathFall` returns the backwards direction unchanged** -> the three wall cases and the figure fail on stray points (`the corpse lies over stone at 4.10,11.10 ...`). **Planted: `moveOnFloor` ignores the radius** -> `she stands 0.423 from the wall` and `she backed to 0.345 from the wall`. **Planted: no overlap escape** -> `she moved only to 0.200 from the wall`. **Planted: the keep-away step without the radius** -> `she backed to 0.345 from the wall`.
+- `tests/dungeon-blood.test.ts` (new): every splat wears an sRGB texture. **Planted: the `colorSpace` line dropped** -> `a blood splat's texture is read as no colour space, not sRGB`.
+- `controls.spec` (Tab): no `.floor-map` while playing, the graph drawn with every room while the map is open, gone again after. **Planted: the widget restored** -> `the corner minimap is still on the HUD`.
+- `ranged.spec` opens the map to read the cleared mark. **Planted: the clear's fill not kept** -> `and it is marked on the map as cleared` (received `#6a9995`).
+- `boss.spec` (the Captain's fight): the bar's track, name and tick sizes. **Planted: the track at 10px** -> `the boss bar is not the size plan 025 D5 set`.
+- `boss.spec` (new): the Mother killed 0.55 from a wall leaves her corpse on the floor; precondition that she stood within 0.6 of it. **Planted: `fell` calls `startDeath` without the floor** -> `her corpse lies over stone at -6.73,-4.04 ...`.
+- Re-pinned from measurements: the reaper's scripted-fight digest (`1e936e7d`, was `bbc7ada5`; every count unchanged; the other eight kinds unchanged), and the shield-bolt seeds 11 and 39 at 6 and 6 blocks (9 and 9 along knight-to-body; the pairs that differ over seeds 1-40 are 5, 7, 11, 14, 16, 19, 26, 28, 33, 39).
+
+### Gates
+
+- `npm run typecheck`: clean. `npm run lint`: clean.
+- `npm test`: 569 tests, 567 pass, **2 fail**: `balance-bosses` pool fairness and `balance-sim` dodge 0.5 seed 8 (both under Open).
+- PR-gate browser run (`--grep-invert "@capture|@nightly"`, d3d11, port 3100, one worker): 181 scenarios, 178 passed, 3 failed in 13.6 min. Fixed and re-run green (gameplay, special and boss specs: 44 passed): `gameplay.spec` clicked the removed corner map (now opens it from the pause menu's Floor map), and `special.spec`'s Flashpoint staging was refused by a scale-aware fixture (reverted, above). Not fixed: `quality.spec` "a keep too slow to hold steps down", whose comment says it needs a software rasteriser to step down; on d3d11 the GPU holds full quality. Stage A touches no quality code.
+- `npm run shots:compare -- --base HEAD` (d3d11) ran; see Measurements.
+
+### Open
+
+- **`balance-bosses` pool fairness is red** (default floor 2: the Mother 4 of 30 against the Captain 0). A real shift from D4, measured above; not loosened. Stage D (D3, the Mother moves) changes the same fight and must re-measure fairness anyway; the operator decides whether A waits for D or D re-tunes her.
+- **`balance-sim` "a tell is dodged or not once" is red** on dodge 0.5, seed 8: the Captain duel times out. Traced: the sim knight walks +x and -x on alternate frames between two cells beside a brazier, and the Captain's `pursuitStep` flips its tie-break with the knight's cell, so neither moves for 450 s. A latent sim livelock that D4's changed trajectories rolled onto this seed; not a D4 rule, not fixed here, and the seed is not skipped.
