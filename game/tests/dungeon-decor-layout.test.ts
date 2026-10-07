@@ -53,9 +53,9 @@ test('every room shape is covered without a motif bridging a hole in its own flo
   const shapes = new Set<string>();
   for (const floor of allFloors()) {
     for (const room of floor.rooms) {
-      shapes.add(room.shape);
       const layout = planRoomMotif(floor, room);
       if (!layout) continue;
+      shapes.add(room.shape);
       assert.ok(
         coversOwnedGround(floor, room.id, layout.x, layout.z, layout.radius),
         `seed ${floor.seed} room ${room.id} (${room.shape}) plans a motif that reaches off its own floor`,
@@ -63,38 +63,55 @@ test('every room shape is covered without a motif bridging a hole in its own flo
     }
   }
   // Every shape the generator can produce got at least one motif-bearing room in this sample -
-  // narrow halls, crosses and courts included, not just the round rooms this is easiest for.
+  // narrow halls, crosses and courts included, not just the round rooms this is easiest for. Measured
+  // 2026-10-07 over these seeds: 367-386 motifs per shape, out of 491-685 rooms.
   for (const shape of ['hall', 'round', 'cross', 'court', 'gallery', 'crypt']) {
-    assert.ok(shapes.has(shape), `sample never produced a ${shape} room; widen SEEDS`);
+    assert.ok(shapes.has(shape), `no ${shape} room got a motif, so nothing above checked one`);
   }
 });
 
 test('a sanctuary either holds its centre clear or has no motif at all', () => {
+  let planned = 0;
   for (const floor of allFloors()) {
     for (const room of floor.rooms) {
       if (room.encounter !== 'sanctuary') continue;
       const layout = planRoomMotif(floor, room);
       if (!layout) continue;
+      planned++;
       if (layout.theme === 'keep') assert.fail(`seed ${floor.seed} room ${room.id} is a keep sanctuary but got a solid bed`);
       assert.equal(layout.clearRadius, 1.6, `seed ${floor.seed} room ${room.id} sanctuary motif has no clear centre`);
       assert.ok(layout.radius > layout.clearRadius, 'the bed does not extend past its own clear centre');
     }
   }
+  // Measured 2026-10-07: 501 of the sample's 664 sanctuaries carry a motif.
+  assert.ok(planned > 100, `only ${planned} sanctuaries got a motif, so the clear centre was barely checked`);
 });
 
 test('a motif never overlaps the weapon drop it shares a room with', () => {
-  for (const floor of allFloors()) {
-    const drop = floor.weaponDrop;
-    const room = floor.rooms[drop.room];
-    const layout = planRoomMotif(floor, room);
-    if (!layout) continue;
-    // `weaponDrop` is already in world units (generateFloor builds it as tile * TILE), like the layout.
-    const distance = Math.max(Math.abs(drop.x - layout.x), Math.abs(drop.z - layout.z));
-    assert.ok(
-      distance >= layout.radius + 1.5 - 1e-9,
-      `seed ${floor.seed} room ${room.id} motif (radius ${layout.radius}) sits ${distance.toFixed(2)} from the drop`,
-    );
+  // A generated floor sets its drop about two units from its room's centre, too close for any motif, so the planner
+  // gives that room none (0 of 150 floors, measured 2026-10-07) and a sweep of real floors checks nothing. Instead
+  // the drop is moved into rooms that do carry a motif, at distances that force the planner to shrink it or give up.
+  let shrunk = 0, dropped = 0;
+  for (const floor of floorsAt(2).slice(0, 20)) {
+    for (const room of floor.rooms) {
+      const free = planRoomMotif(floor, room);
+      if (!free) continue;
+      for (const offset of [free.radius + 0.5, free.radius + 1, 2.4, 3.2]) {
+        const moved = { ...floor, weaponDrop: { ...floor.weaponDrop, room: room.id, x: room.x * TILE + offset, z: room.z * TILE } };
+        const layout = planRoomMotif(moved, room);
+        if (!layout) { dropped++; continue; }
+        if (layout.radius < free.radius) shrunk++;
+        const drop = moved.weaponDrop;
+        const distance = Math.max(Math.abs(drop.x - layout.x), Math.abs(drop.z - layout.z));
+        assert.ok(
+          distance >= layout.radius + 1.5 - 1e-9,
+          `seed ${floor.seed} room ${room.id} motif (radius ${layout.radius}) sits ${distance.toFixed(2)} from a drop at ${offset}`,
+        );
+      }
+    }
   }
+  assert.ok(shrunk > 0, 'no motif was shrunk to clear the drop, so the clearance was never tested');
+  assert.ok(dropped > 0, 'no room gave its motif up for a drop at its heart, so the fallback was never tested');
 });
 
 // --- Plan 019 Stage C: the Tide Gate's armoury --------------------------------------------------------------------
