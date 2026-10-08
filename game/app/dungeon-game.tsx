@@ -17,7 +17,7 @@ import { getFlagstoneTexturesSteps, getMasonryTexturesSteps } from './dungeon-te
 import { createDungeonAudio } from './dungeon-audio';
 import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidate } from './dungeon-occlusion';
 import { animateCloth } from './dungeon-motion';
-import { altarHall, bodyRadius, canStand, dealBosses, gateRacks, generateFloor, hallShrines, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
+import { altarHall, bodyRadius, canStand, dealBosses, dealRewards, gateRacks, generateFloor, hallShrines, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
 import { FINAL_BOSS } from './dungeon-bestiary';
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
 import { allElite, corpseSink, corpsesDue, idleClock, parseElite, roomTiles, springing, waveDue, waveSpots, wavedFloor, WAVE_CAP, WAVE_MARK, type WaveClock } from './dungeon-waves';
@@ -28,7 +28,9 @@ import { createHallKit, type HallKit, type Shrine } from './dungeon-hall';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
 import { boltBlow, DASH_BUFFER, dashImmune, dragToward, hurledBlow, lineContacts, specialAvailable, specialGate, specialMayCut, specialSpends, swordContacts, vaultLanding, vaultTarget } from './dungeon-combat';
 import { ALERT_STAGGER, BESTIARY, decideEnemy, fallOf, moveOf, NOTICE_TIME, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, type Wakeable } from './dungeon-enemy';
-import { awayFrom, bossPush, burn as burnBody, landBlow } from './dungeon-hits';
+import { awayFrom, blastOf, bossPush, burn as burnBody, fuseStep, KEG_CHAIN, KEG_DAMAGE, KEG_FUSE, KEG_HURT, landBlow, SPIKE_DAMAGE, SPIKE_HURT, spikeBites, spikeState, strikeProp, swingProps } from './dungeon-hits';
+import { furnishFloor } from './dungeon-furnish';
+import { raiseProps, type PropsView } from './dungeon-props-view';
 import { chargePose } from './dungeon-attack-pose';
 import { chainLength, chargeLevel, chargeReleases, devStartingArm, drawDamage, drawn, lungeStep, specialSwing, STARTING_WEAPON, TIDEBLADE, vaultHeight, vaultLanded, vaultStep, weaponById, type Special, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
@@ -41,12 +43,12 @@ import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
 import { createGovernor, observeFrame, startPixelRatio, type QualityStage } from './dungeon-quality';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, readBest, readMeta, readRuns, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
-import { armForRun, bank, BUY_HOLD, buyArm, buyItem, buyUpgrade, canTry, freshMeta, holdFill, holdStep, idleHold, newlyAffordable, pearlsFor, runStart as metaRunStart, sameMeta, settleArm, shopItem, UPGRADES, type Meta } from './dungeon-meta';
-import { clearChamber, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, SHRINE, SHRINE_REACH, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { armFor, armForRun, bank, BUY_HOLD, buyArm, buyItem, buyUpgrade, canTry, freshMeta, holdFill, holdStep, idleHold, newlyAffordable, pearlsFor, runStart as metaRunStart, sameMeta, settleArm, shopItem, UPGRADES, type Meta } from './dungeon-meta';
+import { clearChamber, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, SHRINE, SHRINE_REACH, STAIR_RADIUS, takeBoon, takeDrop, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
 import { beginMove, dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, THREAT, type Enemy, type EnemyKind } from './dungeon-enemy-view';
-import { createFloorStage, DOOR_LABEL, DOOR_TINT, doorLabelTexture, doorSign, doorSignOf, raiseFloor, type DoorSign, type FloorArt } from './dungeon-floor-scene';
+import { createFloorStage, DOOR_LABEL, DOOR_TINT, doorLabelTexture, doorSign, doorSignOf, raiseFloor, REWARD_SIGNS, type DoorSign, type FloorArt } from './dungeon-floor-scene';
 import { assignSlots, chamberLights, GLANCE_PULL, GLANCE_SPAN, glanceWeight, fadeSlot, LIGHT_POOL, type LightSource, type PoolSlot } from './dungeon-lights';
 import { createMood } from './dungeon-mood';
 import { driveSliced as driveSlicedSteps, linkedPrograms, pollProgramsReady as pollPrograms, precompilePost } from './dungeon-warmup';
@@ -58,7 +60,7 @@ import { actorStat, countDisposals, drainGpu, lightDiagnostics, pointLightCount,
 const FLOORS = 3;
 /** Short in-world lines, crossfaded one at a time under the bar (CSS only). */
 // What the prompt at the foot of the screen says a door leads to (plan 017).
-const DOOR_WORDS: Record<DoorSign, string> = { mend: 'a mending', cache: 'a purse of experience', rest: 'a quiet shrine', stair: 'the stair down', fight: 'a fight', down: 'the way down' };
+const DOOR_WORDS: Record<DoorSign, string> = { mend: 'a mending', cache: 'a purse of experience', boon: 'a boon', pearls: 'a purse of pearls', arm: 'an arm to take up', rest: 'a quiet shrine', stair: 'the stair down', fight: 'a fight', down: 'the way down' };
 // Plan 020: how close to the altar's heart the knight must stand for the swap key to open it (the sanctuary shrine's own healing radius).
 const ALTAR_PROMPT = 1.5;
 // Each half of the fade a door is taken behind: dark by the first, lit again by the second.
@@ -430,6 +432,8 @@ export default function DungeonGame() {
         if (run.pendingRanks > 0 && !run.choosing) offerBoon();
       }
       if (reward.healed > 0) setHealth(run.hp);
+      // Plan 025 Stage F: a Boon door owes a card with no experience behind it.
+      if (reward.xp <= 0 && reward.ranks > 0 && run.pendingRanks > 0 && !run.choosing) offerBoon();
     };
     // A body going down, however it was brought there: its fall starts, its marks go, and the kill pays -
     // unless it is one a bonecaller raised and the caller still stands, which goes back into the ground
@@ -480,7 +484,7 @@ export default function DungeonGame() {
         const room = floor.rooms[id], ways = stage.doors.filter(view => view.door.from === id);
         award(clearChamber(run, room));
         // Plan 025 D2 (d): the notice names what the open doors pay, not merely that they opened.
-        const rewards = [...new Set(ways.map(view => doorSignOf(floor, view.door)).filter(sign => sign === 'mend' || sign === 'cache'))].map(sign => DOOR_LABEL[sign]);
+        const rewards = [...new Set(ways.map(view => doorSignOf(floor, view.door)).filter(sign => REWARD_SIGNS.includes(sign)))].map(sign => DOOR_LABEL[sign]);
         setNotice(`${room.name} · ${rewards.length > 1 ? `Choose your reward: ${rewards.join(' · ')}` : rewards.length ? `Your reward: ${rewards[0]}` : ways.length ? 'the way on opens' : 'cleansed'}`);
         // Plan 025 D2 (c): and the camera glances towards them, so a door off the frame is seen to open.
         if (ways.length) { glanceAt.set(0, 0, 0); for (const view of ways) glanceAt.add(view.spot); glanceAt.divideScalar(ways.length); glanceAge = 0; }
@@ -489,6 +493,29 @@ export default function DungeonGame() {
         mapFills.set(id, '#a8d5b0'); document.getElementById(`map-room-${id}`)?.setAttribute('fill', '#a8d5b0');
       }
       if (id === floor.goal && stairClear()) openStair();
+    };
+    // Plan 025 Stage F: a prop struck by steel or caught in a blast: a breakable breaks and pays what it held (dungeon-sim `takeDrop`), a keg lights (`fuse` seconds, the telegraph).
+    const strikeFurniture = (index: number, fuse: number) => {
+      const prop = props.live[index], struck = strikeProp(prop, fuse);
+      if (struck.lit) { audio.play('warn'); burst(new THREE.Vector3(prop.at.x, .8, prop.at.z), 0xffd27a, 6); return; }
+      if (!struck.broke) return;
+      props.spend(index); burst(new THREE.Vector3(prop.at.x, .35, prop.at.z), prop.kind === 'chest' ? 0xfbc956 : 0xb98a5c, 12); audio.play('hit');
+      const paid = takeDrop(run, prop.kind, prop.drop);
+      award(paid);
+      if (paid.pearls) { setNotice(paid.pearls > 1 ? `${paid.pearls} pearls` : 'A pearl'); noticeTime = 2; burst(new THREE.Vector3(prop.at.x, .6, prop.at.z), 0xf2efe6, 10); }
+      else if (paid.healed) { setNotice('A sip of vitality'); noticeTime = 2; burst(player.position, 0xff8a8a, 10); }
+    };
+    // A keg goes up: what its blast catches (dungeon-hits `blastOf`) - the knight, every standing body, and the props beside it, which break or light on the short fuse.
+    const blastFurniture = (index: number) => {
+      const keg = props.live[index], at = new THREE.Vector3(keg.at.x, .5, keg.at.z);
+      props.spend(index); burst(at, 0xff8c38, 26); burst(at, 0xffd27a, 12); impacts.emit(at, 0xff8763, true); audio.play('warn'); shake = Math.max(shake, .16);
+      const standing = stage.enemies.filter(e => !e.dead && !e.buried && e.awake), caught = blastOf(keg, player.position, standing.map(e => e.group.position), props.live);
+      if (caught.knight && hurt(run, KEG_HURT, { dashing: dashImmune(pc.dashTime) })) {
+        setHealth(run.hp); hurtFlash = .65; audio.play('hurt'); burst(player.position, 0xff4529, 10); tideReturns();
+        if (run.hp === 0) { endRun('hazard'); return; }
+      }
+      for (const n of caught.bodies) { const enemy = standing[n]; if (enemy.dead) continue; burst(enemy.group.position, 0xff8c38, 8); if (burnBody(enemy, KEG_DAMAGE)) { fell(enemy); settleRoom(enemy.room); } }
+      for (const n of caught.props) strikeFurniture(n, KEG_CHAIN);
     };
     const chooseBoon = (id: string) => {
       const boon = takeBoon(run, id);
@@ -511,9 +538,9 @@ export default function DungeonGame() {
       // began, and the log is cheap enough to reread once per run that guessing is not worth it.
       const end: RunEnd = { at: Date.now(), floor: level, won: !cause, cause, seconds: Math.max(0, Math.round(elapsed - runStart)), rank: run.rankLevel, xp: run.totalXp, kills: run.kills, boons: [...boonsTaken], seed: firstSeed,
         // Plan 019: the arm the run began holding, the ranks it began with and what it earns (D3). An arena pays nothing.
-        arm: runArm, upgrades: { ...runUpgrades }, pearls: arena ? 0 : pearlsFor({ floor: level, won: !cause, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites }),
+        arm: runArm, upgrades: { ...runUpgrades }, pearls: arena ? 0 : pearlsFor({ floor: level, won: !cause, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites, found: run.found }),
         // Plan 021: the bosses felled, and which boss each floor the run reached held.
-        bosses: run.bosses, ...(runBosses.length ? { bossKinds: runBosses.slice(0, level) } : null), ...(run.elites ? { elites: run.elites } : null), chambers: run.chambers };
+        bosses: run.bosses, ...(runBosses.length ? { bossKinds: runBosses.slice(0, level) } : null), ...(run.elites ? { elites: run.elites } : null), chambers: run.chambers, ...(run.found ? { found: run.found } : null) };
       setBossBar(null); bossKey = '';
       setEnded(end);
       if (arena) return;
@@ -743,8 +770,11 @@ export default function DungeonGame() {
     // Gate (an owned arm on its own slot), the dev arena's one rack, and none anywhere else. `kept` is what an arm the
     // knight set down there still owed: its special's cooldown and its quiver; `lit` is how far its ring has eased open.
     // Plan 025 (D8): in the hall every arm stands on a rack; `locked` is one the save does not own (drawn as a silhouette), with its price on `plaque`.
-    type Rack = {group:THREE.Group; ring:THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; blade:ArmedWeapon; kind:WeaponId; x:number; z:number; kept?:Kept; lit:number; locked:boolean; plaque:THREE.Mesh|null; shown:string};
+    // Plan 025 Stage F (D9): `found` marks the rack of the run's arm chamber, the one rack the swap key answers past the hall, once its chamber is clear.
+    type Rack = {group:THREE.Group; ring:THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; blade:ArmedWeapon; kind:WeaponId; x:number; z:number; kept?:Kept; lit:number; locked:boolean; plaque:THREE.Mesh|null; shown:string; found?:boolean};
     let racks: Rack[] = [];
+    // Plan 025 Stage F: the floor's furniture as the scene draws it (dungeon-props-view), and the floor clock its spike plates run on.
+    let props: PropsView = { live: [], spend: () => {}, animate: () => {}, drawn: () => ({ shown: false, spikes: null }) }, propClock = 0;
     // The rack whose ring the knight is inside this frame (the gate's spacing leaves at most one), and what the prompt
     // was last told. The second exists only so the offer is pushed into React on the step he arrives and the step he
     // leaves, rather than sixty times a second for as long as he stands there.
@@ -1087,12 +1117,19 @@ export default function DungeonGame() {
     const devBoss = process.env.NODE_ENV !== 'production' ? parseBoss(new URLSearchParams(window.location.search).get('boss')) : null;
     // Plan 022 (D14): `?waves=off` (development only, ignored by a production build) deals every chamber its first wave and nothing after, as the keep was before waves.
     const devWavesOff = process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('waves') === 'off';
+    // Plan 025 Stage F: `?rooms=plain` (development only, ignored by a production build) lays no furniture and deals no Boon, Pearls or arm door.
+    const devRoomsPlain = process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('rooms') === 'plain';
+    // The seed of the run's floor one, which its arm chamber is dealt from (`armFor`), as its bosses are.
+    let runArmSeed = 0;
     // A run's bosses are dealt when its floor one is charted, from that floor's seed; every later floor reads them back, so a restart on a seed meets the same bosses.
     const bossedFloor = (seed: number, nextLevel: number): Floor => {
-      if (nextLevel === 1) { const dealt = dealBosses(seed); runBosses = [devBoss ?? dealt[0], devBoss ?? dealt[1], FINAL_BOSS]; }
+      if (nextLevel === 1) { const dealt = dealBosses(seed); runBosses = [devBoss ?? dealt[0], devBoss ?? dealt[1], FINAL_BOSS]; runArmSeed = seed; }
       const laid = generateFloor(seed, nextLevel, { boss: runBosses[nextLevel - 1] ?? FINAL_BOSS });
       // Plan 022 (D5): the later waves are dealt on top of what the generator laid, appended after every spawn, from their own hash stream. `?waves=off` (development only, D14) leaves the first wave alone, for comparing.
-      return devWavesOff ? laid : wavedFloor(laid, seed, nextLevel);
+      const waved = devWavesOff ? laid : wavedFloor(laid, seed, nextLevel);
+      // Plan 025 Stage F: then the new door rewards (the run's one arm chamber on the floor `armFor` names, from floor one's seed, offering an arm the save owns and the knight does not hold), then the
+      // furniture, each from its own stream. `?rooms=plain` (development only) lays neither, as the keep was before them; the test suite boots with it, and the Stage F specs ask for the keep as it ships.
+      return devRoomsPlain ? waved : furnishFloor(dealRewards(waved, seed, nextLevel, armFor(runArmSeed, nextLevel, readMeta(activeSlot).arms, pc.weapon.id)), seed, nextLevel);
     };
     const eliteArena = (laid: Floor, set: Arena): Floor => set.elite ? { ...laid, spawns: allElite(laid.spawns, set.elite) } : laid;
     const chart = (seed: number | undefined, nextLevel: number): Floor => wantHall ? altarHall() : arena ? eliteArena(arenaFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel, arena.roster), arena) : bossedFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
@@ -1263,6 +1300,9 @@ export default function DungeonGame() {
       // Plan 025 (D8): the hall's shop is drawn with a kit of its own, made here and released with the floor; its pearls fly in the floor's group.
       if (hall) { kit = createHallKit(); floorGroup.add(kit.flight.mesh); }
       if (arena) racks.push(layRack(floor.weaponDrop.kind, floor.weaponDrop.x, floor.weaponDrop.z)); else layGateRacks();
+      // Plan 025 Stage F: the furniture, drawn from the floor's own list, and the run's arm chamber's rack (D9), standing from the first frame and answered once the chamber is clear.
+      props = raiseProps(floor, floorGroup); propClock = 0;
+      if (floor.armRack && !hall && !arena) racks.push({ ...layRack(floor.armRack.kind, floor.armRack.x, floor.armRack.z), found: true });
       layShrines();
       // The counter pulses once on arriving, when the run just banked put something newly in reach. Read once: the next hall without a bank does not pulse.
       pulse = hall && bankedFrom ? newlyAffordable(bankedFrom, readMeta(activeSlot)) : []; if (hall) bankedFrom = null; setPursePulse(pulse.length > 0);
@@ -1514,7 +1554,9 @@ export default function DungeonGame() {
       // Plan 020: the hall's altar opens its list (plan 025: on the pause card), and its one door is the way down: it settles the arm and starts the run.
       if (hall && overAltar) { openAltar(); return; }
       const rack = overRack;
-      if (!rack || armLocked) { if (stairOpen && onStair) descend(); else if (overDoor && cleared.has(overDoor.from)) { if (hall) goDown(); else takeDoor(overDoor); } return; }
+      // Plan 025 Stage F (D9): past the hall only the arm chamber's rack answers, and only once its chamber is clear.
+      const foundOpen = !!rack?.found && !!floor.armRack && cleared.has(floor.armRack.room);
+      if (!rack || (armLocked && !foundOpen)) { if (stairOpen && onStair) descend(); else if (overDoor && cleared.has(overDoor.from)) { if (hall) goDown(); else takeDoor(overDoor); } return; }
       // Plan 025 (D8): a locked arm is taken to try, in the hall only; the owned arm set down for it is what the way down will take.
       if (rack.locked && !canTry(rack.kind, hall)) return;
       if (!rack.locked) lastOwned = rack.kind;
@@ -1523,7 +1565,7 @@ export default function DungeonGame() {
       equip(rack.kind, rack.kept);
       dropRack(rack);
       // What he set down goes on the same slot; standing still after the swap, the prompt comes straight back naming it.
-      racks[slot] = overRack = layRack(set, at.x, at.z, left); showOffer(set);
+      racks[slot] = overRack = { ...layRack(set, at.x, at.z, left), found: rack.found }; showOffer(set);
       audio.play('clear'); burst(player.position, 0xfbc956, 14);
       setNotice(rack.locked ? `${taken.name} in hand, to try` : `${taken.name} in hand`); noticeTime = 3.5;
       setHeldWeapon(taken.name);
@@ -2054,6 +2096,24 @@ export default function DungeonGame() {
           }
         }
 
+        // Plan 025 Stage F: the furniture's own teeth, by the rules the balance sim asks (dungeon-hits): a lit keg's fuse and what its blast catches, then each spike plate of the
+        // knight's chamber, the knight first. The plates run on the floor's own clock.
+        propClock += dt; props.animate(propClock, activeRoom);
+        for (let i = 0; i < props.live.length && gameStatus === 'playing'; i++) {
+          const prop = props.live[i];
+          if (prop.kind === 'keg' && fuseStep(prop, dt)) blastFurniture(i);
+          if (prop.kind !== 'spikes') continue;
+          // The knight only ever stands on his own chamber's plates; a body is bitten on any (the balance sim asks the same).
+          if (prop.room === activeRoom && spikeBites(prop, propClock, -1, player.position.x, player.position.z) && hurt(run, SPIKE_HURT, { dashing: dashImmune(pc.dashTime) })) {
+            setHealth(run.hp); hurtFlash = .5; shake = .08; audio.play('hurt'); burst(player.position, 0xff4529, 8); tideReturns();
+            if (run.hp === 0) endRun('hazard');
+          }
+          stage.enemies.forEach((enemy, k) => {
+            if (enemy.dead || enemy.buried || !enemy.awake || enemy.room !== prop.room || !spikeBites(prop, propClock, k, enemy.group.position.x, enemy.group.position.z)) return;
+            burst(enemy.group.position, 0xe0202c, 8);
+            if (burnBody(enemy, SPIKE_DAMAGE)) { fell(enemy); settleRoom(enemy.room); }
+          });
+        }
         const groundSpeed=pc.dashTime<=0&&dt>0?travelled/dt:0;
         gaitSpeed=THREE.MathUtils.damp(gaitSpeed,groundSpeed,14,dt);
         const previousPhase=walkPhase;
@@ -2220,6 +2280,9 @@ export default function DungeonGame() {
               if (hit.killed) { fell(enemy); settleRoom(enemy.room); }
             }
           });
+          // Plan 025 Stage F: the same arc finds the chamber's props (dungeon-hits `swingProps`, the contact rule a body is found by), a strike's or an arc special's; a lunge's line and a
+          // vault's landing do not (the balance sim asks the same). A prop is struck once: broken, or a keg lit, it is no longer strikable.
+          if (!pc.swing.ranged && active && scoring && !line && !vaulting && gameStatus === 'playing') for (const index of swingProps(floor.cells, player.position, pc.attackFacing, run.reach, pc.swing, props.live)) strikeFurniture(index, KEG_FUSE);
         } else { posePlayer(0);slash.update(dt,false,player.userData.sword,bladeInner,bladeTip); }
         // A kill can open a boon draft, and a hazard can end the run, part-way through this update. Every
         // eligible hit and its exactly-once reward is resolved above; from here the world is frozen, so the
@@ -2698,9 +2761,11 @@ export default function DungeonGame() {
       boss: (() => { const body = stage.enemies.find(e => !e.dead && !e.buried && BESTIARY[e.kind].boss); if (!body) return null; const shape = body.cue.geometry as THREE.BufferGeometry & { type: string; parameters: { thetaLength?: number } };
         return { kind: body.kind, hp: body.hp, maxHp: body.maxHp, phase: body.bossPhase, move: body.move, unhittable: body.change > 0, change: body.change, awake: body.awake, windup: body.windup, attack: body.doing?.attack ?? null, cue: { visible: body.cue.visible, shape: shape.type === 'PlaneGeometry' ? 'lane' : (shape.parameters.thetaLength ?? 0) > 6 ? 'ring' : 'arc', scale: body.cue.scale.x }, bar: body.bar.visible, surge: body.surge?.visible ?? false, shield: BESTIARY[body.kind].shield ? (body.group.userData.shield as THREE.Object3D).visible : null }; })(),
       // Plan 019: what the live run was dealt, read off the run itself once it was dealt (not off the meta table).
-      run: { start: { ...began }, armLocked },
+      run: { start: { ...began }, armLocked, found: run.found },
       health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: pc.weapon.special ?? null }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), hostilePools: hostilePools.map(h => ({ kind: h.kind, x: h.pool.x, z: h.pool.z, radius: h.pool.radius, life: h.pool.life, damage: h.pool.damage, drawn: h.mesh.visible })), scatterMarks: marked.map(m => ({ x: m.at.x, z: m.at.z, radius: m.radius, drawn: m.mesh.visible, threat: m.mesh.material.color.getHex() === THREAT })), arrowsDrawn: arrowPool.filter(arrow => arrow.visible).length, hostileRings: hostilePoolMeshes.filter(ring => ring.visible).length, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: stage.enemies.filter(e => !e.dead && !e.buried).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, onStair: stairOpen && onStair },
+      // Plan 025 Stage F: the furniture, the knight's chamber's in full as the scene holds it (`shown` and a plate's `spikes` height are read back off the drawn instances), and the floor's count. `rack` is the arm chamber's.
+      furniture: { total: props.live.length, rack: floor.armRack ? { kind: floor.armRack.kind, room: floor.armRack.room, x: floor.armRack.x, z: floor.armRack.z } : null, here: props.live.flatMap((p, i) => p.room === activeRoom ? [{ id: p.id, kind: p.kind, x: +p.at.x.toFixed(3), z: +p.at.z.toFixed(3), broken: p.broken, lit: p.fuse >= 0, plate: p.kind === 'spikes' ? spikeState(propClock, p.phase) : null, solid: !floor.cells.has(cellKey(p.x, p.z)), drop: p.drop, ...props.drawn(i) }] : []) },
       chamber: { id: activeRoom, layer: floor.rooms[activeRoom]?.layer ?? -1, reward: floor.rooms[activeRoom]?.reward ?? null, sealed: !cleared.has(activeRoom), wave: waveState(activeRoom), crossing: crossing ? (crossing.flipped ? 'in' : 'out') : null, doors: stage.doors.filter(view => view.door.from === activeRoom).map(view => ({ id: view.door.id, to: view.door.to, sign: doorSignOf(floor, view.door), x: view.spot.x, z: view.spot.z, radius: DOOR_RADIUS, open: !view.bars.visible, over: overDoor?.id === view.door.id, label: view.label.visible && view.label.parent === floorGroup, sigil: { scale: view.sigil.scale.x, y: view.sigil.position.y, spin: view.sigil.rotation.y } })) },
       stair: { x: stage.stairSpot.x, z: stage.stairSpot.z, radius: STAIR_RADIUS },
       // Plan 025 D6: every fixture the atmosphere hung a flame or a bounce on, by chamber, read off what it laid out.

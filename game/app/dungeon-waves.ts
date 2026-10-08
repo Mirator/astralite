@@ -140,10 +140,10 @@ export const allElite = (spawns: readonly Spawn[], modifier: EliteModifier): Spa
 /** `?elite=` read: one of the four modifiers by name, or nothing. */
 export const parseElite = (text: string | null): EliteModifier | null => (ELITE_MODIFIERS as readonly string[]).includes(text ?? '') ? text as EliteModifier : null;
 
-/** The tiles of a chamber's own floor: not a prop's hole, not the alcove a door is cut into (the same rule `gateRacks` reads). */
-export const roomTiles = (floor: Pick<Floor, 'rooms' | 'tiles'>, id: number) => {
+/** The tiles of a chamber's own floor: not a prop's hole, not the alcove a door is cut into (the same rule `gateRacks` reads). Plan 025 Stage F: nor a cover block, which stays in `tiles` (the paving runs under it) and leaves `cells`. */
+export const roomTiles = (floor: Pick<Floor, 'rooms' | 'tiles'> & Partial<Pick<Floor, 'cells'>>, id: number) => {
   const room = floor.rooms[id];
-  return floor.tiles.filter(t => t.room === id && Math.abs(t.x - room.x) <= room.halfX && Math.abs(t.z - room.z) <= room.halfZ && carves(room, t.x - room.x, t.z - room.z));
+  return floor.tiles.filter(t => t.room === id && Math.abs(t.x - room.x) <= room.halfX && Math.abs(t.z - room.z) <= room.halfZ && carves(room, t.x - room.x, t.z - room.z) && (!floor.cells || floor.cells.has(`${t.x},${t.z}`)));
 };
 
 /**

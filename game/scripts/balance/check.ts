@@ -22,14 +22,16 @@ type Expected = {
 };
 
 const expected = JSON.parse(readFileSync(new URL('./bands.json', import.meta.url), 'utf8')) as Expected;
+// Plan 025 Stage F: `--props=off` lays no furniture on any policy's floors (the new door rewards are dealt either way), the "before" of the props measurement.
+const propsOff = process.argv.includes('--props=off');
 const started = performance.now();
 const violations: Violation[] = [];
 const summaries: Record<string, Record<string, number>> = {};
 
-console.log(`\n  ${expected.runs} runs a policy from seed ${expected.firstSeed}\n`);
+console.log(`\n  ${expected.runs} runs a policy from seed ${expected.firstSeed}${propsOff ? ', furniture off' : ''}\n`);
 console.log('  policy    metric                 measured   band');
 for (const [name, entry] of Object.entries(expected.policies)) {
-  const policy = buildPolicy(entry.policy);
+  const policy = { ...buildPolicy(entry.policy), ...(propsOff ? { props: false } : {}) };
   const reports = Array.from({ length: expected.runs }, (_, i) => simulateRun(expected.firstSeed + i * 7919, policy));
   const summary = summarise(reports);
   summaries[name] = summary;
@@ -41,6 +43,11 @@ for (const [name, entry] of Object.entries(expected.policies)) {
   }
   // Plan 025 Stage E: what `summarise` measures without a band (the stair-hall vitality, the share of deaths before the stair hall), printed so a run is read once rather than re-run for them. Never compared.
   for (const [metric, value] of Object.entries(summary)) if (!(metric in entry.bands)) console.log(`  ${name.padEnd(8)}  ${metric.padEnd(21)}  ${value.toFixed(1).padStart(8)}   (no band)`);
+  // Plan 025 Stage F: what the furniture and the new doors did, per run, never compared: the median fight (every chamber fought, every floor), the props' own tally, and the arm's deal and offer.
+  const floors = reports.flatMap(r => r.floors), fights = floors.flatMap(f => f.fights).sort((a, b) => a - b), per = (n: number) => (n / reports.length).toFixed(2);
+  const tally = floors.reduce((sum, f) => { for (const [k, v] of Object.entries(f.props)) sum[k] = (sum[k] ?? 0) + v; return sum; }, {} as Record<string, number>);
+  const taken = (reward: string) => per(floors.reduce((n, f) => n + f.doorRewards.filter(doors => doors.includes(reward)).length, 0));
+  console.log(`  ${name.padEnd(8)}  medianFight ${fights.length ? fights[fights.length >> 1].toFixed(2) : '-'} s; props a run: ${Object.entries(tally).map(([k, v]) => `${k} ${per(v)}`).join(', ')}; found pearls ${per(reports.reduce((n, r) => n + r.found, 0))}; offered a run: boon ${taken('boon')}, pearls ${taken('pearls')}; arm dealt ${reports.filter(r => r.armDealt).length}/${reports.length}, offered ${reports.filter(r => r.armOffered).length}/${reports.length}`);
 }
 console.log(`\n  ${((performance.now() - started) / 1000).toFixed(1)}s`);
 // `npm run balance:check -- --summary`: every policy's whole summary on one JSON line, unrounded, so bands.json's `measured` block is re-taken from the run that was checked.

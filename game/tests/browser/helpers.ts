@@ -249,7 +249,7 @@ export type Snapshot = {
     fires: number;
   };
   /** Plan 019: what the live run was dealt (arm, vitality, strike, boon cards, revives), read off the run itself. */
-  run: { start: { arm: string; maxHp: number; strike: number; draftSize: number; defiance: number }; /** Plan 019 (D9), plan 020 (D7): the run's arm is settled - true on every floor but the hall (and the dev arena). */ armLocked: boolean };
+  run: { start: { arm: string; maxHp: number; strike: number; draftSize: number; defiance: number }; /** Plan 019 (D9), plan 020 (D7): the run's arm is settled - true on every floor but the hall (and the dev arena). */ armLocked: boolean; /** Plan 025 Stage F: pearls found this run (Pearls doors, urns, crates, chests). */ found: number };
   /** The development arena this page is charting floors as, or null for an ordinary keep. */
   arena: { roster: EnemyKind[]; level: number; /** Plan 022 (D14): the modifier the arena was built with, when it was. */ elite?: 'hasted' | 'armoured' | 'wrathful' | 'volatile' } | null;
   /** The bodies that have fallen and lie where they fell (the snapshot's `enemies` no longer lists them). */
@@ -307,6 +307,8 @@ export type Snapshot = {
     onStair: boolean;
   };
   /** Plan 017: the chamber the knight stands in and its ways out. */
+  /** Plan 025 Stage F: the furniture. `here` is the knight's chamber's, read off the scene (`shown`, and a plate's `spikes` height, off the drawn instances); `rack` the arm chamber's. */
+  furniture: { total: number; rack: { kind: string; room: number; x: number; z: number } | null; here: { id: number; kind: 'urn' | 'crate' | 'keg' | 'spikes' | 'cover' | 'chest'; x: number; z: number; broken: boolean; lit: boolean; plate: 'down' | 'tell' | 'up' | null; solid: boolean; drop: string | null; shown: boolean; spikes: number | null }[] };
   chamber: {
     id: number; layer: number; reward: 'mend' | 'cache' | null; sealed: boolean; crossing: 'out' | 'in' | null;
     /** Plan 022: the wave in play (the last one called), how many waves the chamber holds, and whether the rings of the next one are showing. */
@@ -612,6 +614,13 @@ export const DEFAULT_BOSS = 'captain';
  * is held by `waves.spec.ts`. `test.use({ waves: null })` boots with them on, on a page of its own: the keep as a player meets it.
  */
 export const DEFAULT_WAVES = 'off';
+/**
+ * Plan 025 Stage F: whether every page boots with plain chambers (`?rooms=plain`, development only): no furniture (urns, kegs, spike plates, cover) and no Boon,
+ * Pearls or arm door. A spike plate or a keg would bill a scenario's vitality to nothing it staged, and a cover block takes a tile some scenario teleports onto,
+ * so the suite boots with them off as it boots with the later waves off, and what they do is held by `props.spec.ts`. `test.use({ rooms: null })` boots with
+ * them on, on a page of its own.
+ */
+export const DEFAULT_ROOMS = 'plain';
 
 /** Distance the knight keeps while lining a strike up: inside 1.8, with slack. */
 export const STRIKE_STANCE = 1.05;
@@ -716,6 +725,8 @@ export class Game {
     readonly boss: string | null = DEFAULT_BOSS,
     /** Plan 022 (D14): the `?waves=` link the page booted with, or null for none (the later waves are dealt). Every page boots with `off`, so what a chamber holds is its first wave. */
     readonly waves: string | null = DEFAULT_WAVES,
+    /** Plan 025 Stage F: the `?rooms=` link the page booted with, or null for none (the chambers are furnished). Every page boots with `plain`. */
+    readonly rooms: string | null = DEFAULT_ROOMS,
   ) {}
 
   /**
@@ -725,8 +736,8 @@ export class Game {
    * so the listeners belong to the pool, which re-points them at each scenario in turn. Attaching
    * them here too would go on charging a page's whole life to a object nobody holds any more.
    */
-  static async open(page: Page, info: TestInfo, seeds: number[], watch = true, hall = false, boss: string | null = DEFAULT_BOSS, waves: string | null = DEFAULT_WAVES) {
-    const game = new Game(page, info, seeds, hall, boss, waves);
+  static async open(page: Page, info: TestInfo, seeds: number[], watch = true, hall = false, boss: string | null = DEFAULT_BOSS, waves: string | null = DEFAULT_WAVES, rooms: string | null = DEFAULT_ROOMS) {
+    const game = new Game(page, info, seeds, hall, boss, waves, rooms);
     if (watch) {
       page.on('pageerror', (error) => game.pageErrors.push(String(error)));
       page.on('console', (message) => {
@@ -749,7 +760,7 @@ export class Game {
     // itself (loading.spec.ts) drives its own `page.goto` on the plain URL instead of going through `Game`.
     // Plan 020 (D11): `hall=skip` keeps today's flow - the boot builds floor 1 and ENTER enters it - for the 138 callers of `game.enter()`. A scenario that is
     // about the hall opts out with `test.use({ hall: true })`, which boots the page the way a player's is: into the Tide Altar's hall.
-    await page.goto(`${CAPTURING ? '/?quality=full&' : '/?'}boot=eager${hall ? '' : '&hall=skip'}${boss === null ? '' : `&boss=${boss}`}${waves === null ? '' : `&waves=${waves}`}`);
+    await page.goto(`${CAPTURING ? '/?quality=full&' : '/?'}boot=eager${hall ? '' : '&hall=skip'}${boss === null ? '' : `&boss=${boss}`}${waves === null ? '' : `&waves=${waves}`}${rooms === null ? '' : `&rooms=${rooms}`}`);
     // The hooks go up as soon as floor 1 exists, before the cold compile - but a fresh page on CI
     // shares its cores with a sibling worker's software-rasterised frames, and the 25 s default has
     // timed out here on three isolated specs in one run. This is a boot, so it gets the boot's budget.
@@ -1393,6 +1404,7 @@ const needsOwnPage = (options: {
   hall: boolean;
   boss: string | null;
   waves: string | null;
+  rooms: string | null;
   hasTouch: boolean;
   isMobile: boolean;
   storageState: unknown;
@@ -1403,6 +1415,7 @@ const needsOwnPage = (options: {
   options.hall ||
   options.boss !== DEFAULT_BOSS ||
   options.waves !== DEFAULT_WAVES ||
+  options.rooms !== DEFAULT_ROOMS ||
   options.hasTouch ||
   options.isMobile ||
   options.storageState !== undefined ||
@@ -1410,7 +1423,7 @@ const needsOwnPage = (options: {
   options.viewport?.height !== 700;
 
 export const test = base.extend<
-  { seeds: number[]; isolate: boolean; hall: boolean; boss: string | null; waves: string | null; game: Game },
+  { seeds: number[]; isolate: boolean; hall: boolean; boss: string | null; waves: string | null; rooms: string | null; game: Game },
   { pool: Pool }
 >({
   seeds: [DEFAULT_SEEDS, { option: true }],
@@ -1429,6 +1442,8 @@ export const test = base.extend<
   boss: [DEFAULT_BOSS as string | null, { option: true }],
   /** Plan 022 (D14): the `?waves=` link the page boots with; `null` boots with the later waves dealt, and such a scenario has its own page. */
   waves: [DEFAULT_WAVES as string | null, { option: true }],
+  /** Plan 025 Stage F: the `?rooms=` link the page boots with; `null` boots with the chambers furnished and the new doors dealt, and such a scenario has its own page. */
+  rooms: [DEFAULT_ROOMS as string | null, { option: true }],
   pool: [
     async ({ browser }, runWorker) => {
       const pool = new Pool(browser);
@@ -1441,12 +1456,12 @@ export const test = base.extend<
   // the two have to be the same object. A scenario that needs its own gets a context built here from
   // the options it asked for; the rest are handed the worker's.
   page: async (
-    { browser, pool, isolate, hall, boss, waves, hasTouch, isMobile, storageState, viewport },
+    { browser, pool, isolate, hall, boss, waves, rooms, hasTouch, isMobile, storageState, viewport },
     runTest,
     info,
   ) => {
     if (
-      !needsOwnPage({ isolate, hall, boss, waves, hasTouch, isMobile, storageState, viewport })
+      !needsOwnPage({ isolate, hall, boss, waves, rooms, hasTouch, isMobile, storageState, viewport })
     ) {
       const pooled = await pool.take(info);
       pool.adopted = false;
@@ -1469,7 +1484,7 @@ export const test = base.extend<
   },
   // Named `runTest`, not `use`: a bare `use` reads as a React hook to the linter.
   game: async (
-    { page, pool, seeds, isolate, hall, boss, waves, hasTouch, isMobile, storageState, viewport },
+    { page, pool, seeds, isolate, hall, boss, waves, rooms, hasTouch, isMobile, storageState, viewport },
     runTest,
     info,
   ) => {
@@ -1478,13 +1493,14 @@ export const test = base.extend<
       hall,
       boss,
       waves,
+      rooms,
       hasTouch,
       isMobile,
       storageState,
       viewport,
     });
     const game = own
-      ? await Game.open(page, info, seeds, true, hall, boss, waves)
+      ? await Game.open(page, info, seeds, true, hall, boss, waves, rooms)
       : await Game.adopt(page, info, seeds, pool);
     await runTest(game);
     if (!own) await game.prove(pool);

@@ -6492,3 +6492,65 @@ Moved to the next five (a half for `ordinaryDamagePerChamber`) beyond what was m
 - Plan 024 D7's floor-one room cost (2.71 a chamber against 6, floor one's stair hall at 100% against 50-85) is still not met at x1.5, and the operator chose not to touch healing between chambers.
 - weak-meta-max escapes 0% (was 23.3): with every upgrade bought a never-dodging knight no longer escapes. The weak knight's median pearls are 25 (plan 023 D2 asks 30-55).
 - The skilled knight is one run from the stop line (76.7 against 75). A human playtest of floor one and two at x1.5 is the next evidence.
+
+## 2026-10-08 - Plan 025 Stage F: fuller rooms (D12 a, c; D9)
+
+### What was shipped
+
+- **Furniture** (`app/dungeon-furnish.ts`, pure): `furnishFloor` / `furnishRoom` lay urns, crates, powder kegs, spike plates, low cover and the odd chest on every path chamber (not the Tide Gate, not the stair hall), drawn from a bag weighted by theme, after the waves and from a salted per-chamber stream (`FURNISH_SALT`). `generateFloor` is not asked, so every seed's layout bytes are unchanged (the existing `spawns-017` / `rewards-019` fixtures and the generator hash tests pass untouched). Kept clear: the heart (2.5 tiles), the arrival ring (`ARRIVAL_CLEAR`), every spawn tile of every wave (1.5), every doorway and the mouth it was cut back from (2.5), the reserved rack spot, and a **lane**: a walk from the arrival to every door, spawn and the heart over tiles with no prop on them or beside them. Only cover is solid: its tile leaves `cells` (the step, lane checks and bolts stop at it, and the wall pass rings it with a low parapet) and stays in `tiles`; `roomTiles` now skips it, so no wave ring lands on it, and a cover block may not cut a pocket of floor off. Over the generator's corpus (40 seeds x floors 1-3, waved): a path chamber holds generator stone + furniture **mean 6.54, median 7, 0 to 15** (the plan's "about 6-12"; it was 3-7), with 2,227 urns, 1,340 crates, 1,220 kegs, 1,279 plates, 2,115 cover blocks and 136 chests.
+- **Prop rules** (`app/dungeon-hits.ts`): `swingProps` (the arc finds a prop by the same `swordContacts` rule a body is found by), `strikeProp` (a breakable breaks, a keg lights), `fuseStep` (`KEG_FUSE` 0.9 s of smoke and flashing, the telegraph), `blastOf` (`KEG_RADIUS` 2.4: the knight takes `KEG_HURT` 15 unwarded, a body `KEG_DAMAGE` 8, a keg beside it lights on `KEG_CHAIN` 0.25 s, a breakable beside it breaks), `spikeState` / `spikeBites` (`SPIKE_CYCLE` 3.2 s: `SPIKE_TELL` 0.7 s of telegraph, `SPIKE_UP` 0.45 s up; `SPIKE_HURT` 8 to the knight, `SPIKE_DAMAGE` 4 to a body, once a rise each). `takeDrop` (dungeon-sim.ts): a sip is `SIP` 8 vitality, an urn's or crate's pearl is 1, a chest `CHEST_PEARLS` 3 (`DROP_ODDS`: urn sip .10 / pearl .06, crate .08 / .08). Steel and fire break props; a bolt flies over them (only cover stops one). A lunge's line and a vault's landing do not break props (game and sim alike).
+- **Door rewards** (`dealRewards` in `dungeon-floor.ts`, salted): each layer from the third to the last before the stair hall turns one paying chamber Boon (`BOON_ODDS` **0.05**) or Pearls (`PEARL_ODDS` 0.15), the one whose mend or purse a sibling also pays, so a layer keeps both old choices. A Boon door owes one boon card (no experience); a Pearls door pays `PURSE_PEARLS` 6 into the run's `found`, banked by `pearlsFor` (`RunEnd.found`, optional).
+- **The rare arm (D9)**: `armDeal(runSeed)` is one roll a run (floor two or three), so a run is offered at most one arm by construction; `armOffer(owned, inHand, roll)` (dungeon-meta.ts) offers only an arm the save owns and never the one in hand, else nothing (the chamber keeps its mend or purse); `armFor` joins them for the game and the sim. The arm chamber is the one the generator already reserved (`weaponDrop.room`, never a hoard), and its rack stands on `weaponDrop`'s spot (`floor.armRack`); in the game the swap key answers that rack only once its chamber is clear (swap for it, or leave it).
+- **World**: `app/dungeon-props-view.ts` draws the furniture instanced: one InstancedMesh a kind a chamber (a plate two: plate and spikes), one shared material with per-instance colour, one shared geometry a kind, no shadows; cover is the floor's own parapets. Spikes rise through their telegraph, a lit keg flashes faster as its fuse runs down, a spent prop's instance is scaled to nothing. `dungeon-game.tsx` lays rewards and furniture in `bossedFloor`, strikes props on the swing's contact frames, runs fuses and plates every frame, pays drops through `award`, names every reward in the clear notice (`REWARD_SIGNS`), lays the arm rack, and reports `render_game_to_text().furniture` (the knight's chamber's props, `shown` and the spikes' height read back off the drawn instances). `?rooms=plain` (development only, held by `scripts/build/leaks.ts`) lays neither furniture nor new doors; the harness boots with it (`DEFAULT_ROOMS`), `test.use({ rooms: null })` opts in.
+- **Sim**: `simulateRun` lays the rewards and the furniture as the game does (`Policy.props`, `check.ts --props=off`), breaks what its swings reach, takes blasts and bites (billed to `hazard`, never to `ordinaryDamage`), steps off a read plate or a lit keg (`propStep`, the grate's own rule), and keeps a reward log (`FloorReport.doorRewards`, `armOffered`; `RunReport.found`, `armDealt`, `armOffered`). The explore knight's door order is `pickDoor` / `DOOR_PREFERENCE`: Boon, purse, mending, Pearls, an arm (never taken up: a policy names its arm), then a door that pays nothing.
+
+### Finding: the Boon door at 0.15 undid Stage E
+
+The first cut dealt Boon at 0.15 a layer. Furniture off, 30 runs: **default escape 96.7% (Stage E: 63.3), skilled 96.7% (76.7), weak 3.3% (0)**, default floor-3 deaths 3.3% (34.5): about 2.5 Boon doors offered a run, taken every time. That is a retune the plan does not authorise. A default-knight probe (30 runs, furniture on, not a `balance:check`) read 56.7% at 0 and 73.3% at 0.05, so it ships at 0.05 (about 0.65 Boon doors offered a run), inside D10's 50-75.
+
+### Measured (node sim, `balance:check`, 30 runs a policy from seed 1, 2026-10-08; furniture off and on, both at BOON_ODDS 0.05)
+
+| Policy | Escape off -> on | Deaths before the stair hall off -> on | Ordinary damage a chamber, floors 1/2/3, off -> on | Median fight (s) off -> on |
+| --- | --- | --- | --- | --- |
+| default | 76.7 -> 73.3 | 2 of 7 -> 0 of 8 | 2.50 / 7.2 / 11.1 -> 2.68 / 6.98 / 11.45 | 4.52 -> 4.47 |
+| skilled | 93.3 -> 86.7 | 0 of 2 -> 1 of 4 | 1.8 / 3.6 / 5.8 -> 1.8 / 3.7 / 6.4 | 4.55 -> 4.57 |
+| weak | 0 -> 0 | 21 of 30 -> 20 of 30 | 12.3 / 22.3 / 40.3 -> 12.3 / 22.7 / 40.3 | 2.57 -> 2.58 |
+
+Stage E's measured (no Stage F at all): default 63.3, skilled 76.7, weak 0; ordinary damage 2.71 / 7.44 / 11.82 (default). Stop rule (skilled under 75, weak over 20): not tripped. The other policies, off -> on: special 80 -> 90, special-fangs 90 -> 93.3, special-cleaver 73.3 -> 60, special-crossbow 6.7 -> 6.7, special-flask 33.3 -> 30, meta-max 96.7 -> 96.7, weak-meta-max 3.3 -> 3.3.
+
+What the furniture did, a run, default knight (furniture on): 0.83 props broken, 0.80 vitality sipped, 0.20 pearls found in them, 0.27 kegs gone up (0.10 bodies caught, 0 vitality off him), spikes 0.27 vitality off him and 0.53 bites on bodies, 0.17 bodies felled by props. **To the bot the furniture is decoration**: escape moved by one run in thirty, fight length by 0.05 s and ordinary damage a chamber by under 0.6, all inside a batch's noise, and every kind's tally is under one event a run. Per kind: urns and crates (the bot never seeks them; it breaks what its swings at bodies happen to reach, about one a run) and chests, decoration; kegs, decoration (it steps out of a lit one and rarely lights one); spike plates, decoration to the knight (it steps off a read telegraph, as off the grates) and a small cost to bodies; cover, modelled for free through `cells`, no measurable effect. A human who smashes urns and lures bodies onto plates and kegs will feel more of it than the bot does; nothing here measures that.
+
+### The arm offer (D9)
+
+- Dealt in 15.5% of 2,000 run seeds, offered in **12.4%** (`tests/dungeon-rewards.test.ts`: every arm owned, the floors walked by the bot's own door choice, assuming he survives to them; 80% of the runs dealt one are shown its door). A first roll of 0.2 offered it in 15.3%, over D9's 15%, so `ARM_ODDS` is 0.16. The plan's "~15%" was the dealt rate's ceiling, not the offered rate's; the roll is set from the offered rate as D9 asks.
+- In the balance batch, meta-max (every arm owned) was dealt it 4 of 30 and offered 3 of 30; weak-meta-max 3 and 2. A fresh save (default, skilled, weak) is never offered one: it owns the Tideblade alone and holds it. The `special-<arm>` policies hold an arm their fresh save does not own, so they are offered the Tideblade (4 of 30 dealt): a sim-only state the game cannot reach. The bot never swaps.
+
+### Bands (`bands.json`, `measured` re-taken for all ten policies from the furniture-on run)
+
+Moved to the next five (a half for ordinary damage) beyond what was measured, none further: default `floor2.medianHpLeft` min 75 -> 70 (72.8); special `floor2.ordinaryDamagePerChamber` max 6 -> 6.5 (6.23); special-cleaver `floor2.medianHpLeft` min 70 -> 65 (69.8); special-crossbow `floor2.deathRate` max 45 -> 50 (46.7); meta-max `medianRunSeconds` max 255 -> 260 (258.1) and `floor2.ordinaryDamagePerChamber` max 7.5 -> 8 (7.54). Held offline against the furniture-on summary with `compareBands`: 0 violations.
+
+### Draw calls (`frame-budget.spec.ts`, d3d11, 2026-10-08)
+
+New scenes, one stand in the most furnished fight chamber floor one lays (seed 0x3c room 14, a rotunda ambush with every prop kind), its ambush sprung: **furnished 378 calls / 241,267 triangles, plain 371 / 240,769: the furniture costs +7 calls and +498 triangles**, 130 under the 508. Ceilings are the d3d11 figures; CI's SwiftShader run is their first reading there. Every other scene held its ceiling (they boot plain). Geometry sharing between chambers landed after this run (it changes the geometry count only, which nothing asserts).
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- `tests/dungeon-furnish.test.ts`: the lane over the corpus. Plant: skip the lane check -> `level 1 seed 7919 room 1 (round): no clear lane from the arrival to door 2`.
+- `tests/dungeon-props.test.ts`: blast, spikes, break, cover, the new doors. Plants: `blastOf` never catches the knight -> `the blast spared the knight standing 1.2 from it`; `SPIKE_TELL` 0 -> `the spikes rose from down, with no telegraph`; `swingProps` by distance with no arc -> `an urn behind the knight broke`.
+- `tests/dungeon-rewards.test.ts`: Boon and Pearls placement, the arm's rarity, cap, ownership and offer rate. Plant: `armFor` rolled per floor (the cap dropped) -> `run 187272 was dealt 2 arm chambers` (and the offer rate rose to 22.9%).
+- `tests/browser/props.spec.ts` (furnished page): a real arrow-aimed sword swing in seed 0x1's shrine breaks the urn, the drawn instance is gone, nothing else broke. Plants in the game: no prop strike on the swing -> `a real swing at the urn did not break it`; `spend` a no-op -> `the urn broke but the scene still draws it`. The first green attempt failed on that second line with the fix in: `Matrix4.decompose` reads a zero-scale matrix back as scale one, so the read-back now measures the matrix's own column.
+- Re-picked seeds (`tests/balance-sim.test.ts`): the archers' bolt scenario 1,2,3,4 -> 1,2,7,8; the banking floor-3 loss 4 -> 8 (and both pearl sums bank `found`); the early death before the stair hall 1 -> 2. `tests/dungeon-sim.test.ts`: `createRun()` carries `found: 0`.
+
+### Runs
+
+- `balance:check` x3, one at a time: furniture off at BOON_ODDS 0.15 (651 s; the finding above), furniture off at 0.05 (the before), furniture on at 0.05 with `--summary` (the after, from which `measured` was re-taken). Two default-only 30-run probes (BOON_ODDS 0 and 0.05) to choose the odds. No confirm run: the bands were held offline against the furniture-on summary.
+- Node: the touched files while iterating; `npm test` once, 600 of 602 (the two seeds above, re-picked and the three affected cases re-run green).
+- Browser (d3d11, port 3700, one worker): `props.spec.ts` (with the two plants), `frame-budget.spec.ts` once, 18 of 18.
+- typecheck and lint clean.
+- **Not run:** the PR-gate browser subset (CI's). Pages that `goto` a plain URL themselves (`hall.spec.ts`, `loading.spec.ts`, the slot scenarios) now meet furnished floors after the hall; none was run. `balance:bosses` (no boss chamber is furnished). SwiftShader.
+
+### Open
+
+- The furniture barely moves the bot; whether it changes how a room plays is for the operator's playtest.
+- BOON_ODDS 0.05 was chosen against the default knight's escape; the operator may want Boon doors commoner and the keep harder elsewhere.
+- D12 (b), new enemy kinds, is Stage G.

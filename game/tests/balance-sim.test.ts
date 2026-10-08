@@ -57,7 +57,8 @@ test('fight duration is measured per room fought, inside the floor it was fought
 
 test('the harness flies archers\' bolts and bills what lands to the archer, on floor one only from a later wave (plan 024 D4)', () => {
   // A knight that never dodges, so a bolt that is loosed and flies true has nothing between it and him.
-  const runs = [1, 2, 3, 4].map(seed => simulateRun(seed * 7919, policy({ dodge: 0 })));
+  // Plan 025 Stage F (furniture and the new doors) moved the seeds from 1, 2, 3, 4 (three deeper floors between them) to 1, 2, 7, 8.
+  const runs = [1, 2, 7, 8].map(seed => simulateRun(seed * 7919, policy({ dodge: 0 })));
   const deeper = runs.flatMap(run => run.floors.filter(floor => floor.level > 1));
   assert.ok(deeper.length >= runs.length, `the runs barely left floor one (${deeper.length} deeper floors), so this measured nothing`);
   const deeperArcher = deeper.reduce((sum, floor) => sum + floor.damage.archer, 0);
@@ -229,16 +230,17 @@ test('a run report says what banking it would pay', () => {
   assert.ok(elitesOf(won) > 0, 'precondition: the escape felled an elite, so what an elite pays is in the sum');
   assert.ok(fought(won) > 3 && won.kills > fought(won), `precondition: the run cleared ${fought(won)} fight chambers and felled ${won.kills} bodies, so a pearl a kill would pay differently`);
   assert.equal(won.chambers, fought(won), 'the report counts the chambers the floors fought');
-  assert.equal(won.pearls, CHAMBER_PEARLS * fought(won) + 3 * FLOOR_PEARLS + 25 + 3 * 10 + elitesOf(won), 'an escaped run report does not carry what a win pays');
+  assert.equal(won.pearls, CHAMBER_PEARLS * fought(won) + 3 * FLOOR_PEARLS + 25 + 3 * 10 + elitesOf(won) + won.found, 'an escaped run report does not carry what a win pays');
   // Seeds 10 and 4 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159; plan 022 Stage D (no top-up) moved them from 11 and 8;
   // plan 024 Stage A (the weak knight steps out of the embers, and draws its cards) moved them from 2 and 85; Stage B (pressure) moved the second from 2 (now lost on floor 1) to 3.
   // Plan 025 (the sim knight's step-tie goes to the step nearer his quarry) moved the second from 3 (now lost on floor 2) to 4, the first seed lost on floor 3.
-  for (const [seed, floor] of [[10, 2], [4, 3]] as const) {
+  // Plan 025 Stage F (furniture and the new doors) moved it from 4 (now lost on floor 2) to 8, the first seed lost on floor 3. A run's found pearls (Stage F) are banked on top.
+  for (const [seed, floor] of [[10, 2], [8, 3]] as const) {
     const lost = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
     assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
     assert.equal(felled(lost), floor - 1, `precondition: a run lost on floor ${floor} felled the ${floor - 1} bosses behind it`);
     assert.ok(fought(lost) > 0, 'precondition: the run cleared a chamber before it died');
-    assert.equal(lost.pearls, CHAMBER_PEARLS * fought(lost) + (floor - 1) * FLOOR_PEARLS + (floor - 1) * 10 + elitesOf(lost), `a run lost on floor ${floor} does not report what a death pays`);
+    assert.equal(lost.pearls, CHAMBER_PEARLS * fought(lost) + (floor - 1) * FLOOR_PEARLS + (floor - 1) * 10 + elitesOf(lost) + lost.found, `a run lost on floor ${floor} does not report what a death pays`);
   }
 });
 
@@ -333,10 +335,11 @@ test('the sim deals a floor its later waves, calls each only after the one befor
 test('a floor the knight died on says whether it was before the stair hall (plan 022 carry-over)', () => {
   const weak = policy({ dodge: 0, reaction: 0.6 });
   // Read off the boss, which the report observes on its own: a knight who died before the stair hall never met it. Seeds 1 and 5 (plan 022 Stage D moved them from 0x3ddf and 0x7bbd; plan 023 Stage D swapped them; plan 024 Stage A swapped them back; plan 025 Stage D moved the
-  // late one from 2, whose knight no longer dies to the boss once the Pyre Mother moves, to 4, who dies to the Bone King; plan 025 Stage E moved it to 5, since ordinary bodies hitting 1.5 times as hard kill seed 4's knight before the stair hall).
-  const early = simulateRun(1, weak).floors.find(f => f.outcome === 'died');
+  // late one from 2, whose knight no longer dies to the boss once the Pyre Mother moves, to 4, who dies to the Bone King; plan 025 Stage E moved it to 5, since ordinary bodies hitting 1.5 times as hard kill seed 4's knight before the stair hall;
+  // plan 025 Stage F moved the early one from 1, whose knight now reaches the stair hall with the furniture and the new doors, to 2).
+  const early = simulateRun(2, weak).floors.find(f => f.outcome === 'died');
   const late = simulateRun(5, weak).floors.find(f => f.outcome === 'died');
-  assert.ok(early && late, 'seeds 1 and 5 no longer each end in a death with the weak knight: pick other seeds');
+  assert.ok(early && late, 'seeds 2 and 5 no longer each end in a death with the weak knight: pick other seeds');
   assert.equal(early.bossDamage + early.bossSeconds, 0, 'precondition: the boss never met the knight who died on this floor');
   assert.equal(early.hpAtStair, null, 'precondition: he never reached the stair hall');
   assert.equal(early.deathsBeforeBoss, 1, 'a death before the stair hall is not counted as one');

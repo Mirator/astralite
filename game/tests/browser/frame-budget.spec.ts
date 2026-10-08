@@ -135,6 +135,12 @@ const BUDGET = {
   // the staging on a different frame, and a body still being eased apart (staged 0.7 apart, under the crowd's spacing) or a corpse still sinking sat in a different place and in or out of a culling sphere by a few triangles. It now waits until
   // every body of the chamber and every corpse has stood still for a second, and the counts repeat exactly.
   'wave-chamber': { calls: 440, triangles: 255_886 },
+  // Plan 025 Stage F: the most furnished fight chamber floor one lays (seed 0x3c, room 14, a rotunda ambush: an urn, a crate, a keg, a spike plate, a chest and cover, so
+  // every prop mesh there is, six instanced draws), its four bodies sprung, framed from its heart; and the same frame with the chambers plain (`?rooms=plain`), so the
+  // difference is what the furniture costs. Measured 2026-10-08 on d3d11 only: furnished 378 calls, 241,267 triangles; plain 371 calls, 240,769 triangles (+7 calls, +498 triangles,
+  // 130 under the 508). Each ceiling is the figure measured; CI's SwiftShader run is their first reading there (Stage B saw the two renderers differ by up to 13 calls).
+  'furnished-chamber': { calls: 378, triangles: 241_267 },
+  'plain-chamber': { calls: 371, triangles: 240_769 },
   // Plan 025 Stage B, measured 2026-10-07 on d3d11 against the same scenes on d3d11 at 5045a89, and added to each ceiling above as a
   // delta (d3d11 and SwiftShader disagree by up to 13 calls on some of these scenes, so a d3d11 figure is not a SwiftShader ceiling):
   // every scene +1 call for the chamber's painted sconce pools (one merged mesh a chamber, single pass, only the knight's chamber drawn)
@@ -212,6 +218,30 @@ test.describe('the widest room', () => {
     await spend(game, 'widest-chamber');
   });
 });
+
+// Plan 025 Stage F (D12 a): the furniture is instanced, one draw a kind a chamber, no shadow, and a chamber out of frame draws none of it. The two frames are one stand in
+// one chamber, furnished and plain, so the difference between them is the furniture and nothing else; both stay under the 508 the other scenes are held to.
+for (const [scene, rooms] of [['furnished-chamber', null], ['plain-chamber', 'plain']] as const) {
+  test.describe(`the most furnished chamber, ${rooms === null ? 'furnished' : 'plain'}`, () => {
+    test.use({ seeds: [0x3c], rooms });
+    test(`seed 0x3c's furnished rotunda, framed from its heart with its ambush sprung, stays inside its budget (${scene})`, async ({ game }) => {
+      await game.enter();
+      const floor = await game.floor(), room = floor.rooms[14];
+      expect(room?.encounter === 'ambush' && room.shape === 'round', 'seed 0x3c floor one no longer holds the rotunda this budget was set on').toBe(true);
+      const centre = roomCentre(floor, room.id);
+      await game.teleport(centre.x, centre.z);
+      await game.step(640);
+      const state = await game.state();
+      expect(state.chamber.id).toBe(room.id);
+      expect(state.enemies.filter((e) => e.room === room.id && e.awake).length, 'precondition: the ambush sprang').toBeGreaterThanOrEqual(3);
+      // Read off the scene: furnished, every kind but cover drawn; plain, none.
+      const drawn = new Set(state.furniture.here.filter((p) => p.shown).map((p) => p.kind));
+      expect([...drawn].sort(), rooms === null ? 'the furnished chamber does not draw every kind of prop' : 'a plain chamber drew furniture').toEqual(rooms === null ? ['chest', 'crate', 'keg', 'spikes', 'urn'] : []);
+      await spend(game, scene);
+      expect((await game.state()).render.calls, 'over the 508 every chamber is held to').toBeLessThanOrEqual(508);
+    });
+  });
+}
 
 // Plan 019 Stage C: the armoury holds a rack for every owned arm but the one in hand, so with the whole armoury bought it stands six
 // at once: seven slots, but one arm is always in the knight's hand. The operator accepted what that costs on 2026-10-01, with no remedy

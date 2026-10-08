@@ -1,14 +1,16 @@
 import { BESTIARY, BOSS_POOL, FINAL_BOSS, reserveSize, type EliteModifier, type EnemyKind } from './dungeon-bestiary.ts';
 import { FOUND_WEAPONS, PICKUP_RADIUS, STARTING_WEAPON, type WeaponId } from './dungeon-weapon.ts';
+import type { Furnishing } from './dungeon-furnish.ts';
 
 export const TILE = 1.48;
 export type Encounter = 'watch' | 'ambush' | 'gauntlet' | 'sanctuary' | 'warden';
 /**
  * What a chamber pays when it is cleared, and so what the door into it shows (plan 017): a real heal
  * (`mend`) or a purse of experience (`cache`, today's dead-end XP). A shrine, the gate and the stair hall
- * pay nothing of their own. No chamber pays an arm (plan 019, D7): arms are chosen in the Tide Gate.
+ * pay nothing of their own. `generateFloor` deals only these two; plan 025 Stage F's `dealRewards` (below) turns some into a
+ * `boon` (one boon card), `pearls` (a purse for the altar) or, rarely, the run's one `arm` (a rack to swap for, D9).
  */
-export type Reward = 'mend' | 'cache';
+export type Reward = 'mend' | 'cache' | 'boon' | 'pearls' | 'arm';
 export type Room = { encounter: Encounter; id: number; x: number; z: number; halfX: number; halfZ: number; shape: 'hall' | 'round' | 'cross' | 'court' | 'gallery' | 'crypt'; theme: 'keep' | 'ruins' | 'flooded'; name: string; role: 'start' | 'path' | 'goal'; depth: number; heading: number; layer: number; reward: Reward | null; entry: { x: number; z: number } };
 /**
  * A way out of a chamber, on one of the two walls facing away from the camera (the camera sits at +x/+z,
@@ -114,7 +116,7 @@ export const cellKey = (x: number, z: number) => `${x},${z}`;
  * A floor as `generateFloor` deals it, plus the one marker the Tide Altar's hall (plan 020) carries. `hall` is absent from every generated floor, so the
  * generator's output is untouched; a rule that must tell the hall from floor 1 (both are `level: 1`) reads it instead of guessing from the room count.
  */
-export type Floor = ReturnType<typeof generateFloor> & { hall?: true };
+export type Floor = ReturnType<typeof generateFloor> & { hall?: true; furniture?: Furnishing[]; armRack?: WeaponDrop };
 /** Whether a chamber's shape keeps the tile `x`,`z` away from its heart (tiles). The one rule `carveRoom` cuts by, shared so a later pass can tell a chamber's own floor from the alcove a door is cut into. */
 export const carves = (r: Pick<Room, 'shape' | 'halfX' | 'halfZ'>, x: number, z: number) => {
   if (r.shape === 'round') return (x / (r.halfX + .4)) ** 2 + (z / (r.halfZ + .4)) ** 2 <= 1;
@@ -342,6 +344,55 @@ export function generateFloor(seed: number, level = 1, options: FloorOptions = {
   }
   const bounds={minX:Math.min(...tiles.map(t=>t.x)),maxX:Math.max(...tiles.map(t=>t.x)),minZ:Math.min(...tiles.map(t=>t.z)),maxZ:Math.max(...tiles.map(t=>t.z))};
   return {seed,level,rooms,edges,doors,cells,tiles,roomByCell:new Map(tiles.filter(t=>t.room>=0).map(t=>[cellKey(t.x,t.z),t.room])),bounds,props,spawns:everyone,weaponDrop,start:0,goal:goal.id,spine:rooms.map(r=>r.id),guardCount:standing};
+}
+
+// --- Plan 025 Stage F (D12 c, D9): the new door rewards ---------------------------------------------------------------------------------------------
+// Dealt on top of what the generator laid, after the waves (whose `packSource` reads `cache` for a purse chamber's pack), from a salted stream of their own,
+// so every seed's layout and its mend and purse rewards stay byte for byte what `generateFloor` deals. The game and the balance sim both call `dealRewards`.
+
+/**
+ * The share of layers (from the third, `layer` 2, to the last before the stair hall) that turn one chamber's reward into a Boon, and into Pearls. A Boon is the
+ * strongest thing a door pays: at 0.15 (with Pearls 0.15, furniture off, 2026-10-08, 30 runs) the default knight, who takes a Boon door first, escaped 96.7% against
+ * Stage E's 63.3 and D10's 50-75, and the skilled one 96.7%. A default-knight probe with the furniture on read 56.7% at 0 and 73.3% at 0.05, so it is 0.05: about one
+ * Boon door a run, inside D10's band. Pearls stays 0.15: it pays the altar, not the run.
+ */
+export const BOON_ODDS = 0.05;
+export const PEARL_ODDS = 0.15;
+/**
+ * The share of runs dealt an arm chamber (D9), on floor two or three, set from the sim's reward log: over 2,000 run seeds walked by the balance knight's door
+ * preference with every arm owned (`tests/dungeon-rewards.test.ts`, 2026-10-08), a run dealt one is shown its door in 80% of them (81% at a first roll of 0.2,
+ * which offered it in 15.3% of runs, over D9's 15%), so 0.16 deals it in 15.5% of runs and offers it in 12.4%. A run dealt one whose save owns no arm but the one in hand is shown nothing new: the chamber keeps its mend or purse.
+ */
+export const ARM_ODDS = 0.16;
+const REWARD_SALT = 0x72657761, ARM_SALT = 0x61726d73;
+const rewardHash = (seed: number, salt: number, n: number) => { let h = (Math.imul(seed >>> 0 ^ salt, 0x9e3779b1) ^ Math.imul(n + 1, 0x85ebca6b)) >>> 0; h = Math.imul(h ^ h >>> 16, 0x85ebca6b) >>> 0; h = Math.imul(h ^ h >>> 13, 0xc2b2ae35) >>> 0; return ((h ^ h >>> 16) >>> 0) / 4294967296; };
+
+/**
+ * Which floor of the run that began on `runSeed` holds its arm chamber: 2 or 3, or null for most runs (`ARM_ODDS`). A pure hash of the run seed alone, the way
+ * `dealBosses` is, so a run is dealt at most one arm chamber by construction: one roll a run, not one a floor. `roll` is the arm it offers (`armOffer`, dungeon-meta.ts).
+ */
+export const armDeal = (runSeed: number): { level: 2 | 3; roll: number } | null =>
+  rewardHash(runSeed, ARM_SALT, 0) < ARM_ODDS ? { level: rewardHash(runSeed, ARM_SALT, 1) < .5 ? 2 : 3, roll: rewardHash(runSeed, ARM_SALT, 2) } : null;
+
+/**
+ * A floor's new rewards. Each layer from the third to the last before the stair hall rolls once: under `BOON_ODDS` one of its paying chambers turns Boon, under
+ * `BOON_ODDS + PEARL_ODDS` Pearls - the one whose mend or purse a sibling also pays where there is one, so the layer keeps both of the old choices it had.
+ * `arm` (the run's arm, on the floor `armDeal` names, already chosen by the caller) goes to the chamber the generator reserved for it (`weaponDrop.room`, on
+ * floor two and three; never a hoard, never the gate), which no Boon or Pearls roll touches; the rack stands on `weaponDrop`'s spot (`armRack`).
+ * Returns a copy: the rooms are new objects, nothing else moves.
+ */
+export function dealRewards<F extends Pick<Floor, 'rooms' | 'goal' | 'weaponDrop'>>(floor: F, seed: number, level: number, arm: WeaponId | null = null): F & { armRack?: WeaponDrop } {
+  const rooms = floor.rooms.map(room => ({ ...room })), goalLayer = rooms[floor.goal].layer;
+  const armRoom = arm && level >= 2 && floor.weaponDrop.room !== 0 && rooms[floor.weaponDrop.room]?.reward ? floor.weaponDrop.room : -1;
+  for (let layer = 2; layer < goalLayer; layer++) {
+    const roll = rewardHash(seed + level * 0x10001, REWARD_SALT, layer), paying = rooms.filter(r => r.layer === layer && r.role === 'path' && r.reward !== null && r.id !== armRoom);
+    if (!paying.length || roll >= BOON_ODDS + PEARL_ODDS) continue;
+    const doubled = paying.filter(r => rooms.some(o => o !== r && o.layer === layer && o.reward === r.reward));
+    (doubled.length ? doubled : paying)[0].reward = roll < BOON_ODDS ? 'boon' : 'pearls';
+  }
+  if (armRoom < 0 || !arm) return { ...floor, rooms };
+  rooms[armRoom].reward = 'arm';
+  return { ...floor, rooms, armRack: { ...floor.weaponDrop, kind: arm } };
 }
 
 /** One slot of the Tide Gate's armoury (plan 019, D8): the arm that stands on it when it is owned, and where, in world units. */

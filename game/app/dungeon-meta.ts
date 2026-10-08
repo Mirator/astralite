@@ -7,6 +7,7 @@
 import type { RunEnd } from './dungeon-save.ts';
 import { FOUND_WEAPONS, STARTING_WEAPON, weaponById, type WeaponId } from './dungeon-weapon.ts';
 import { DRAFT_SIZE, START_HP } from './dungeon-sim.ts';
+import { armDeal } from './dungeon-floor.ts';
 
 /**
  * How many floors a descent has. The game and the balance sim each keep their own constant; a node test holds
@@ -88,14 +89,15 @@ export const FLOOR_PEARLS = 5;
 export const BOSS_PEARLS = 10;
 /** Plan 022 (D9): an elite pays a pearl of its own, on top of its chamber's. */
 export const ELITE_PEARLS = 1;
-export const pearlsFor = (end: Pick<RunEnd, 'floor' | 'won' | 'kills' | 'chambers'> & Partial<Pick<RunEnd, 'bosses' | 'elites'>>) => {
+// Plan 025 Stage F: `found` (optional, none when absent) is what the run picked up - a Pearls door, a pearl from an urn or a crate, a chest - banked as it was found.
+export const pearlsFor = (end: Pick<RunEnd, 'floor' | 'won' | 'kills' | 'chambers'> & Partial<Pick<RunEnd, 'bosses' | 'elites' | 'found'>>) => {
   const floorsCompleted = end.won ? FLOORS : Math.max(0, end.floor - 1);
   const fought = CHAMBER_PEARLS * Math.max(0, end.chambers) + FLOOR_PEARLS * floorsCompleted;
-  return fought + (end.won ? 25 : 0) + BOSS_PEARLS * Math.max(0, end.bosses ?? 0) + ELITE_PEARLS * Math.max(0, end.elites ?? 0);
+  return fought + (end.won ? 25 : 0) + BOSS_PEARLS * Math.max(0, end.bosses ?? 0) + ELITE_PEARLS * Math.max(0, end.elites ?? 0) + Math.max(0, end.found ?? 0);
 };
 
 /** A new `Meta` with the run's earnings added. Never touches its input. */
-export const bank = (meta: Meta, end: Pick<RunEnd, 'floor' | 'won' | 'kills' | 'chambers'> & Partial<Pick<RunEnd, 'bosses' | 'elites'>>): Meta =>
+export const bank = (meta: Meta, end: Pick<RunEnd, 'floor' | 'won' | 'kills' | 'chambers'> & Partial<Pick<RunEnd, 'bosses' | 'elites' | 'found'>>): Meta =>
   ({ ...meta, pearls: Math.min(PEARL_CAP, meta.pearls + pearlsFor(end)), upgrades: { ...meta.upgrades }, arms: [...meta.arms] });
 
 /** The next rank, or null when it cannot be had: unknown id, already at the top, or too few pearls. */
@@ -213,3 +215,22 @@ export const armFacts = (id: WeaponId) => {
  */
 export const sameMeta = (a: Meta, b: Meta) =>
   a.pearls === b.pearls && a.arm === b.arm && ARM_ORDER.every(id => a.arms.includes(id) === b.arms.includes(id)) && UPGRADES.every(({ id }) => rankOf(a.upgrades, id) === rankOf(b.upgrades, id));
+
+/**
+ * Plan 025 Stage F (D9): the arm a run's arm chamber offers, or null when it can offer none. Only an arm the save owns (bought at the altar, so pearls still
+ * matter) and never the one in hand: of those, the one `roll` (the run's own, `armDeal`) lands on, in the table's order. A fresh save owns the Tideblade alone,
+ * so a knight holding it is offered nothing, and the chamber keeps the mend or purse it was dealt.
+ */
+export const armOffer = (owned: readonly WeaponId[], inHand: WeaponId, roll: number): WeaponId | null => {
+  const choices = ARM_ORDER.filter(arm => arm !== inHand && owned.includes(arm));
+  return choices.length ? choices[Math.min(choices.length - 1, Math.floor(Math.max(0, roll) * choices.length))] : null;
+};
+
+/**
+ * The arm a floor of the run that began on `runSeed` offers (D9), or null: the floor `armDeal` names for the run, and on it `armOffer`'s arm. One deal a run,
+ * read off the run seed alone, so a run is offered at most one arm whatever happens between its floors; the game and the balance sim both ask this.
+ */
+export const armFor = (runSeed: number, level: number, owned: readonly WeaponId[], inHand: WeaponId): WeaponId | null => {
+  const deal = armDeal(runSeed);
+  return deal && deal.level === level ? armOffer(owned, inHand, deal.roll) : null;
+};

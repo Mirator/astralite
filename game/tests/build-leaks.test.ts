@@ -37,6 +37,10 @@ test('a bundle carrying a development-only hook or the eager-boot switch is repo
   assert.deepEqual(findLeaks(clean + 'new URLSearchParams(location.search).get(`elite`)', []).leaked, ['?elite=']);
   assert.deepEqual(findLeaks(clean + 'x.get("elite")', []).leaked, ['?elite=']);
   assert.deepEqual(findLeaks(clean + 'a.get(`elites`)', []).leaked, [], 'only the elite link itself is matched');
+  // Plan 025 Stage F: the dev rooms link, the same way.
+  assert.deepEqual(findLeaks(clean + 'new URLSearchParams(location.search).get(`rooms`)===`plain`', []).leaked, ['?rooms=']);
+  assert.deepEqual(findLeaks(clean + 'x.get("rooms")', []).leaked, ['?rooms=']);
+  assert.deepEqual(findLeaks(clean + 'a.get(`roomsize`)', []).leaked, [], 'only the rooms link itself is matched');
   assert.deepEqual(findLeaks('unrelated chunk', []).missingPublic, ['render_game_to_text', 'advanceTime', 'dungeonTest']);
   // The arena ships no hook name of its own on the page it lives on; its event and its menu label are what give it away.
   assert.deepEqual(findLeaks(clean + 'dispatchEvent(new CustomEvent(`dungeon-arena`,{detail:a}))', []).leaked, ['dungeon-arena']);

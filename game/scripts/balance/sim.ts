@@ -14,15 +14,17 @@ import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
 import { boltBlow, canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
 import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, eliteStats, fallOf, moveOf, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, STILL, wallClearance, type CrowdBody, type Roam, type EliteModifier, type EnemyKind, type EnemyView, type Move, type Pressed, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
-import { bossPush, landBlow } from '../../app/dungeon-hits.ts';
+import { blastOf, bossPush, burn, fuseStep, KEG_CHAIN, KEG_FUSE, KEG_HURT, KEG_DAMAGE, KEG_RADIUS, landBlow, liveProps, PLATE_REACH, SPIKE_CYCLE, SPIKE_DAMAGE, SPIKE_HURT, SPIKE_TELL, SPIKE_UP, spikeBites, strikeProp, swingProps, type LiveProp } from '../../app/dungeon-hits.ts';
+import { furnishFloor } from '../../app/dungeon-furnish.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
-import { TILE, bodyRadius, bossOnFloor, cellKey, dealBosses, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
-import { arenaFloor, type Floor } from '../../app/dungeon-arena.ts';
+import { TILE, bodyRadius, bossOnFloor, cellKey, dealBosses, dealRewards, generateFloor, hasClearPath, moveOnFloor, type Door } from '../../app/dungeon-floor.ts';
+import { arenaFloor } from '../../app/dungeon-arena.ts';
+import type { Floor } from '../../app/dungeon-floor.ts';
 import { calledIn, idleClock, roomTiles, springing, waveDue, wavedFloor, waveSpots, type WaveClock } from '../../app/dungeon-waves.ts';
-import { TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
+import { STARTING_WEAPON, TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, fanHeadings, ARROW_POOL, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
-import { pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
-import { clearChamber, createRun, DOOR_RADIUS, draftBoons, fightChamber, heal, hurt, resolveKill, SHRINE, SHRINE_REACH, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
+import { armFor, pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
+import { clearChamber, createRun, DOOR_RADIUS, draftBoons, fightChamber, heal, hurt, resolveKill, SHRINE, SHRINE_REACH, specialReady, spendSpecial, STAIR_RADIUS, takeBoon, takeDrop, tickRun, type Boon, type Run } from '../../app/dungeon-sim.ts';
 
 /** Matches the FLOORS constant in dungeon-game.tsx. */
 export const FLOORS = 3;
@@ -95,6 +97,11 @@ export type Policy = {
    * still `weapon`, because a policy names the arm it measures.
    */
   meta?: Meta;
+  /**
+   * Plan 025 Stage F: lay the chambers' furniture (`furnishFloor`: urns, crates, kegs, spike plates, cover, chests) on the floors `simulateRun` builds. On unless it is `false`;
+   * `npm run balance:check -- --props=off` switches it off for every policy, which is the "before" of the props measurement. The new door rewards are dealt either way.
+   */
+  props?: boolean;
   /** Which card to take from a draft. Absent, the knight draws one from the offer with the run's own seeded `pick` stream (plan 024 D1; it took the first offered until then, which is no choice at all once a run holds every card). */
   pickBoon?: (offer: Boon[], run: Run) => string;
 };
@@ -224,6 +231,18 @@ export type FloorReport = {
   tellsDodged: number;
   /** Plan 024 D3: tells a body was ready to begin and held back instead, so that it ended after the room's other tells (`pressure`, dungeon-enemy.ts): a tell counted once, however many frames it was held. */
   tellsHeld: number;
+  /**
+   * Plan 025 Stage F, the reward log: for every chamber the knight left by a door, the rewards behind each of its doors (null for a door that pays nothing of its own), in door order. A door
+   * listed here was offered: the chamber in front of it was cleared and he stood at the choice. `armOffered` is whether any of them was the run's arm.
+   */
+  doorRewards: (string | null)[][];
+  armOffered: boolean;
+  /**
+   * Plan 025 Stage F: what the furniture did on this floor. `broken` breakables (urns, crates, chests) and what they paid (`sipped` vitality, `pearls`); `kegs` that went up, the vitality
+   * blasts took off him (`blastHurt`) and the bodies they caught (`blastBodies`); the bites spike plates took off him (`spikeHurt`) and off bodies (`spikeBodies`); the bodies props felled
+   * (`propKills`). Blast and spike vitality are in `damage.hazard` too, never in `ordinaryDamage`.
+   */
+  props: { broken: number; sipped: number; pearls: number; kegs: number; blastHurt: number; blastBodies: number; spikeHurt: number; spikeBodies: number; propKills: number };
   ordinaryDamage: number;
   chambersEntered: number;
   ordinaryDamagePerChamber: number;
@@ -248,6 +267,10 @@ export type RunReport = {
   pearls: number;
   /** Plan 023 (D1): the fight chambers cleared, which `pearls` pays `CHAMBER_PEARLS` each for. */
   chambers: number;
+  /** Plan 025 Stage F: pearls found (Pearls doors, urns, crates, chests), counted in `pearls`; whether the run was dealt an arm chamber (`armFor` named a floor and an arm), and whether its door was offered. */
+  found: number;
+  armDealt: boolean;
+  armOffered: boolean;
   floors: FloorReport[];
 };
 
@@ -341,6 +364,39 @@ export const emberStep = (t: number, grates: readonly { x: number; z: number; ro
   return best;
 };
 
+/**
+ * Plan 025 Stage F: where a knight who avoids fire walks to keep off the furniture's teeth - a spike plate whose telegraph he has read (`reaction` seconds of it) or whose spikes are up,
+ * and a lit keg whose fuse has burnt `reaction` seconds (a keg lit by another's blast, on its short fuse, is read at once), when he stands within its reach and `EMBER_MARGIN`. Of sixteen
+ * headings, the one that leaves him furthest outside the nearest of them a stride on, as `emberStep` picks; null when nothing is asking anything of him.
+ */
+export const propStep = (t: number, props: readonly LiveProp[], at: { x: number; z: number }, reaction: number) => {
+  const plateIn = (p: LiveProp, x: number, z: number) => Math.max(Math.abs(x - p.at.x), Math.abs(z - p.at.z)) - PLATE_REACH;
+  const kegIn = (p: LiveProp, x: number, z: number) => Math.hypot(x - p.at.x, z - p.at.z) - KEG_RADIUS;
+  const asking = props.filter(p => {
+    if (p.broken) return false;
+    if (p.kind === 'spikes') { const into = ((t + p.phase * SPIKE_CYCLE) % SPIKE_CYCLE) - (SPIKE_CYCLE - SPIKE_UP - SPIKE_TELL); return into >= Math.min(reaction, SPIKE_TELL) && plateIn(p, at.x, at.z) < EMBER_MARGIN; }
+    return p.kind === 'keg' && p.fuse >= 0 && (p.fuse <= KEG_CHAIN || p.fuse <= KEG_FUSE - reaction) && kegIn(p, at.x, at.z) < EMBER_MARGIN;
+  });
+  if (!asking.length) return null;
+  let best = { x: 1, z: 0 }, bestGap = -Infinity;
+  for (let i = 0; i < 16; i++) {
+    const heading = { x: Math.cos(i * Math.PI / 8), z: Math.sin(i * Math.PI / 8) }, x = at.x + heading.x, z = at.z + heading.z;
+    const gap = Math.min(...asking.map(p => p.kind === 'spikes' ? plateIn(p, x, z) : kegIn(p, x, z)));
+    if (gap > bestGap + 1e-9) { best = heading; bestGap = gap; }
+  }
+  return best;
+};
+
+/** Plan 017, extended by plan 025 Stage F: what a door is worth to the `explore` knight, lowest first - a Boon, a purse of experience, a mending, Pearls, an arm he will not take up (a policy names the arm it measures), and last a door that pays nothing of its own. */
+export const DOOR_PREFERENCE: Readonly<Record<string, number>> = { boon: 0, cache: 1, mend: 2, pearls: 3, arm: 4 };
+/** The door a cleared chamber is left by: with `explore`, the one `DOOR_PREFERENCE` rates first (ties to door order); otherwise the first. Pure, so the reward log can be walked without a fight. */
+export const pickDoor = (floor: Pick<Floor, 'doors' | 'rooms'>, room: number, explore: boolean): Door | undefined => {
+  const ways = floor.doors.filter(d => d.from === room);
+  if (!explore) return ways[0];
+  const pays = (d: Door) => DOOR_PREFERENCE[floor.rooms[d.to].reward ?? ''] ?? 5;
+  return [...ways].sort((a, b) => pays(a) - pays(b))[0];
+};
+
 const unit = (x: number, z: number) => { const length = Math.hypot(x, z) || 1; return { x: x / length, z: z / length }; };
 
 const startRun = (policy: Policy) => createRun(policy.meta && runStart(policy.meta));
@@ -361,20 +417,26 @@ export function simulateRun(seed: number, policy: Policy = DEFAULT_POLICY): RunR
 
   // Plan 021 (D13): the run's bosses are dealt as the game deals them, from floor one's seed, and each floor is laid with its own.
   const dealt = dealBosses(seed);
+  let armDealt = false;
   for (let level = 1; level <= FLOORS; level++) {
-    const report = simulateFloor(seed + level - 1, level, run, policy, nerve, draft, pick, wavedFloor(generateFloor(seed + level - 1, level, { boss: bossOnFloor(dealt, level) }), seed + level - 1, level));
+    // Plan 025 Stage F, laid as the game lays a floor: the waves, then the new door rewards (the run's one arm chamber on the floor `armFor` names, offering an arm the policy's save owns
+    // and does not hold), then the furniture unless the policy switches it off.
+    const floorSeed = seed + level - 1, arm = armFor(seed, level, policy.meta?.arms ?? [STARTING_WEAPON], policy.weapon.id);
+    const rewarded = dealRewards(wavedFloor(generateFloor(floorSeed, level, { boss: bossOnFloor(dealt, level) }), floorSeed, level), floorSeed, level, arm);
+    if (rewarded.armRack) armDealt = true;
+    const report = simulateFloor(floorSeed, level, run, policy, nerve, draft, pick, policy.props === false ? rewarded : furnishFloor(rewarded, floorSeed, level));
     floors.push(report);
     elapsed += report.seconds;
     if (report.outcome !== 'cleared') {
       // Whatever took the last of the vitality is what the run log would record.
       const damage = report.damage;
       cause = (Object.keys(damage) as Cause[]).filter(k => damage[k] > 0).sort((a, b) => damage[b] - damage[a])[0] ?? null;
-      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites }), chambers: run.chambers, floors };
+      return { seed, weapon: policy.weapon.id, outcome: report.outcome === 'died' ? 'died' : 'stuck', floor: level, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: level, won: false, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites, found: run.found }), chambers: run.chambers, found: run.found, armDealt, armOffered: floors.some(f => f.armOffered), floors };
     }
     // Descending restores a quarter of the bar, as the results card promises.
     if (level < FLOORS) heal(run, Math.round(run.maxHp * 0.25));
   }
-  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites }), chambers: run.chambers, floors };
+  return { seed, weapon: policy.weapon.id, outcome: 'escaped', floor: FLOORS, cause, seconds: +elapsed.toFixed(1), kills: run.kills, totalXp: run.totalXp, rank: run.rankLevel, boons: [...run.taken], pearls: pearlsFor({ floor: FLOORS, won: true, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites, found: run.found }), chambers: run.chambers, found: run.found, armDealt, armOffered: floors.some(f => f.armOffered), floors };
 }
 
 /**
@@ -396,7 +458,7 @@ export function simulateLevel(seed: number, level: number, policy: Policy = DEFA
 
 function simulateFloor(seed: number, level: number, run: Run, policy: Policy, nerve: () => number, draft: () => number, pick: () => number, built?: Floor, arena = false): FloorReport {
   // Plan 022: a floor the sim lays itself is dealt its later waves as the game's is (`wavedFloor`); one a test hands in is its own.
-  const floor = built ?? wavedFloor(generateFloor(seed, level), seed, level);
+  const floor: Floor = built ?? wavedFloor(generateFloor(seed, level), seed, level);
   const weapon = policy.weapon;
   const damage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
   let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0, specialCount = 0, blockedCount = 0, raisedCount = 0, reassembledCount = 0;
@@ -478,6 +540,15 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   // A pyre's fire (dungeon-game.tsx:379-380): it bites the knight, not the bodies, and there are only so many rings.
   const fires: { pool: Pool; kind: EnemyKind }[] = [];
   const cleared = new Set<number>([0]);
+  // Plan 025 Stage F: the floor's furniture, as the game holds it (dungeon-hits `liveProps`); none on an arena or a floor laid without it.
+  const props = liveProps(floor.furniture ?? [], TILE);
+  const propTally = { broken: 0, sipped: 0, pearls: 0, kegs: 0, blastHurt: 0, blastBodies: 0, spikeHurt: 0, spikeBodies: 0, propKills: 0 };
+  const doorRewards: (string | null)[][] = [];
+  const hitProp = (prop: LiveProp, fuse: number) => {
+    if (!strikeProp(prop, fuse).broke) return;
+    const paid = takeDrop(run, prop.kind, prop.drop);
+    propTally.broken++; propTally.sipped += paid.healed; propTally.pearls += paid.pearls ?? 0;
+  };
   // Plan 016 fight duration: when each room's fight started, and how long each finished one took.
   const fightStart = new Map<number, number>(), fights: number[] = [], fightEncounters: string[] = [];
   const eliteKills: Partial<Record<EliteModifier, number>> = {};
@@ -505,12 +576,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     return field;
   };
   // The door a chamber is left by, once it is clear: the policy's preference among this chamber's doors.
-  const chooseDoor = (room: number) => {
-    const ways = floor.doors.filter(d => d.from === room);
-    if (!policy.explore) return ways[0];
-    const pays = (d: typeof ways[number]) => ({ cache: 0, mend: 1 } as Record<string, number>)[floor.rooms[d.to].reward ?? ''] ?? 3;
-    return [...ways].sort((a, b) => pays(a) - pays(b))[0];
-  };
+  const chooseDoor = (room: number) => pickDoor(floor, room, policy.explore);
   let chamber = 0;
   // Plan 022 (dungeon-waves.ts): the wave clock of the chamber the knight is in, and where each body of the wave whose rings show will stand (dungeon-game.tsx keeps the same clock and the same rings).
   let waveClock: WaveClock = idleClock();
@@ -771,6 +837,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (door && cleared.has(chamber) && Math.hypot(door.x * TILE - player.x, door.z * TILE - player.z) < DOOR_RADIUS) {
         // The swap key, pressed the frame it arrives: the next chamber's near wall, and nothing carried over.
         const next = floor.rooms[door.to];
+        doorRewards.push(floor.doors.filter(d => d.from === chamber).map(d => floor.rooms[d.to].reward));
         chamber = next.id; player.x = next.entry.x * TILE; player.z = next.entry.z * TILE; fields.clear();
         if (next.id === floor.goal && hpAtStair === null) hpAtStair = run.hp / run.maxHp * 100;
         shots.length = 0; hostile.length = 0; pools.length = 0; fires.length = 0;
@@ -800,6 +867,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     // Plan 024 (D1): a gauntlet grate that is flaring, or will flare within his reaction time, is stepped out of like a pool (`emberStep`). Dashing is not for it, and the dodge and the strike are unchanged.
     // Lower priority than a pyre's fire and a marked ring, which come after and replace it.
     if (policy.avoidFire !== false && dashTime <= 0) move = emberStep(t, hazards, player, policy.reaction) ?? move;
+    // Plan 025 Stage F: a spike plate he has read the telegraph of, or a lit keg, is stepped off the same way, and takes over from a grate.
+    if (policy.avoidFire !== false && dashTime <= 0 && props.length) move = propStep(t, props, player, policy.reaction) ?? move;
     // Plan 018: standing in a pyre's fire, walk out of it - straight away from its heart. The dodge and the strike
     // above are unchanged; this only replaces where he walks, and only while a fire is under him.
     if (policy.avoidFire !== false && dashTime <= 0) {
@@ -892,6 +961,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           fell(body);
         }
       }
+      // Plan 025 Stage F: the same arc finds the chamber's props (`swingProps`, the contact rule a body is found by): a strike's, or an arc special's. A lunge's line and a vault's
+      // landing do not (the game asks the same). A prop is struck once: broken, or a keg lit, it is no longer strikable.
+      if (!swing.ranged && pose.active && scoring && !line && !vaulting) for (const index of swingProps(floor.cells, player, attackFacing, run.reach, swing, props)) hitProp(props[index], KEG_FUSE);
     }
 
     // --- every body ----------------------------------------------------------------------------
@@ -1089,6 +1161,25 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (dealt) { ring.burned = true; damage.hazard += dealt; lastBlow = 'hazard'; if (run.hp <= 0) return endFloor('died'); }
     }
 
+    // Plan 025 Stage F (dungeon-game.tsx asks the same rules in the same order): a lit keg's fuse, and what its blast catches; then each spike plate, the knight first.
+    for (const prop of props) {
+      if (prop.kind === 'keg' && fuseStep(prop, DT)) {
+        propTally.kegs++;
+        const standing = bodies.filter(b => !b.dead && !b.buried && b.awake), caught = blastOf(prop, player, standing, props);
+        if (caught.knight) { const dealt = hurt(run, KEG_HURT, { dashing: dashImmune(dashTime) }); if (dealt) { damage.hazard += dealt; propTally.blastHurt += dealt; lastBlow = 'hazard'; if (run.hp <= 0) return endFloor('died'); } }
+        for (const at of caught.bodies) { const body = standing[at]; if (body.dead) continue; propTally.blastBodies++; if (burn(body, KEG_DAMAGE)) { propTally.propKills++; fell(body); } }
+        for (const at of caught.props) hitProp(props[at], KEG_CHAIN);
+      }
+      if (prop.kind !== 'spikes') continue;
+      if (spikeBites(prop, t, -1, player.x, player.z)) { const dealt = hurt(run, SPIKE_HURT, { dashing: dashImmune(dashTime) }); if (dealt) { damage.hazard += dealt; propTally.spikeHurt += dealt; lastBlow = 'hazard'; if (run.hp <= 0) return endFloor('died'); } }
+      for (let i = 0; i < bodies.length; i++) {
+        const body = bodies[i];
+        if (body.dead || body.buried || !body.awake || body.room !== prop.room || !spikeBites(prop, t, i, body.x, body.z)) continue;
+        propTally.spikeBodies++;
+        if (burn(body, SPIKE_DAMAGE)) { propTally.propKills++; fell(body); }
+      }
+    }
+
     // --- shrines, boons, the stair ---------------------------------------------------------------
     if (run.pendingRanks > 0) {
       run.choosing = true;
@@ -1128,7 +1219,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, bossWall: bossWallFrames ? +(bossWallSum / bossWallFrames).toFixed(3) : null, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, boons: boonsTaken, offers: offersSeen, tellsRolled, tellsDodged, tellsHeld, ordinaryDamage, chambersEntered, ordinaryDamagePerChamber: +(chambersEntered ? ordinaryDamage / chambersEntered : 0).toFixed(2), hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, bossWall: bossWallFrames ? +(bossWallSum / bossWallFrames).toFixed(3) : null, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, boons: boonsTaken, offers: offersSeen, tellsRolled, tellsDodged, tellsHeld, doorRewards, armOffered: doorRewards.some(rewards => rewards.includes('arm')), props: propTally, ordinaryDamage, chambersEntered, ordinaryDamagePerChamber: +(chambersEntered ? ordinaryDamage / chambersEntered : 0).toFixed(2), hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

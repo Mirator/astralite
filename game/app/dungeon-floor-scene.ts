@@ -63,13 +63,15 @@ export type DoorView = {
 };
 
 /** What a door promises, by the chamber behind it: its reward, or what kind of quiet it is. */
-export type DoorSign = 'mend' | 'cache' | 'rest' | 'stair' | 'fight' | 'down';
+export type DoorSign = 'mend' | 'cache' | 'boon' | 'pearls' | 'arm' | 'rest' | 'stair' | 'fight' | 'down';
+/** Plan 025 Stage F: the signs a cleared chamber's notice names as a reward (everything a door can pay; a shrine, the stair and a plain fight are not rewards). */
+export const REWARD_SIGNS: readonly DoorSign[] = ['mend', 'cache', 'boon', 'pearls', 'arm'];
 export const doorSign = (room: Floor['rooms'][number]): DoorSign => room.reward ?? (room.role === 'goal' ? 'stair' : room.encounter === 'sanctuary' ? 'rest' : 'fight');
 /** Plan 020: the sign of a door on `floor`. The hall's one door leads out of the keep's gate into the keep, to a room its one-room floor does not hold, so it is signed by the floor and never by looking `to` up. */
 export const doorSignOf = (floor: Pick<Floor, 'hall' | 'rooms'>, door: Door): DoorSign => floor.hall ? 'down' : doorSign(floor.rooms[door.to]);
-export const DOOR_TINT: Record<DoorSign, number> = { mend: 0xff8a8a, cache: 0xfbc956, rest: 0x71f4c4, stair: 0xe0a150, fight: 0xb9a4ff, down: 0xe0a150 };
+export const DOOR_TINT: Record<DoorSign, number> = { mend: 0xff8a8a, cache: 0xfbc956, boon: 0x8fd8ff, pearls: 0xf2efe6, arm: 0xc9cfd6, rest: 0x71f4c4, stair: 0xe0a150, fight: 0xb9a4ff, down: 0xe0a150 };
 /** Plan 025 D2: what a door's floating label and the clear notice call what lies behind it. */
-export const DOOR_LABEL: Record<DoorSign, string> = { mend: 'Mending', cache: 'Purse', rest: 'Shrine', stair: 'Stair', fight: 'Fight', down: 'Way down' };
+export const DOOR_LABEL: Record<DoorSign, string> = { mend: 'Mending', cache: 'Purse', boon: 'Boon', pearls: 'Pearls', arm: 'An arm', rest: 'Shrine', stair: 'Stair', fight: 'Fight', down: 'Way down' };
 /** Plan 025 D2 (b): the sigil's size against the one plan 017 hung (sphere .24, octahedron .3). */
 export const SIGIL_SCALE = 2.5;
 /**
@@ -412,7 +414,7 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
     const bars = new THREE.Group(), iron = new THREE.MeshStandardMaterial({ color: 0x3a2e26, metalness: .8, roughness: .55 });
     for (let n = -2; n <= 2; n++) { const bar = new THREE.Mesh(new THREE.BoxGeometry(.07, 2.1, .07), iron); bar.position.set(wx + across.x * n * .36 - door.face.x * .12, 1.05, wz + across.z * n * .36 - door.face.z * .12); bars.add(bar); }
     floorGroup.add(bars);
-    const shape = sign === 'mend' ? new THREE.SphereGeometry(.24, 16, 12) : sign === 'cache' ? new THREE.OctahedronGeometry(.3) : sign === 'rest' ? new THREE.TorusGeometry(.22, .07, 8, 24) : sign === 'stair' || sign === 'down' ? new THREE.ConeGeometry(.26, .5, 4) : new THREE.TetrahedronGeometry(.3);
+    const shape = sign === 'mend' ? new THREE.SphereGeometry(.24, 16, 12) : sign === 'cache' ? new THREE.OctahedronGeometry(.3) : sign === 'boon' ? new THREE.DodecahedronGeometry(.27) : sign === 'pearls' ? new THREE.SphereGeometry(.17, 14, 10) : sign === 'arm' ? new THREE.BoxGeometry(.08, .62, .08) : sign === 'rest' ? new THREE.TorusGeometry(.22, .07, 8, 24) : sign === 'stair' || sign === 'down' ? new THREE.ConeGeometry(.26, .5, 4) : new THREE.TetrahedronGeometry(.3);
     const sigil = new THREE.Mesh(shape, new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .6, metalness: .3, roughness: .3 }));
     sigil.position.set(wx - door.face.x * .45, 1.25, wz - door.face.z * .45); sigil.scale.setScalar(SIGIL_SCALE); floorGroup.add(sigil);
     const label = new THREE.Sprite(art.doorLabels[sign]); label.scale.set(2.6, .65, 1); label.position.set(wx - door.face.x * .45, 2.95, wz - door.face.z * .45); label.renderOrder = 6; label.visible = false; floorGroup.add(label);
