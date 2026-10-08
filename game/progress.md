@@ -6239,3 +6239,83 @@ Not re-measured on this base. Under the operator's test budget, `balance:check`,
 - Changed on purpose: the rotation pins in `dungeon-mother.test.ts` (021 D7 allows move-list changes), the index of phase two's scatter in the browser scatter spec (`moves[1][2]` was the scatter; now looked up), and the weak knight's late-death seed in `balance-sim.test.ts` (2 -> 4: with the Mother moving, seed 2's knight no longer dies to a boss in the stair hall), and the escaped default run in `a run report says what banking it would pay` (3 -> 4: seed 3 no longer escapes on Stage A with the Mother moving). `tests/dungeon-enemy.test.ts` pins her row damage at 9; the special-policy batch in `dungeon-special.test.ts` moved to seed 4 too (seed 3's Tideblade knight now dies); Stage A's `dungeon-fall.test.ts` "the Mother backing away ... stopped by the wall at her own radius" now stages a 3 by 3 chamber, where she has no spot to walk to and still backs straight (in a 6 by 6 she walks round instead, so its precondition no longer held).
 
 Open for the operator: play `?arena=mother:1` (and her in a stair hall) before the per-boss D11 sub-stages start.
+
+## 2026-10-07 - Plan 025 Stage B: step 1 (light sources per chamber), stop rule hit
+
+**Stop rule hit; Stage B stopped after step 1.** 78% of chambers need more than the 8 pooled lights (maximum 23: 2 braziers, 18 sconces, 3 doors). Thinning to fit cuts the keep's sconces from 7.6 to 4.2 a chamber (a 45% cut that undoes plan 014 rounds 3 and 5), and leaves a wall with no sconce in 1257 of 2598 chambers counting wall segments, or in 106 counting whole sides. Only the most generous reading passes: "a wall" means a side *and* open doors do not count against the set, and D6 counts them. Nothing past step 1 was built: no `chamberLights`, no door lights, no sigil, label, camera or notice changes. D2 (b) bigger sigils with a floating label, (c) the camera ease and (d) the truthful clear notice do not use the pool and could land on their own if the plan is re-cut. The options a re-decision could choose between: thin and accept bare segments; keep the sconces and paint their pools with `litDisc` so only braziers and doors take real lights; take doors out of the set; count per side; or (out of scope here) grow the pool. Floor-1 point lights: **9**, unchanged (4 torches + 4 anchors + the fill; `frame-budget.spec.ts`'s pin passes), the same as the "Light cap" figure.
+
+| Floor | Chambers | Braziers mean/max | Sconces mean/max | Bounces mean/max | Doors mean/max | Braziers+sconces+doors mean/max | Over 8 | Slots left for sconces (mean) | A side left dark | A wall line left dark |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 767 | 1.8 / 2 | 7.7 / 16 | 0.3 / 6 | 1.8 / 3 | 11.2 / 21 | 605 (79%) | 4.5 | 30 | 372 |
+| 2 | 862 | 1.7 / 2 | 7.5 / 17 | 0.3 / 6 | 1.8 / 3 | 11.1 / 21 | 658 (76%) | 4.5 | 32 | 412 |
+| 3 | 969 | 1.7 / 2 | 7.6 / 18 | 0.2 / 6 | 1.8 / 3 | 11.2 / 23 | 752 (78%) | 4.4 | 44 | 473 |
+| all | 2598 | 1.7 / 2 | 7.6 / 18 | 0.3 / 6 | 1.8 / 3 | 11.1 / 23 | 2015 (78%) | 4.5 | 106 | 1257 |
+
+Counted on 2026-10-07 in the running game (d3d11), not in node: the wall sconces are placed by the atmosphere pass (a tile hash gated on wall height and on `headroom`, which reads its own random stream), so only the scene knows where they are. The corpus is the generator tests' 40 seeds (`(i + 1) * 7919`) on floors 1, 2 and 3: `dungeonTest.buildFloor(level, seed)`, then `render_game_to_text().lights.sources` (new, see below) grouped by `room`, with doors counted off `generateFloor(seed, level).doors` by `from`. Every tile belongs to a chamber (plan 017), so every source has one. "A side left dark": thinning sconces to the slots left after the braziers and the doors (8 - braziers - doors, never fewer than 3) cannot keep one sconce on each face direction that carries one today. "A wall line": the same per straight wall segment (face direction plus the line it stands on).
+
+What landed is the measuring hook only, so the count can be re-run: `LightAnchor` carries `room`, `kind` (`sconce` or `bounce`) and, on a wall sconce, `wall`; the atmosphere returns `torchRooms` beside `torchPositions`; `render_game_to_text().lights.sources` lists them. Nothing reads these in the game, and placement, the random stream and the light pool are unchanged. Gates: typecheck, lint, `npm test` (560/560), `frame-budget.spec.ts` (16/16, d3d11). The PR-gate browser run was not run: nothing behavioural changed and the machine is shared.
+
+## 2026-10-07 - Plan 025 Stage B: lights that stay on, doors that tell you (amended D6)
+
+**Resumed under the amended D6 (2026-10-07).** The coordinator amended D6 after the count above: no thinning and no bigger pool. Every sconce paints a constant pool on the floor (`litDisc`), and the 8 real lights go by `chamberLights` to braziers, then open doors, then the sconces nearest the chamber's centre. D2 (a)-(d) were then built as written.
+
+What landed:
+- `app/dungeon-lights.ts` (pure, node-tested):
+  - `chamberLights(chamber)`: only this chamber's sources, at most `LIGHT_POOL` 8, in this order: braziers, open doors, sconces nearest the heart, water bounces nearest the heart. Nothing in it depends on where the knight stands.
+  - `assignSlots`: a source already lit keeps its slot.
+  - `fadeSlot`: a swap is 0.15 s down and 0.15 s up, 0.3 s in all.
+  - `glanceWeight`: GLANCE_SPAN 0.8 s, GLANCE_PULL 0.55.
+- The world (`dungeon-game.tsx`):
+  - The pool is 8 generic point lights instead of 4 torches and 4 anchors. They are re-chosen only when the knight changes chamber or his chamber opens. A new floor snaps them on.
+  - The borrowed flare light (`borrowedLight`) now takes an idle slot, or else the slot holding the chamber's least light. It accepts bids only from inside the knight's chamber; before, a firing grate two chambers away could take it.
+- Sconce pools (`dungeon-atmosphere.ts`): one merged mesh per chamber, radius 2.3, 16 sides, pool 0.2, only the knight's chamber drawn.
+  - The material is made like the impact ring's `hit-ground-v1` (same key and falloff, front side only), so it links no shader of its own.
+  - No wall wash: it was not cheap enough to share a program.
+- Doors:
+  - D2 (a): each open door gets a light in its tint: intensity 12, distance 7, y 1.6, a quarter tile out from the ring.
+  - D2 (b): sigils at `SIGIL_SCALE` 2.5. A floating name sprite (Mending, Purse, Shrine, Stair, Fight, Way down) shows over each door once the chamber is open and nobody in it stands.
+  - D2 (c): the camera glances at the open doors' centroid on a clear.
+  - D2 (d): the notice reads "Choose your reward: Mending · Purse", or "Your reward: X" when only one door pays. The HUD now drops only the chamber name, so the list survives.
+  - Reduced motion turns off the glance, the bob and the spin.
+
+Measurements (d3d11, 2026-10-07, against 5045a89 on d3d11):
+
+| What | Before | After |
+| --- | --- | --- |
+| Point lights, floor 1 / after floors 2, 3, 1 / the hall | 9 / 9 / 9 | 9 / 9 / 9 |
+| Linked programs, floor 1 / after floors 2, 3, 1 / the hall | 83 / 84 / 84 | 83 / 84 / 84 |
+| Draw calls, every fight scene in `frame-budget.spec.ts` | | +1 (the chamber's pools; labels hide while bodies stand) |
+| Draw calls, widest chamber / strike contact / the hall (drawn open) | | +2 / +3 / +2 (labels) |
+| Triangles | | +96 to +192 a scene (16 a disc) |
+| Clear glance, seed 0x1 chamber 1 | knight 5.23 from the doors | camera focus 2.64 from them at the glance's height |
+
+- **Budget ceilings:** raised by these deltas, not to the d3d11 figures, because d3d11 and SwiftShader disagree by up to 13 calls on some scenes.
+- **The 508:** `caller-chamber` goes to 509 calls (d3d11 reads 505). It is a dev-arena scene, but it is the 508 ceiling the other scenes are held under, so it is flagged here for the owner.
+- **Not verified on SwiftShader:** the new ceilings on CI's renderer.
+- **Not played:** the visual weight of the pools (pool 0.2) was looked at in two d3d11 screenshots only.
+
+Tests and planted bugs (each restored; each failed with its own message):
+- `tests/dungeon-lights.test.ts` (node, the generator's 40 seeds on floors 1-3):
+  - Plant: nearest to the knight (at the heart) across every chamber. Fails with "open door door:0 has no light".
+  - Plant: drop the room filter. Fails with "brazier:4 belongs to chamber 1".
+  - Plant: farthest sconces kept. Fails with "a sconce nearer the heart was left dark".
+  - Plant: `assignSlots` clears every slot. Fails with "an empty pool did not fill its slots in priority order".
+  - Plant: a swap without the fade-out. Fails with "the old light was dropped without fading out".
+  - Plant: a glance that jumps. Fails with "the glance never reached the doors".
+- `tests/browser/door-lights.spec.ts` (one story):
+  - Plant: assign by distance across the floor. Fails with "open door 2 (cache) has no light over it".
+  - Plant: assign by distance inside the chamber, re-chosen every frame. Fails with "the lights moved as the knight walked".
+  - Plant: skip the discs. Fails with "paints no pool".
+  - Plant: the old notice. Fails with "toContainText".
+  - Plant: no glance. Fails with "the camera did not ease towards the open doors".
+  - Plant: reduced motion ignored for the bob. Fails with "sigil bobs under reduced motion".
+  - Plant: reduced motion ignored for the glance. Fails with "reduced motion still glanced".
+  - Plant: no door sources. Fails with "has no light over it".
+  - Plant: no label. Fails with "has no floating label".
+  - Plant: the old sigil size. Fails with "the old size".
+  - Plant: the pools double-sided with `forceSinglePass`, a program of their own. Fails with "the painted pools linked a shader program of their own". The first form of this check (program count before and after the story) survived this plant, because the pools compile at the floor build; it was replaced by the program-holder check.
+- `tests/browser/frame-budget.spec.ts`: ceilings raised as above; the light-count pin and the program pin pass.
+- **A stale flare bid** (found by the interrupted gate run, `combat.spec.ts` "a lethal gauntlet ends the tick"): a frame that ends early on the knight's death never settles its bids, so the next frame on the reset floor lent the last pool slot to the old floor's firing grate and the pooled-reset guard caught it in `lights.pool`. `borrowedLight.clear()` now runs on every floor build. Planted (the clear removed): the guard fails with its own message; restored: passes.
+- **Runs:** typecheck, lint, `npm test` 564/564, `door-lights.spec.ts` + `frame-budget.spec.ts` 17/17 (d3d11), and `combat.spec.ts:612` alone. One full PR-gate run on d3d11 earlier in the stage, before the last three changes (front-side pools, the program-holder check, the bid clear), went 179 passed, 2 failed. `quality.spec.ts:18` (the governor) fails the same way at 5045a89 on d3d11, because it needs a software rasteriser. `gameplay.spec.ts:189` passed when re-run alone. A second gate run was stopped by the operator at 101/181 with the one failure above. **Not run after the final changes: the rest of the PR-gate subset**, which CI will run.
+
+**Light cap:** floor 1 still draws with 9 point lights (the figure above), and links 83 programs, the same as before.

@@ -98,11 +98,23 @@ type Offer = { at: THREE.Vector3; colour: THREE.Color; intensity: number };
  * intensity discounted by how far the event is from the knight, because the
  * camera is locked to him and a flare two rooms away is not in the frame.
  */
-export function borrowedLight(light: THREE.PointLight, homeColour: number) {
+export function borrowedLight(light: THREE.PointLight, homeColour: number, accept: (at: THREE.Vector3) => boolean = () => true) {
   const offer: Offer = { at: new THREE.Vector3(), colour: new THREE.Color(), intensity: 0 };
   const home = new THREE.Color(homeColour);
   let best = 0, lent = false;
   return {
+    /**
+     * Plan 025: which light is lent. The pool's owner moves it to whichever slot can best spare it (an idle
+     * one, else the least of the chamber's), and `accept` turns away a bid from outside the chamber, since a
+     * pool light never goes to another chamber.
+     */
+    /**
+     * Drops every bid not yet settled. A frame that ends early (the knight's last tick) never settles, and the
+     * next one, on a rebuilt floor, would hang the lamp on an event of the floor that is gone.
+     */
+    clear() { best = 0; lent = false; },
+    get lamp() { return light; },
+    set lamp(next: THREE.PointLight) { light = next; },
     /** True if the last `settle` gave the lamp to an event rather than the torch. */
     get lent() { return lent; },
     /**
@@ -118,17 +130,19 @@ export function borrowedLight(light: THREE.PointLight, homeColour: number) {
      */
     bid(at: THREE.Vector3, near: number, intensity: number, colour: number) {
       const strength = intensity / (1 + near * .18);
-      if (!(strength > best)) return;
+      if (!(strength > best) || !accept(at)) return;
       best = strength; offer.at.copy(at); offer.intensity = intensity; offer.colour.setHex(colour);
     },
     /**
      * Hang the lamp for this frame: on the winning bid, or back on the torch at
-     * `at` burning at `intensity`. Called once, after every bid is in.
+     * `at` burning at `intensity`. Called once, after every bid is in. With no
+     * `at` the lamp is left as its owner set it this frame (plan 025: the pool
+     * slot it belongs to may be a sconce or a door, which the owner lights).
      */
-    settle(at: THREE.Vector3 | undefined, intensity: number) {
+    settle(at?: THREE.Vector3, intensity = 0) {
       lent = best > 0;
       if (lent) { light.position.copy(offer.at); light.color.copy(offer.colour); light.intensity = offer.intensity; }
-      else { if (at) light.position.copy(at); light.color.copy(home); light.intensity = intensity; }
+      else if (at) { light.position.copy(at); light.color.copy(home); light.intensity = intensity; }
       best = 0;
     },
   };
