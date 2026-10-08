@@ -24,9 +24,12 @@ test('standing on a rack offers the arm and takes nothing; the swap key is what 
 
   // Standing just outside the ring offers nothing, however long the knight waits there, and the key
   // pressed out there is inert rather than a swap at a distance.
-  await game.teleport(rack.x + rack.radius + 0.6, rack.z);
+  // Plan 026: the chapel's racks stand two tiles apart down its west arm, so the spot is a tile across on both axes, in the gap between three of them.
+  await game.teleport(rack.x + 1.48, rack.z + 1.48);
   await game.step(900);
   const waiting = await game.state();
+  expect(Math.hypot(waiting.player.x - rack.x, waiting.player.z - rack.z), 'precondition: the knight stands just outside the ring, not far off').toBeLessThan(rack.radius + 1);
+  expect(waiting.racks.filter((r) => r.over), 'precondition: the spot outside this ring is inside another rack\'s').toEqual([]);
   expect(slot(waiting).over).toBe(false);
   expect(slot(waiting).offered).toBeNull();
   await page.keyboard.press('KeyE');
@@ -64,8 +67,9 @@ test('standing on a rack offers the arm and takes nothing; the swap key is what 
   await game.step(1200);
 
   // The prompt is gone the moment he walks off the rack.
-  await game.teleport(rack.x + rack.radius + 1.2, rack.z);
+  await game.teleport(rack.x + 1.48, rack.z + 1.48);
   await game.step(64);
+  expect((await game.state()).racks.filter((r) => r.over), 'precondition: walked off this rack onto another').toEqual([]);
   await expect(page.locator('.swap-prompt')).toHaveCount(0);
   expect(slot(await game.state()).offered).toBeNull();
 
