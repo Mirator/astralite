@@ -6395,3 +6395,12 @@ played the hall yet; plan 025 asks for that verdict before this merges.**
 
 Screenshots (d3d11, not committed; `output/**/*.png` is ignored): `output/plan-025/hall-shop-overview-d3d11.png`, `hall-shop-rack-d3d11.png`,
 `hall-shop-shrine-hold-d3d11.png`.
+
+## 2026-10-08 - Plan 025 integration (Stages A, B, C, D step 1 on one branch)
+
+`feat/p025-integration`: Stage D (which is rebased on Stage A), then Stage B, then Stage C merged in. Conflicts: the floor-reset line in `dungeon-game.tsx` (both resets kept: the map fills from A, the glance and ember reset from B), the `dungeon-floor` import (A's `bodyRadius` and C's `hallShrines`), the hall ceilings in `frame-budget.spec.ts`, and the appended sections of this log and the plan (both kept).
+
+- Hall ceilings: Stage C's figures plus Stage B's measured delta (+2 calls, +146 triangles). The merged branch measured exactly that on d3d11: nothing owned 285 calls / 120,751 triangles / 86 shadow calls, everything owned 312 / 120,733 / 104.
+- Gates run (the operator asked for a small test budget): typecheck clean, lint clean, `npm test` 589/589, `frame-budget.spec.ts` hall scenario 1/1 (d3d11, one worker).
+- Not run: the PR-gate browser subset, `balance:check`, the whole-run half of `balance:bosses`, SwiftShader. CI is the first full run. `quality.spec.ts` is expected to fail on d3d11 (it needs a software rasteriser); that failure is on the base commit too.
+- Owed: the operator's play of the hall (Stage C) and of `?arena=mother:1` (Stage D), and the bands re-taken once these land.
