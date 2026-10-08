@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BESTIARY, BOSS_POOL, ENEMY_KINDS } from '../app/dungeon-bestiary.ts';
-import { bossReach, decideEnemy, enemyStats, HIT, moveOf, NOTICE_TIME, RECOVERY, volleyDemand, type EnemyIntent, type EnemyView, type World } from '../app/dungeon-enemy.ts';
+import { ARRIVED, bossReach, CORNERED, decideEnemy, enemyStats, floorAhead, HIT, HOLD_STILL, moveOf, NOTICE_TIME, RECOVERY, REPOSITION_CLEAR, repositionTarget, ROAM_STEP, volleyDemand, wallClearance, type EnemyIntent, type EnemyView, type World } from '../app/dungeon-enemy.ts';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
 import { ARROW_POOL, BOLT_RADIUS, fanHeadings, HOSTILE_POOL_RINGS } from '../app/dungeon-projectile.ts';
 import { CAUSE_LABELS } from '../app/dungeon-run-summary.ts';
@@ -31,10 +31,11 @@ const tells = (start: EnemyView, standing: { x: number; z: number } | ((enemy: E
   return { began, enemy };
 };
 
-test('the Pyre Mother is a pool boss with D4\'s rotation: volley, volley, scatter, and below half a close sweep joins it and she scatters twice', () => {
+// Plan 025 (D3) adds the veil step to phase two, after the sweep (021 D7 lets the move lists change; the rotation was volley, sweep, scatter, scatter).
+test('the Pyre Mother is a pool boss with D4\'s rotation: volley, volley, scatter, and below half a close sweep joins it, she steps through the veil and she scatters twice', () => {
   assert.equal(mother.boss, 'pool');
   assert.deepEqual(mother.phases, [0.5]);
-  assert.deepEqual(mother.moves!.map(phase => phase.map(move => move.attack)), [['volley', 'volley', 'scatter'], ['volley', 'sweep', 'scatter', 'scatter']]);
+  assert.deepEqual(mother.moves!.map(phase => phase.map(move => move.attack)), [['volley', 'volley', 'scatter'], ['volley', 'sweep', 'veil', 'scatter', 'scatter']]);
   assert.ok(!mother.moves![0].some(move => move.attack === 'sweep'), 'phase one already has the sweep, so phase two adds nothing');
   assert.equal(mother.moves![1].filter(move => move.attack === 'scatter').length, 2 * mother.moves![0].filter(move => move.attack === 'scatter').length, 'she does not scatter twice as often below half');
   assert.equal(mother.firstFloor, Infinity, 'the pack mix could deal the Mother standing');
@@ -94,8 +95,8 @@ test('below half she scatters twice running, and the close sweep comes only for 
   const sweeps = (run: typeof far) => run.began.filter(b => b.attack === 'sweep').length;
   assert.ok(far.began.every(b => b.phase === 1) && near.began.every(b => b.phase === 1), 'precondition: both fights are in phase two');
   assert.ok(far.began.length === 8 && near.began.length === 8, 'precondition: both fights ran their eight moves');
-  // The rotation reads volley, (sweep), scatter, scatter: out of reach the sweep is skipped, so scatters come twice running, then the volley.
-  assert.deepEqual(far.began.slice(0, 6).map(b => b.attack), ['volley', 'scatter', 'scatter', 'volley', 'scatter', 'scatter']);
+  // The rotation reads volley, (sweep), veil, scatter, scatter: out of reach the sweep is skipped, so the veil follows the volley and scatters come twice running, then the volley.
+  assert.deepEqual(far.began.slice(0, 8).map(b => b.attack), ['volley', 'veil', 'scatter', 'scatter', 'volley', 'veil', 'scatter', 'scatter']);
   assert.equal(sweeps(far), 0, 'she swept a knight 6 away');
   assert.ok(sweeps(near) >= 2, `she swept a knight standing at her feet only ${sweeps(near)} times in eight moves`);
   assert.equal(near.began[0].attack, 'volley');
@@ -131,4 +132,83 @@ test('the knight stepping out of a marked ring is what keeps the fire off him: s
   assert.ok(steps.lit >= 8 && stands.lit >= 8, `precondition: rings were lit (${steps.lit} and ${stands.lit}), so a share of them means something`);
   assert.ok(stands.onKnight > 0, 'precondition: a knight who never steps out has rings light on him');
   assert.ok(steps.onKnight / steps.lit < stands.onKnight / stands.lit, `a knight who steps out of a marked ring had ${steps.onKnight} of ${steps.lit} light on him, no fewer than the ${stands.onKnight} of ${stands.lit} for one who never does`);
+});
+
+// Plan 025 (D3): the Mother moves. The operator's playtest: she was always in the corner. She backed straight away from the knight inside `keepAway` and let the walls stop her, and held still
+// between 4 and 6 with a clear line, so she backed into a corner and stayed. Now, cornered or still for long, she walks round the knight to open floor (`repositionTarget`, `roamStep`), and below
+// half she steps through the veil to it. The archer keeps the old rule: a cornered archer is the knight's reward. The game's wiring is in boss.spec.ts; the sim's average wall distance is in
+// `balance:bosses` (`wall`).
+// A 9 by 9 tile chamber, tiles 0 to 8 each way: its walls are the lines half a tile outside the outer tiles, so a point's distance to them is read off the box (not off `wallClearance`).
+const chamber = () => { const cells = new Set<string>(); for (let x = 0; x <= 8; x++) for (let z = 0; z <= 8; z++) cells.add(cellKey(x, z)); return cells; };
+const LOW = -TILE / 2, HIGH = 8.5 * TILE;
+const fromWalls = (p: { x: number; z: number }) => Math.min(p.x - LOW, HIGH - p.x, p.z - LOW, HIGH - p.z);
+const corner = { x: 0, z: 0 }, cornerKnight = { x: 3 / Math.SQRT2, z: 3 / Math.SQRT2 };
+const range = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
+const fedRoam = (enemy: EnemyView, intent: EnemyIntent): EnemyView => ({ ...fed(enemy, intent), roam: intent.roam });
+/** The body's places, frame by frame, against a knight standing at `knight`, from `start`, in the 9 by 9 chamber. */
+const walk = (start: EnemyView, knight: { x: number; z: number }, seconds: number) => {
+  const w: World = { cells: chamber(), activeRoom: 1, pathDistance: () => 0 }, at: { x: number; z: number; veil: boolean; windup: number }[] = [];
+  let enemy = start;
+  for (let frame = 0; frame < seconds / DT; frame++) { const intent = decideEnemy(enemy, knight, w, DT); at.push({ x: intent.x, z: intent.z, veil: intent.veil, windup: intent.windup }); enemy = fedRoam(enemy, intent); }
+  return at;
+};
+
+test('from a corner with the knight at 3 units, the spot she picks is at least 1.5 from every wall and 4 to 6 from the knight', () => {
+  const cells = chamber();
+  assert.ok(fromWalls(corner) < REPOSITION_CLEAR && floorAhead(cells, corner, { x: -Math.SQRT1_2, z: -Math.SQRT1_2 }) < CORNERED, 'precondition: she stands in the corner, with no floor to back onto');
+  assert.ok(Math.abs(range(corner, cornerKnight) - 3) < 1e-9, 'precondition: the knight is 3 from her');
+  const to = repositionTarget(corner, cornerKnight, cells);
+  assert.ok(fromWalls(to) >= 1.5, `she picked ${to.x.toFixed(2)}, ${to.z.toFixed(2)}, ${fromWalls(to).toFixed(2)} from a wall`);
+  assert.ok(range(to, cornerKnight) >= 4 - 1e-9 && range(to, cornerKnight) <= 6 + 1e-9, `she picked a spot ${range(to, cornerKnight).toFixed(2)} from the knight, not 4 to 6`);
+  // `wallClearance` is what the sim averages: it reads the same walls the box does.
+  for (const p of [corner, to, { x: 4 * TILE, z: 4 * TILE }]) assert.ok(Math.abs(wallClearance(cells, p.x, p.z) - Math.min(3, fromWalls(p))) < 1e-9, `wallClearance reads ${wallClearance(cells, p.x, p.z)} at ${p.x}, ${p.z}, the box ${fromWalls(p)}`);
+});
+
+test('cornered, she walks round the knight to open floor rather than staying in the corner, and the archer, cornered the same way, stays', () => {
+  const knight = cornerKnight, path = walk(foe({ ...corner, cooldown: 99 }), knight, 4.5), end = path[path.length - 1];
+  assert.ok(fromWalls(corner) < 1, 'precondition: she began in the corner');
+  assert.ok(fromWalls(end) >= REPOSITION_CLEAR, `after 4.5 s she stands ${fromWalls(end).toFixed(2)} from a wall, at ${end.x.toFixed(2)}, ${end.z.toFixed(2)}`);
+  assert.ok(range(end, knight) >= 3.9 && range(end, knight) <= 6.1, `she ended ${range(end, knight).toFixed(2)} from the knight`);
+  // Round him, not across him: her route keeps the cells it walks through `ROUTE_BERTH` (2.2) from him, so she never comes within 2.
+  const nearest = Math.min(...path.map(p => range(p, knight)));
+  assert.ok(nearest > 2, `she cut ${nearest.toFixed(2)} past the knight on her way`);
+  // The archer keeps its cornering rule: from the same corner it backs straight away, which the walls stop.
+  const archer = walk({ ...foe({ ...corner, cooldown: 99 }), kind: 'archer', speed: BESTIARY.archer.stats.speed }, knight, 4.5), held = archer[archer.length - 1];
+  assert.ok(fromWalls(held) < 1, `the archer left the corner for ${held.x.toFixed(2)}, ${held.z.toFixed(2)}`);
+});
+
+test('held still for more than 2.5 s, she moves: not before, and at least two units from where she stood', () => {
+  // Open floor, the knight 5 away, her recovery long: she holds between 4 and 6 with a clear line, which used to be for ever.
+  const start = foe({ x: 4 * TILE, z: 4 * TILE - 2.5, cooldown: 99 }), knight = { x: 4 * TILE, z: 4 * TILE + 2.5 }, path = walk(start, knight, 5);
+  const moved = path.findIndex(p => p.x !== start.x || p.z !== start.z);
+  assert.ok(moved >= 0, 'she never moved in five seconds');
+  assert.ok(moved * DT >= HOLD_STILL - DT, `she moved after ${(moved * DT).toFixed(2)} s, before ${HOLD_STILL} s of standing still`);
+  assert.ok(moved * DT <= HOLD_STILL + 3 * DT, `she stood ${(moved * DT).toFixed(2)} s before moving`);
+  const end = path[path.length - 1];
+  assert.ok(range(end, start) >= ROAM_STEP - ARRIVED, `she moved only ${range(end, start).toFixed(2)} from where she stood`);
+  assert.ok(range(end, knight) >= 3.9 && range(end, knight) <= 6.1, `she ended ${range(end, knight).toFixed(2)} from the knight`);
+});
+
+test('below half she steps through the veil: a 0.5 s tell where she stands, then she stands at open floor 4 to 6 from the knight', () => {
+  const slot = mother.moves![1].findIndex(move => move.attack === 'veil'), veil = mother.moves![1][slot];
+  assert.ok(slot >= 0 && veil.tell === 0.5 && veil.damage === 0, 'precondition: phase two holds a harmless veil step with a 0.5 s tell');
+  const path = walk(foe({ ...corner, hp: 24, phase: 1, move: slot }), cornerKnight, 0.8);
+  const began = path.findIndex(p => p.windup > 0), stepped = path.findIndex(p => p.veil);
+  assert.ok(began === 0, 'precondition: she began the veil tell at once');
+  assert.ok(stepped > 0, 'the veil tell ran out and she never stepped');
+  assert.ok(Math.abs((stepped - began) * DT - veil.tell) < 2 * DT, `the veil tell lasted ${((stepped - began) * DT).toFixed(2)} s`);
+  assert.ok(path.slice(0, stepped).every(p => p.x === corner.x && p.z === corner.z), 'she moved during the tell');
+  const to = path[stepped];
+  assert.ok(fromWalls(to) >= REPOSITION_CLEAR, `she stepped to ${to.x.toFixed(2)}, ${to.z.toFixed(2)}, ${fromWalls(to).toFixed(2)} from a wall`);
+  assert.ok(range(to, cornerKnight) >= 4 - 1e-9 && range(to, cornerKnight) <= 6 + 1e-9, `she stepped to ${range(to, cornerKnight).toFixed(2)} from the knight`);
+});
+
+// Plan 025 (D3), in the balance sim, which calls `decideEnemy` exactly as the game does: averaged over a duel, the Mother's distance to the nearest wall was 1.06 for the default knight on floor one
+// before she moved (30 duels, the `wall` column of `balance:bosses -- --duels`, 2026-10-08, on Stage A's scale-aware body radius; 0.55 before Stage A) and the plan asks it to rise by at least a unit.
+// Measured after: 2.15 over the same 30 duels.
+test('in the balance sim she stands, on average over a duel, at least a unit further from the walls than she did (1.06)', () => {
+  const walls = Array.from({ length: 10 }, (_, i) => simulateArena(1 + i * 7919, 1, ['mother'], DEFAULT_POLICY).bossWall);
+  assert.ok(walls.every(w => w !== null && w > 0), 'precondition: she noticed the knight in every duel');
+  const mean = (walls as number[]).reduce((a, b) => a + b, 0) / walls.length;
+  assert.ok(mean >= 1.06 + 1 && mean <= 3, `averaged over ten duels she stood ${mean.toFixed(2)} from a wall, not at least 2.06 (and at most the 3 \`wallClearance\` counts to)`);
 });

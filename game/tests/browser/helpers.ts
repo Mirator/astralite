@@ -254,7 +254,7 @@ export type Snapshot = {
    */
   boss: {
     kind: EnemyKind; hp: number; maxHp: number; phase: number; move: number; unhittable: boolean; change: number; awake: boolean; windup: number;
-    attack: 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon' | 'scatter' | null;
+    attack: 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon' | 'scatter' | 'veil' | null;
     cue: { visible: boolean; shape: 'arc' | 'ring' | 'lane'; scale: number }; bar: boolean; surge: boolean; shield: boolean | null;
   } | null;
   /** Fire a pyre left where it fell, burning the knight. */

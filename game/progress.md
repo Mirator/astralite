@@ -6186,3 +6186,56 @@ Mother corpse in the running game (boss.spec, d3d11): staged 0.550 from a straig
 ### 2026-10-08 - the sim livelock
 
 The decision that flipped was the balance sim's knight, not the game: his next step broke a tie in the flood (from the quarry's cell) by candidate order alone, so it went whichever way the quarry's cell said, and the Captain astride an edge flipped that cell every frame while pursuing the knight's own flipping cell. The tie now goes to the step nearer the quarry (or shrine, door, stair) itself, then to the order (`scripts/balance/sim.ts`). The game's `pursuitStep` was left alone: a Euclidean tie-break there was tried and does break the cycle too, but it changes every ordinary kind's pursuit (all nine scripted-fight digests and their counts moved, the stalker's lunges 104 -> 188), which is a gameplay change beyond this fix; a real knight does not flip cells every frame. New test in `tests/balance-sim.test.ts`: the dodge 0.5 Captain duel on seed 8 ends. **Planted: the old tie-break** -> `the duel hit its timeout after 480 s: the knight and the Captain locked each other in place`. The weak knight's lost-on-floor-3 seed in "a run report says what banking it would pay" moved from 3 (now lost on floor 2) to 4, assertions unchanged. `npm test`: 570, 569 pass; only the Mother's pool fairness is red.
+
+## 2026-10-08 - Plan 025 Stage D step 1: the Pyre Mother moves (D3), on top of Stage A
+
+The playtest's item 3: "The Pyre Mother was always in the corner." She used the archer's rule: inside `keepAway` (4) she backed straight away from the knight and let the walls stop her, and between 4 and `holdRange` (6) with a clear line she stood still, so she backed into a corner and stayed.
+
+### What was shipped
+
+- `dungeon-enemy.ts` (pure): `wallClearance` (distance to the nearest non-floor cell, capped at 3), `floorAhead`, `repositionTarget(enemy, knight, cells, away?)` (bearings round the knight at 4 to 6, on floor at least 1.5 from every wall with a clear line to him, the most open counted up to 2.5 less 0.05 a unit of the way round him; the best available when nothing qualifies), `routeStep` (a breadth-first route over the cells keeping cell centres 2.2 from the knight, so the way round him is the way taken) and `roamStep`. A body whose row says `repositions` (the Mother only) walks to the spot when cornered (inside `keepAway` with less than 1.5 of floor behind her) or when she has stood still for more than 2.5 s (holding, winding up and recovering all count; then a spot at least 2 from where she stood). `EnemyView.roam` / `EnemyIntent.roam` carry the still clock and the spot frame to frame. The archer keeps its cornering rule.
+- Phase two adds the veil step (`attack: 'veil'`, tell 0.5, damage 0, a ring at her feet; the rotation is volley, sweep, veil, scatter, scatter): when the tell runs out she stands at `repositionTarget` (at least 2 away), with no recovery after it. The game bursts at both spots and cuts her trails; the sim's bot never rolls a dodge against it.
+- Game and sim both reach all of it through `decideEnemy`, as with `pressure`. `dungeon-game.tsx` gained three lines (feed `roam` back; the veil burst). The combat fixture forgets a moved body's spot. `canStand` and `moveOnFloor` are untouched (Stage A owns them).
+- The sim reports `bossWall` (the boss's mean wall distance over a duel) and `balance:bosses` prints it (`wall`).
+
+### Measurements (on top of Stage A: `duel` from `scripts/balance/bosses.ts`, 30 duels each, sim, 2026-10-08)
+
+"Before" is Stage A's branch with the rule off (no `repositions`, no veil step); "after" is what ships (phase-one volleys at 9). Wall is the Mother's mean distance to the nearest wall over a duel (the new `wall` column).
+
+| Mother | floor | wall before | wall after | deaths before | deaths after | damage before | damage after |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| default | 1 | 1.06 | 2.15 | 0 | 0 | 61 | 41.5 |
+| skilled | 1 | 1.17 | 2.26 | 0 | 0 | 58 | 35 |
+| weak | 1 | 0.56 | 2.06 | 0 | 0 | 46 | 57 |
+| weak from 86% | 1 | 0.56 | 2.06 | 0 | 0 | 46 | 57 |
+| default | 2 | 1.18 | 2.15 | 3 | 1 | 75 | 46.5 |
+| skilled | 2 | 1.32 | 2.22 | 1 | 0 | 65.5 | 43 |
+| weak | 2 | 0.54 | 2.06 | 0 | 0 | 53 | 66 |
+| weak from 86% | 2 | 0.54 | 2.06 | 0 | 2 | 53 | 66 |
+
+The other pool bosses on Stage A (not touched by this change) killed no knight in any of these duels. Their damage to the default / skilled knight on floors 1 and 2: Captain 36 / 34 and 42 / 40, Hound 23.5 / 7 and 30 / 11, Bastion 32.5 / 22 and 38 / 25. Before Stage A the Mother's wall distance was 0.55 / 0.56 for the default knight; Stage A's wider body alone raised it to 1.06 / 1.18.
+
+- **Wall rise: not met on every row.** Default +1.09 on floor one but **+0.97 on floor two**; skilled +1.09 and **+0.90**; weak +1.50 and +1.52. Against the pre-Stage-A figure (0.55 / 0.56) the default knight's rise is +1.60 / +1.59. Most of the shortfall is Stage A's own lift.
+- Pool fairness (D9, plan 022 D12, plan 023 D7) holds for every knight on both floors. On Stage A alone the default knight failed it on floor two (3 deaths to the Mother, none to anyone else); Stage A's 100-duel hand-off had 18 in 100. After: default floor two 1 to none, and the weak knight from 86% on floor two 2 to none. Both are allowed, since the fewest is floored at one.
+- Tuning iterations (three allowed):
+  1. Phase-one volleys 8 -> 9, with the row's `stats.damage`. With the rule alone, the skilled knight lost 34 to her and 34 to the Captain on floor one, and `balance-bosses.test.ts` requires her to hurt most, strictly.
+  2. A bug fix, not a dial: `roamStep` moved her at the knight's radius, not her own `bodyRadius`. The table above is after the fix. She hurts most for both bots on both floors (41.5 against the Captain's 36, 46.5 against 42; skilled 35 against 34, 43 against 40). The skilled floor-one margin is one point.
+  3. Tried and reverted: `CLEAR_ENOUGH` 2.5 -> 3 (prefer the most open floor). Every wall row rose (default 2.24 / 2.30, skilled 2.28 / 2.29; skilled floor two +0.97 still short), but the weak knight from 86% died to her 3 times on floor two against none: fairness NOT met. So it ships at 2.5.
+- The veil step has no recovery after it. On the old base a first version with the usual 1.4 s recovery dropped her damage below the Captain's.
+
+### Runs and bands
+
+Not re-measured on this base. Under the operator's test budget, `balance:check`, the whole-run half of `balance:bosses` and the PR-gate browser subset did not run, so `bands.json` is Stage A's, unchanged. On the old base (5045a89, before Stage A, volleys at 8) the change kept every band but two floor-three ones (skilled 53.6 against a min of 55, special-fangs 59.2 against 60). Re-take `measured` once the stages are together.
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- `tests/dungeon-mother.test.ts`: "from a corner with the knight at 3 units, the spot she picks is at least 1.5 from every wall and 4 to 6 from the knight"; the walls are read off the room's box, not off `wallClearance`. **Planted: return the straight-away point:** `she picked -1.41, -1.41, -0.67 from a wall`.
+- Same file: cornered, she walks round to open floor and never comes within 2 of him, and the archer cornered the same way stays. **Planted: ignore `repositions`:** `after 4.5 s she stands 0.49 from a wall, at -0.25, -0.25`. **Planted: every body with `keepAway` repositions:** `the archer left the corner for 5.89, 1.97`.
+- Same file: held still for more than 2.5 s she moves, not before, at least 2 away. **Planted: the still clock never counts:** `she never moved in five seconds`.
+- Same file: below half, the veil step: a 0.5 s tell with no movement, then open floor 4 to 6 from the knight. **Planted: the veil leaves her where she stood:** `she stepped to 0.00, 0.00, 0.74 from a wall`.
+- Same file: the sim's mean wall distance over ten default duels is at least 1.55 (0.55 + 1). **Planted: ignore `repositions`:** `averaged over ten duels she stood 1.05 from a wall, not at least 2.06` (the bound is Stage A's 1.06 plus one).
+- `tests/dungeon-fixture.test.ts`: a body the fixture moves forgets its spot, and one it does not move keeps it. **Planted: the reset removed:** fails with its own message.
+- `tests/browser/boss.spec.ts` "the Pyre Mother moves": in the arena she is placed in a corner of the chamber with the knight 3 away (precondition: under 1 from a wall). Within 10 s she stands 1.5 clear of the walls and 4 to 6 from him; standing there she moves on at least 1.7; below half the veil tell is drawn as a ring, she does not move during it, and then she stands at least 1.7 away, on open floor 4 to 6 from him. **Planted in the game: `roam` not fed back:** `in ten seconds she never stood 1.5 clear of the walls and 4 to 6 from the knight`. **Planted: the game ignores the veil's position:** `the veil step ran out and she stood where she was`.
+- Changed on purpose: the rotation pins in `dungeon-mother.test.ts` (021 D7 allows move-list changes), the index of phase two's scatter in the browser scatter spec (`moves[1][2]` was the scatter; now looked up), and the weak knight's late-death seed in `balance-sim.test.ts` (2 -> 4: with the Mother moving, seed 2's knight no longer dies to a boss in the stair hall), and the escaped default run in `a run report says what banking it would pay` (3 -> 4: seed 3 no longer escapes on Stage A with the Mother moving). `tests/dungeon-enemy.test.ts` pins her row damage at 9; the special-policy batch in `dungeon-special.test.ts` moved to seed 4 too (seed 3's Tideblade knight now dies); Stage A's `dungeon-fall.test.ts` "the Mother backing away ... stopped by the wall at her own radius" now stages a 3 by 3 chamber, where she has no spot to walk to and still backs straight (in a 6 by 6 she walks round instead, so its precondition no longer held).
+
+Open for the operator: play `?arena=mother:1` (and her in a stair hall) before the per-boss D11 sub-stages start.

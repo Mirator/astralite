@@ -55,3 +55,12 @@ test('out-of-range values name the field and its bounds', () => {
   assert.throws(() => applyCombatFixture({ enemies: [{ index: 0, cooldown: -1 }] }, world()), /cooldown cannot be negative/);
   assert.throws(() => applyCombatFixture({ enemies: [{ index: 0, aim: { x: 0, z: 0 } }] }, world()), /aim cannot be zero/);
 });
+
+test('a body the fixture moves forgets the spot it was walking to (plan 025 D3), and one it does not move keeps it', () => {
+  const w = world(), walking = { still: 0, to: { x: 4, z: 4 }, walked: 1 };
+  w.enemies[0].roam = { ...walking };
+  applyCombatFixture({ enemies: [{ index: 0, hp: 5 }] }, w);
+  assert.deepEqual(w.enemies[0].roam, walking, 'a change that did not move the body cleared its walk');
+  applyCombatFixture({ enemies: [{ index: 0, x: 2, z: 3 }] }, w);
+  assert.deepEqual(w.enemies[0].roam, { still: 0, to: null, walked: 0 }, 'a body placed somewhere else still walks to a spot picked from where it stood');
+});

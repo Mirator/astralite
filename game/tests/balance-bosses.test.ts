@@ -5,7 +5,7 @@ import test from 'node:test';
 import { BOSS_POOL, FINAL_BOSS } from '../app/dungeon-bestiary.ts';
 import { BOSS_FLOORS, duel, fairness, judge, runSummary, stairShares, TARGETS, type Duel, type RunSummary } from '../scripts/balance/bosses.ts';
 
-const row = (kind: Duel['kind'], floor: number, policy: string, deaths: number, start = 1): Duel => ({ kind, floor, policy, start, duels: 30, deaths, deathRate: deaths / 30 * 100, seconds: 10, damage: 0, reserve: 0, hpLeft: 50, phaseChanges: 1, stuck: 0 });
+const row = (kind: Duel['kind'], floor: number, policy: string, deaths: number, start = 1): Duel => ({ kind, floor, policy, start, duels: 30, deaths, deathRate: deaths / 30 * 100, seconds: 10, damage: 0, reserve: 0, hpLeft: 50, phaseChanges: 1, stuck: 0, wall: 1 });
 
 test('pool fairness is D9\'s: the weak knight\'s deaths to the worst boss are at most twice those to the best, and the fewest is floored at one death', () => {
   const floor1 = (deaths: number[]) => BOSS_POOL.map((kind, i) => row(kind, 1, 'weak', deaths[i]));

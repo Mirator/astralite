@@ -2153,7 +2153,7 @@ export default function DungeonGame() {
           const previousWindup=enemy.windup;
           // Plan 021: the move this frame's blow belongs to is the one the body went into the frame on (the rotation moves on in the very intent that spends it), and a boss's blow and bolt cost what that move says; scripts/balance/sim.ts reads it the same way.
           const doing = moveOf(enemy.kind, enemy.bossPhase, enemy.move), strike = doing ? scaledDamage(doing.damage, level) : enemy.damage;
-          const view = { kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z, room: enemy.room, cooldown: enemy.cooldown, hitFlash: enemy.hitFlash, windup: enemy.windup, lunge: enemy.lunge, tell: enemy.tell, speed: enemy.speed, aim: enemy.aim, anchor: enemy.anchor, notice: enemy.notice, hp: enemy.hp, maxHp: enemy.maxHp, move: enemy.move, phase: enemy.bossPhase, change: enemy.change };
+          const view = { kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z, room: enemy.room, cooldown: enemy.cooldown, hitFlash: enemy.hitFlash, windup: enemy.windup, lunge: enemy.lunge, tell: enemy.tell, speed: enemy.speed, aim: enemy.aim, anchor: enemy.anchor, notice: enemy.notice, hp: enemy.hp, maxHp: enemy.maxHp, move: enemy.move, phase: enemy.bossPhase, change: enemy.change, roam: enemy.roam };
           // Plan 024 (D3): a tell this body was about to begin may be held back so that it ends after the room's other tells (`pressed`, dungeon-enemy.ts); scripts/balance/sim.ts asks the same rule in the same place. `held` is the snapshot's per-enemy pressure delay.
           const pressure = pressed(view, decideEnemy(view, player.position, enemyWorld, dt), index, () => stage.enemies.map(e => ({ kind: e.kind, room: e.room, dead: e.dead || e.buried || !e.awake, windup: e.windup, held: e.held, tell: e.tell })), dt), intent = pressure.intent;
           enemy.held = pressure.held;
@@ -2173,7 +2173,9 @@ export default function DungeonGame() {
           enemy.windup = intent.windup; enemy.lunge = intent.lunge; enemy.aim.set(intent.aim.x,0,intent.aim.z);
           if(previousWindup>0&&enemy.windup===0)enemy.attackAge=0;
           else if(previousWindup<=0&&enemy.windup>0)enemy.attackAge=Infinity;
-          enemy.group.position.x = intent.x; enemy.group.position.z = intent.z;
+          enemy.group.position.x = intent.x; enemy.group.position.z = intent.z; enemy.roam = intent.roam;
+          // Plan 025 (D3): a veil step ran out - she is gone from where she stood (a burst there, her trails cut so none streaks across the room) and stands at the new spot in another.
+          if (intent.veil) { burst(new THREE.Vector3(view.x, .6, view.z), 0xff9a4a, 18); burst(new THREE.Vector3(intent.x, .6, intent.z), 0xff9a4a, 18); enemy.trails.forEach(trail => trail.effect.clear()); }
           if (BESTIARY[enemy.kind].moves) {
             enemy.move = intent.move; enemy.bossPhase = intent.phase; enemy.change = intent.change;
             // A tell beginning takes the move's own cue, length and pose; a phase change (D3) cancels what was winding, rings at its feet, and pushes the knight out of its reach (`bossPush`, which walls stop).

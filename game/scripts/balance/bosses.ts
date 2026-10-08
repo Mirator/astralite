@@ -38,6 +38,7 @@ const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b), middle = sorted.length >> 1;
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 };
+const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : NaN;
 const fixed = (n: number, digits = 1) => Number.isFinite(n) ? n.toFixed(digits) : '-';
 const pct = (part: number, whole: number) => whole ? part / whole * 100 : NaN;
 
@@ -48,7 +49,9 @@ const policyOf = (name: string): Policy => buildPolicy(expected.policies[name].p
 // ---------------------------------------------------------------------------------------------------- duels
 
 /** `start` is the share of his maximum vitality the knight began the duel with: 1 for a fresh one, a policy's median vitality entering the stair hall for `--at-stair` (plan 022). */
-export type Duel = { kind: EnemyKind; floor: number; policy: string; start: number; duels: number; deaths: number; deathRate: number; seconds: number; damage: number; reserve: number; hpLeft: number; phaseChanges: number; stuck: number };
+export type Duel = { kind: EnemyKind; floor: number; policy: string; start: number; duels: number; deaths: number; deathRate: number; seconds: number; damage: number; reserve: number; hpLeft: number; phaseChanges: number; stuck: number;
+  /** Plan 025 (D3): the boss's distance to the nearest wall, averaged over each duel (`FloorReport.bossWall`), and the mean of that over the duels. */
+  wall: number };
 
 /** The floors each boss can be dealt to, in the order the report prints them. */
 export const BOSS_FLOORS: readonly (readonly [EnemyKind, number])[] = [...BOSS_POOL.flatMap(kind => [[kind, 1], [kind, 2]] as const), [FINAL_BOSS, 3]];
@@ -67,6 +70,7 @@ export function duel(kind: EnemyKind, floor: number, policyName: string, seeds: 
     hpLeft: median(felled.map(r => r.bossHpLeft as number)),
     phaseChanges: median(reports.map(r => r.phaseChanges)),
     stuck: reports.filter(r => r.outcome === 'stuck').length,
+    wall: mean(reports.flatMap(r => r.bossWall === null ? [] : [r.bossWall])),
   };
 }
 
@@ -102,8 +106,8 @@ function duelReport(seeds: number, atStair: boolean, runs: number) {
 
 function printDuels(report: ReturnType<typeof duelReport>, seeds: number) {
   console.log(`\n  per-boss duels: ${seeds} seeds a boss, a floor and a policy, a knight in the arena${Object.values(report.shares).some(s => s.some(x => x !== 1)) ? ` (start is the share of his bar he begins on; --at-stair: ${Object.entries(report.shares).map(([p, s]) => `${p} ${s.map(x => `${(x * 100).toFixed(0)}%`).join('/')}`).join(', ')})` : ''}\n`);
-  console.log('  boss      floor   policy    start   died    boss seconds   boss damage   reserve damage   HP left when it fell   phase changes');
-  for (const d of report.duels) console.log(`  ${d.kind.padEnd(8)}  ${String(d.floor).padStart(5)}   ${d.policy.padEnd(7)}  ${`${fixed(d.start * 100, 0)}%`.padStart(5)}   ${`${fixed(d.deathRate, 0)}%`.padStart(5)}   ${fixed(d.seconds).padStart(12)}   ${fixed(d.damage, 0).padStart(11)}   ${fixed(d.reserve, 0).padStart(14)}   ${`${fixed(d.hpLeft, 0)}%`.padStart(20)}   ${fixed(d.phaseChanges, 0).padStart(13)}${d.stuck ? `   (${d.stuck} stuck)` : ''}`);
+  console.log('  boss      floor   policy    start   died    boss seconds   boss damage   reserve damage   HP left when it fell   phase changes   wall');
+  for (const d of report.duels) console.log(`  ${d.kind.padEnd(8)}  ${String(d.floor).padStart(5)}   ${d.policy.padEnd(7)}  ${`${fixed(d.start * 100, 0)}%`.padStart(5)}   ${`${fixed(d.deathRate, 0)}%`.padStart(5)}   ${fixed(d.seconds).padStart(12)}   ${fixed(d.damage, 0).padStart(11)}   ${fixed(d.reserve, 0).padStart(14)}   ${`${fixed(d.hpLeft, 0)}%`.padStart(20)}   ${fixed(d.phaseChanges, 0).padStart(13)}   ${fixed(d.wall, 2).padStart(4)}${d.stuck ? `   (${d.stuck} stuck)` : ''}`);
   console.log('');
   for (const f of report.fairness) if (f) console.log(`  pool fairness, floor ${f.floor}, ${f.policy} knight starting on ${fixed(f.start * 100, 0)}%: died to ${f.most} ${f.mostDeaths} times and to ${f.least} ${f.leastDeaths} (${f.ok ? 'met' : 'NOT met'}: at most twice as often, the fewest floored at one)`);
   console.log('');

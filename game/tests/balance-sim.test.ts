@@ -222,8 +222,8 @@ test('a run report says what banking it would pay', () => {
   const elitesOf = (report: ReturnType<typeof simulateRun>) => report.floors.reduce((sum, floor) => sum + Object.values(floor.eliteKills).reduce((a, b) => a + (b ?? 0), 0), 0);
   const felled = (report: ReturnType<typeof simulateRun>) => report.floors.filter(floor => floor.bossHpLeft !== null).length;
   const fought = (report: ReturnType<typeof simulateRun>) => report.floors.reduce((sum, floor) => sum + floor.fightEncounters.filter(encounter => encounter !== 'warden').length, 0);
-  // Seed 3 (plan 022 Stage E moved it from 0x1, whom the stronger Bone King beats; plan 024 Stage E, a King that hits 1.4 times as hard, from 0x2).
-  const won = simulateRun(0x3, policy());
+  // Seed 4 (plan 022 Stage E moved it from 0x1, whom the stronger Bone King beats; plan 024 Stage E, a King that hits 1.4 times as hard, from 0x2; plan 025 Stage D, from 0x3, who no longer escapes with Stage A's body radius and the Mother moving).
+  const won = simulateRun(0x4, policy());
   assert.equal(won.outcome, 'escaped', 'precondition: the default knight escapes this seed');
   assert.equal(felled(won), 3, 'precondition: the escape went through three bosses');
   assert.ok(elitesOf(won) > 0, 'precondition: the escape felled an elite, so what an elite pays is in the sum');
@@ -332,10 +332,11 @@ test('the sim deals a floor its later waves, calls each only after the one befor
 
 test('a floor the knight died on says whether it was before the stair hall (plan 022 carry-over)', () => {
   const weak = policy({ dodge: 0, reaction: 0.6 });
-  // Read off the boss, which the report observes on its own: a knight who died before the stair hall never met it. Seeds 1 and 2 (plan 022 Stage D moved them from 0x3ddf and 0x7bbd; plan 023 Stage D swapped them; plan 024 Stage A swapped them back).
+  // Read off the boss, which the report observes on its own: a knight who died before the stair hall never met it. Seeds 1 and 4 (plan 022 Stage D moved them from 0x3ddf and 0x7bbd; plan 023 Stage D swapped them; plan 024 Stage A swapped them back; plan 025 Stage D moved the
+  // late one from 2, whose knight no longer dies to the boss once the Pyre Mother moves, to 4, who dies to the Bone King).
   const early = simulateRun(1, weak).floors.find(f => f.outcome === 'died');
-  const late = simulateRun(2, weak).floors.find(f => f.outcome === 'died');
-  assert.ok(early && late, 'seeds 1 and 2 no longer each end in a death with the weak knight: pick other seeds');
+  const late = simulateRun(4, weak).floors.find(f => f.outcome === 'died');
+  assert.ok(early && late, 'seeds 1 and 4 no longer each end in a death with the weak knight: pick other seeds');
   assert.equal(early.bossDamage + early.bossSeconds, 0, 'precondition: the boss never met the knight who died on this floor');
   assert.equal(early.hpAtStair, null, 'precondition: he never reached the stair hall');
   assert.equal(early.deathsBeforeBoss, 1, 'a death before the stair hall is not counted as one');

@@ -13,7 +13,7 @@
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
 import { boltBlow, canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
-import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, eliteStats, fallOf, moveOf, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, type CrowdBody, type EliteModifier, type EnemyKind, type EnemyView, type Move, type Pressed, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
+import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, eliteStats, fallOf, moveOf, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, STILL, wallClearance, type CrowdBody, type Roam, type EliteModifier, type EnemyKind, type EnemyView, type Move, type Pressed, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { bossPush, landBlow } from '../../app/dungeon-hits.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
 import { TILE, bodyRadius, bossOnFloor, cellKey, dealBosses, generateFloor, hasClearPath, moveOnFloor } from '../../app/dungeon-floor.ts';
@@ -178,6 +178,8 @@ export type FloorReport = {
   bossDeaths: number;
   bossSeconds: number;
   bossHpLeft: number | null;
+  /** Plan 025 (D3): the boss's distance to the nearest wall (`wallClearance`), averaged over every frame from its noticing him to its fall; null if no boss noticed him. */
+  bossWall: number | null;
   phaseChanges: number;
   /** Plan 021 Stage C: the rings a boss's scatter lit this floor, and how many of them lit with the knight standing inside - what stepping out of a marked ring (`avoidMarks`) saves. */
   ringsLit: number;
@@ -267,6 +269,8 @@ type Body = {
   // Plan 021. A boss's rotation slot, phase and the seconds of phase change left (EnemyView), the move whose tell is running
   // (its tell, reach and bolt are what the knight reads) and the rings a `scatter` tell has marked, to become fire when it ends.
   move: number; phase: number; change: number; winding: Move | null; marks: { x: number; z: number }[];
+  /** Plan 025 (D3): where a body that repositions is going (EnemyView.roam), fed back as the game feeds it. */
+  roam: Roam;
   /** The phase again, under the name `landBlow` reads (`Struck.bossPhase`): a boss's shield breaks in one. */
   readonly bossPhase: number;
   // Where it spawned, for a dozing body's pace, and how far into noticing it is - see dungeon-enemy.ts.
@@ -397,7 +401,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const damage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
   let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0, specialCount = 0, blockedCount = 0, raisedCount = 0, reassembledCount = 0;
   // Plan 021: the boss's numbers (see FloorReport), and whatever last took vitality, which is what the knight died to if he died.
-  let phaseChanges = 0, blockedLate = 0, ringsLit = 0, ringsOnKnight = 0, bossHpLeft: number | null = null, bossFrom: number | null = null, bossTo: number | null = null, lastBlow: Cause | null = null;
+  let phaseChanges = 0, blockedLate = 0, ringsLit = 0, ringsOnKnight = 0, bossHpLeft: number | null = null, bossFrom: number | null = null, bossTo: number | null = null, bossWallSum = 0, bossWallFrames = 0, lastBlow: Cause | null = null;
   // Where the knight has been, oldest first, one sample a TRAIL_STEP: what a `scatter` marks its rings on.
   const trail: { x: number; z: number }[] = [];
   let trailTimer = 0;
@@ -430,7 +434,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       // at the start, the hole the arena's first version had (progress.md, 2026-09-26).
       aim: { x: 0, z: 0 }, room: spawn.room, awake: !spawn.ambush && !spawn.buried, dead: false,
       face: 0, buried: !!spawn.buried, summoner: spawn.summoner ?? -1, maxHp: stats.hp, wave: spawn.wave ?? 1,
-      move: 0, phase: 0, change: 0, winding: null, marks: [], get bossPhase() { return this.phase; },
+      move: 0, phase: 0, change: 0, winding: null, marks: [], roam: STILL, get bossPhase() { return this.phase; },
       anchor: { x: spawn.x * TILE, z: spawn.z * TILE }, notice: 0, alertIn: Infinity, dodgeRoll: null, dodged: false, held: 0,
     };
   });
@@ -634,12 +638,12 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       return b.windup <= AIM_LOCK && AIM_LOCK - b.windup + Math.hypot(b.x - player.x, b.z - player.z) / bolt.speed >= policy.reaction;
     };
     // Plan 024 (D1): the dodge is one roll per tell, taken the first frame the tell is readable to him and kept on the body until the tell ends. It used to be rolled afresh every frame, which at `dodge` 0.8 is a miss with probability 0.2^17 over a
-    // guard's 17 readable frames: the bot dodged everything. A scatter's tell is not a blow he can dash (its rings are stepped out of, below), so it is never rolled.
+    // guard's 17 readable frames: the bot dodged everything. A scatter's tell is not a blow he can dash (its rings are stepped out of, below), so it is never rolled; nor is a veil step's (plan 025), which hurts no one.
     for (const b of live) {
       if (b.windup <= 0) { b.dodgeRoll = null; b.dodged = false; }
-      else if (b.winding?.attack !== 'scatter' && readable(b)) { if (b.dodgeRoll === null) { b.dodgeRoll = nerve() < policy.dodge; tellsRolled++; } }
+      else if (b.winding?.attack !== 'scatter' && b.winding?.attack !== 'veil' && readable(b)) { if (b.dodgeRoll === null) { b.dodgeRoll = nerve() < policy.dodge; tellsRolled++; } }
     }
-    const threat = live.find(b => b.windup > 0 && b.dodgeRoll === true && b.winding?.attack !== 'scatter' && readable(b)
+    const threat = live.find(b => b.windup > 0 && b.dodgeRoll === true && b.winding?.attack !== 'scatter' && b.winding?.attack !== 'veil' && readable(b)
       && Math.hypot(b.x - player.x, b.z - player.z) < (b.winding ?? BESTIARY[b.kind]).strikeRange + ((b.winding ?? BESTIARY[b.kind]).attack === 'pounce' ? 2.6 : 0.4));
     if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, swing)) {
       if (!threat.dodged) { threat.dodged = true; tellsDodged++; }
@@ -900,7 +904,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         body.alertIn -= DT;
         if (body.alertIn <= 0) { if (body.notice <= 0) body.notice = DT; body.alertIn = Infinity; }
       }
-      const view: EnemyView = { kind: body.kind, x: body.x, z: body.z, room: body.room, cooldown: body.cooldown, hitFlash: body.hitFlash, windup: body.windup, lunge: body.lunge, tell: body.tell, speed: body.speed, aim: body.aim, anchor: body.anchor, notice: body.notice, hp: body.hp, maxHp: body.maxHp, move: body.move, phase: body.phase, change: body.change };
+      const view: EnemyView = { kind: body.kind, x: body.x, z: body.z, room: body.room, cooldown: body.cooldown, hitFlash: body.hitFlash, windup: body.windup, lunge: body.lunge, tell: body.tell, speed: body.speed, aim: body.aim, anchor: body.anchor, notice: body.notice, hp: body.hp, maxHp: body.maxHp, move: body.move, phase: body.phase, change: body.change, roam: body.roam };
       // Plan 024 (D3): a tell this body was about to begin may be held back so it ends after the room's other tells (`pressed`); dungeon-game.tsx asks the same rule in the same place.
       const pressure = pressed(view, decideEnemy(view, player, { ...world, activeRoom }, DT), i, () => bodies.map((b): Pressed => ({ kind: b.kind, room: b.room, dead: b.dead || b.buried || !b.awake, windup: b.windup, held: b.held, tell: b.tell })), DT);
       const intent = pressure.intent;
@@ -910,7 +914,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       body.cooldown = intent.cooldown; body.hitFlash = intent.hitFlash; body.windup = intent.windup;
       if (view.windup <= 0 && intent.windup > 0) { body.dodgeRoll = null; body.dodged = false; }
       body.lunge = intent.lunge; body.aim = intent.aim; body.notice = intent.notice;
-      body.x = intent.x; body.z = intent.z;
+      body.x = intent.x; body.z = intent.z; body.roam = intent.roam;
       if (intent.face !== null) body.face = intent.face;
       // Plan 021. The move this frame's blow belongs to is the one the body went into the frame on (the rotation slot moves on in
       // the very intent that spends it); null for every ordinary kind, which keeps its one attack and the damage it was built with.
@@ -918,6 +922,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (BESTIARY[body.kind].moves) {
         body.move = intent.move; body.phase = intent.phase; body.change = intent.change;
         if (bossFrom === null && BESTIARY[body.kind].boss && intent.notice > 0) bossFrom = t;
+        if (BESTIARY[body.kind].boss && bossFrom !== null) { bossWallSum += wallClearance(floor.cells, body.x, body.z); bossWallFrames++; }
         // A tell starting: the move's own tell is what he reads, and a scatter lays its rings on where he has been (the game's
         // twin of this is plan 021 Stage C).
         if (view.windup <= 0 && intent.windup > 0) {
@@ -1123,7 +1128,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, boons: boonsTaken, offers: offersSeen, tellsRolled, tellsDodged, tellsHeld, ordinaryDamage, chambersEntered, ordinaryDamagePerChamber: +(chambersEntered ? ordinaryDamage / chambersEntered : 0).toFixed(2), hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, bossWall: bossWallFrames ? +(bossWallSum / bossWallFrames).toFixed(3) : null, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, boons: boonsTaken, offers: offersSeen, tellsRolled, tellsDodged, tellsHeld, ordinaryDamage, chambersEntered, ordinaryDamagePerChamber: +(chambersEntered ? ordinaryDamage / chambersEntered : 0).toFixed(2), hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

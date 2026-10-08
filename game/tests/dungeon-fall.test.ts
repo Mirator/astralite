@@ -91,13 +91,15 @@ test('a big body already overlapping stone walks out of it rather than freezing'
   assert.ok(r.maxX - at.x > .9, `she moved only to ${(r.maxX - at.x).toFixed(3)} from the wall`);
 });
 
+// Plan 025 Stage D (D3): in a chamber with room to, the Mother walks round the knight instead of backing into a wall (`roamStep`). A 3 by 3 tile chamber has no spot 4 to 6 from a knight
+// standing in it, so there she still gives ground straight back, which is what this holds to her radius.
 test('the Mother backing away from a close knight is stopped by the wall at her own radius', () => {
-  const r = room(6, 6), world = { cells: r.cells, activeRoom: 1, pathDistance: () => 0 };
-  let enemy: EnemyView = { kind: 'mother', x: 2.5 * TILE, z: 2.5 * TILE, room: 1, cooldown: 99, hitFlash: 0, windup: 0, lunge: 0, tell: .8, speed: 2.1, aim: { x: 1, z: 0 }, anchor: { x: 0, z: 0 }, notice: NOTICE_TIME, hp: 50, maxHp: 50, move: 0, phase: 0, change: 0 };
+  const r = room(3, 3), world = { cells: r.cells, activeRoom: 1, pathDistance: () => 0 };
+  let enemy: EnemyView = { kind: 'mother', x: 1 * TILE, z: 1 * TILE, room: 1, cooldown: 99, hitFlash: 0, windup: 0, lunge: 0, tell: .8, speed: 2.1, aim: { x: 1, z: 0 }, anchor: { x: 0, z: 0 }, notice: NOTICE_TIME, hp: 50, maxHp: 50, move: 0, phase: 0, change: 0 };
   assert.ok(BESTIARY.mother.keepAway > 1.5, 'precondition: the Mother gives ground to a knight closer than her keep-away');
   for (let frame = 0; frame < 600; frame++) {
     const intent = decideEnemy(enemy, { x: enemy.x - 1.2, z: enemy.z }, world, 1 / 60);
-    enemy = { ...enemy, x: intent.x, z: intent.z, cooldown: 99 };
+    enemy = { ...enemy, x: intent.x, z: intent.z, cooldown: 99, roam: intent.roam };
   }
   const gap = r.maxX - enemy.x;
   assert.ok(gap < .48 + .15, `precondition: she backed all the way to the wall (${gap.toFixed(3)} from it)`);
