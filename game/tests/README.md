@@ -145,7 +145,8 @@ Start a run from the console with `window.dispatchEvent(new CustomEvent('dungeon
 Other useful details: `attack`, `dash`, `special` (a tap), `hold-special`/`release-special` (the touch button's
 hold, which a charged special needs), `map`, `pause`, `move:up|down|left|right`, `stop:…`, `stick:<x>,<y>`,
 `stick:off`, `boon:<id>`, `restart`, `restart:<seed>`, and (plan 020) `slot:<n>` and `erase:<n>` for n in 1..3, `altar` (the result card's
-RETURN TO THE ALTAR: a finished run goes back to the hall), `shop-close` (the hall's shop put away) and `title` (the hall's LEAVE TO TITLE). `restart:<seed>` is the only way left to
+RETURN TO THE ALTAR: a finished run goes back to the hall) and `title` (the hall's LEAVE TO TITLE); plan 025 retired `shop-close` with the shop overlay, and added
+`hold-swap` / `release-swap`, the prompt pressed and held like the swap key (a phone holds it to buy in the hall). `restart:<seed>` is the only way left to
 retry a seed from a finished run: neither card offers it.
 
 `render_game_to_text().player.special` is the held arm's special (plan 016), or null for an arm without one:
@@ -199,13 +200,15 @@ purchases out of the next.
 - `render_game_to_text().run.armLocked` is true once the way down out of the hall has been taken (plan 019 D9, moved by plan 020 D7): the racks are
   gone and the swap key can no longer equip an arm. It is true on every floor but the hall (and the dev arena, which keeps its one rack); each build sets it.
 - `render_game_to_text().racks` is the list of racks on the floor, read off the scene (it replaces the single `drop` the snapshot
-  once had): `{ x, z, kind, radius, over, inScene, offered }`. The Tide Altar's hall (plan 020; floor one's Tide Gate holds none) holds one for every owned arm but the one
-  in hand, up to six; the dev arena has its own; no other floor has any. `over` is the knight standing in that ring,
-  `offered` the arm the swap prompt is naming. `dungeonTest.actorStats()` reports the racks' meshes as `racks` for the teardown
+  once had): `{ x, z, kind, radius, over, inScene, offered, locked, plaque, plaqueReady }`. The Tide Altar's hall (plan 020; floor one's Tide Gate holds none) holds one for
+  every arm but the one in hand, six; since plan 025 the arms not owned stand `locked` (a silhouette), with the price on their `plaque` and `plaqueReady` when it burns as
+  affordable. Filter on `!locked` for the owned ones, and find a rack by its arm or its slot, not by index. The dev arena has its own; no other floor has any. `over` is
+  the knight standing in that ring, `offered` the arm the swap prompt is naming. `dungeonTest.actorStats()` reports the racks' meshes as `racks` for the teardown
   checks.
 
 The result card's one button, RETURN TO THE ALTAR, and the shop it leads to are driven with real clicks and keys (`tests/browser/meta.spec.ts`, `death.spec.ts`); the Tide Altar's panel
-left the title for the hall's shop overlay in plan 020. `tests/browser/armoury.spec.ts` walks into a rack's ring and uses the swap key. The rules live in node:
+left the title for the hall's shop overlay in plan 020, and in plan 025 became a page of the hall's pause card ("The altar's list") while the hall itself became the shop
+(`tests/browser/hall.spec.ts` holds a shrine and a locked arm bought by holding the real swap key). `tests/browser/armoury.spec.ts` walks into a rack's ring and uses the swap key. The rules live in node:
 `tests/dungeon-meta.test.ts`. The slot picker is driven with real clicks and keys in `tests/browser/slots.spec.ts`; the rules behind it (keys, summary, erase) are in
 `tests/dungeon-save.test.ts`.
 
@@ -217,18 +220,22 @@ Plan 020: the Tide Altar is a room (`altarHall()` in `app/dungeon-floor.ts`: roo
 title -> slot picker -> the hall -> the way down -> floor 1 ... -> the card -> RETURN TO THE ALTAR -> the hall
 ```
 
-In the hall the swap key opens the altar's shop at the altar (an overlay that holds the world, like a boon draft), swaps the arm on a rack the knight stands in, and takes the way down (`lockArm`, then a veiled
-`restart` into floor 1 on a fresh seed). The hall has no enemies, no stair, no XP and no record, and its HUD shows neither vitality nor rank.
+In the hall the swap key opens the pause card on the altar's list at the altar (plan 025: the overlay is gone), swaps the arm on a rack the knight stands in (a locked one is taken to try),
+buys when held for `BUY_HOLD` (the arm tried in hand, or the upgrade shrine underfoot; `holdStep` in `app/dungeon-meta.ts`), and takes the way down (`lockArm`, which settles an owned arm and
+never a tried one, then a veiled `restart` into floor 1 on a fresh seed). The hall has no enemies, no stair, no XP and no record, and its HUD shows neither vitality nor rank.
 
 - **`?hall=skip`** (development only, ignored by a production build) keeps the flow that existed before the hall: the boot builds floor 1 and ENTER enters it. **The harness passes it on every `goto` it makes**
   (as it passes `boot=eager`), so the 138 callers of `game.enter()` and the pooled page are unaffected, and a reset returns a page to the mode it booted in. Floor one has no racks under it.
 - **`test.use({ hall: true })`** opts a scenario out: the page boots the way a player's does, into the hall, and (like an isolated or a phone scenario) gets a page of its own. The hall, slot, loading and death
   scenarios are the only coverage of that default flow, so they are on the PR gate and not `@nightly`. `Game.takeWayDown()` stands the knight at the way down (a teleport) and takes it with the real swap key;
-  `Game.openAltar()` does the same for the shop; `walkUntil` walks with real arrow keys.
+  `Game.openAltar()` does the same at the altar and expects the pause card open on its list; `walkUntil` walks with real arrow keys.
 - **`dungeonTest.buildHall()`** (`Game.buildHall()`) is the cheap way into the hall for a pooled scenario that is about something else but needs an armoury (the swap itself, a special that must be put away, the actor
   stats of a rack): `game.enter()` as usual, then `await game.buildHall()`. The run in hand carries over, and the reset puts the page back on floor 1, which the leak guard holds.
-- `render_game_to_text().hall` is read off the floor that was built; `altarOpen` is the shop; `hallProps` is what the scene actually placed, read off the groups it was attached to - `{ altar: { x, z, radius, over, inScene },
-  racks: [kind], wayDown: { x, z, radius, open, over, inScene, sign: 'down' }, stair }` or null off the hall (`stair` must be false: the hall builds none). `boonOffer` is not true while the shop is open.
+- `render_game_to_text().hall` is read off the floor that was built; `hallProps` is what the scene actually placed, read off the groups it was attached to - `{ altar: { x, z, radius, over, inScene },
+  racks: [kind], shrines: [{ id, x, z, over, inScene, ranks, lit, plaque }], buying: { target, fill }, pearls, pulse, tried, wayDown: { x, z, radius, open, over, inScene, sign: 'down' }, stair }` or null off
+  the hall (`stair` must be false: the hall builds none). A shrine's `lit` counts the notches wearing the lit material and `plaque` is the price on the plaque attached to the floor; `buying` is the press in
+  progress, `pearls` the pearls in flight from the altar, `pulse` what the bank before this hall put newly in reach, `tried` the arm in hand when it is not owned. Plan 025 retired `altarOpen` with the overlay:
+  the list is a page of the pause card, so `mode` is `paused` while it is open.
 - The hall draws nothing from `crypto.getRandomValues`, so a pinned seed queue is where it was after a hall build (`pinnedDraws` in `helpers.ts` reads the cursor).
 
 ### The arena

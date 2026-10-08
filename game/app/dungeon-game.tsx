@@ -17,13 +17,14 @@ import { getFlagstoneTexturesSteps, getMasonryTexturesSteps } from './dungeon-te
 import { createDungeonAudio } from './dungeon-audio';
 import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidate } from './dungeon-occlusion';
 import { animateCloth } from './dungeon-motion';
-import { altarHall, bodyRadius, canStand, dealBosses, gateRacks, generateFloor, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
+import { altarHall, bodyRadius, canStand, dealBosses, gateRacks, generateFloor, hallShrines, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
 import { FINAL_BOSS } from './dungeon-bestiary';
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
 import { allElite, corpseSink, corpsesDue, idleClock, parseElite, roomTiles, springing, waveDue, waveSpots, wavedFloor, WAVE_CAP, WAVE_MARK, type WaveClock } from './dungeon-waves';
 import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import SlotPicker from './dungeon-slot-picker';
-import AltarPanel, { type AltarKind } from './dungeon-altar-panel';
+import AltarPanel, { HallPurse, RackCard, type AltarKind, type ShopCard } from './dungeon-altar-panel';
+import { createHallKit, type HallKit, type Shrine } from './dungeon-hall';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
 import { boltBlow, DASH_BUFFER, dashImmune, dragToward, hurledBlow, lineContacts, specialAvailable, specialGate, specialMayCut, specialSpends, swordContacts, vaultLanding, vaultTarget } from './dungeon-combat';
 import { ALERT_STAGGER, BESTIARY, decideEnemy, fallOf, moveOf, NOTICE_TIME, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, type Wakeable } from './dungeon-enemy';
@@ -40,7 +41,7 @@ import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
 import { createGovernor, observeFrame, startPixelRatio, type QualityStage } from './dungeon-quality';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, readBest, readMeta, readRuns, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
-import { bank, buyArm, buyUpgrade, chooseArm, freshMeta, pearlsFor, runStart as metaRunStart, UPGRADES, type Meta } from './dungeon-meta';
+import { armForRun, bank, BUY_HOLD, buyArm, buyItem, buyUpgrade, canTry, freshMeta, holdFill, holdStep, idleHold, newlyAffordable, pearlsFor, runStart as metaRunStart, sameMeta, settleArm, shopItem, UPGRADES, type Meta } from './dungeon-meta';
 import { clearChamber, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, SHRINE, SHRINE_REACH, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
@@ -115,7 +116,8 @@ export default function DungeonGame() {
   // What the swap key would do where the knight stands - take the arm he is over, or the open stair - or
   // null when it would do nothing. It is the whole of the prompt's state: the key it names is read off
   // the bindings at render, so a rebind is live at once.
-  const [swapOffer, setSwapOffer] = useState<{ act: string; detail: string } | null>(null);
+  // Plan 025 (D8): `hold` when the key is held rather than pressed (a purchase), and `card` the stat card the hall shows at a rack or a shrine.
+  const [swapOffer, setSwapOffer] = useState<{ act: string; detail: string; hold?: boolean; card?: ShopCard } | null>(null);
   // Only on screen while a ranged arm is held, so the minimal HUD stays minimal for every other weapon.
   const [ammo, setAmmo] = useState<{ held: number; of: number } | null>(null);
   const [floorMap, setFloorMap] = useState<Floor | null>(null);
@@ -160,7 +162,9 @@ export default function DungeonGame() {
   const hydrated = useSyncExternalStore(noSubscription, () => true, () => false);
   // Which page of the menu card is showing. Controls and Settings open in place of the menu list, with a
   // way back, rather than unfolding beneath it and pushing ENTER THE KEEP off a short screen.
-  const [menuView, setMenuView] = useState<'main' | 'controls' | 'settings' | 'arena' | 'slots'>('main');
+  const [menuView, setMenuView] = useState<'main' | 'controls' | 'settings' | 'arena' | 'slots' | 'altar'>('main');
+  // Plan 025 (D8): the page the pause card opens on. The altar's swap key opens it on the altar's list; everything else on the main list.
+  const [menuStart, setMenuStart] = useState<'main' | 'altar'>('main');
   // The arena page's counts and floor (development only), kept here so they survive leaving the page.
   const [arenaChoice, setArenaChoice] = useState<ArenaChoice>({ pick: { guard: 1 }, level: 1 });
   // The arena the world closure is charting floors as, mirrored for the card that names it and for the
@@ -204,15 +208,18 @@ export default function DungeonGame() {
   // Plan 019: the pearl balance, what is bought and which arms are unlocked, as the result card shows them. A mirror of the
   // active slot's save, never the source: the world closure re-reads the save at every run start and at every bank (D11).
   const [meta, setMeta] = useState<Meta>(freshMeta);
-  // Plan 020: the Tide Altar's hall. `hallOn` mirrors the closure's `hall` (the floor drawn is the hall), `altarShow` is the shop overlay and `altarNote` the line under its lists.
+  // Plan 020: the Tide Altar's hall. `hallOn` mirrors the closure's `hall` (the floor drawn is the hall), `altarNote` is the line under the altar's lists.
   // `buy` is plan 019's purchase, back from the title: it re-reads the active slot's save before it spends, and what it buys is dealt at the next run start (D11).
-  const [hallOn, setHallOn] = useState(false), [altarShow, setAltarShow] = useState(false), [altarNote, setAltarNote] = useState(''), [veilHall, setVeilHall] = useState(false);
+  // Plan 025 (D8): the shop overlay is gone; the list is a page of the hall's pause card (`menuView === 'altar'`). `pursePulse` is the hall's pearl counter
+  // pulsing because a bank put something newly in reach, and `buyRing` the fill ring on the prompt, driven from the frame loop like the dash sweep.
+  const [hallOn, setHallOn] = useState(false), [altarNote, setAltarNote] = useState(''), [veilHall, setVeilHall] = useState(false), [pursePulse, setPursePulse] = useState(false);
+  const buyRing = useRef<HTMLElement>(null);
   const buy = (kind: AltarKind, id: string, refusal: string) => {
     const stored = readMeta(slotOn), next = kind === 'arm' ? buyArm(stored, id) : buyUpgrade(stored, id);
     if (!next) { setMeta(stored); setAltarNote(refusal); return; }
     writeMeta(slotOn, next); const kept = readMeta(slotOn); setMeta(kept);
     const label = kind === 'arm' ? weaponById(id as WeaponId).name : UPGRADES.find(upgrade => upgrade.id === id)?.name ?? id;
-    setAltarNote(JSON.stringify(kept) === JSON.stringify(next) ? `${label} ${kind === 'arm' ? 'unlocked' : 'bought'}.` : `${label} could not be saved: this browser is not keeping the keep’s memory.`);
+    setAltarNote(sameMeta(kept, next) ? `${label} ${kind === 'arm' ? 'unlocked' : 'bought'}.` : `${label} could not be saved: this browser is not keeping the keep’s memory.`);
   };
   // Built at call time, not at render time: the ref is only ever read inside a handler, which is the one
   // place a ref may be read at all.
@@ -514,7 +521,7 @@ export default function DungeonGame() {
       writeRuns(activeSlot, log); setRunLog(log);
       // Banked after the arena return and after the log, win or lose (D2). The save is re-read first, for the same
       // second-tab reason as the log; `endRun` refuses a second entry for one run, so a run can only be paid once.
-      const banked = bank(readMeta(activeSlot), end); writeMeta(activeSlot, banked); setMeta(banked);
+      const before = readMeta(activeSlot), banked = bank(before, end); writeMeta(activeSlot, banked); setMeta(banked); bankedFrom = before;
     };
     // Second Tide (plan 019): `hurt` has already stood the knight up at 40% and spent the revive; this is the moment
     // it deserves on screen. The flag is the sim's, and it is cleared here so each revive is shown once.
@@ -735,19 +742,25 @@ export default function DungeonGame() {
     // Plan 019: the racks laid out on this floor, each with the ring that marks it - the armoury in floor one's Tide
     // Gate (an owned arm on its own slot), the dev arena's one rack, and none anywhere else. `kept` is what an arm the
     // knight set down there still owed: its special's cooldown and its quiver; `lit` is how far its ring has eased open.
-    type Rack = {group:THREE.Group; ring:THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; blade:ArmedWeapon; kind:WeaponId; x:number; z:number; kept?:Kept; lit:number};
+    // Plan 025 (D8): in the hall every arm stands on a rack; `locked` is one the save does not own (drawn as a silhouette), with its price on `plaque`.
+    type Rack = {group:THREE.Group; ring:THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; blade:ArmedWeapon; kind:WeaponId; x:number; z:number; kept?:Kept; lit:number; locked:boolean; plaque:THREE.Mesh|null; shown:string};
     let racks: Rack[] = [];
     // The rack whose ring the knight is inside this frame (the gate's spacing leaves at most one), and what the prompt
     // was last told. The second exists only so the offer is pushed into React on the step he arrives and the step he
     // leaves, rather than sixty times a second for as long as he stands there.
-    let overRack: Rack | null = null, offered: WeaponId | 'stair' | 'altar' | 'down' | `door:${number}` | null = null;
+    let overRack: Rack | null = null, offered: WeaponId | 'stair' | 'altar' | 'down' | 'buy' | `door:${number}` | `shrine:${string}` | null = null;
     // Plan 019 (D9), moved by plan 020 (D7): once the way down out of the Tide Altar's hall is taken the run's arm is settled - the racks are gone and
     // the swap key can never equip an arm again. True on every floor but the hall (and the dev arena, which keeps its one rack); a build sets it.
     let armLocked = false;
     // Plan 020: the Tide Altar's hall. `hall` is read off the floor that was built (`floor.hall`), so it is what the scene holds and not what was asked
-    // for; `wantHall` is the ask, set by whatever requests a build before it charts (`chart`). `altarOpen` is the shop overlay, which holds the world the
-    // way a boon draft does (it sets `run.choosing`), and `overAltar` the knight standing in its prompt ring. A hall has no enemies, no stair, no XP and no record.
-    let hall = false, wantHall = false, altarOpen = false, overAltar = false;
+    // for; `wantHall` is the ask, set by whatever requests a build before it charts (`chart`).
+    // `overAltar` is the knight standing in the altar's prompt ring. A hall has no enemies, no stair, no XP and no record.
+    let hall = false, wantHall = false, overAltar = false;
+    // Plan 025 (D8): the hall's shop. `kit` is what it draws with (built with the hall, released with it), `shrines` the four upgrades, `overShrine` the one
+    // under the knight. `hold` follows one press of the swap key toward a purchase (dungeon-meta `holdStep`). `lastOwned` is the owned arm he last held, which
+    // is what the way down takes if he walks down trying one he does not own. `bankedFrom` is the save before the last run banked, read once by the next
+    // hall to pulse the counter when that bank put something newly in reach (`pulse` is what it found).
+    let kit: HallKit | null = null, shrines: Shrine[] = [], overShrine: Shrine | null = null, hold = idleHold(), lastOwned: WeaponId = STARTING_WEAPON, bankedFrom: Meta | null = null, pulse: string[] = [], shopMeta: Meta = freshMeta(), refusing = 0;
     // Plan 017: the door the knight is standing at, and the fade he is crossing to the next chamber behind.
     let overDoor: Door | null = null, crossing: { door: Door; time: number; flipped: boolean } | null = null;
     // Put a different arm in the knight's hand. The old geometry is released; the materials are his own
@@ -869,45 +882,99 @@ export default function DungeonGame() {
     // Push the prompt at the bottom of the screen, or take it away. Null-to-null and same-arm-to-same-arm
     // are dropped here rather than in React: the loop asks every frame and setState on every one of them
     // would re-render the whole shell sixty times a second for a line of text that never changed.
-    const showOffer = (kind: WeaponId | 'stair' | 'altar' | 'down' | `door:${number}` | null) => {
+    const showOffer = (kind: WeaponId | 'stair' | 'altar' | 'down' | 'buy' | `door:${number}` | `shrine:${string}` | null) => {
       if (offered === kind) return;
       offered = kind;
       if (kind === 'stair') { setSwapOffer({ act: 'take the stair down', detail: level >= FLOORS ? 'Out of the keep' : `To floor ${level + 1}` }); return; }
       // Plan 020: the hall's two places. The altar says what is in the purse; the way down says which arm goes with him, since it settles the choice.
-      if (kind === 'altar') { const pearls = readMeta(activeSlot).pearls; setSwapOffer({ act: 'open the altar', detail: `${pearls} ${pearls === 1 ? 'pearl' : 'pearls'} to spend` }); return; }
-      if (kind === 'down') { setSwapOffer({ act: 'take the way down', detail: `Into the keep, the ${pc.weapon.name} in hand` }); return; }
+      // Plan 025 (D8): the altar opens its list on the pause card; the shop itself is the racks and the shrines.
+      if (kind === 'altar') { const pearls = readMeta(activeSlot).pearls; setSwapOffer({ act: 'open the altar\'s list', detail: `${pearls} ${pearls === 1 ? 'pearl' : 'pearls'} to spend` }); return; }
+      // A tried arm stays in the hall: the prompt says which owned arm goes down instead.
+      if (kind === 'down') { const meta = readMeta(activeSlot), going = armForRun(meta, pc.weapon.id, lastOwned); setSwapOffer({ act: 'take the way down', detail: going === pc.weapon.id ? `Into the keep, the ${pc.weapon.name} in hand` : `Into the keep with the ${weaponById(going).name}; the ${pc.weapon.name} is only tried, and stays` }); return; }
+      if (kind === 'buy') { const item = shopItem(readMeta(activeSlot), 'arm', pc.weapon.id)!; setSwapOffer({ act: `buy the ${item.name}`, hold: true, detail: priceLine(item.price, item.short), card: { kind: 'arm', id: pc.weapon.id, owned: false, price: item.price, short: item.short } }); return; }
+      if (kind?.startsWith('shrine:')) {
+        const item = shopItem(readMeta(activeSlot), 'upgrade', kind.slice(7))!, upgrade = UPGRADES.find(each => each.id === item.id)!, card: ShopCard = { kind: 'upgrade', id: item.id, held: item.held, ranks: item.ranks, price: item.price, short: item.short };
+        setSwapOffer(item.price === null ? { act: `look at ${item.name}`, detail: `${upgrade.detail} · fully bought`, card } : { act: `buy ${item.name}`, hold: true, detail: `${item.ranks > 1 ? `Rank ${item.held + 1} of ${item.ranks} · ` : ''}${priceLine(item.price, item.short)}`, card }); return;
+      }
       if (kind?.startsWith('door:')) { const to = floor.rooms[floor.doors[Number(kind.slice(5))].to]; setSwapOffer({ act: 'take this door', detail: `${to.name} · ${DOOR_WORDS[doorSign(to)]}` }); return; }
       const arm = kind === null ? null : weaponById(kind);
+      if (arm && hall) { const item = shopItem(readMeta(activeSlot), 'arm', arm.id)!, owned = item.price === null; setSwapOffer({ act: owned ? `switch to ${arm.name}` : `try the ${arm.name}`, detail: owned ? arm.detail : `Hold to buy · ${priceLine(item.price, item.short)}`, card: { kind: 'arm', id: arm.id, owned, price: item.price, short: item.short } }); return; }
       setSwapOffer(arm ? { act: `switch to ${arm.name}`, detail: arm.detail } : null);
     };
+    const priceLine = (price: number | null, short: number) => price === null ? 'Owned' : `${price} ${price === 1 ? 'pearl' : 'pearls'}${short > 0 ? ` · ${short} short` : ''}`;
     // Lay an arm on a rack. Called once for each rack when the floor is built and again on every swap, because what
     // the knight sets down stays where he found it: a pickup he regrets is a walk back, not a dead run.
+    // Plan 025 (D8): in the hall an arm the save does not own is laid as a silhouette in the kit's one dark stone, its glow and ring cooled, with its price on a plaque.
     const layRack = (kind: WeaponId, x: number, z: number, kept?: Kept): Rack => {
       const {palette, plate} = player.userData.armoury as {palette: ArmoryPalette; plate: Plate};
-      const built = makeWeaponDrop(kind, palette, plate);
+      const meta = hall && kit ? readMeta(activeSlot) : null, item = meta ? shopItem(meta, 'arm', kind) : null, locked = !!item && item.price !== null;
+      const built = makeWeaponDrop(kind, locked && kit ? kit.silhouette : palette, plate);
       built.group.position.set(x, 0, z);
+      if (locked) { built.ring.material.color.setHex(0x7fb6c4); built.group.traverse(o => { if (o instanceof THREE.Mesh && o !== built.ring && o.material instanceof THREE.MeshBasicMaterial) { o.material.color.setHex(0x5d8590); o.material.opacity = .3; } }); }
       floorGroup.add(built.group);
-      return {...built, kind, x, z, kept, lit: 0};
+      const plaque = locked && kit && item?.price != null ? kit.plaque(item.price, item.affordable, x, z) : null;
+      if (plaque) floorGroup.add(plaque);
+      return {...built, kind, x, z, kept, lit: 0, locked, plaque, shown: `${locked}:${!!item?.affordable}`};
     };
-    const clearRacks = () => { const {palette} = player.userData.armoury as {palette: ArmoryPalette}; for (const rack of racks) disposeWeaponDrop(rack, palette); racks = []; overRack = null; };
+    const dropRack = (rack: Rack) => { disposeWeaponDrop(rack, rack.locked && kit ? kit.silhouette : (player.userData.armoury as {palette: ArmoryPalette}).palette); if (rack.plaque) { rack.plaque.geometry.dispose(); rack.plaque.removeFromParent(); } };
+    const clearRacks = () => { for (const rack of racks) dropRack(rack); racks = []; overRack = null; };
     // Plan 019 (D8), moved by plan 020 (D7) from floor one's Tide Gate to the Tide Altar's hall: the armoury. Every arm the save owns except the one in hand
     // stands on its own slot of `gateRacks`; the slots of the arms not owned stay empty. The hall of a campaign only, and only until the way down is taken; an
     // arena keeps the one rack `build` laid (D14). Left as it is when the racks already stand as they should (the first ENTER asks again, and so does a purchase).
     const layGateRacks = () => {
       if (arena) return;
-      const owned = hall && !armLocked ? readMeta(activeSlot).arms : [];
-      const want = gateRacks(floor).filter(slot => owned.includes(slot.arm) && slot.arm !== pc.weapon.id);
-      if (want.length === racks.length && want.every((slot, at) => racks[at].kind === slot.arm)) return;
+      // Plan 025 (D8): every arm but the one in hand, owned or not; one that is not owned stands locked. Re-laid when what is owned or affordable changed, so a plaque never shows a stale purse.
+      const meta = readMeta(activeSlot), want = hall && !armLocked ? gateRacks(floor).filter(slot => slot.arm !== pc.weapon.id) : [];
+      shopMeta = meta;
+      const shown = (kind: WeaponId) => { const item = shopItem(meta, 'arm', kind)!; return hall && kit ? `${item.price !== null}:${item.affordable}` : 'false:false'; };
+      if (want.length === racks.length && want.every((slot, at) => racks[at].kind === slot.arm && racks[at].x === slot.x && racks[at].z === slot.z && racks[at].shown === shown(slot.arm))) return;
       clearRacks(); showOffer(null);
       for (const slot of want) racks.push(layRack(slot.arm, slot.x, slot.z));
     };
     // Plan 019 (D9), plan 020 (D7): the knight takes the way down out of the hall, and the arm he carries is his for the run. It is
     // written to the save here and not at run end, so a run lost on floor one still remembers the choice.
+    // Plan 025 (D8): an arm only tried in the hall is refused here (`settleArm`): the run takes the owned arm he last held, and the save never gains the tried one.
     const lockArm = () => {
-      armLocked = true; runArm = pc.weapon.id;
-      const chosen = chooseArm(readMeta(activeSlot), pc.weapon.id);
-      if (chosen) { writeMeta(activeSlot, chosen); setMeta(chosen); }
-      clearRacks();
+      const meta = readMeta(activeSlot), chosen = settleArm(meta, pc.weapon.id, lastOwned);
+      armLocked = true; runArm = chosen.arm;
+      if (!sameMeta(chosen, meta)) { writeMeta(activeSlot, chosen); setMeta(chosen); }
+      clearRacks(); clearShrines();
+    };
+    // Plan 025 (D8): the four upgrade shrines, laid from the save as it stands: a notch lit for each rank held, the next rank's price on a plaque. Re-laid whole after a purchase.
+    const clearShrines = () => { for (const shrine of shrines) { shrine.group.traverse(o => { if (o instanceof THREE.Mesh) { if (!o.geometry.userData.shared) o.geometry.dispose(); if (o === shrine.glyph || o === shrine.ring) o.material.dispose(); } }); shrine.group.removeFromParent(); if (shrine.plaque) { shrine.plaque.geometry.dispose(); shrine.plaque.removeFromParent(); } } shrines = []; overShrine = null; };
+    const layShrines = () => {
+      clearShrines();
+      if (!hall || armLocked || !kit) return;
+      const meta = readMeta(activeSlot);
+      hallShrines(floor).forEach((spot, i) => {
+        const upgrade = UPGRADES[i]; if (!upgrade) return;
+        const item = shopItem(meta, 'upgrade', upgrade.id)!, shrine = kit!.shrine(upgrade.id, spot.x, spot.z, item.held, item.ranks, item.price, item.affordable);
+        floorGroup.add(shrine.group); if (shrine.plaque) floorGroup.add(shrine.plaque); shrines.push(shrine);
+      });
+    };
+    // Plan 025 (D8): what the press under the knight would buy, or null. A shrine he stands on; otherwise the arm in his hand when he only tried it. Only what
+    // the purse covers: a hold on anything else fills no ring (the prompt says how many pearls short).
+    const buyCandidate = (): { key: string; affordable: boolean } | null => {
+      if (!hall || armLocked) return null;
+      const meta = shopMeta;
+      if (overShrine) { const item = shopItem(meta, 'upgrade', overShrine.id); return item && item.price !== null ? { key: `upgrade:${item.id}`, affordable: item.affordable } : null; }
+      const item = shopItem(meta, 'arm', pc.weapon.id);
+      return item && item.price !== null && canTry(pc.weapon.id, hall) ? { key: `arm:${item.id}`, affordable: item.affordable } : null;
+    };
+    // The purchase a completed hold makes, through the same rule the altar's list uses (`buyItem`): the save re-read and charged, the chime, the pearls flown
+    // from the altar to what was bought, and the hall re-laid so a bought arm lights up in his hand and a shrine lights its notch.
+    const purchase = (key: string) => {
+      const [kind, id] = key.split(':') as ['arm' | 'upgrade', string], stored = readMeta(activeSlot), next = buyItem(stored, kind, id);
+      if (!next) { audio.play('refuse'); return; }
+      writeMeta(activeSlot, next); const kept = readMeta(activeSlot); setMeta(kept);
+      const name = kind === 'arm' ? weaponById(id).name : UPGRADES.find(upgrade => upgrade.id === id)?.name ?? id;
+      if (!sameMeta(kept, next)) { setNotice(`${name} could not be saved: this browser is not keeping the keep’s memory`); noticeTime = 4; return; }
+      if (kind === 'arm') lastOwned = id as WeaponId;
+      const shrine = kind === 'upgrade' ? shrines.find(each => each.id === id) : null;
+      const to = shrine ? new THREE.Vector3(shrine.x, .9, shrine.z) : new THREE.Vector3(player.position.x, 1.1, player.position.z);
+      if (kit && stage.altar) kit.flight.fly(new THREE.Vector3(stage.altar.mesh.position.x, 1.2, stage.altar.mesh.position.z), to);
+      audio.play('chime'); setNotice(`${name} bought`); noticeTime = 3;
+      layGateRacks(); layShrines(); offered = null; dirty = true;
     };
     // What a floor build borrows from the world: the shared telegraph art, the scene root and the cutaway
     // controller's registration.
@@ -962,7 +1029,9 @@ export default function DungeonGame() {
       cutaway.releaseFloor();
       // Before the traversal below disposes every material on the floor: the rack is drawn in the
       // knight's own palette, and he is still wearing it.
-      clearRacks();
+      clearRacks(); clearShrines();
+      // Plan 025: the hall's kit goes with the floor that drew with it.
+      kit?.dispose(); kit = null;
       stage.atmosphere?.dispose();
       impacts.clear(); footsteps.clear();
       floorGroup.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); } });
@@ -1162,7 +1231,7 @@ export default function DungeonGame() {
       buildMs = {};
       if (stage.atmosphere) clearFloor();
       phase('dispose'); yield;
-      level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; stage.features = []; stairOpen = false; onStair = false; stairLit = 0; racks = []; overRack = null; overAltar = false; showOffer(null);
+      level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; stage.features = []; stairOpen = false; onStair = false; stairLit = 0; racks = []; overRack = null; overAltar = false; shrines = []; overShrine = null; hold = idleHold(); showOffer(null);
       gameStatus = 'playing'; setStatus('playing');
       // A staged build (see `stagedBuild`) charts the layout a stage early so the veil can name it; the
       // floor it drew is taken here instead of drawing a second seed. Only a match is taken - the same
@@ -1191,7 +1260,12 @@ export default function DungeonGame() {
       // the stair and every skeleton - is raised by dungeon-floor-scene.ts, one timed phase per yield.
       for (const name of raiseFloor(floor, level, floorGroup, pavingPlan, stage, floorArt)) { phase(name); yield; }
       // The dev arena keeps its one rack where the generator reserved it (D14); a campaign floor never places that spot. The hall lays the armoury.
+      // Plan 025 (D8): the hall's shop is drawn with a kit of its own, made here and released with the floor; its pearls fly in the floor's group.
+      if (hall) { kit = createHallKit(); floorGroup.add(kit.flight.mesh); }
       if (arena) racks.push(layRack(floor.weaponDrop.kind, floor.weaponDrop.x, floor.weaponDrop.z)); else layGateRacks();
+      layShrines();
+      // The counter pulses once on arriving, when the run just banked put something newly in reach. Read once: the next hall without a bank does not pulse.
+      pulse = hall && bankedFrom ? newlyAffordable(bankedFrom, readMeta(activeSlot)) : []; if (hall) bankedFrom = null; setPursePulse(pulse.length > 0);
       // The gate holds nobody, so its doors stand open from the first frame; every other door starts barred.
       for (const view of stage.doors) view.bars.visible = !cleared.has(view.door.from);
       // Every texture the new floor uses goes to the GPU now. three.js otherwise uploads a texture the
@@ -1274,9 +1348,9 @@ export default function DungeonGame() {
       const startArm = (process.env.NODE_ENV !== 'production' ? devStartingArm(window.location.search) : null) ?? start.arm;
       // The same arm is not re-made, but it starts the run as a found one does: loaded (the fresh run is ready).
       if (pc.weapon.id !== startArm) equip(startArm); else fillQuiver();
-      setHeldWeapon(weaponById(startArm).name); runArm = startArm; began = startOf();
+      setHeldWeapon(weaponById(startArm).name); runArm = startArm; lastOwned = start.arm; began = startOf();
       setNotice(''); setFloorResult({ kills: 0, xp: 0, seconds: 0 });
-      setPaused(false); setMapOpen(false); mapShown = false; altarOpen = false; setAltarShow(false);
+      setPaused(false); setMapOpen(false); mapShown = false;
       await driveSliced(buildFloorSteps(startLevel, seed), token);
       player.rotation.set(0, Math.atan2(-pc.facing.x, -pc.facing.z), 0); player.userData.sword.rotation.y = 0;
       audio.pause(false);
@@ -1411,15 +1485,13 @@ export default function DungeonGame() {
     };
     // Plan 020: the Tide Altar's shop is an overlay that holds the world the way a boon draft does, by the same flag (`run.choosing`), so every guard that
     // already waits on a draft waits on it. What is bought there is dealt at the next run start; an arm bought appears on its rack when the shop is put away.
+    // Plan 025 (D8): the list survives as a page of the hall's pause card, for touch and for a keyboard player who would rather read than walk. The altar's
+    // swap key opens the card on it; the pause holds the world, and resuming re-lays the racks and shrines from whatever the list bought.
     const openAltar = () => {
-      if (altarOpen) return;
-      altarOpen = true; run.choosing = true; keys.clear(); dropBuffers(pc); cancelCharge(); specialBuffer = 0; velocity.set(0, 0, 0); showOffer(null);
-      setAltarNote(''); setMeta(readMeta(activeSlot)); setAltarShow(true); audio.play('clear'); dirty = true;
+      if (isPaused) return;
+      setAltarNote(''); setMeta(readMeta(activeSlot)); setMenuStart('altar'); togglePause(); audio.play('clear');
     };
-    const closeAltar = () => {
-      if (!altarOpen) return;
-      altarOpen = false; run.choosing = false; setAltarShow(false); layGateRacks(); dirty = true;
-    };
+    const refreshHall = () => { if (!hall || armLocked) return; layGateRacks(); layShrines(); offered = null; };
     // The way down: the arm in hand is written to the save, and a fresh run is dealt from it on floor one behind the veil - the one path into a run (D8).
     const goDown = () => { lockArm(); restart(); };
     // RETURN TO THE ALTAR (D9): a finished run, won or lost, goes back to the hall, with what it banked ready to spend. The only way off the death and win cards.
@@ -1439,18 +1511,21 @@ export default function DungeonGame() {
     // is a walk back, not a dead run.
     const requestSwap = () => {
       if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing' || building || crossing) return;
-      // Plan 020: the hall's altar opens the shop, and its one door is the way down: it settles the arm and starts the run.
+      // Plan 020: the hall's altar opens its list (plan 025: on the pause card), and its one door is the way down: it settles the arm and starts the run.
       if (hall && overAltar) { openAltar(); return; }
       const rack = overRack;
       if (!rack || armLocked) { if (stairOpen && onStair) descend(); else if (overDoor && cleared.has(overDoor.from)) { if (hall) goDown(); else takeDoor(overDoor); } return; }
+      // Plan 025 (D8): a locked arm is taken to try, in the hall only; the owned arm set down for it is what the way down will take.
+      if (rack.locked && !canTry(rack.kind, hall)) return;
+      if (!rack.locked) lastOwned = rack.kind;
       // Both arms keep their own clocks: read the one in hand before `equip` hands over the rack's.
       const taken = weaponById(rack.kind), set = pc.weapon.id, at = { x: rack.x, z: rack.z }, left = keep(), slot = racks.indexOf(rack);
       equip(rack.kind, rack.kept);
-      disposeWeaponDrop(rack, (player.userData.armoury as {palette: ArmoryPalette}).palette);
+      dropRack(rack);
       // What he set down goes on the same slot; standing still after the swap, the prompt comes straight back naming it.
       racks[slot] = overRack = layRack(set, at.x, at.z, left); showOffer(set);
       audio.play('clear'); burst(player.position, 0xfbc956, 14);
-      setNotice(`${taken.name} in hand`); noticeTime = 3.5;
+      setNotice(rack.locked ? `${taken.name} in hand, to try` : `${taken.name} in hand`); noticeTime = 3.5;
       setHeldWeapon(taken.name);
     };
     // Plan 016: the arm's own verb. An arm without one leaves the input inert (decision 3). It is a swing
@@ -1501,7 +1576,7 @@ export default function DungeonGame() {
       if (!hasStarted || gameStatus !== 'playing' || run.choosing) return;
       // An armed rebind goes with the card. Left live, the first key pressed back in the fight would be
       // bound instead of swung, which is the worst possible moment to find out the capture was still open.
-      isPaused = !isPaused; setMapOpen(false); mapShown = false; setCapturing(null); keys.clear(); dropBuffers(pc); specialBuffer = 0; cancelCharge(); impacts.clearShock(); laneLife = 0; lane.visible = false; clearFlares(); setPaused(isPaused); audio.pause(isPaused);
+      isPaused = !isPaused; if (!isPaused) refreshHall(); setMapOpen(false); mapShown = false; setCapturing(null); keys.clear(); dropBuffers(pc); specialBuffer = 0; cancelCharge(); impacts.clearShock(); laneLife = 0; lane.visible = false; clearFlares(); setPaused(isPaused); audio.pause(isPaused);
       dirty = true;
     };
     // Mute is a setting like any other now, so it goes out through the same funnel and comes back through
@@ -1519,7 +1594,7 @@ export default function DungeonGame() {
       if (intent.prevent) e.preventDefault();
       // Escape answers whatever else it is set to. It is the one key no rebind can take away, so a player
       // cannot shut themselves out of the menu that would let them undo the rebind.
-      if (intent.command === 'pause') { if (altarOpen) closeAltar(); else togglePause(); return; }
+      if (intent.command === 'pause') { togglePause(); return; }
       if (intent.command === 'mute') { toggleMute(); return; }
       if (intent.command === 'fullscreen') { fullscreen(); return; }
       // Only while the fight is live or the map is already up (`readKey`), so a map key pressed on a menu
@@ -1559,10 +1634,11 @@ export default function DungeonGame() {
       // The first descent never passes through `restart`, so a dev `?arm=` has to be honoured here as well.
       if (process.env.NODE_ENV !== 'production') { const arm = devStartingArm(window.location.search); if (arm && pc.weapon.id !== arm) { equip(arm); setHeldWeapon(weaponById(arm).name); } }
       // The keep was built before the save was last read (or before a dev `?arm=`), so the armoury is asked again: an arm bought since stands on its slot, and the one in hand does not.
-      layGateRacks();
+      // Plan 025: and so are the shrines, whose notches and plaques are the save's.
+      layGateRacks(); layShrines();
       // Plan 020: the keep may have been built before the picker chose its slot (a test boot builds at mount), so entering records it under this one.
       if (!arena && level === 1 && !hall) writeSeed(activeSlot, floor.seed);
-      runArm = pc.weapon.id; began = startOf();
+      runArm = pc.weapon.id; lastOwned = pc.weapon.id; began = startOf();
       floorStart = elapsed; runStart = elapsed; hasStarted = true; setStarted(true); setCapturing(null); };
     const trigger = (e: Event) => {
       const command = parseCommand((e as CustomEvent<string>).detail);
@@ -1571,9 +1647,8 @@ export default function DungeonGame() {
         case 'continue': continueDescent(); return;
         // `restart` opens a fresh keep, `restart:<seed>` takes the same one again; a junk seed just means fresh.
         case 'restart': restart(command.seed); return;
-        // Plan 020: RETURN TO THE ALTAR, the shop put away, and LEAVE TO TITLE. (TO THE GATE, plan 019's way off the card to the title, is gone with the card's other buttons.)
+        // Plan 020: RETURN TO THE ALTAR and LEAVE TO TITLE (plan 025 retired the shop overlay's `shop-close`). (TO THE GATE, plan 019's way off the card to the title, is gone with the card's other buttons.)
         case 'altar': toAltar(); return;
-        case 'shop-close': closeAltar(); return;
         case 'title': toTitle(); return;
         // Plan 020: the title's slot picker. Choosing is two events, `slot:<n>` then `start`, so the slot is set before anything is dealt or built.
         // Neither is answered while a run is live or a build is pending; erasing the slot in play re-reads the mirrors the title shows.
@@ -1605,6 +1680,8 @@ export default function DungeonGame() {
         // arrived between plant and lift, or the knight would keep walking with no thumb on the glass.
         // Junk parses as a release for the same reason.
         case 'stick': stick = command.stick; return;
+        // Plan 025: the prompt's lift, above the guard for the stick's reason.
+        case 'release-swap': keys.delete('Touchswap'); return;
       }
       if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing') return;
       switch (command.kind) {
@@ -1622,6 +1699,8 @@ export default function DungeonGame() {
         // The prompt at the foot of the screen sends this too, so a tap answers the rack on a phone, where
         // there is no key to press and the prompt is the only thing naming the arm.
         case 'swap': requestSwap(); break;
+        // Plan 025 (D8): pressed and held, so a phone can hold the prompt to buy in the hall the way the key is held.
+        case 'hold-swap': keys.add('Touchswap'); requestSwap(); break;
         case 'move': keys.add(`Touch${command.action}`); break;
         case 'stop': keys.delete(`Touch${command.action}`); break;
       }
@@ -1716,7 +1795,7 @@ export default function DungeonGame() {
         // never close the map it opened.
         padStick = null; padLook = null;
         const start = pad.buttons[PAD_START]?.pressed ?? false, view = pad.buttons[PAD_VIEW]?.pressed ?? false;
-        if (start && !padPressed.has(PAD_START)) { if (altarOpen) closeAltar(); else togglePause(); }
+        if (start && !padPressed.has(PAD_START)) togglePause();
         else if (view && !padPressed.has(PAD_VIEW)) toggleMap();
         padPressed = new Set([...(start ? [PAD_START] : []), ...(view ? [PAD_VIEW] : [])]);
         return;
@@ -1866,6 +1945,26 @@ export default function DungeonGame() {
         }
         // Plan 020: the hall's altar, a prompt ring like a rack's. It outranks nothing it overlaps: the racks stand clear of it by construction (`HEART_CLEAR`).
         overAltar = !!stage.altar && Math.hypot(player.position.x - stage.altar.mesh.position.x, player.position.z - stage.altar.mesh.position.z) < ALTAR_PROMPT;
+        // Plan 025 (D8): the shrines' rings answer the step as a rack's does, and the swap key held on one press, on one target, for BUY_HOLD buys it once.
+        overShrine = null;
+        for (const shrine of shrines) {
+          const over = Math.hypot(player.position.x - shrine.x, player.position.z - shrine.z) < PICKUP_RADIUS;
+          if (over) overShrine = shrine;
+          shrine.lit += ((over ? 1 : 0) - shrine.lit) * (1 - Math.exp(-11 * dt));
+          shrine.ring.material.opacity = .3 + shrine.lit * .6; shrine.ring.scale.setScalar(1 + shrine.lit * .12);
+          shrine.glyph.rotation.y += dt * (over ? 1.6 : .5); shrine.glyph.position.y = 1.08 + Math.sin(t * 2 + shrine.x) * .05;
+        }
+        if (hall) {
+          const down = held('swap') || keys.has('Touchswap'), candidate = buyCandidate();
+          // Held as long as a purchase on something the purse cannot cover: one dull knock, not a knock on every press that only tries an arm.
+          const wanting = down && !!candidate && !candidate.affordable, waited = wanting ? refusing + dt : 0;
+          if (wanting && refusing < BUY_HOLD && waited >= BUY_HOLD) audio.play('refuse');
+          refusing = waited;
+          const step = holdStep(hold, down, candidate?.affordable ? candidate.key : null, dt); hold = step.hold;
+          if (step.buys && hold.target) purchase(hold.target);
+          buyRing.current?.style.setProperty('--fill', String(holdFill(hold)));
+          const landed = kit?.flight.step(dt); if (landed) burst(landed, 0xf3ecd8, 18);
+        }
         // Plan 017: this chamber's ways out. Barred until it is clear, lit once it is, and brighter still
         // under the knight's feet, like the rack's ring: the door is his for the asking, and the asking is
         // the swap key.
@@ -1898,7 +1997,7 @@ export default function DungeonGame() {
           ember.bid(lampAt.set(stage.stairSpot.x, .55, stage.stairSpot.z), Math.hypot(player.position.x - stage.stairSpot.x, player.position.z - stage.stairSpot.z), 9 + stairLit * 19, 0xfbc956);
         }
         // One prompt, asked once a frame, so the rack and the stair never take turns clearing each other's.
-        showOffer(overRack ? overRack.kind : stairOpen && onStair ? 'stair' : overAltar ? 'altar' : overDoor && cleared.has(overDoor.from) ? hall ? 'down' : `door:${overDoor.id}` : null);
+        showOffer(overRack ? overRack.kind : overShrine ? `shrine:${overShrine.id}` : stairOpen && onStair ? 'stair' : overAltar ? 'altar' : overDoor && cleared.has(overDoor.from) ? hall ? 'down' : `door:${overDoor.id}` : hall && !armLocked && !shopMeta.arms.includes(pc.weapon.id) ? 'buy' : null);
         if (gameStatus !== 'playing') return;
         // The hall's altar is a shrine that heals nobody (below), so it burns like one and rides the same loop.
         for (const feature of stage.altar ? [stage.altar, ...stage.features] : stage.features) {
@@ -2499,7 +2598,7 @@ export default function DungeonGame() {
         setArena(null);
         hasStarted = false; setStarted(false); setCapturing(null); enterWhenBuilt = false; setEntering(false);
         // Plan 020: the shop put away, and the page rebuilt as the URL's mode boots (the hall, or floor 1 under `?hall=skip`).
-        altarOpen = false; setAltarShow(false); setAltarNote('');
+        setAltarNote(''); setMenuStart('main'); bankedFrom = null;
         // Plan 020: the slot and the picker go back to what a boot leaves - the slot last played (the harness has just cleared the store, so slot 1)
         // and the title's main list. (An armed Erase and the picker's note are cleared by opening the picker, so a closed one has nothing to leave.)
         activeSlot = readSlot() ?? 1; setSlotOn(activeSlot); restoreSave(); setMenuView('main');
@@ -2577,12 +2676,18 @@ export default function DungeonGame() {
       } catch (error) { fail(error); throw error; }
     };
     const renderText = () => JSON.stringify({
-      coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, fault: faulted, slot: activeSlot, boonOffer: run.choosing && !altarOpen, muted: isMuted, roomName: hall ? 'The Tide Altar' : floor.rooms[activeRoom]?.name ?? 'Passage',
+      coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, fault: faulted, slot: activeSlot, boonOffer: run.choosing, muted: isMuted, roomName: hall ? 'The Tide Altar' : floor.rooms[activeRoom]?.name ?? 'Passage',
       // Plan 020: whether the floor drawn is the Tide Altar's hall, whether its shop is open, and what the scene actually placed there (read off the groups, not off the plan that placed them).
-      hall, altarOpen,
+      // Plan 025: the shop overlay is gone (its list is a page of the pause card), and `altarOpen` with it.
+      hall,
       hallProps: hall ? {
         altar: stage.altar ? { x: stage.altar.mesh.position.x, z: stage.altar.mesh.position.z, radius: ALTAR_PROMPT, over: overAltar, inScene: stage.altar.mesh.parent === floorGroup && (stage.altar.mesh.userData.crystal as THREE.Object3D | undefined)?.parent === floorGroup } : null,
         racks: racks.filter(rack => rack.group.parent === floorGroup).map(rack => rack.kind),
+        // Plan 025 (D8): the shop as the scene holds it. Each shrine's lit notches are counted off the meshes it wears, its price off the plaque attached to the floor;
+        // `buying` is the press in progress (what it is buying and how full the ring is), `pearls` the pearls in the air, `tried` an arm in hand that is not owned.
+        shrines: shrines.map(shrine => ({ id: shrine.id, x: shrine.group.position.x, z: shrine.group.position.z, over: shrine === overShrine, inScene: shrine.group.parent === floorGroup, ranks: shrine.notches.length, lit: shrine.notches.filter(n => n.material === kit?.notchLit).length, plaque: shrine.plaque?.parent === floorGroup ? shrine.plaque.userData.price as number : null })),
+        buying: { target: hold.target, fill: holdFill(hold) }, pearls: kit?.flight.active ?? 0, pulse: [...pulse],
+        tried: armLocked || shopMeta.arms.includes(pc.weapon.id) ? null : pc.weapon.id,
         wayDown: stage.doors[0] ? { x: stage.doors[0].spot.x, z: stage.doors[0].spot.z, radius: DOOR_RADIUS, open: !stage.doors[0].bars.visible, over: overDoor === stage.doors[0].door, inScene: [stage.doors[0].ring, stage.doors[0].veil, stage.doors[0].sigil].every(part => part.parent === floorGroup), sign: doorSignOf(floor, stage.doors[0].door) } : null,
         stair: !!stage.stairRing && stage.stairRing.parent === floorGroup,
       } : null,
@@ -2610,7 +2715,7 @@ export default function DungeonGame() {
           return { discs, programHolders: linked?.usedTimes ?? 0 }; })(),
         glance: glanceAge < GLANCE_SPAN ? { age: glanceAge, x: glanceAt.x, z: glanceAt.z } : null },
       // Plan 019: read off the scene - where each rack's group really stands and whether it is attached to the floor - not off the layout that placed it.
-      racks: racks.map(rack => ({ x: rack.group.position.x, z: rack.group.position.z, kind: rack.kind, radius: PICKUP_RADIUS, over: rack === overRack, inScene: rack.group.parent === floorGroup, offered: rack === overRack && offered && offered !== 'stair' && offered !== 'altar' && offered !== 'down' && !offered.startsWith('door:') ? offered : null })),
+      racks: racks.map(rack => ({ x: rack.group.position.x, z: rack.group.position.z, kind: rack.kind, radius: PICKUP_RADIUS, over: rack === overRack, inScene: rack.group.parent === floorGroup, offered: rack === overRack && offered && offered !== 'stair' && offered !== 'altar' && offered !== 'down' && offered !== 'buy' && !offered.startsWith('door:') && !offered.startsWith('shrine:') ? offered : null, locked: rack.locked, plaque: rack.plaque?.parent === floorGroup ? rack.plaque.userData.price as number : null, plaqueReady: !!rack.plaque && rack.plaque.material === kit?.ready })),
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, perBoss: XP_PER_BOSS, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, shadow: post.shadow, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: pointLightCount(scene), programs: linkedPrograms(renderer), warmUp, quality: post.quality,
         // What the frame is drawn with now, read off the passes and the renderer rather than the governor's own rung.
@@ -2752,13 +2857,13 @@ export default function DungeonGame() {
   // would activate on the very key a player is most likely still holding when a card opens. A dialog with
   // a name announces itself; Tab then reaches the card's own controls first.
   const focusCard = useCallback((card: HTMLElement | null) => { card?.focus({ preventScroll: true }); }, []);
-  const cardOpen = fault || !started || (paused && !mapOpen) || (boonChoice.length > 0 && status === 'playing') || altarShow || status === 'complete' || status === 'won' || status === 'lost';
+  const cardOpen = fault || !started || (paused && !mapOpen) || (boonChoice.length > 0 && status === 'playing') || status === 'complete' || status === 'won' || status === 'lost';
   const menuOpen = !displayFailed && !fault && (!started || (paused && !mapOpen));
   // Every time the card closes it reopens on the menu list, not on whichever page it was left at. Adjusted
   // during render rather than in an effect, so a reopened card never paints the stale page for a frame.
   const [menuWasOpen, setMenuWasOpen] = useState(menuOpen);
-  if (menuWasOpen !== menuOpen) { setMenuWasOpen(menuOpen); setMenuView('main'); }
-  const openView = (view: 'controls' | 'settings' | 'arena' | 'slots') => { returnTo.current = view; if (view === 'slots') { setSlots(SLOTS.map(slot => slotSummary(slot))); setErasing(null); setSlotNote(''); } setMenuView(view); };
+  if (menuWasOpen !== menuOpen) { setMenuWasOpen(menuOpen); setMenuView(menuOpen && hallOn ? menuStart : 'main'); setMenuStart('main'); }
+  const openView = (view: 'controls' | 'settings' | 'arena' | 'slots' | 'altar') => { returnTo.current = view; if (view === 'slots') { setSlots(SLOTS.map(slot => slotSummary(slot))); setErasing(null); setSlotNote(''); } setMenuView(view); };
   const closeView = () => { setCapturing(null); setBindNote(''); setMenuView('main'); };
   // Plan 020, D3: choosing a card is the slot, then the press. Erase arms on the first press and erases on the second; one card is armed at a time, so
   // arming another disarms this one, and the card that lost its Erase gets the focus the button had.
@@ -2799,11 +2904,11 @@ export default function DungeonGame() {
       {/* Plan 021 (D8): present only while a boss is awake and alive. Its name, its vitality and a tick at each phase threshold; a hand-set role for the same reason the vitality track has one. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
       {bossBar && <div className="boss-bar" role="progressbar" aria-label={bossBar.name} aria-valuemin={0} aria-valuemax={bossBar.maxHp} aria-valuenow={bossBar.hp} data-phase={bossBar.phase}><b>{bossBar.name}</b><span className="boss-track"><i style={{ width: `${Math.max(0, bossBar.hp / bossBar.maxHp * 100)}%` }} />{bossBar.phases.map(share => <u key={share} style={{ left: `${share * 100}%` }} />)}</span></div>}
-      <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || paused || status !== 'playing' || boonChoice.length > 0 || altarShow} aria-label="Pause game">☰</button></nav>
+      <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || paused || status !== 'playing' || boonChoice.length > 0} aria-label="Pause game">☰</button></nav>
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      <section className="hud" aria-label="Player status">{/* Plan 020 (D5): the knight is not at risk in the hall, so it shows neither vitality nor rank. */}{!hallOn && <><div className="health-row"><span aria-hidden="true" /><b>{health}<small>/{maxHealth}</small></b><span className="rank-badge" aria-label={`Rank ${rank}`}>{rank}</span></div><div className="health-track" role="progressbar" aria-label="Vitality" aria-valuemin={0} aria-valuemax={maxHealth} aria-valuenow={health}><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div></>}
+      <section className="hud" aria-label="Player status">{/* Plan 020 (D5): the knight is not at risk in the hall, so it shows neither vitality nor rank. Plan 025 (D8): the pearls show there, and only there. */}{hallOn && <HallPurse pearls={meta.pearls} pulse={pursePulse} />}{!hallOn && <><div className="health-row"><span aria-hidden="true" /><b>{health}<small>/{maxHealth}</small></b><span className="rank-badge" aria-label={`Rank ${rank}`}>{rank}</span></div><div className="health-track" role="progressbar" aria-label="Vitality" aria-valuemin={0} aria-valuemax={maxHealth} aria-valuenow={health}><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div></>}
         {/* Plan 014 round 5 (lever C8): the two abilities the knight actually has, each named by its
             real bound key rather than a fixed legend - a rebind shows up here the same frame it shows
             up on the settings card. The dash icon's own conic-gradient sweep is what used to be the
@@ -2842,14 +2947,16 @@ export default function DungeonGame() {
           is standing in a rack's ring, and it is the only thing that will take an arm out of his hand. It is a
           button as well as a line of text so a phone, which has no key to press, can answer it by tap — pointer
           focus is refused outright, or Space would activate this instead of swinging the moment it is touched. */}
-      {swapOffer && started && !paused && status === 'playing' && boonChoice.length === 0 && !altarShow &&
-        <button className="swap-prompt" onPointerDown={(e) => { e.preventDefault(); action('swap'); }} aria-label={`Press ${bindLabel(settings.binds.swap, ' or ')} to ${swapOffer.act}`}>
-          <b><span className="swap-key">Press <kbd>{bindLabel(settings.binds.swap)}</kbd> to </span>{swapOffer.act}</b><small>{swapOffer.detail}</small>
-        </button>}
+      {swapOffer && started && !paused && status === 'playing' && boonChoice.length === 0 &&
+        <>{/* Plan 025 (D8): at a rack or a shrine of the hall, the card with what it is; held to buy, the ring on the prompt fills (`--fill`, set by the frame loop). */}
+        {swapOffer.card && <RackCard card={swapOffer.card} />}
+        <button className={`swap-prompt${swapOffer.hold || (swapOffer.card?.kind === 'arm' && !swapOffer.card.owned) ? ' buys' : ''}`} onPointerDown={(e) => { e.preventDefault(); action('hold-swap'); }} onPointerUp={() => action('release-swap')} onPointerCancel={() => action('release-swap')} onPointerLeave={() => action('release-swap')} aria-label={`${swapOffer.hold ? 'Hold' : 'Press'} ${bindLabel(settings.binds.swap, ' or ')} to ${swapOffer.act}`}>
+          <i className="buy-ring" ref={buyRing} aria-hidden="true" /><b><span className="swap-key">{swapOffer.hold ? 'Hold' : 'Press'} <kbd>{bindLabel(settings.binds.swap)}</kbd> to </span>{swapOffer.act}</b><small>{swapOffer.detail}</small>
+        </button></>}
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      {menuOpen && <div className="intro-screen"><section className={`intro-card${menuView === 'main' ? '' : ' sub-view'}`} role="dialog" aria-modal="true" aria-labelledby="intro-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : arenaOn ? `ARENA · ${arenaOn.roster.length} ${arenaOn.roster.length === 1 ? 'FOE' : 'FOES'} · FLOOR ${arenaOn.level}` : 'THE DROWNED KEEP'}</span><h1 id="intro-title">{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
+      {menuOpen && <div className="intro-screen"><section className={`intro-card${menuView === 'main' ? '' : ' sub-view'}${menuView === 'altar' ? ' altar-view' : ''}`} role="dialog" aria-modal="true" aria-labelledby="intro-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : arenaOn ? `ARENA · ${arenaOn.roster.length} ${arenaOn.roster.length === 1 ? 'FOE' : 'FOES'} · FLOOR ${arenaOn.level}` : 'THE DROWNED KEEP'}</span><h1 id="intro-title">{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
         {menuView === 'main' ? <>
         {paused && <p>{advance} / {goalDepth} chambers down · {visitedCount} of {roomCount} seen<br />Rank {rank} · {experience} XP · {rankXp} / {rankNeed} to next boon{xpReward > 0 ? ` · +${xpReward} XP` : ''}</p>}
         {!paused && best && <p className="best-run">Slot {slotOn} · Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</p>}
@@ -2858,6 +2965,8 @@ export default function DungeonGame() {
           <button className="primary-action" data-view={paused ? undefined : 'slots'} ref={returnFocus} disabled={!hydrated} onClick={() => paused ? action('pause') : openView('slots')}>{paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
           {paused && !hallOn && <button onClick={() => action('map')}>Floor map</button>}
           {/* Plan 020 (D10): only in the hall. Mid-run the pause menu has no way out: a run ends on its card. */}
+          {/* Plan 025 (D8): the altar's two lists survive here, in the hall only, for touch and for anyone who would rather read than walk the racks. */}
+          {paused && hallOn && <button data-view="altar" ref={returnFocus} className="opens" onClick={() => { setAltarNote(''); openView('altar'); }}>The altar&rsquo;s list<span aria-hidden="true">›</span></button>}
           {paused && hallOn && <button onClick={() => { action('title'); openView('slots'); }}>LEAVE TO TITLE</button>}
           <button data-view="controls" ref={returnFocus} className="opens" onClick={() => openView('controls')}>Controls &amp; journey<span aria-hidden="true">›</span></button>
           <button data-view="settings" ref={returnFocus} className="opens" onClick={() => openView('settings')}>Settings<span aria-hidden="true">›</span></button>
@@ -2868,11 +2977,11 @@ export default function DungeonGame() {
         {/* Development only, and outside the menu list so the list reads the same in both builds. */}
         {process.env.NODE_ENV !== 'production' && <div className="menu-dev"><button data-view="arena" ref={returnFocus} className="opens" disabled={!hydrated} onClick={() => openView('arena')}>Arena · dev<span aria-hidden="true">›</span></button></div>}
         </> : <div className="menu-panel">
-        <button className="menu-back" ref={focusCard} onClick={closeView}><span aria-hidden="true">←</span> Back</button>
-        <h2>{menuView === 'controls' ? 'Controls & journey' : menuView === 'arena' ? 'Arena' : menuView === 'slots' ? 'Choose a slot' : 'Settings'}</h2>
+        {menuView === 'altar' ? <button className="menu-back" onClick={() => action('pause')}><span aria-hidden="true">←</span> Back to the hall</button> : <button className="menu-back" ref={focusCard} onClick={closeView}><span aria-hidden="true">←</span> Back</button>}
+        <h2>{menuView === 'controls' ? 'Controls & journey' : menuView === 'arena' ? 'Arena' : menuView === 'slots' ? 'Choose a slot' : menuView === 'altar' ? 'Spend what the tide gave' : 'Settings'}</h2>
         {/* Read off the bindings rather than written out, or this page would go on promising WASD to a player
             who rebound it ten seconds ago — which is the exact moment they would come here to check. */}
-        {process.env.NODE_ENV !== 'production' && menuView === 'arena' ? <ArenaPanel floors={FLOORS} choice={arenaChoice} choose={setArenaChoice} /> : menuView === 'slots' ? <SlotPicker slots={slots} last={slotOn} erasing={erasing} note={slotNote} choose={chooseSlot} erase={pressErase} /> : menuView === 'controls' ? <div className="menu-details"><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.special)}</kbd> {specialArm ? `${specialArm.name}, the arm's special` : 'Special · this arm has none'}</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.swap)}</kbd> Use what you stand on: an arm, the altar, a door, the open stair</span><span><kbd>{bindLabel(settings.binds.map)}</kbd> Floor map</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><div className="intro-controls"><span><kbd>Mouse</kbd> Point where to cut</span><span><kbd>Gamepad</kbd> Left stick moves, right stick aims, A strikes, B or RB dodges, X special, Y takes the arm or the stair, View opens the map</span></div><p className="control-note">A cursor over the keep aims every swing, so the knight can retreat and cut behind him. Striking from the keyboard or the pad hands the aim back, and those are helped onto whatever body is nearly in front of him; dodging does not. Every arm has a special of its own, and taking up another arm hands you a ready one.{specialArm ? ` ${specialArm.detail}` : ''}</p><p>Reach {goalName}. Defeat the stair wardens, then stand on the stair they guarded and answer the prompt to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality. An arm laid out on the floor is offered, never taken: stand in its ring and answer the prompt to trade for it.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</div> : <div className="menu-details settings-panel">
+        {process.env.NODE_ENV !== 'production' && menuView === 'arena' ? <ArenaPanel floors={FLOORS} choice={arenaChoice} choose={setArenaChoice} /> : menuView === 'altar' ? <AltarPanel meta={meta} buy={buy} note={altarNote} /> : menuView === 'slots' ? <SlotPicker slots={slots} last={slotOn} erasing={erasing} note={slotNote} choose={chooseSlot} erase={pressErase} /> : menuView === 'controls' ? <div className="menu-details"><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.special)}</kbd> {specialArm ? `${specialArm.name}, the arm's special` : 'Special · this arm has none'}</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.swap)}</kbd> Use what you stand on: an arm, the altar, a door, the open stair</span><span><kbd>{bindLabel(settings.binds.map)}</kbd> Floor map</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><div className="intro-controls"><span><kbd>Mouse</kbd> Point where to cut</span><span><kbd>Gamepad</kbd> Left stick moves, right stick aims, A strikes, B or RB dodges, X special, Y takes the arm or the stair, View opens the map</span></div><p className="control-note">A cursor over the keep aims every swing, so the knight can retreat and cut behind him. Striking from the keyboard or the pad hands the aim back, and those are helped onto whatever body is nearly in front of him; dodging does not. Every arm has a special of its own, and taking up another arm hands you a ready one.{specialArm ? ` ${specialArm.detail}` : ''}</p><p>Reach {goalName}. Defeat the stair wardens, then stand on the stair they guarded and answer the prompt to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality. An arm laid out on the floor is offered, never taken: stand in its ring and answer the prompt to trade for it.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</div> : <div className="menu-details settings-panel">
           {/* Everything here persists, and everything here has a default that is the game exactly as it
               shipped, so a player who never opens this changes nothing by not opening it. */}
           <div className="setting-row"><label htmlFor="set-volume">Volume</label><input id="set-volume" type="range" min="0" max="100" step="5" value={Math.round(settings.volume * 100)} onChange={(e) => change({ volume: Number(e.target.value) / 100 })} /><small>{settings.muted ? 'muted' : `${Math.round(settings.volume * 100)}%`}</small></div>
@@ -2904,11 +3013,6 @@ export default function DungeonGame() {
         <span className="end-kicker">RANK {rank} · CHOOSE A BOON</span><h1 id="boon-title">The tide gives back.</h1>
         <div className="boon-options">{boonChoice.map(boon => <button key={boon.id} className="boon-option" onClick={() => action(`boon:${boon.id}`)}><strong>{boon.name}</strong><span>{boon.detail}</span></button>)}</div>
       </div></div>}
-      {/* Plan 020 (D6): the Tide Altar's shop, the title's old panel as an overlay of the hall. It holds the world (see `openAltar`) and the card, not its Back button,
-          takes focus, for the same reason every card here does: the key that opened it may be a Space still held. Escape closes it too. */}
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      {altarShow && <div className="intro-screen altar-screen"><section className="intro-card sub-view altar-view" role="dialog" aria-modal="true" aria-labelledby="altar-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">THE TIDE ALTAR · SLOT {slotOn}</span><h1 id="altar-title">Spend what<br /><em>the tide gave.</em></h1>
-        <div className="menu-panel"><button className="menu-back" onClick={() => action('shop-close')}><span aria-hidden="true">←</span> Back to the hall</button><AltarPanel meta={meta} buy={buy} note={altarNote} /></div></section></div>}
       {started && (status === 'won' || status === 'lost') && <div className="end-screen result-screen"><div className="end-card result-card" role="alertdialog" aria-modal="true" aria-labelledby="result-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{status === 'won' ? 'THE KEEP IS BEHIND YOU' : `FLOOR ${floorLevel} · FAILED`}</span><h1 id="result-title">{status === 'won' ? 'You climb into the dawn.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'Three floors of the drowned watch lie still behind you.' : 'The tide carries you back to the altar.'}</p><div className="xp-summary"><strong>{experience} XP earned</strong><span>Floor {floorLevel} of {FLOORS} · rank {rank} · {defeated} guards felled · XP resets on a new run</span>{ended && (() => { const sum = summariseRunEnd(ended); return <>{sum.cause && <span className="run-cause">{sum.cause}</span>}<span className="run-detail">{sum.time} · {sum.boons}</span>{!arenaOn && <span className="run-pearls">+{ended.pearls} {ended.pearls === 1 ? 'pearl' : 'pearls'} · {meta.pearls} held</span>}</>; })()}{best && <small>Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</small>}</div>{/* Plan 020 (D9): one way off the card, won or lost. A seed is retried by the `restart:<seed>` command, never from here. */}<button className="return-altar" onClick={() => action('altar')}>RETURN TO THE ALTAR</button></div></div>}
       {/* Plain markup on purpose: the canvas was never mounted, so this is the only thing left to look at. */}
       {displayFailed && <div className="end-screen display-failed"><div className="end-card" role="alertdialog" aria-modal="true" aria-labelledby="display-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">THE GATE STAYS SHUT</span><h1 id="display-title">No light to see by.</h1><p>This browser could not open a 3D display, so the keep cannot be drawn. That most often means hardware acceleration is switched off in the browser&rsquo;s settings.</p></div></div>}

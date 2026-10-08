@@ -1,5 +1,5 @@
 import { freshMeta } from '../../app/dungeon-meta.ts';
-import { expect, press, test } from './helpers.ts';
+import { expect, press, type Snapshot, test } from './helpers.ts';
 
 // A rack is the only way an arm other than the one he started with ever reaches the knight's hand, so what this
 // covers is the swap itself: that the rack only ever offers, that the swap key is what takes it, that what
@@ -15,18 +15,20 @@ test('standing on a rack offers the arm and takes nothing; the swap key is what 
   await game.enter();
   await game.buildHall();
   const opening = await game.state();
-  expect(opening.racks, 'the hall lays one rack out for the one arm owned besides the sword in hand').toHaveLength(1);
+  // Plan 025 (D8): the hall stands every arm on a rack, the ones not owned locked, so the open racks are the owned ones. The slot is followed by where it stands, since a swap leaves the sword on the maul's.
+  expect(opening.racks.filter((r) => !r.locked), 'the hall lays one open rack out for the one arm owned besides the sword in hand').toHaveLength(1);
   expect(opening.weapon.id).toBe('tideblade');
-  const rack = opening.racks[0], offered = rack.kind;
+  const rack = opening.racks.find((r) => !r.locked)!, offered = rack.kind;
   expect(offered).toBe('maul');
+  const slot = (state: Snapshot) => state.racks.find((r) => r.x === rack.x && r.z === rack.z)!;
 
   // Standing just outside the ring offers nothing, however long the knight waits there, and the key
   // pressed out there is inert rather than a swap at a distance.
   await game.teleport(rack.x + rack.radius + 0.6, rack.z);
   await game.step(900);
   const waiting = await game.state();
-  expect(waiting.racks[0].over).toBe(false);
-  expect(waiting.racks[0].offered).toBeNull();
+  expect(slot(waiting).over).toBe(false);
+  expect(slot(waiting).offered).toBeNull();
   await page.keyboard.press('KeyE');
   await game.step(32);
   expect((await game.state()).weapon.id).toBe('tideblade');
@@ -35,8 +37,8 @@ test('standing on a rack offers the arm and takes nothing; the swap key is what 
   await game.teleport(rack.x, rack.z);
   await game.step(2000);
   const standing = await game.state();
-  expect(standing.racks[0].over).toBe(true);
-  expect(standing.racks[0].offered).toBe(offered);
+  expect(slot(standing).over).toBe(true);
+  expect(slot(standing).offered).toBe(offered);
   expect(standing.weapon.id, 'standing on the rack took the arm by itself').toBe('tideblade');
   await expect(page.locator('.swap-prompt')).toContainText('switch to', { ignoreCase: true });
 
@@ -46,10 +48,10 @@ test('standing on a rack offers the arm and takes nothing; the swap key is what 
   const armed = await game.state();
   expect(armed.weapon.id).toBe(offered);
   // What he set down is still there: a swap he regrets is a walk back, not a dead run.
-  expect(armed.racks).toHaveLength(1);
-  expect(armed.racks[0].kind).toBe('tideblade');
+  expect(armed.racks.filter((r) => !r.locked)).toHaveLength(1);
+  expect(slot(armed).kind).toBe('tideblade');
   // And the prompt turns around with it, naming the sword he just put down.
-  expect(armed.racks[0].offered).toBe('tideblade');
+  expect(slot(armed).offered).toBe('tideblade');
 
   // The swing runs on the new arm, read off a real swing rather than the weapon table.
   expect(armed.weapon.duration, 'the fixture needs an arm that swings at a different speed').not.toBe(opening.weapon.duration);
@@ -65,7 +67,7 @@ test('standing on a rack offers the arm and takes nothing; the swap key is what 
   await game.teleport(rack.x + rack.radius + 1.2, rack.z);
   await game.step(64);
   await expect(page.locator('.swap-prompt')).toHaveCount(0);
-  expect((await game.state()).racks[0].offered).toBeNull();
+  expect(slot(await game.state()).offered).toBeNull();
 
   // And a new descent starts on the arm the save holds, whatever he left the last one holding (nothing was locked: he never
   // took the way down). Floor one's gate has no racks; the hall, laid out again, holds the maul as it did.
@@ -77,6 +79,6 @@ test('standing on a rack offers the arm and takes nothing; the swap key is what 
   expect(fresh.racks, 'floor one\'s gate laid a rack').toEqual([]);
   await game.buildHall();
   const again = await game.state();
-  expect(again.racks.map((r) => r.kind)).toEqual(['maul']);
-  expect(again.racks[0].offered).toBeNull();
+  expect(again.racks.filter((r) => !r.locked).map((r) => r.kind)).toEqual(['maul']);
+  expect(slot(again).offered).toBeNull();
 });

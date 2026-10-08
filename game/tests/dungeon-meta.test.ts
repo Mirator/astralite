@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { ARM_ORDER, ARM_PRICES, bank, BOSS_PEARLS, buyArm, buyUpgrade, CHAMBER_PEARLS, chooseArm, ELITE_PEARLS, FLOOR_PEARLS, FLOORS, freshMeta, maxedMeta, pearlsFor, PEARL_CAP, PRICE_TOTAL, rankOf, runStart, UPGRADES, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
+import { affordable, armFacts, armForRun, ARM_ORDER, ARM_PRICES, bank, BUY_HOLD, canTry, holdFill, holdStep, idleHold, newlyAffordable, sameMeta, settleArm, shopItem, type Hold, BOSS_PEARLS, buyArm, buyUpgrade, CHAMBER_PEARLS, chooseArm, ELITE_PEARLS, FLOOR_PEARLS, FLOORS, freshMeta, maxedMeta, pearlsFor, PEARL_CAP, PRICE_TOTAL, rankOf, runStart, UPGRADES, WHET_STRIKE, type Meta } from '../app/dungeon-meta.ts';
 import { FLOORS as SIM_FLOORS } from '../scripts/balance/sim.ts';
 import { STRIKE_BONUS } from '../app/dungeon-sim.ts';
 import { FOUND_WEAPONS } from '../app/dungeon-weapon.ts';
@@ -168,4 +168,100 @@ test('everything costs PRICE_TOTAL, and two typical runs buy an arm and a rank',
   assert.ok(cheapestArm + cheapestRank <= twoRuns, `two typical runs (${twoRuns}) no longer buy the cheapest arm (${cheapestArm}) and rank (${cheapestRank})`);
   assert.equal(UPGRADES.find(upgrade => upgrade.id === 'whet')?.ranks, 1, 'Whetted Start was cut to one rank (operator, 2026-10-02)');
   assert.ok(WHET_STRIKE < STRIKE_BONUS, 'Whetted Start must add less than a Whetted Edge boon');
+});
+
+// Plan 025 (D8): the hall is the shop. Holding the swap key buys; these are the rules the hall answers the key with.
+// A hold stepped at 60 frames a second for `seconds` on one target, the key down throughout; the number of purchases it made.
+const holdFor = (seconds: number, target: string | null = 'upgrade:lungs', from: Hold = idleHold()) => {
+  let hold = from, buys = 0;
+  for (let t = 0; t < seconds; t += 1 / 60) { const step = holdStep(hold, true, target, 1 / 60); hold = step.hold; if (step.buys) buys++; }
+  return { hold, buys };
+};
+
+test('a hold buys once it has run BUY_HOLD on one target, never on the press, and only once a press', () => {
+  assert.equal(BUY_HOLD, 0.6, 'the plan asks for a 0.6 s hold');
+  const first = holdStep(idleHold(), true, 'upgrade:lungs', 1 / 60);
+  assert.equal(first.buys, false, 'the press itself bought');
+  const short = holdFor(BUY_HOLD - 0.05);
+  assert.equal(short.buys, 0, 'a hold short of BUY_HOLD bought');
+  assert.ok(holdFill(short.hold) > 0.8 && holdFill(short.hold) < 1, `precondition: the ring was nearly full (${holdFill(short.hold)}), so the refusal is about time and not a hold that never ran`);
+  assert.equal(holdFor(BUY_HOLD + 0.05).buys, 1, 'a hold past BUY_HOLD did not buy');
+  // Held on for three times as long, on an upgrade with ranks to spare: still one purchase, and the ring stays full until the key comes up.
+  const long = holdFor(BUY_HOLD * 3);
+  assert.equal(long.buys, 1, 'a long hold bought more than once');
+  assert.equal(holdFill(long.hold), 1);
+  const released = holdStep(long.hold, false, 'upgrade:lungs', 1 / 60);
+  assert.deepEqual([released.buys, holdFill(released.hold)], [false, 0], 'letting go bought, or left the ring filled');
+  assert.equal(holdFor(BUY_HOLD + 0.05, 'upgrade:lungs', released.hold).buys, 1, 'a fresh press after the release did not buy again');
+});
+
+test('a hold that starts on nothing, or leaves its target, is spent until the key comes up', () => {
+  // Pressed on bare floor, then walked onto a shrine with the key still down: nothing is bought by arriving.
+  let hold = holdStep(idleHold(), true, null, 1 / 60).hold;
+  assert.equal(holdFor(BUY_HOLD * 2, 'upgrade:lungs', hold).buys, 0, 'walking onto a shrine with the key held bought');
+  // Halfway on one shrine, then onto another: the second does not inherit the first's time, nor start its own.
+  hold = holdFor(BUY_HOLD / 2, 'upgrade:lungs').hold;
+  assert.ok(holdFill(hold) > 0.4, 'precondition: the first hold was under way');
+  assert.equal(holdFor(BUY_HOLD * 2, 'upgrade:eye', hold).buys, 0, 'moving to another target mid-hold bought it');
+  // Released between, it buys.
+  assert.equal(holdFor(BUY_HOLD + 0.05, 'upgrade:eye', holdStep(hold, false, null, 1 / 60).hold).buys, 1);
+});
+
+test('a shop item names its next price and whether it is affordable; too few pearls is short by the difference, and a top rank has no price', () => {
+  const lungs = upgrade('lungs');
+  assert.deepEqual(shopItem(rich({ pearls: lungs.price(0) - 1 }), 'upgrade', 'lungs'), { kind: 'upgrade', id: 'lungs', name: 'Deep Lungs', price: lungs.price(0), held: 0, ranks: 3, affordable: false, short: 1 });
+  const second = shopItem(rich({ pearls: lungs.price(1), upgrades: { lungs: 1 } }), 'upgrade', 'lungs');
+  assert.deepEqual([second?.price, second?.affordable], [lungs.price(1), true], 'the second rank is not priced as the second rank, or exactly enough for it is not affordable');
+  // The rank cap: at the top there is nothing to price, whatever the purse.
+  assert.deepEqual(shopItem(rich({ upgrades: { lungs: 3 } }), 'upgrade', 'lungs'), { kind: 'upgrade', id: 'lungs', name: 'Deep Lungs', price: null, held: 3, ranks: 3, affordable: false, short: 0 }, 'at the top rank there is still a price');
+  assert.equal(shopItem(rich({ upgrades: { tide: 1 } }), 'upgrade', 'tide')?.price, null);
+  assert.deepEqual(shopItem(rich({ pearls: 10 }), 'arm', 'maul'), { kind: 'arm', id: 'maul', name: 'Bell Maul', price: ARM_PRICES.maul, held: 0, ranks: 1, affordable: false, short: ARM_PRICES.maul - 10 });
+  assert.equal(shopItem(rich({ arms: ['tideblade', 'maul'] }), 'arm', 'maul')?.price, null, 'an owned arm still has a price');
+  assert.equal(shopItem(rich(), 'arm', 'tideblade')?.price, null, 'the Tideblade has a price');
+  assert.equal(shopItem(rich(), 'arm', 'lance'), null);
+  assert.equal(shopItem(rich(), 'upgrade', 'toString'), null);
+});
+
+test('what is affordable follows the purse, and a bank names only what it newly put in reach', () => {
+  assert.deepEqual(affordable(freshMeta()), [], 'an empty purse affords something');
+  const lungs = upgrade('lungs').price(0);
+  assert.deepEqual(affordable(rich({ pearls: lungs })), ['upgrade:lungs'], `${lungs} pearls afford exactly the first rank of Deep Lungs`);
+  assert.deepEqual(affordable(rich({ pearls: ARM_PRICES.fangs })), ['arm:fangs', 'upgrade:lungs']);
+  assert.deepEqual(newlyAffordable(rich({ pearls: lungs }), rich({ pearls: ARM_PRICES.fangs })), ['arm:fangs'], 'the bank named what was already in reach');
+  assert.deepEqual(newlyAffordable(rich({ pearls: ARM_PRICES.fangs }), rich({ pearls: ARM_PRICES.fangs + 1 })), [], 'a pearl more made nothing new affordable');
+});
+
+test('a tried arm is not owned: trying is the hall\'s alone, and the way down settles an owned arm, never the one tried', () => {
+  assert.equal(canTry('maul', true), true);
+  assert.equal(canTry('maul', false), false, 'an arm can be tried outside the hall');
+  assert.equal(canTry('lance', true), false);
+  const meta = rich({ arms: ['tideblade', 'spear'], arm: 'tideblade' });
+  // He set the spear down to try the maul: the run takes the spear, the arm he owns and last held.
+  assert.equal(armForRun(meta, 'maul', 'spear'), 'spear', 'the run takes the arm tried');
+  assert.equal(armForRun(meta, 'spear', 'tideblade'), 'spear', 'an owned arm in hand is not the one taken');
+  assert.equal(armForRun(meta, 'maul', 'cleaver'), 'tideblade', 'with nothing owned to fall back on, the save\'s own arm');
+  const settled = settleArm(meta, 'maul', 'spear');
+  assert.equal(settled.arm, 'spear', 'the way down wrote the arm tried');
+  assert.deepEqual(settled.arms, ['tideblade', 'spear'], 'carrying the maul down made it owned');
+  assert.equal(settled.pearls, meta.pearls, 'settling the arm spent pearls');
+  assert.deepEqual(meta.arms, ['tideblade', 'spear'], 'the input was changed');
+});
+
+test('the card at a rack reads its arm: damage in blows, reach, swings a second, and the special', () => {
+  assert.deepEqual(armFacts('tideblade'), { name: 'Tideblade', detail: 'The blade you came in with. Even in every way.', damage: 1, reach: 1.8, speed: 2.6, ranged: false, special: { name: 'Undertow Lunge', detail: 'The Tideblade lunges along your aim and cuts everything on the line.' } });
+  // A ranged arm's reach is how far its shot flies, not the notch it leaves from.
+  assert.deepEqual([armFacts('crossbow').reach, armFacts('crossbow').ranged], [11.8, true]);
+  assert.ok(armFacts('maul').damage > armFacts('tideblade').damage, 'precondition: the arms differ, or a card that showed the Tideblade for all would pass');
+});
+
+// Plan 025: the hall's purchase and the altar's list check what was written by reading it back. The save keeps upgrades in the table's order, so a string
+// comparison called a working save a failed one whenever Second Tide was bought before Deep Lungs.
+test('two saves holding the same things are the same save, whatever order their upgrades were bought in', () => {
+  const read = rich({ upgrades: { lungs: 1, tide: 1 }, arms: ['tideblade', 'maul'] }), bought = rich({ upgrades: { tide: 1, lungs: 1 }, arms: ['tideblade', 'maul'] });
+  assert.notEqual(JSON.stringify(read), JSON.stringify(bought), 'precondition: the two are spelled differently');
+  assert.equal(sameMeta(read, bought), true, 'the same ranks in another order are not the same save');
+  assert.equal(sameMeta(read, { ...bought, upgrades: { tide: 1, lungs: 2 } }), false, 'a rank more is the same save');
+  assert.equal(sameMeta(read, { ...bought, pearls: bought.pearls - 1 }), false, 'a pearl less is the same save');
+  assert.equal(sameMeta(read, { ...bought, arms: ['tideblade'] }), false, 'an arm less is the same save');
+  assert.equal(sameMeta(read, { ...bought, arm: 'maul' }), false, 'another arm in hand is the same save');
 });

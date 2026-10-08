@@ -167,7 +167,8 @@ test('swapping arms with the spear in flight lays the spear on the rack and leav
   await game.step(120);
   const opening = await game.state();
   expect(opening.weapon.id, 'the spear is in hand').toBe('spear');
-  expect(opening.racks.map((r) => r.kind), 'the hall shows the other two arms').toEqual(['tideblade', 'maul']);
+  // Plan 025 (D8): the hall stands every arm on a rack, the ones not owned locked, so the open racks are the owned ones.
+  expect(opening.racks.filter((r) => !r.locked).map((r) => r.kind), 'the hall shows the other two arms').toEqual(['tideblade', 'maul']);
   const rack = opening.racks.find((r) => r.kind === 'maul')!;
   await game.teleport(rack.x, rack.z);
   await game.step(32);
@@ -179,7 +180,7 @@ test('swapping arms with the spear in flight lays the spear on the rack and leav
   await game.step(16);
   const swapped = await game.state();
   expect(swapped.weapon.id).toBe(rack.kind);
-  expect(swapped.racks.map((r) => r.kind).sort(), 'the spear is on the rack, not lost').toEqual(['spear', 'tideblade']);
+  expect(swapped.racks.filter((r) => !r.locked).map((r) => r.kind).sort(), 'the spear is on the rack, not lost').toEqual(['spear', 'tideblade']);
   expect(swapped.weapon.inFlight, 'and not in the air').toBe(0);
   // The arm taken from the rack is its own, and arrives ready. (The maul has a special, so this always reads one.)
   const special = specialOf(swapped);
@@ -203,9 +204,10 @@ test('swap, swap back: the lunge is still cooling and the Heavy Bolt quiver is s
   await game.enter();
   await game.buildHall();
   await game.step(120);
-  const rack = (await game.state()).racks[0];
-  expect(rack?.kind, 'the hall has a rack').toBe('maul');
-  const over = async () => { await game.teleport(rack.x, rack.z); await game.step(32); expect((await game.state()).racks[0].over).toBe(true); };
+  // Plan 025 (D8): the hall stands every arm on a rack, the ones not owned locked, so the open racks are the owned ones. The rack is found by its arm, since a swap leaves another arm on its slot.
+  const rack = (await game.state()).racks.find((r) => r.kind === 'maul')!;
+  expect(rack?.locked, 'the hall has an open rack for the maul').toBe(false);
+  const over = async () => { await game.teleport(rack.x, rack.z); await game.step(32); expect((await game.state()).racks.find((r) => r.x === rack.x && r.z === rack.z)!.over).toBe(true); };
   const swapBack = async (arm: string) => {
     await over();
     await press(page, 'swap');
@@ -214,7 +216,7 @@ test('swap, swap back: the lunge is still cooling and the Heavy Bolt quiver is s
     await game.step(16);
     const back = await game.state();
     expect(back.weapon.id, 'the same arm back in hand').toBe(arm);
-    expect(back.racks.map((r) => r.kind), 'and the rack holds its own again').toEqual([rack.kind]);
+    expect(back.racks.filter((r) => !r.locked).map((r) => r.kind), 'and the rack holds its own again').toEqual([rack.kind]);
     return back;
   };
 

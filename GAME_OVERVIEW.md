@@ -12,7 +12,7 @@ The experience is designed around a simple promise: **explore, fight, grow stron
 
 ## Core loop
 
-1. Wake in the **Tide Altar**, a lit hall of its own that is the same room every time. Three things stand in it: the altar at its heart, where you spend pearls; the **armoury**, a rack for every arm you have unlocked (take up the one you want with the swap key); and **the way down**, a door in the far wall. Taking the way down settles the arm you carry for the descent and raises a newly generated first floor.
+1. Wake in the **Tide Altar**, a lit hall of its own that is the same room every time. The hall is the shop. Every arm stands on its rack in the **armoury**: one you own you take up with the swap key, one you do not stands as a dark silhouette with its price on a plaque, and you can take it up to try in the hall. Hold the swap key for a moment to buy the arm in your hand, or one of the four **upgrade shrines** in the corners (Deep Lungs, Whetted Start, Keen Eye, Second Tide), which show a lit notch for every rank held. Your pearls show on screen in the hall and nowhere else. The altar at its heart opens the same two lists on the pause card, for touch or for reading. **The way down**, a door in the far wall, settles the arm you carry for the descent (one only tried stays behind) and raises a newly generated first floor.
 2. Clear the chamber you are in; its doors stay sealed until it is quiet.
 3. Fight skeleton guards, evade stalker pounces, and break through wardens.
 4. Choose a door with the swap key. Each door shows what waits behind it (a fight, a shrine, a mending, or a purse of experience), and every door leads one layer closer to the stair.

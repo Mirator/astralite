@@ -398,6 +398,35 @@ export function gateRacks(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors'>): Gate
   return picked.map((spot, i) => ({ arm: GATE_ARMS[i], x: spot.x, z: spot.z }));
 }
 
+/** Plan 025 (D8): the hall's upgrade shrines, one for each of dungeon-meta's four upgrades in its order (a node test holds the two counts together). */
+export const HALL_SHRINES = 4;
+
+/**
+ * Where the hall's upgrade shrines stand (plan 025, D8): one near each corner of the gate, on its own floor, read off the floor alone like `gateRacks`.
+ * Clear of every rack slot and of each other by `GATE_SPACING` (so one ring never holds a rack and a shrine), of the altar by `HEART_CLEAR` and a pickup
+ * ring more, of the entry and every doorway by two tiles as a slot is, and of a prop by a tile and a half, so a brazier never stands in one. Each corner
+ * takes the free tile nearest it, ties to the one farther from the heart. It draws nothing; a gate too crowded seats fewer, which the node test holds the
+ * hall (`HALL_SEED`) to never doing.
+ */
+export function hallShrines(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'props'>): { x: number; z: number }[] {
+  const gate = floor.rooms[0], heart = { x: gate.x * TILE, z: gate.z * TILE };
+  const own = (x: number, z: number) => Math.abs(x - gate.x) <= gate.halfX && Math.abs(z - gate.z) <= gate.halfZ && carves(gate, x - gate.x, z - gate.z);
+  const mouth = (door: Door) => { let at = { x: door.x, z: door.z }; for (let back = 0; back < 4 && !own(at.x, at.z); back++) at = { x: at.x - door.face.x, z: at.z - door.face.z }; return at; };
+  const shut = [gate.entry, ...floor.doors.filter(door => door.from === gate.id).flatMap(door => [door, mouth(door)])];
+  const slots = gateRacks(floor), away = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
+  const free = floor.tiles
+    .filter(t => t.room === gate.id && own(t.x, t.z) && shut.every(way => Math.hypot(way.x - t.x, way.z - t.z) >= 2) && floor.props.every(p => p.room !== gate.id || Math.hypot(p.x - t.x, p.z - t.z) >= 1.5))
+    .map(t => ({ x: t.x * TILE, z: t.z * TILE }))
+    .filter(spot => away(spot, heart) > HEART_CLEAR + PICKUP_RADIUS && slots.every(slot => away(slot, spot) >= GATE_SPACING - 1e-9));
+  const picked: { x: number; z: number }[] = [];
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const corner = { x: heart.x + sx * gate.halfX * TILE, z: heart.z + sz * gate.halfZ * TILE };
+    const spot = free.filter(c => picked.every(p => away(p, c) >= GATE_SPACING - 1e-9)).sort((a, b) => Math.round((away(a, corner) - away(b, corner)) * 1e6) || away(b, heart) - away(a, heart) || a.x - b.x || a.z - b.z)[0];
+    if (spot) picked.push(spot);
+  }
+  return picked;
+}
+
 /** The seed of the hall's room, fixed for good: the hall is this room on every visit. */
 export const HALL_SEED = 2063;
 
