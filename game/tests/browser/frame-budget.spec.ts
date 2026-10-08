@@ -138,9 +138,10 @@ const BUDGET = {
   // Plan 025 Stage F: the most furnished fight chamber floor one lays (seed 0x3c, room 14, a rotunda ambush: an urn, a crate, a keg, a spike plate, a chest and cover, so
   // every prop mesh there is, six instanced draws), its four bodies sprung, framed from its heart; and the same frame with the chambers plain (`?rooms=plain`), so the
   // difference is what the furniture costs. Measured 2026-10-08 on d3d11 only: furnished 378 calls, 241,267 triangles; plain 371 calls, 240,769 triangles (+7 calls, +498 triangles,
-  // 130 under the 508). Each ceiling is the figure measured; CI's SwiftShader run is their first reading there (Stage B saw the two renderers differ by up to 13 calls).
+  // 130 under the 508). CI's SwiftShader (run 37769551752, 2026-10-08) read furnished 377 calls, 241,259 triangles and plain 372 calls, 240,777 triangles: the
+  // renderers disagree by a call and a few triangles either way, so each ceiling is the higher of the two readings.
   'furnished-chamber': { calls: 378, triangles: 241_267 },
-  'plain-chamber': { calls: 371, triangles: 240_769 },
+  'plain-chamber': { calls: 372, triangles: 240_777 },
   // Plan 025 Stage B, measured 2026-10-07 on d3d11 against the same scenes on d3d11 at 5045a89, and added to each ceiling above as a
   // delta (d3d11 and SwiftShader disagree by up to 13 calls on some of these scenes, so a d3d11 figure is not a SwiftShader ceiling):
   // every scene +1 call for the chamber's painted sconce pools (one merged mesh a chamber, single pass, only the knight's chamber drawn)
