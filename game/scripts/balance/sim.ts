@@ -775,9 +775,15 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       } else {
         const field = quarry ? fieldTo(Math.round(quarry.x / TILE), Math.round(quarry.z / TILE)) : shrine ? fieldTo(shrine.cell.x, shrine.cell.z) : door ? fieldTo(door.x, door.z) : goalField;
         const here = field.get(packKey(cellX, cellZ));
+        // Two steps the field rates the same go to the one nearer what he is walking at, then to the candidate order. The field is flooded
+        // from the quarry's cell, so with the order alone the tie went whichever way that cell said: a body stepping across a cell edge a frame
+        // at a time turned him back and forth with it, and it, pursuing his flipping cell, did the same: the dodge 0.5 Captain duel on seed 8
+        // stood still for 450 s (plan 025). Where the quarry stands does not jump a tile when it crosses an edge, so the choice does not either.
+        const aim = quarry ?? (shrine ? { x: shrine.x, z: shrine.z } : door ? { x: door.x * TILE, z: door.z * TILE } : stair);
+        const near = ([x, z]: [number, number]) => Math.hypot(x * TILE - aim.x, z * TILE - aim.z);
         const next = ([[cellX + 1, cellZ], [cellX - 1, cellZ], [cellX, cellZ + 1], [cellX, cellZ - 1]] as [number, number][])
           .filter(([x, z]) => floor.cells.has(cellKey(x, z)))
-          .sort((a, b) => (field.get(packKey(a[0], a[1])) ?? Infinity) - (field.get(packKey(b[0], b[1])) ?? Infinity))[0];
+          .sort((a, b) => (field.get(packKey(a[0], a[1])) ?? Infinity) - (field.get(packKey(b[0], b[1])) ?? Infinity) || near(a) - near(b))[0];
         const ahead = next ? field.get(packKey(next[0], next[1])) ?? Infinity : Infinity;
         if (next && (here === undefined || ahead < here)) move = unit(next[0] * TILE - player.x, next[1] * TILE - player.z);
         else if (quarry) move = unit(quarry.x - player.x, quarry.z - player.z);

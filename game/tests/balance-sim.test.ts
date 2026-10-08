@@ -230,9 +230,10 @@ test('a run report says what banking it would pay', () => {
   assert.ok(fought(won) > 3 && won.kills > fought(won), `precondition: the run cleared ${fought(won)} fight chambers and felled ${won.kills} bodies, so a pearl a kill would pay differently`);
   assert.equal(won.chambers, fought(won), 'the report counts the chambers the floors fought');
   assert.equal(won.pearls, CHAMBER_PEARLS * fought(won) + 3 * FLOOR_PEARLS + 25 + 3 * 10 + elitesOf(won), 'an escaped run report does not carry what a win pays');
-  // Seeds 10 and 3 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159; plan 022 Stage D (no top-up) moved them from 11 and 8;
+  // Seeds 10 and 4 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159; plan 022 Stage D (no top-up) moved them from 11 and 8;
   // plan 024 Stage A (the weak knight steps out of the embers, and draws its cards) moved them from 2 and 85; Stage B (pressure) moved the second from 2 (now lost on floor 1) to 3.
-  for (const [seed, floor] of [[10, 2], [3, 3]] as const) {
+  // Plan 025 (the sim knight's step-tie goes to the step nearer his quarry) moved the second from 3 (now lost on floor 2) to 4, the first seed lost on floor 3.
+  for (const [seed, floor] of [[10, 2], [4, 3]] as const) {
     const lost = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
     assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
     assert.equal(felled(lost), floor - 1, `precondition: a run lost on floor ${floor} felled the ${floor - 1} bosses behind it`);
@@ -408,6 +409,16 @@ test('a body that hurts him outside a fight chamber is not ordinary damage, and 
     assert.equal(r.chambersEntered, 0);
     assert.equal(r.ordinaryDamagePerChamber, 0);
   }
+});
+
+// Plan 025: the knight's next step broke a tie in the flood by candidate order alone, and the flood is from the quarry's cell. On seed 8 at dodge 0.5 the
+// Captain stood astride a cell edge beside a brazier: the knight walked +x and -x on alternate frames as the Captain's cell flipped, the Captain's own
+// pursuit flipped with his, and neither moved for the 450 s left of the duel (traced 2026-10-07). The tie now goes to the step nearer the quarry itself.
+test('the knight and a pursuing boss never lock each other in place across a cell edge: the dodge 0.5 Captain duel on seed 8 ends (plan 025)', () => {
+  const r = simulateArena(8, 1, ['captain'], policy({ dodge: 0.5 }));
+  assert.ok(r.tellsRolled > 0, 'precondition: the Captain fought, so the duel measured something');
+  assert.notEqual(r.outcome, 'stuck', `the duel hit its timeout after ${r.seconds} s: the knight and the Captain locked each other in place`);
+  assert.equal(r.outcome, 'cleared', 'the knight did not fell the Captain');
 });
 
 // Plan 024 Stage A (D1): the dodge is one roll per tell. Fought against the Drowned Captain in the arena, a body whose tells are long, dashable and many (12 a duel), so a thousand of them are about eighty duels. The knight is never killed
