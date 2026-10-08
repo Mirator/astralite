@@ -1,5 +1,5 @@
 import { BOSS_BOLT } from '../../app/dungeon-hits.ts';
-import { BASE_STATS, FLOOR_DAMAGE } from '../../app/dungeon-enemy.ts';
+import { BASE_STATS, FLOOR_DAMAGE, ORDINARY_DAMAGE } from '../../app/dungeon-enemy.ts';
 import { expect, hold, laneSpot, press, release, strikeStance, test, TILE, type Game } from './helpers.ts';
 import type { Page } from '@playwright/test';
 
@@ -121,8 +121,8 @@ test('the Keep Crossbow\'s ordinary bolt deals BOSS_BOLT times its damage to a b
   expect(warden.before.hp - warden.after.hp, 'a bolt on a warden was multiplied, or never landed').toBe(bolt);
 });
 
-// Plan 023 (D5): the floor-damage step is a dial, and the game builds a body with it. The rule is held in node (dungeon-enemy.test.ts); this reads what a floor-three body of the running game reports it will cost the knight, against the floor-one damage written out.
-test('a floor-three body is built with the floor-damage step: what the snapshot reports is the floor-one blow and FLOOR_DAMAGE twice over', async ({ game, page }) => {
+// Plan 023 (D5): the floor-damage step is a dial, and the game builds a body with it; plan 025 (D10) adds the ordinary damage scale. The rules are held in node (dungeon-enemy.test.ts); this reads what a floor-three body of the running game reports it will cost the knight, against the table's blow written out.
+test('a floor-three body is built with the ordinary damage scale and the floor-damage step: what the snapshot reports is the bestiary blow times ORDINARY_DAMAGE and FLOOR_DAMAGE twice over', async ({ game, page }) => {
   const roster = ['guard', 'stalker', 'warden', 'archer'] as const;
   await page.evaluate((kinds) => (window as unknown as { dungeonTest: { buildArena: (roster: string[], level: number) => void } }).dungeonTest.buildArena(kinds, 3), [...roster]);
   await game.enter();
@@ -130,7 +130,7 @@ test('a floor-three body is built with the floor-damage step: what the snapshot 
   expect(state.enemies.map((e) => e.kind), 'precondition: the arena stood the roster on floor three').toEqual([...roster]);
   expect(state.floor.level, 'precondition: floor three').toBe(3);
   for (const [index, kind] of roster.entries()) {
-    expect(state.enemies[index].damage, `a floor-three ${kind} does not cost the floor-one blow plus two floor-damage steps`).toBe(Math.round(BASE_STATS[kind].damage * (1 + 2 * FLOOR_DAMAGE)));
+    expect(state.enemies[index].damage, `a floor-three ${kind} does not cost the table's blow times the ordinary scale plus two floor-damage steps`).toBe(Math.round(BASE_STATS[kind].damage * ORDINARY_DAMAGE * (1 + 2 * FLOOR_DAMAGE)));
     expect(state.enemies[index].damage, `precondition: floor three costs more than floor one (${kind})`).toBeGreaterThan(BASE_STATS[kind].damage);
   }
 });

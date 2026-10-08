@@ -6404,3 +6404,91 @@ Screenshots (d3d11, not committed; `output/**/*.png` is ignored): `output/plan-0
 - Gates run (the operator asked for a small test budget): typecheck clean, lint clean, `npm test` 589/589, `frame-budget.spec.ts` hall scenario 1/1 (d3d11, one worker).
 - Not run: the PR-gate browser subset, `balance:check`, the whole-run half of `balance:bosses`, SwiftShader. CI is the first full run. `quality.spec.ts` is expected to fail on d3d11 (it needs a software rasteriser); that failure is on the base commit too.
 - Owed: the operator's play of the hall (Stage C) and of `?arena=mother:1` (Stage D), and the bands re-taken once these land.
+
+## 2026-10-07 - The operator's playtest, recorded as the evidence for plans 021-024 (plan 025 Stage E step 1)
+
+The operator played a full descent on a real GPU on 2026-10-07 and reported eleven things; plan 025's Why quotes them and its decision table answers them. This is the playtest that plans 021 (Stage H), 022 (Stage G), 023 (Stage F) and 024 (Stage F) were each left waiting for. It was one descent, won on the first try, and no run log was copied, so it answers some of each plan's questions and leaves the rest open. What it answers, plan by plan:
+
+| Plan, stage | Its questions | What the playtest says | Answered by |
+| --- | --- | --- | --- |
+| 021 Stage H (bosses) | each move reads? the phase change reads? the bar helps or clutters? fair when it kills you? D4, D7, D9 re-decided | "All bosses felt quite similar" (8); "The Pyre Mother was always in the corner" (3); "Her corpse ended in the wall" (4); "The boss bar could be bigger" (5). No boss killed the operator, so "fair when it kills you" was not reached; the moves and phase changes were not reported as unreadable. | 025 D3 (the Mother moves, Stage D step 1), D4 (bodies and walls, Stage A), D5 (the bar, Stage A), D11 (one mechanic each and a 25% phase, Stage D step 2, open). D4 (the five bosses) and D9 (targets) stand; D7 ("HP and damage are the dials") is re-decided by D11. |
+| 022 Stage G (waves, elites, attrition) | chambers feel different? a wave reads? an elite told apart? the mend door a real choice? a run too long? D2, D7, D10, D13 re-decided | "All rooms still feel quite similar" (10); "When I win the room, I do not understand which room to take" (2); won every floor first try (8). Waves, elites and run length were not reported on. | 025 D2 (doors that tell you, Stage B), D10 (ordinary enemies hit harder, Stage E), D12 (props and new kinds, Stages F and G, open). D10 of 022 (no heal on clear) stands: the operator chose not to change healing (025 D10). |
+| 023 Stage F (pearls, crossbow, rooms that hurt) | rooms cost vitality? a mend door needed? the shop's pace? the crossbow beats a boss? | Rooms do not cost enough (8); "Spending pearls is a boring dialog; improve the UX x10" (9); "I do not understand the weapon system... I should be able to choose" (11). The crossbow and the shop's pace were not reported on. | 025 D8 (the altar hall as a shop, Stage C), D9 (rare arms in a run, Stage F, open), D10 (Stage E). |
+| 024 Stage F (rooms that threaten) | rooms cost vitality? a double threat readable? the Draught still worth taking? | Rooms do not cost enough (8), which agrees with the bots (the default knight enters floor one's stair hall at 100%, 1.73 ordinary damage a chamber against a target of 6). The double threat and the Draught were not reported on. Tide marks were skipped (024 D5). | 025 D10: the operator settled 024's open damage decision on 2026-10-07 (ordinary damage, starting at x1.5; healing between chambers unchanged). |
+
+Still open from those plans after this playtest: whether a wave's arrival and an elite read (022), whether the crossbow can beat a boss and the shop's pace (023), whether a double threat reads and the Draught is worth taking (024), and every "did it feel fair when it killed you" (021). The next playtest should copy the run log (`bossKinds`, `chambers`, `pearls`) so the bots' numbers can be held against a person's.
+
+## 2026-10-08 - Plan 025 Stage E: harder rooms (D10)
+
+Branch `feat/p025-e-harder-rooms`, on `feat/p025-integration` (Stages A, B, C and D step 1). Step 1 (the playtest record and the `plans/README.md` rows for 021-024) is the entry above.
+
+### What was shipped
+
+- `ORDINARY_DAMAGE = 1.5` and `damageScale(kind, ordinary)` in `dungeon-enemy.ts`, beside `FLOOR_DAMAGE` and `damageStep`: `enemyStats` multiplies the bestiary's `stats.damage` by it for every ordinary kind (1 for a boss) before the floor step and before the one rounding `scaledDamage` does. Everything that builds a body reads `enemyStats` (`eliteStats`, so the game's `spawnEnemy` and the sim's bodies; `strikeDamage`'s ordinary branch; archer and pyre bolts carry the body's damage), so this is one dial and not a per-kind edit. A boss's blow is its move row through `scaledDamage(doing.damage, level)` and is untouched.
+- Floor-one blows: guard 12 -> 18, stalker 8 -> 12, warden 20 -> 30, archer and shieldbearer 10 -> 15, reaper 18 -> 27, pyre 8 -> 12, rattler 5 -> 8 (the bonecaller deals none). Floor three: guard 23, stalker 16, warden 39.
+- **Not scaled:** the fire a pyre or a volatile elite leaves (`deathPool`, 8 a bite; it is not a blow, and `ordinaryDamagePerChamber` counts blows and bolts only), and healing between chambers (unchanged, as D10 says).
+- **Reaches the King's fight:** the rattlers the Bone King raises are an ordinary kind, so they hit 8 instead of 5 there too. The pool bosses raise nothing, so their duels cannot change; `balance:bosses` was not run (see Runs).
+- `scripts/balance/check.ts` also prints what `summarise` measures without a band (stair-hall vitality, the share of deaths before the stair hall), and `-- --summary` prints every policy's summary as one unrounded JSON line, so the bands are re-taken from the run that was checked. Reporting only; nothing it compares changed.
+
+### Measured (node sim, 30 runs a policy from seed 1, `balance:check`'s own; 2026-10-08)
+
+The before is a run at `ORDINARY_DAMAGE = 1` on this same tree, and the after is the run at 1.5. The x1 run was made before `feat/p025-integration` gained CI's re-take of Stages A-D (`5022286`); the two agree on every metric of all ten policies (CI's ordinary damage is rounded to one place), so it doubles as a check that the local sim matches CI's. Plan 024's sweep on the old base (x1.5 gave the default knight 43.3%) does not hold here: Stages A-D had made the default knight escape 76.7% (over D10's 50-75), so x1.5 lands it at 63.3, inside the band, and **no step toward x1.25 was needed**.
+
+| policy | escape % | deaths f1 / f2 / f3 (% of arrivals) | deaths before the stair hall | median vitality entering the stair hall f1 / f2 / f3 | ordinaryDamagePerChamber f1 / f2 / f3 | median pearls |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 76.7 -> **63.3** | 0 / 0 / 23.3 -> 0 / 3.3 / 34.5 | 0 of 7 -> 3 of 11 (27.3%) | 100 / 98.3 / 96.4 -> **100** / 94.4 / 90.7 | 1.79 / 4.85 / 7.46 -> **2.71** / 7.44 / 11.82 | 106.5 -> 106.5 |
+| skilled | 83.3 -> **76.7** | 0 / 0 / 16.7 -> 0 / 0 / 23.3 | 0 of 5 -> 1 of 7 (14.3%) | 100 / 100 / 98.5 -> 100 / 100 / 95.3 | 1.04 / 2.18 / 4.13 -> 1.56 / 3.37 / 6.46 | 107 -> 106.5 |
+| weak | 0 -> **0** | 20 / 54.2 / 100 -> 43.3 / 88.2 / 100 | 19 of 30 (63.3%) -> 21 of 30 (70%) | 82.4 / 59.2 / 31.2 -> 73.6 / 60 / - | 8.6 / 16.74 / 25.32 -> 12.61 / 24.46 / 41.5 | 30.5 -> 25 |
+| special | 86.7 -> 80 | 0 / 0 / 13.3 -> 0 / 0 / 20 | 0% -> 16.7% | 100 / 99.2 / 95.2 -> 100 / 96 / 92 | 1.48 / 3.81 / 5.82 -> 2.24 / 5.91 / 9.22 | 107 -> 106.5 |
+| special-fangs | 96.7 -> 90 | 0 / 0 / 3.3 -> 0 / 0 / 10 | 0% -> 66.7% | 100 / 97.2 / 92.8 -> 100 / 91.2 / 85.2 | 1.66 / 3.87 / 5.72 -> 2.5 / 5.91 / 9.13 | 108 -> 107.5 |
+| special-cleaver | 70 -> 53.3 | 0 / 0 / 30 -> 3.3 / 3.4 / 42.9 | 0% -> 21.4% | 100 / 97.8 / 98.4 -> 100 / 92.4 / 88.4 | 2.37 / 5.17 / 7.53 -> 3.6 / 7.79 / 11.76 | 106 -> 103 |
+| special-crossbow | 16.7 -> 10 | 0 / 26.7 / 77.3 -> 0 / 43.3 / 82.4 | 84% -> 88.9% | 100 / 100 / 92 -> 100 / 100 / 41.2 | 1.02 / 11.9 / 18.31 -> 1.53 / 15.77 / 23.81 | 55 -> 50.5 |
+| special-flask | 56.7 -> 43.3 | 0 / 0 / 43.3 -> 0 / 3.3 / 55.2 | 0% -> 17.6% | 100 / 99.6 / 91.2 -> 100 / 95.2 / 80.7 | 1.75 / 5.21 / 7.1 -> 2.62 / 7.81 / 11.27 | 104 -> 72.5 |
+| meta-max | 100 -> 93.3 | 0 / 0 / 0 -> 0 / 0 / 6.7 | none -> 0% | 100 / 100 / 96.5 -> 100 / 95.5 / 91.1 | 1.43 / 4.8 / 6.38 -> 2.18 / 7.35 / 10.11 | 108 -> 107 |
+| weak-meta-max | 23.3 -> **0** | 0 / 0 / 76.7 -> 0 / 33.3 / 100 | 21.7% -> 86.7% | 88.9 / 62.4 / 51.6 -> 78.9 / 38.1 / 12.8 | 6.94 / 15.9 / 24.45 -> 10.59 / 23.89 / 44.93 | 67 -> 51.5 |
+
+Death counts are derived from the rates (no run was `stuck`). The stop rule (weak above 20% or skilled below 75%) did **not** trip, but the skilled knight is one run of 30 above it (76.7).
+
+**Against plan 024 D7 (still the written targets):**
+
+| line | asks | x1 on this tree | x1.5 | |
+| --- | --- | --- | --- | --- |
+| default escape | 50-75 | 76.7 | 63.3 | met (D10's own line) |
+| skilled escape | 75-95 | 83.3 | 76.7 | met, one run from the stop line |
+| weak escape | 0-20 | 0 | 0 | met |
+| default deaths before the stair hall | at least a quarter | 0 of 7 | 3 of 11 (27.3%) | **met**, the first time since plan 022 |
+| default vitality entering floor one's stair hall | 50-85 | 100 | 100 | **NOT met** |
+| default ordinary damage a chamber, floor one | at least 6 | 1.79 | 2.71 | **NOT met** |
+| weak-meta-max over weak | at least 15 points | 23.3 | 0 | **NOT met**: the shop no longer rescues a never-dodging knight, which now dies on floor three in every run |
+| crossbow special over half the default | at least 0 points | 16.7 vs 38.4 | 10 vs 31.7 | **NOT met** (nor before) |
+| weak median pearls (plan 023 D2) | 30-55 | 30.5 | 25 | **NOT met** (it dies sooner) |
+
+So x1.5 moves the deaths, as plan 024's sweep predicted, but not floor one's room cost: the default knight still walks into floor one's stair hall at a median 100% and takes 2.7 a chamber there. Moving that needs a change to what heals between chambers, which the operator chose not to make (D10).
+
+### Bands (`bands.json`, `measured` re-taken for all ten policies from the x1.5 run)
+
+Moved to the next five (a half for `ordinaryDamagePerChamber`) beyond what was measured, none widened further: default floor-2 vitality min 80 -> 75 (76.8); skilled floor-3 deaths max 20 -> 25 (23.3; `5022286` had moved it 15 -> 20), floor-1 ordinary damage max 1.5 -> 2 (1.56), floor-3 max 6 -> 6.5 (6.46); weak floor-2 deaths max 65 -> 90 (88.2), medianPearls min 30 -> 25 (25), floor-3 ordinary damage max 38.5 -> 41.5 (41.5); special floor-3 ordinary damage max 8.5 -> 9.5 (9.22); special-fangs floor-3 vitality min 60 -> 55 (56); special-cleaver escape min 60 -> 50 (53.3), floor-3 deaths max 40 -> 45 (42.9), floor-2 vitality min 75 -> 70 (74.8), floor-3 vitality min 45 -> 40 (40.7), floor-1 ordinary damage max 3.5 -> 4 (3.6), floor-3 max 11.5 -> 12 (11.76); special-crossbow medianPearls min 55 -> 50 (50.5), floor-1 ordinary damage max 1.5 -> 2 (1.53); special-flask floor-2 vitality min 80 -> 75 (77.6), floor-1 ordinary damage max 2 -> 3 (2.62), floor-3 max 11 -> 11.5 (11.27); meta-max floor-3 ordinary damage max 10 -> 10.5 (10.11); weak-meta-max escape min 20 -> 0 (0), floor-2 deaths max 10 -> 35 (33.3), floor-3 deaths max 80 -> 100 (100), floor-2 vitality min 40 -> 25 (29.5), medianPearls min 65 -> 50 (51.5), floor-3 ordinary damage max 39 -> 45 (44.93). weak-meta-max's `floor3.medianHpLeft` (measured and band) is removed rather than widened: it clears no floor three at all now (`floor3.deathRate` 100 holds the same fact). The skilled knight's floor-3 vitality (50.4) holds the min of 45 that `5022286` set, so it did not move. These record where the bots sit, not an acceptance; the deliberate change is D10's.
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- `tests/dungeon-enemy.test.ts`, new: "an ordinary guard's swing deals ORDINARY_DAMAGE times the table's blow and a boss's swing deals its move row (plan 025 D10)". It holds the rule at a scale the game does not ship (2: every ordinary kind takes it, no boss does), then reads the guard's swing (`strikeDamage`) and every ordinary kind's `enemyStats` on floors 1-3, and every boss's stat damage and every boss swing in its move rows, against the damage written out (not through `scaledDamage`, so a scale slipped into the shared rounding cannot agree with itself). Preconditions: five bosses and nine ordinary kinds, `ORDINARY_DAMAGE > 1`, a guard swings, the bosses hold swings to check.
+  - **Plant: the scale applied to bosses too** (`damageScale` returns the scale for every kind): `the ordinary damage scale reached the captain, a boss`.
+  - **Plant: the scale applied to bosses too, in the shared rounding** (`scaledDamage` multiplies by `ORDINARY_DAMAGE`, `enemyStats` no longer does): `the captain's stat damage took the ordinary damage scale on floor 1` (11 !== 7).
+  - Plant: the scale dropped (1 for every kind): `a guard did not take the ordinary damage scale`.
+  - The first form of the test compared against `scaledDamage` and survived the second plant (both sides scaled); it was rewritten with the damage written out.
+- `tests/dungeon-enemy.test.ts`, changed pins: floor one is the base table but for an ordinary blow; guard / stalker / warden damage on floors 1-3 is 18 21 23 / 12 14 16 / 30 35 39; the floor-three guard is the table's blow times the scale.
+- `tests/browser/arena-kinds.spec.ts`: the floor-three wiring test writes the expected blow as the table's times `ORDINARY_DAMAGE` and two floor steps (it pinned the unscaled blow). `tests/browser/combat.spec.ts`: `MELEE` reads `enemyStats(kind, 1)` instead of the literal 12 / 8 / 20 (the boon-freeze scenario pinned the unscaled blow).
+
+### Runs
+
+- `npm run balance:check`, three runs, one at a time (node sim, this machine): x1.5 (663 s, 29 metrics out of the old bands, as a deliberate change must be), x1.0 on the same tree for the before (720 s), and the confirm on the re-taken bands (649 s, every metric inside its band). The confirm ran on the bands before the rebase onto `5022286`; after the rebase the bands were re-taken from the same x1.5 summary onto CI's file and held against it offline with `compareBands` (0 violations; the sim is seeded, and the x1 run reproduced CI's numbers).
+- Node: `tests/dungeon-enemy.test.ts` and `tests/balance-sim.test.ts` while iterating; `npm test` once at the end, 589 of 590: `balance-sim.test.ts` "a floor the knight died on says whether it was before the stair hall" lost its late death (seed 4's weak knight now dies before the stair hall), so the seed was re-picked to 5 with the assertions unchanged, and the file passes 35 of 35. A second `npm test` was started by mistake straight after the first; its output was thrown away.
+- Browser (d3d11, port 3600, one worker): `arena-kinds.spec.ts:125` and `combat.spec.ts:489`, 2 of 2. Planted in the game (bodies built with the table's unscaled damage in `dungeon-enemy-view.ts`): `arena-kinds.spec.ts:125` fails with `a floor-three guard does not cost the table's blow times the ordinary scale plus two floor-damage steps` (23 expected, 12 received). Restored.
+- typecheck and lint clean.
+- **Not run:** `balance:bosses` (the pool bosses raise nothing an ordinary scale reaches; the King's rattlers do hit harder, and his whole-run effect is in `balance:check`'s escape rates above), the PR-gate browser subset (CI's; a scenario that sets the knight's vitality just above one ordinary blow could now fail, and none was looked for beyond the two that pin the blow), SwiftShader.
+
+### Open
+
+- Plan 024 D7's floor-one room cost (2.71 a chamber against 6, floor one's stair hall at 100% against 50-85) is still not met at x1.5, and the operator chose not to touch healing between chambers.
+- weak-meta-max escapes 0% (was 23.3): with every upgrade bought a never-dodging knight no longer escapes. The weak knight's median pearls are 25 (plan 023 D2 asks 30-55).
+- The skilled knight is one run from the stop line (76.7 against 75). A human playtest of floor one and two at x1.5 is the next evidence.

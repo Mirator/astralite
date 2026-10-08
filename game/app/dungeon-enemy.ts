@@ -103,9 +103,15 @@ export const BOSS_FLOOR_DAMAGE = 0.15;
 export const scaledDamage = (base: number, level: number, step = BOSS_FLOOR_DAMAGE) => Math.round(base * (1 + step * floorsDeeper(level)));
 /** The share of floor-one damage a kind's blow gains for every floor down: an ordinary kind's `FLOOR_DAMAGE`, a boss's own `BOSS_FLOOR_DAMAGE`. The steps are parameters so a test can hold the rule at values the game does not ship. */
 export const damageStep = (kind: EnemyKind, ordinary = FLOOR_DAMAGE, boss = BOSS_FLOOR_DAMAGE) => BESTIARY[kind].boss ? boss : ordinary;
+/**
+ * Plan 025 (D10, settled by the operator 2026-10-07): every ordinary body's blow, bolts included, costs this many times the bestiary's `stats.damage`, one dial for all nine kinds and never a boss (a boss's numbers are its move rows, tuned with `balance:bosses`).
+ * It multiplies the floor-one damage before the floor step and before the one rounding `scaledDamage` does. The fire a pyre or a volatile elite leaves is not a blow and is not scaled. `ordinary` is a parameter so a test can hold the rule at a value the game does not ship.
+ */
+export const ORDINARY_DAMAGE = 1.5;
+export const damageScale = (kind: EnemyKind, ordinary = ORDINARY_DAMAGE) => BESTIARY[kind].boss ? 1 : ordinary;
 export const enemyStats = (kind: EnemyKind, level: number): EnemyStats => {
   const base = BASE_STATS[kind], deeper = floorsDeeper(level);
-  return { hp: base.hp + deeper * HIT, damage: scaledDamage(base.damage, level, damageStep(kind)), tell: base.tell, speed: base.speed };
+  return { hp: base.hp + deeper * HIT, damage: scaledDamage(base.damage * damageScale(kind), level, damageStep(kind)), tell: base.tell, speed: base.speed };
 };
 
 /**

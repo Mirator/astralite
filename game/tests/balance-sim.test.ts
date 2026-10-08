@@ -332,11 +332,11 @@ test('the sim deals a floor its later waves, calls each only after the one befor
 
 test('a floor the knight died on says whether it was before the stair hall (plan 022 carry-over)', () => {
   const weak = policy({ dodge: 0, reaction: 0.6 });
-  // Read off the boss, which the report observes on its own: a knight who died before the stair hall never met it. Seeds 1 and 4 (plan 022 Stage D moved them from 0x3ddf and 0x7bbd; plan 023 Stage D swapped them; plan 024 Stage A swapped them back; plan 025 Stage D moved the
-  // late one from 2, whose knight no longer dies to the boss once the Pyre Mother moves, to 4, who dies to the Bone King).
+  // Read off the boss, which the report observes on its own: a knight who died before the stair hall never met it. Seeds 1 and 5 (plan 022 Stage D moved them from 0x3ddf and 0x7bbd; plan 023 Stage D swapped them; plan 024 Stage A swapped them back; plan 025 Stage D moved the
+  // late one from 2, whose knight no longer dies to the boss once the Pyre Mother moves, to 4, who dies to the Bone King; plan 025 Stage E moved it to 5, since ordinary bodies hitting 1.5 times as hard kill seed 4's knight before the stair hall).
   const early = simulateRun(1, weak).floors.find(f => f.outcome === 'died');
-  const late = simulateRun(4, weak).floors.find(f => f.outcome === 'died');
-  assert.ok(early && late, 'seeds 1 and 4 no longer each end in a death with the weak knight: pick other seeds');
+  const late = simulateRun(5, weak).floors.find(f => f.outcome === 'died');
+  assert.ok(early && late, 'seeds 1 and 5 no longer each end in a death with the weak knight: pick other seeds');
   assert.equal(early.bossDamage + early.bossSeconds, 0, 'precondition: the boss never met the knight who died on this floor');
   assert.equal(early.hpAtStair, null, 'precondition: he never reached the stair hall');
   assert.equal(early.deathsBeforeBoss, 1, 'a death before the stair hall is not counted as one');

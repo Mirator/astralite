@@ -23,10 +23,11 @@ import {
 } from './helpers.ts';
 import type { Page } from '@playwright/test';
 import { BESTIARY } from '../../app/dungeon-bestiary.ts';
+import { enemyStats } from '../../app/dungeon-enemy.ts';
 import { CAUSE_LABELS, formatRunTime } from '../../app/dungeon-run-summary.ts';
 
-/** Melee damage by kind, mirrored from dungeon-game.tsx. */
-const MELEE = { guard: 12, stalker: 8, warden: 20 } as const;
+/** Floor-one melee damage by kind, as the game builds the body (`enemyStats`: the table's blow times ORDINARY_DAMAGE, plan 025 D10). */
+const MELEE = { guard: enemyStats('guard', 1).damage, stalker: enemyStats('stalker', 1).damage, warden: enemyStats('warden', 1).damage } as const;
 
 const DIRECTIONS = Object.keys(SCREEN_DIRECTIONS) as ScreenDirection[];
 

@@ -24,6 +24,7 @@ type Expected = {
 const expected = JSON.parse(readFileSync(new URL('./bands.json', import.meta.url), 'utf8')) as Expected;
 const started = performance.now();
 const violations: Violation[] = [];
+const summaries: Record<string, Record<string, number>> = {};
 
 console.log(`\n  ${expected.runs} runs a policy from seed ${expected.firstSeed}\n`);
 console.log('  policy    metric                 measured   band');
@@ -31,14 +32,19 @@ for (const [name, entry] of Object.entries(expected.policies)) {
   const policy = buildPolicy(entry.policy);
   const reports = Array.from({ length: expected.runs }, (_, i) => simulateRun(expected.firstSeed + i * 7919, policy));
   const summary = summarise(reports);
+  summaries[name] = summary;
   const found = compareBands(name, summary, entry.bands);
   violations.push(...found);
   for (const [metric, band] of Object.entries(entry.bands)) {
     const value = summary[metric], bad = found.some(v => v.metric === metric);
     console.log(`  ${name.padEnd(8)}  ${metric.padEnd(21)}  ${(value === undefined ? '—' : value.toFixed(1)).padStart(8)}   [${band.min}, ${band.max}]${bad ? '   OUT' : ''}`);
   }
+  // Plan 025 Stage E: what `summarise` measures without a band (the stair-hall vitality, the share of deaths before the stair hall), printed so a run is read once rather than re-run for them. Never compared.
+  for (const [metric, value] of Object.entries(summary)) if (!(metric in entry.bands)) console.log(`  ${name.padEnd(8)}  ${metric.padEnd(21)}  ${value.toFixed(1).padStart(8)}   (no band)`);
 }
 console.log(`\n  ${((performance.now() - started) / 1000).toFixed(1)}s`);
+// `npm run balance:check -- --summary`: every policy's whole summary on one JSON line, unrounded, so bands.json's `measured` block is re-taken from the run that was checked.
+if (process.argv.includes('--summary')) console.log(`\n  summary ${JSON.stringify(summaries)}`);
 
 if (violations.length) {
   console.error(`\n  balance left its bands (${violations.length}):`);
