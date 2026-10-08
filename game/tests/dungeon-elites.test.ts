@@ -18,7 +18,7 @@ const spawnsOf = (seed: number, level: number) => dealWaves(generateFloor(seed, 
 
 test('each modifier changes the numbers D7 says and no others, on every floor, for every kind that can carry one', () => {
   const carriers = ENEMY_KINDS.filter(eliteKind);
-  assert.deepEqual(carriers, ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre'], 'precondition: the kinds that can be elite are the ordinary ones, not the bosses, the caller or its rattlers');
+  assert.deepEqual(carriers, ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bomber'], 'precondition: the kinds that can be elite are the ordinary ones, not the bosses, the caller or its rattlers');
   for (const kind of carriers) for (const level of [1, 2, 3]) {
     const plain = enemyStats(kind, level);
     assert.deepEqual(eliteStats(kind, level), plain, 'no modifier is the plain body');

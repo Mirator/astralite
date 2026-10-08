@@ -1,6 +1,6 @@
 import { BOSS_BOLT } from '../../app/dungeon-hits.ts';
 import { BASE_STATS, FLOOR_DAMAGE, ORDINARY_DAMAGE } from '../../app/dungeon-enemy.ts';
-import { expect, hold, laneSpot, press, release, strikeStance, test, TILE, type Game } from './helpers.ts';
+import { ARROW_KEYS, canStand, expect, hold, laneSpot, press, release, SCREEN_DIRECTIONS, strikeStance, test, TILE, type Game } from './helpers.ts';
 import type { Page } from '@playwright/test';
 
 // The arena-only kinds (app/dungeon-bestiary.ts). Each rule is held in node - the shield in
@@ -155,6 +155,69 @@ test('a pyre leaves fire where it falls, and the fire burns the knight standing 
   expect(Math.hypot(state.player.x - fire.x, state.player.z - fire.z), 'precondition: the knight stands in the fire').toBeLessThan(fire.radius);
   for (let t = 0; t < 1000 && state.health === before; t += 50) { await game.step(50); state = await game.state(); }
   expect(state.health, 'standing in the fire cost the knight nothing').toBe(before - Math.round(fire.damage * state.boons.guardAgainst));
+});
+
+// Plan 025 Stage G (D12 b): the bomber. The rule - the tell, where the bomb is marked, what the blast and the fire do - is held in node (dungeon-bomber.test.ts); this checks the running game is wired to it: the ring is drawn on
+// the knight in the threat colour when the tell begins and the bomb comes down there only when the tell has run; a knight left standing in it pays the body's own damage (`enemies[].damage`, `enemyStats`), the fire it leaves
+// burns out, and a knight who walks out of the next ring with the real keys pays nothing for its blast.
+test('a bomber marks its ring on the knight, the bomb lands there when the tell has run, the blast costs its damage to a knight left inside and nothing to one who walked out, and the fire burns out', async ({ game, page }) => {
+  await arena(game, page, ['bomber']);
+  const floor = await game.floor(), opening = await game.state();
+  expect(opening.enemies.map((e) => e.kind), 'precondition: the arena stood a bomber').toEqual(['bomber']);
+  const bomber = opening.enemies[0], anchor = { x: bomber.x, z: bomber.z };
+  const spot = laneSpot(floor, anchor, 5, { clearance: 0 });
+  // Inside its reach (7) and beyond where it gives ground (3.5): it holds and throws.
+  await game.teleport(spot.x, spot.z);
+  const owned = (s: Awaited<ReturnType<Game['state']>>) => s.scatterMarks.filter((m) => m.owner === 0);
+  const waitForMark = async () => {
+    let s = await game.state(), waited = 0;
+    for (; waited < 6000 && !owned(s).length; waited += 16) { await game.step(16); s = await game.state(); }
+    return s;
+  };
+  let state = await waitForMark();
+  const mark = owned(state)[0];
+  expect(mark, 'the bomber never began a tell at a knight 5 away').toBeDefined();
+  expect(state.enemies[0].windup, 'precondition: the ring is drawn while the bomber winds up').toBeGreaterThan(0);
+  expect(mark.drawn && mark.threat, 'the ring is not drawn in the threat colour').toBe(true);
+  expect(Math.hypot(mark.x - state.player.x, mark.z - state.player.z), 'the ring was not marked on the knight').toBeLessThan(0.05);
+  // He stands in it. Nothing lands until the tell has run, then the bomb comes down where the ring was.
+  await game.configureCombat({ health: state.maxHealth });
+  state = await game.state();
+  const full = state.health, damage = state.enemies[0].damage, tell = state.enemies[0].tell;
+  let waited = 0;
+  for (; waited < 3000 && !state.hostilePools.length; waited += 16) {
+    expect(state.health, 'the knight was hurt before the bomb came down').toBe(full);
+    await game.step(16); state = await game.state();
+  }
+  expect(state.hostilePools, 'the bomb never landed').toHaveLength(1);
+  expect(waited / 1000, `the bomb landed ${waited} ms into a ${tell} s tell`).toBeGreaterThanOrEqual(tell - 0.1);
+  const fire = state.hostilePools[0];
+  expect(fire.kind).toBe('bomber');
+  expect(Math.hypot(fire.x - mark.x, fire.z - mark.z), 'the fire is not where the ring was').toBeLessThan(0.01);
+  expect(fire.drawn, 'the fire is not drawn').toBe(true);
+  expect(owned(state), 'the ring is still marked after the bomb landed').toEqual([]);
+  expect(state.health, "the blast did not cost the knight left inside the bomber's own damage").toBe(full - Math.round(damage * state.boons.guardAgainst));
+  // The fire is short: it is gone within its life and a beat.
+  for (let t = 0; t < 2500 && state.hostilePools.length; t += 50) { await game.step(50); state = await game.state(); }
+  expect(state.hostilePools, "the bomber's fire never burnt out").toEqual([]);
+
+  // The next ring: walked out of with the real keys, along a screen direction with floor under it, and its blast costs nothing.
+  await game.teleport(spot.x, spot.z);
+  await game.configureCombat({ health: state.maxHealth, enemies: [{ index: 0, cooldown: 0 }] });
+  state = await waitForMark();
+  const next = owned(state)[0];
+  expect(next, 'the bomber never began a second tell').toBeDefined();
+  const away = (Object.keys(SCREEN_DIRECTIONS) as (keyof typeof SCREEN_DIRECTIONS)[]).find((d) => [1, 2, 3].every((n) => canStand(floor.cells, state.player.x + SCREEN_DIRECTIONS[d].x * n, state.player.z + SCREEN_DIRECTIONS[d].z * n)));
+  expect(away, 'no screen direction has floor to walk out of the ring along: pick another spot').toBeDefined();
+  const before = state.health;
+  await page.keyboard.down(ARROW_KEYS[away!]);
+  await game.step(400);
+  await page.keyboard.up(ARROW_KEYS[away!]);
+  state = await game.state();
+  expect(Math.hypot(state.player.x - next.x, state.player.z - next.z), 'precondition: the knight walked out of the ring').toBeGreaterThan(next.radius);
+  for (let t = 0; t < 2000 && !state.hostilePools.length; t += 16) { await game.step(16); state = await game.state(); }
+  expect(state.hostilePools, 'the second bomb never landed').toHaveLength(1);
+  expect(state.health, 'the blast caught a knight who had walked out of the ring').toBe(before);
 });
 
 test('a bonecaller raises two at a call, a rattler cut down while it stands goes back into the ground unpaid, and all of them crumble with it', async ({ game, page }) => {

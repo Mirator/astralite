@@ -272,7 +272,8 @@ export type Snapshot = {
    * Plan 021 Stage C: the rings a boss's scatter has marked and not yet lit (`drawn` is whether the ring mesh is showing, `threat` whether it wears the tell's colour), the arrows the pool is
    * showing, and how many of the six hostile fire rings are showing (lit pools and marks together). Read off the meshes.
    */
-  scatterMarks: { x: number; z: number; radius: number; drawn: boolean; threat: boolean }[];
+  /** `owner` is the index in `enemies` of the body that marked the ring (a boss's scatter, or plan 025 Stage G's bomber). */
+  scatterMarks: { owner: number; x: number; z: number; radius: number; drawn: boolean; threat: boolean }[];
   arrowsDrawn: number;
   hostileRings: number;
   /** Bolts loosed at the knight, still in the air. */

@@ -13,7 +13,7 @@
 import { eightWay } from '../../app/dungeon-aim.ts';
 import { beatOf, chainLength, chargeLevel, drawDamage, drawn, lungeStep, specialSwing, vaultLanded, vaultStep } from '../../app/dungeon-weapon.ts';
 import { boltBlow, canAbortSwing, DASH_TIME, dashImmune, dragToward, hurledBlow, lineContacts, playerSpeed, specialAvailable, specialGate, specialSpends, swordContacts, vaultLanding, vaultTarget } from '../../app/dungeon-combat.ts';
-import { AIM_LOCK, ALERT_STAGGER, BESTIARY, decideEnemy, ENEMY_KINDS, eliteStats, fallOf, moveOf, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, STILL, wallClearance, type CrowdBody, type Roam, type EliteModifier, type EnemyKind, type EnemyView, type Move, type Pressed, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
+import { AIM_LOCK, ALERT_STAGGER, BESTIARY, bombLands, bombMarks, decideEnemy, ENEMY_KINDS, eliteStats, fallOf, moveOf, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, STILL, wallClearance, type CrowdBody, type Roam, type EliteModifier, type EnemyKind, type EnemyView, type Move, type Pressed, type Wakeable, type World } from '../../app/dungeon-enemy.ts';
 import { blastOf, bossPush, burn, fuseStep, KEG_CHAIN, KEG_FUSE, KEG_HURT, KEG_DAMAGE, KEG_RADIUS, landBlow, liveProps, PLATE_REACH, SPIKE_CYCLE, SPIKE_DAMAGE, SPIKE_HURT, SPIKE_TELL, SPIKE_UP, spikeBites, strikeProp, swingProps, type LiveProp } from '../../app/dungeon-hits.ts';
 import { furnishFloor } from '../../app/dungeon-furnish.ts';
 import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-pose.ts';
@@ -191,6 +191,9 @@ export type FloorReport = {
   /** Plan 021 Stage C: the rings a boss's scatter lit this floor, and how many of them lit with the knight standing inside - what stepping out of a marked ring (`avoidMarks`) saves. */
   ringsLit: number;
   ringsOnKnight: number;
+  /** Plan 025 Stage G: bombs a bomber's tell brought down this floor (a tell cut short brings none), and the ones whose blast cost the knight vitality. */
+  bombsLanded: number;
+  bombsOnKnight: number;
   /** Plan 021 Stage D: blows a shield turned aside after its boss changed phase - none, for the Bastion, whose shield breaks in the change. */
   blockedLate: number;
   /**
@@ -231,6 +234,12 @@ export type FloorReport = {
   tellsDodged: number;
   /** Plan 024 D3: tells a body was ready to begin and held back instead, so that it ended after the room's other tells (`pressure`, dungeon-enemy.ts): a tell counted once, however many frames it was held. */
   tellsHeld: number;
+  /**
+   * Plan 025 Stage G, the spawn log: the bodies this floor dealt standing (every spawn but a buried reserve, the boss included), and the bodies the knight met - every one that noticed him or that he felled,
+   * a raised rattler included - by kind. `npm run balance -- --kinds` prints them per floor; a kind dealt and never met is a kind the player never sees.
+   */
+  dealtKinds: Partial<Record<EnemyKind, number>>;
+  metKinds: Partial<Record<EnemyKind, number>>;
   /**
    * Plan 025 Stage F, the reward log: for every chamber the knight left by a door, the rewards behind each of its doors (null for a door that pays nothing of its own), in door order. A door
    * listed here was offered: the chamber in front of it was cleared and he stood at the choice. `armOffered` is whether any of them was the run's arm.
@@ -397,6 +406,9 @@ export const pickDoor = (floor: Pick<Floor, 'doors' | 'rooms'>, room: number, ex
   return [...ways].sort((a, b) => pays(a) - pays(b))[0];
 };
 
+/** Plan 025 Stage G: how many of each kind a list holds, a kind it holds none of absent. */
+const tallyKinds = (kinds: readonly EnemyKind[]) => kinds.reduce((sum, kind) => { sum[kind] = (sum[kind] ?? 0) + 1; return sum; }, {} as Partial<Record<EnemyKind, number>>);
+
 const unit = (x: number, z: number) => { const length = Math.hypot(x, z) || 1; return { x: x / length, z: z / length }; };
 
 const startRun = (policy: Policy) => createRun(policy.meta && runStart(policy.meta));
@@ -463,7 +475,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const damage = Object.fromEntries([...ENEMY_KINDS, 'hazard'].map(cause => [cause, 0])) as Record<Cause, number>;
   let surrounded = 0, contact = 0, shotCount = 0, landedCount = 0, specialCount = 0, blockedCount = 0, raisedCount = 0, reassembledCount = 0;
   // Plan 021: the boss's numbers (see FloorReport), and whatever last took vitality, which is what the knight died to if he died.
-  let phaseChanges = 0, blockedLate = 0, ringsLit = 0, ringsOnKnight = 0, bossHpLeft: number | null = null, bossFrom: number | null = null, bossTo: number | null = null, bossWallSum = 0, bossWallFrames = 0, lastBlow: Cause | null = null;
+  let bombsLanded = 0, bombsOnKnight = 0, phaseChanges = 0, blockedLate = 0, ringsLit = 0, ringsOnKnight = 0, bossHpLeft: number | null = null, bossFrom: number | null = null, bossTo: number | null = null, bossWallSum = 0, bossWallFrames = 0, lastBlow: Cause | null = null;
   // Where the knight has been, oldest first, one sample a TRAIL_STEP: what a `scatter` marks its rings on.
   const trail: { x: number; z: number }[] = [];
   let trailTimer = 0;
@@ -553,6 +565,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   const fightStart = new Map<number, number>(), fights: number[] = [], fightEncounters: string[] = [];
   const eliteKills: Partial<Record<EliteModifier, number>> = {};
   let ordinaryDamage = 0, tellsRolled = 0, tellsDodged = 0, tellsHeld = 0;
+  // Plan 025 Stage G: the bodies he met (FloorReport.metKinds), by index.
+  const met = new Set<number>();
   const boonsTaken: string[] = [], offersSeen: number[] = [];
   // Plan 024 Stage 0: a blow or a bolt from a body that is not a boss, landed with the knight in a fight chamber. A pool's bite never comes through here (`poolDamage` has it).
   const ordinaryBlow = (kind: EnemyKind, dealt: number, room: number) => { if (dealt && !BESTIARY[kind].boss && room >= 0 && fightChamber(floor.rooms[room])) ordinaryDamage += dealt; };
@@ -601,6 +615,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
   // pyre's fire where it lay, and crumbles everything the fallen one called, unpaid. Whichever way the chamber
   // was emptied, the reward is paid once (`settleRoom`).
   const fell = (body: Body) => {
+    met.add(bodies.indexOf(body));
     const fall = fallOf(bodies, bodies.indexOf(body));
     if (fall.reassembles) {
       const caller = bodies[body.summoner];
@@ -709,7 +724,8 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (b.windup <= 0) { b.dodgeRoll = null; b.dodged = false; }
       else if (b.winding?.attack !== 'scatter' && b.winding?.attack !== 'veil' && readable(b)) { if (b.dodgeRoll === null) { b.dodgeRoll = nerve() < policy.dodge; tellsRolled++; } }
     }
-    const threat = live.find(b => b.windup > 0 && b.dodgeRoll === true && b.winding?.attack !== 'scatter' && b.winding?.attack !== 'veil' && readable(b)
+    // Plan 025 Stage G: nor a bomber's lob (its one attack is a scatter, read off its row): its roll is taken, and what a "yes" buys is stepping out of the ring, below.
+    const threat = live.find(b => b.windup > 0 && b.dodgeRoll === true && (b.winding ?? BESTIARY[b.kind]).attack !== 'scatter' && b.winding?.attack !== 'veil' && readable(b)
       && Math.hypot(b.x - player.x, b.z - player.z) < (b.winding ?? BESTIARY[b.kind]).strikeRange + ((b.winding ?? BESTIARY[b.kind]).attack === 'pounce' ? 2.6 : 0.4));
     if (threat && dashCooldown <= 0 && dashTime <= 0 && canAbortSwing(attackTime, swing)) {
       if (!threat.dodged) { threat.dodged = true; tellsDodged++; }
@@ -877,8 +893,9 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
     }
     // Plan 021 (Stage C): the rings a boss's scatter has marked are stepped out of before they light, straight away from the nearest one's heart; once a ring is lit it is `avoidFire`'s. Dashing is
     // not for it (a scatter hurts no one in its tell), and the dodge and the strike are unchanged: this only replaces where he walks, and only while he stands in a marked ring.
+    // Plan 025 Stage G: a bomber's ring is stepped out of the same way, but only once he has read it - its tell's one roll (`dodgeRoll`, taken `reaction` seconds in) said yes - so a clumsier knight is caught by it more often.
     if (policy.avoidMarks !== false && dashTime <= 0) {
-      const inside = live.flatMap(b => b.marks.map(at => ({ at, radius: b.winding?.scatter?.pool.radius ?? 0, from: b }))).find(({ at, radius }) => Math.hypot(player.x - at.x, player.z - at.z) < radius);
+      const inside = live.filter(b => BESTIARY[b.kind].moves || b.dodgeRoll === true).flatMap(b => b.marks.map(at => ({ at, radius: (b.winding?.scatter ?? BESTIARY[b.kind].scatter)?.pool.radius ?? 0, from: b }))).find(({ at, radius }) => Math.hypot(player.x - at.x, player.z - at.z) < radius);
       // The newest ring is marked on the very spot he stands on, which has no "away" to it: he steps away from the boss that marked it instead.
       if (inside) move = Math.hypot(player.x - inside.at.x, player.z - inside.at.z) < 0.05 ? unit(player.x - inside.from.x, player.z - inside.from.z) : unit(player.x - inside.at.x, player.z - inside.at.z);
     }
@@ -983,6 +1000,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       if (pressure.held > 0 && body.held <= 0) tellsHeld++;
       body.held = pressure.held;
       const startedNoticing = body.notice <= 0 && intent.notice > 0;
+      if (intent.notice > 0) met.add(i);
       body.cooldown = intent.cooldown; body.hitFlash = intent.hitFlash; body.windup = intent.windup;
       if (view.windup <= 0 && intent.windup > 0) { body.dodgeRoll = null; body.dodged = false; }
       body.lunge = intent.lunge; body.aim = intent.aim; body.notice = intent.notice;
@@ -1012,6 +1030,23 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
           }
           body.marks = []; body.winding = null;
         }
+      }
+      // Plan 025 Stage G (D12 b; dungeon-game.tsx asks the same rules in the same place): a bomber's tell marks its ring on the knight (`bombMarks`), and the frame it runs out the bomb lands there -
+      // the blast is its blow (`bombLands`: its own damage, an ordinary blow), and the ring becomes its short fire. A tell cut short takes its ring with it.
+      if (!BESTIARY[body.kind].moves && BESTIARY[body.kind].scatter) {
+        if (view.windup <= 0 && intent.windup > 0) body.marks = bombMarks(body.kind, player, { hostile: fires.length + bodies.reduce((n, b) => n + (b.dead ? 0 : b.marks.length), 0), own: pools.length });
+        if (intent.scatter) {
+          for (const at of body.marks) {
+            const landed = bombLands(body.kind, at, player)!;
+            if (fires.length < HOSTILE_POOL_RINGS) fires.push({ kind: body.kind, pool: landed.pool });
+            bombsLanded++;
+            if (!landed.hurts) continue;
+            const dealt = hurt(run, strike, { dashing: dashImmune(dashTime), warded: true });
+            damage[body.kind] += dealt; ordinaryBlow(body.kind, dealt, activeRoom); if (dealt) { bombsOnKnight++; lastBlow = body.kind; }
+            if (run.hp <= 0) return endFloor('died');
+          }
+          body.marks = [];
+        } else if (intent.windup <= 0) body.marks = [];
       }
       if (intent.raise) raise(body, i, doing?.summon?.perTell);
       if (startedNoticing) {
@@ -1219,7 +1254,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
       bossKind: floor.spawns.find(spawn => BESTIARY[spawn.kind].boss)?.kind ?? null,
       bossDamage: ENEMY_KINDS.filter(kind => BESTIARY[kind].boss).reduce((sum, kind) => sum + damage[kind], 0),
       bossDeaths: outcome === 'died' && lastBlow !== null && lastBlow !== 'hazard' && BESTIARY[lastBlow].boss ? 1 : 0,
-      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, bossWall: bossWallFrames ? +(bossWallSum / bossWallFrames).toFixed(3) : null, phaseChanges, ringsLit, ringsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, boons: boonsTaken, offers: offersSeen, tellsRolled, tellsDodged, tellsHeld, doorRewards, armOffered: doorRewards.some(rewards => rewards.includes('arm')), props: propTally, ordinaryDamage, chambersEntered, ordinaryDamagePerChamber: +(chambersEntered ? ordinaryDamage / chambersEntered : 0).toFixed(2), hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
+      bossSeconds: +(bossFrom === null ? 0 : (bossTo ?? t) - bossFrom).toFixed(2), bossHpLeft, bossWall: bossWallFrames ? +(bossWallSum / bossWallFrames).toFixed(3) : null, phaseChanges, ringsLit, ringsOnKnight, bombsLanded, bombsOnKnight, blockedLate, fights, fightEncounters, hpAtStair, eliteKills, deathsBeforeBoss: outcome === 'died' && hpAtStair === null ? 1 : 0, wavesRaised, waveFights, waveBodies: waveBodiesAtStart, eliteBodies: bodies.filter(b => b.elite && !b.buried).map(b => ({ room: b.room, wave: b.wave, kind: b.kind, elite: b.elite!, hp: b.maxHp })), shrineMends, boons: boonsTaken, offers: offersSeen, tellsRolled, tellsDodged, tellsHeld, dealtKinds: tallyKinds(floor.spawns.filter(spawn => !spawn.buried).map(spawn => spawn.kind)), metKinds: tallyKinds([...met].map(index => bodies[index].kind)), doorRewards, armOffered: doorRewards.some(rewards => rewards.includes('arm')), props: propTally, ordinaryDamage, chambersEntered, ordinaryDamagePerChamber: +(chambersEntered ? ordinaryDamage / chambersEntered : 0).toFixed(2), hpAfter: run.hp, maxHpAfter: run.maxHp, rankAfter: run.rankLevel,
     };
   }
 }

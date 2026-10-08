@@ -39,8 +39,9 @@ export const PACK_MIX = {
   opening: { stalker: .15, archer: .1 },
   // Plan 018: the shieldbearer, the pyre and the bonecaller are appended after the older kinds, so the stalker and
   // the archer keep their odds exactly and the new ones take only from the guard's leftover share.
-  middle: { stalker: .4, archer: .2, shieldbearer: .07, pyre: .07 },
-  late: { stalker: .5, archer: .2, shieldbearer: .07, pyre: .07, bonecaller: .08 },
+  // Plan 025 Stage G (D12 b): the bomber is appended last in the same way, from floor two (its `firstFloor`); the late mix has only .08 of guards left to give, so it takes less there.
+  middle: { stalker: .4, archer: .2, shieldbearer: .07, pyre: .07, bomber: .07 },
+  late: { stalker: .5, archer: .2, shieldbearer: .07, pyre: .07, bonecaller: .08, bomber: .05 },
 } satisfies Record<string, PackMix>;
 
 /** A second bonecaller in one pack is dealt as a guard: two callers is eight rattlers and two priorities. No random input. */

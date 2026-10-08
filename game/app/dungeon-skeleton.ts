@@ -104,6 +104,9 @@ function skeletonSpec(kind: SkeletonKind): Node {
   // carrying an anchor in place of the hammer. `plated` is everything the two share: the plate, the wide shoulders, the greaves.
   // The Bastion is the shieldbearer grown huge and plated: the warden's plate and greaves under a flat-topped great helm, a tower shield the width of the body on the left arm, a flanged mace on the right.
   const bastion = kind === 'bastion';
+  // Plan 025 Stage G: the bomber is the guard's frame and helm with no shield and no blade: a bomb in the hand with its fuse lit, a bandolier of three more across the chest, a sack of them on its back and a
+  // scorched apron before - from across a room the one body carrying round black things.
+  const bomber = kind === 'bomber';
   const captain = kind === 'captain', plated = warden || captain || bastion;
   // The Pyre Mother (plan 021) is a pyre's cage and a bonecaller's hood and robe grown into one tall figure: a crown of flame about the hood, a skirt that widens to the floor, a great cage
   // of coals on her back and a staff that ends in a brazier.
@@ -300,6 +303,12 @@ function skeletonSpec(kind: SkeletonKind): Node {
     weaponParts.push({ name: 'staff', shape: { geometry: BONES.haft }, material: 'crest', rot: [Math.PI / 2, 0, 0], at: [0, 0, -.5], scale: [.7, 1.2, .7] });
     weaponParts.push({ name: 'staff-skull', shape: { geometry: BONES.skull }, material: 'bone', at: [0, 0, -1.3], scale: .55 });
     weaponParts.push({ name: 'staff-eye', shape: { geometry: BONES.socket }, material: 'eye', at: [0, .06, -1.43], scale: 1.4 });
+  } else if (bomber) {
+    // The bomb it is about to throw: an iron ball, a brass collar, a short fuse and its spark, lit like the eyes so the hand that throws reads first.
+    weaponParts.push({ name: 'bomb', shape: { dodeca: [.17, 1] }, material: 'iron', at: [0, .02, -.2] });
+    weaponParts.push({ name: 'bomb-collar', shape: { cylinder: [.06, .07, .05, 6] }, material: 'brass', at: [0, .19, -.2] });
+    weaponParts.push({ name: 'bomb-fuse', shape: { cylinder: [.014, .014, .12, 4] }, material: 'crest', at: [0, .27, -.2] });
+    weaponParts.push({ name: 'bomb-spark', shape: { dodeca: [.045, 0] }, material: 'ember', at: [0, .34, -.2] });
   } else if (!stalker) {
     weaponParts.push({ name: 'blade', shape: { geometry: BONES.blade }, material: 'steel', at: [0, 0, -.4] });
   }
@@ -405,6 +414,17 @@ function skeletonSpec(kind: SkeletonKind): Node {
     // A robe to the floor, front and back.
     trim(rigParts, 'robe-front', 'cloth', 'cloth', [0, .45, -.17], [.56, .9, 1]);
     trim(rigParts, 'robe-back', 'cloth', 'cloth', [0, .5, .14], [.58, .95, 1], [0, Math.PI, 0]);
+  } else if (bomber) {
+    // A scorched apron before, a sack of bombs slung on the back, and a bandolier from the right shoulder to the left hip carrying three more, each with its fuse.
+    trim(rigParts, 'apron', 'cloth', 'cloth', [0, .62, -.18], [.5, .72, 1]);
+    rigParts.push({ name: 'sack', shape: { geometry: BONES.armor }, material: 'cloth', at: [0, 1.05, .24], scale: [.62, .7, .5] });
+    trim(rigParts, 'sack-tie', 'box', 'brass', [0, 1.32, .24], [.2, .04, .2]);
+    trim(rigParts, 'bandolier', 'box', 'iron', [0, 1.02, -.02], [.06, .78, .34], [0, 0, -.62]);
+    for (let i = 0; i < 3; i++) {
+      const at: [number, number, number] = [.2 - i * .17, 1.2 - i * .14, -.24];
+      rigParts.push({ name: `bandolier-bomb-${i}`, shape: { dodeca: [.085, 1] }, material: 'iron', at });
+      trim(rigParts, `bandolier-fuse-${i}`, 'box', 'crest', [at[0], at[1] + .1, at[2]], [.02, .07, .02]);
+    }
   } else if (rattler) {
     trim(rigParts, 'loincloth', 'cloth', 'cloth', [0, .5, -.16], [.32, .3, 1]);
   } else if (hound) {
@@ -474,6 +494,9 @@ const PALETTE: Record<SkeletonKind, { bone: number; iron: number; ironRoughness:
   // The Bone King (plan 021): old ivory bone under a cloak of deep royal violet, bright brass for the crown and sceptre, and eyes a deeper violet than the bonecaller's lilac - the one boss that is gold and purple, so he is a king
   // from across the hall, and the widest pool of them all for his cloak.
   king: { bone: 0xd2c9b0, iron: 0x2a2630, ironRoughness: 0.55, brass: 0xc29a3c, eye: 0xc07bff, cloth: 0x3a1d5a, pool: 1.05 },
+  // Plan 025 Stage G: the bomber. Soot-dark bone under a scorched leather apron, black iron for its bombs, and eyes a hot green no other kind burns - the stalker's are a yellow lime, the Captain's a sea-green - so it
+  // names itself before its ring is drawn.
+  bomber: { bone: 0x8a8577, iron: 0x24262a, ironRoughness: 0.55, brass: 0x7a5a34, eye: 0x6aff7a, cloth: 0x4a3a26, pool: .6 },
   rattler: { bone: 0xb0aa98, iron: 0x3f4a53, ironRoughness: 0.5, brass: 0x6f6244, eye: 0xfff0a0, cloth: 0x3d3a33, pool: .42 },
 };
 

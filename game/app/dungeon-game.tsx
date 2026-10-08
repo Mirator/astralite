@@ -27,7 +27,7 @@ import AltarPanel, { HallPurse, RackCard, type AltarKind, type ShopCard } from '
 import { createHallKit, type HallKit, type Shrine } from './dungeon-hall';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
 import { boltBlow, DASH_BUFFER, dashImmune, dragToward, hurledBlow, lineContacts, specialAvailable, specialGate, specialMayCut, specialSpends, swordContacts, vaultLanding, vaultTarget } from './dungeon-combat';
-import { ALERT_STAGGER, BESTIARY, decideEnemy, fallOf, moveOf, NOTICE_TIME, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, type Wakeable } from './dungeon-enemy';
+import { ALERT_STAGGER, BESTIARY, bombLands, bombMarks, decideEnemy, fallOf, moveOf, NOTICE_TIME, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, type Wakeable } from './dungeon-enemy';
 import { awayFrom, blastOf, bossPush, burn as burnBody, fuseStep, KEG_CHAIN, KEG_DAMAGE, KEG_FUSE, KEG_HURT, landBlow, SPIKE_DAMAGE, SPIKE_HURT, spikeBites, spikeState, strikeProp, swingProps } from './dungeon-hits';
 import { furnishFloor } from './dungeon-furnish';
 import { raiseProps, type PropsView } from './dungeon-props-view';
@@ -443,7 +443,9 @@ export default function DungeonGame() {
       if (fall.reassembles) { rebury(enemy, stage.enemies[enemy.summoner]); return; }
       enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind, floor.cells); dropMarks(enemy);
       award(resolveKill(run, enemy.kind, !!enemy.elite)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
-      if (BESTIARY[enemy.kind].boss) { setBossBar(null); bossKey = ''; unmark(enemy); }
+      if (BESTIARY[enemy.kind].boss) { setBossBar(null); bossKey = ''; }
+      // A boss's rings, or a bomber's (plan 025 Stage G), go with it: nothing it marked lands.
+      unmark(enemy);
       // A pyre leaves its fire where it fell (dungeon-projectile's `deathPool`), which bites the knight.
       const fire = deathPool(enemy.kind, enemy.group.position, enemy.elite), ring = fire ? hostilePoolMeshes.find(mesh => !mesh.visible) : undefined;
       if (fire && ring) { ring.visible = true; ring.position.set(fire.x, .07, fire.z); ring.scale.setScalar(fire.radius); hostilePools.push({ pool: fire, mesh: ring, kind: enemy.kind }); burst(enemy.group.position, 0xff8c38, 18); }
@@ -2386,6 +2388,21 @@ export default function DungeonGame() {
               if (BESTIARY[enemy.kind].shield?.until === intent.phase) { (enemy.group.userData.shield as THREE.Object3D).visible = false; burst(enemy.group.position, 0xdfe6ea, 24); audio.play('hit'); }
             }
           }
+          // Plan 025 Stage G (D12 b): a bomber's tell marks its ring on the knight where he stands (`bombMarks`), on a free fire ring in the threat colour, closing as the tell does; the frame it runs out the bomb lands there - the blast is its blow
+          // (`bombLands`, its own damage) and the ring becomes its short fire, on the mesh that marked it. A tell cut short takes its ring with it. scripts/balance/sim.ts asks the same rules in the same place.
+          if (!BESTIARY[enemy.kind].moves && BESTIARY[enemy.kind].scatter) {
+            if (previousWindup <= 0 && intent.windup > 0) for (const at of bombMarks(enemy.kind, player.position, { hostile: hostilePools.length + marked.length, own: pools.length })) {
+              const mesh = hostilePoolMeshes.find(ring => !ring.visible); if (!mesh) break;
+              mesh.visible = true; mesh.position.set(at.x, .07, at.z); mesh.material.color.setHex(THREAT); marked.push({ owner: enemy, mesh, at, radius: BESTIARY[enemy.kind].scatter!.pool.radius });
+            }
+            if (intent.scatter) for (const mark of marked.filter(m => m.owner === enemy)) {
+              const landed = bombLands(enemy.kind, mark.at, player.position)!;
+              mark.mesh.material.color.setHex(0xff5a2a); mark.mesh.scale.setScalar(mark.radius); hostilePools.push({ pool: landed.pool, mesh: mark.mesh, kind: enemy.kind }); marked.splice(marked.indexOf(mark), 1);
+              burst(new THREE.Vector3(mark.at.x, .4, mark.at.z), 0xff8c38, 22); shake = Math.max(shake, .08);
+              if (landed.hurts) hurtBy(enemy.kind, strike);
+            }
+            if (intent.windup <= 0 && !intent.scatter) unmark(enemy);
+          }
           if (intent.sound) audio.play(intent.sound);
           if (intent.hit) hurtBy(enemy.kind, strike);
           // A volley becomes a bolt in the air; whether it finds the knight is decided as it flies, below.
@@ -2762,7 +2779,7 @@ export default function DungeonGame() {
         return { kind: body.kind, hp: body.hp, maxHp: body.maxHp, phase: body.bossPhase, move: body.move, unhittable: body.change > 0, change: body.change, awake: body.awake, windup: body.windup, attack: body.doing?.attack ?? null, cue: { visible: body.cue.visible, shape: shape.type === 'PlaneGeometry' ? 'lane' : (shape.parameters.thetaLength ?? 0) > 6 ? 'ring' : 'arc', scale: body.cue.scale.x }, bar: body.bar.visible, surge: body.surge?.visible ?? false, shield: BESTIARY[body.kind].shield ? (body.group.userData.shield as THREE.Object3D).visible : null }; })(),
       // Plan 019: what the live run was dealt, read off the run itself once it was dealt (not off the meta table).
       run: { start: { ...began }, armLocked, found: run.found },
-      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: pc.weapon.special ?? null }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), hostilePools: hostilePools.map(h => ({ kind: h.kind, x: h.pool.x, z: h.pool.z, radius: h.pool.radius, life: h.pool.life, damage: h.pool.damage, drawn: h.mesh.visible })), scatterMarks: marked.map(m => ({ x: m.at.x, z: m.at.z, radius: m.radius, drawn: m.mesh.visible, threat: m.mesh.material.color.getHex() === THREAT })), arrowsDrawn: arrowPool.filter(arrow => arrow.visible).length, hostileRings: hostilePoolMeshes.filter(ring => ring.visible).length, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: stage.enemies.filter(e => !e.dead && !e.buried).length,
+      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: pc.weapon.special ?? null }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), hostilePools: hostilePools.map(h => ({ kind: h.kind, x: h.pool.x, z: h.pool.z, radius: h.pool.radius, life: h.pool.life, damage: h.pool.damage, drawn: h.mesh.visible })), scatterMarks: marked.map(m => ({ owner: stage.enemies.indexOf(m.owner), x: m.at.x, z: m.at.z, radius: m.radius, drawn: m.mesh.visible, threat: m.mesh.material.color.getHex() === THREAT })), arrowsDrawn: arrowPool.filter(arrow => arrow.visible).length, hostileRings: hostilePoolMeshes.filter(ring => ring.visible).length, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: stage.enemies.filter(e => !e.dead && !e.buried).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, onStair: stairOpen && onStair },
       // Plan 025 Stage F: the furniture, the knight's chamber's in full as the scene holds it (`shown` and a plate's `spikes` height are read back off the drawn instances), and the floor's count. `rack` is the arm chamber's.
       furniture: { total: props.live.length, rack: floor.armRack ? { kind: floor.armRack.kind, room: floor.armRack.room, x: floor.armRack.x, z: floor.armRack.z } : null, here: props.live.flatMap((p, i) => p.room === activeRoom ? [{ id: p.id, kind: p.kind, x: +p.at.x.toFixed(3), z: +p.at.z.toFixed(3), broken: p.broken, lit: p.fuse >= 0, plate: p.kind === 'spikes' ? spikeState(propClock, p.phase) : null, solid: !floor.cells.has(cellKey(p.x, p.z)), drop: p.drop, ...props.drawn(i) }] : []) },

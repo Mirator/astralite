@@ -10,10 +10,11 @@
 //   npm run balance -- --compare --quantise  the same, aiming with eight keys instead of a pointer
 //   npm run balance -- --compare --special   the same, firing each arm's special whenever it is worth it
 //   npm run balance -- --json             machine-readable, for diffing two branches
+//   npm run balance -- --runs 30 --kinds  the spawn log: each ordinary kind dealt and met, per floor (plan 025 Stage G)
 //
 // The numbers are a yardstick for comparing one build against another, not a claim about how a human
 // plays. Compare a batch against a batch from the same policy; a single run tells you nothing.
-import { ENEMY_KINDS } from '../../app/dungeon-bestiary.ts';
+import { BESTIARY, ENEMY_KINDS, type EnemyKind } from '../../app/dungeon-bestiary.ts';
 import { WEAPONS, weaponById, type WeaponId } from '../../app/dungeon-weapon.ts';
 import { DEFAULT_POLICY, simulateRun, type Cause, type FloorReport, type Policy, type RunReport } from './sim.ts';
 
@@ -74,6 +75,21 @@ if (flag('compare')) {
     const inReach = dealt.reduce((sum, f) => sum + f.contact, 0), elapsed = all.reduce((sum, r) => sum + r.seconds, 0);
     const fired = dealt.reduce((sum, f) => sum + f.shots, 0), stuckIn = dealt.reduce((sum, f) => sum + f.landed, 0);
     console.log(`  ${WEAPONS[id].name.padEnd(17)}  ${share(out.length, runs).padStart(7)}   ${share(lost.length, runs).padStart(4)}   ${`${(median(all.map(r => r.seconds)) / 60).toFixed(1)}m`.padStart(10)}   ${`${median(hp).toFixed(0)}%`.padStart(18)}   ${share(fromWarden, total).padStart(10)}   ${share(inReach, elapsed).padStart(8)}   ${(fired ? share(stuckIn, fired) : '—').padStart(8)}   ${`${median(dealt.flatMap(f => f.fights)).toFixed(1)}s`.padStart(5)}   ${`${median(all.map(r => r.floors.reduce((sum, f) => sum + f.fights.reduce((s, x) => s + x, 0), 0))).toFixed(0)}s`.padStart(9)}`);
+  }
+  console.log('');
+} else if (flag('kinds')) {
+  // Plan 025 Stage G: the spawn log, per floor - what each ordinary kind the floors dealt standing, and how many of them the knight met (noticed him or fell to him), over the runs that reached that floor.
+  // A kind that is dealt and never met is one the player never sees; one never dealt has no share where its `firstFloor` allows (PACK_MIX, dungeon-floor.ts).
+  const ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].boss);
+  console.log(`\n  ${runs} runs from seed ${firstSeed} · reaction ${policy.reaction}s · dodge ${policy.dodge}: bodies a run reaching the floor (dealt / met), and the runs that met at least one\n`);
+  console.log('  floor  reached   ' + ordinary.map(kind => kind.padStart(19)).join(''));
+  for (let level = 1; level <= 3; level++) {
+    const floors = reports.map(r => r.floors[level - 1]).filter((f): f is FloorReport => !!f);
+    const cell = (kind: EnemyKind) => {
+      const dealt = floors.reduce((n, f) => n + (f.dealtKinds[kind] ?? 0), 0), met = floors.reduce((n, f) => n + (f.metKinds[kind] ?? 0), 0), meeting = floors.filter(f => (f.metKinds[kind] ?? 0) > 0).length;
+      return `${(dealt / Math.max(1, floors.length)).toFixed(2)}/${(met / Math.max(1, floors.length)).toFixed(2)} ${String(meeting).padStart(2)}`.padStart(19);
+    };
+    console.log(`  ${String(level).padEnd(5)}  ${String(floors.length).padStart(7)}   ` + ordinary.map(cell).join(''));
   }
   console.log('');
 } else if (flag('json')) {

@@ -144,6 +144,11 @@ const BUDGET = {
   // d3d11's 241,267; the calls never moved), so each triangle ceiling sits just over the highest reading.
   'furnished-chamber': { calls: 378, triangles: 241_300 },
   'plain-chamber': { calls: 372, triangles: 240_800 },
+  // Plan 025 Stage G (D12 b): two bombers mid-throw beside a pyre and a warden on floor two, and the same stand with the two guards the pack mix would otherwise have dealt in their place, so the difference is
+  // what the bomber costs: its figure, and its rings (the shared fire rings, already in the scene). Measured 2026-10-08 on d3d11 only: two bombers with one ring drawn 401 calls, 252,093 triangles; two guards
+  // 390 calls, 252,753 triangles (+11 calls, about five a bomber and one for the ring; -660 triangles), 107 under the 508. SwiftShader has read the Stage F scenes a call and up to 16 triangles off d3d11 (above), so each ceiling is the d3d11 figure plus that margin until CI reads these.
+  'bomber-pair': { calls: 402, triangles: 252_120 },
+  'guard-pair': { calls: 391, triangles: 252_780 },
   // Plan 025 Stage B, measured 2026-10-07 on d3d11 against the same scenes on d3d11 at 5045a89, and added to each ceiling above as a
   // delta (d3d11 and SwiftShader disagree by up to 13 calls on some of these scenes, so a d3d11 figure is not a SwiftShader ceiling):
   // every scene +1 call for the chamber's painted sconce pools (one merged mesh a chamber, single pass, only the knight's chamber drawn)
@@ -311,6 +316,31 @@ test.describe('the Tide Altar\'s hall with the whole armoury bought', () => {
     expect(owned.calls - locked.calls, 'an owned rack costs no more than a locked one, so the silhouettes are not what is drawn').toBeGreaterThan(10);
   });
 });
+
+// Plan 025 Stage G (D12 b): the pack mix deals a bomber where it would have dealt a guard, so the bound is the same arena stood twice - two bombers, then two guards, each pair beside a pyre and a warden on floor two -
+// framed from where the knight arrives. Only the bombers act (the rest hold their blows, and the guards theirs), and the bombers' frame is drawn with a ring marked on the knight, so a ring is in it; the guards' after the same wait.
+for (const [scene, pair] of [['bomber-pair', 'bomber'], ['guard-pair', 'guard']] as const) {
+  test.describe(`two ${pair}s beside a pyre and a warden`, () => {
+    test(`the arena with two ${pair}s stays inside its budget (${scene})`, async ({ game, page }) => {
+      await page.evaluate((roster) => (window as unknown as { dungeonTest: { buildArena: (roster: string[], level: number) => void } }).dungeonTest.buildArena(roster, 2), [pair, pair, 'pyre', 'warden']);
+      await game.enter();
+      const held = (pair === 'bomber' ? [2, 3] : [0, 1, 2, 3]).map((index) => ({ index, cooldown: 999, windup: 0 }));
+      await game.configureCombat({ enemies: held });
+      let state = await game.state();
+      expect(state.enemies.map((e) => e.kind), 'precondition: the arena stood the roster').toEqual([pair, pair, 'pyre', 'warden']);
+      for (let t = 0; t < 6000 && (pair === 'bomber' ? !state.scatterMarks.length : t < 1200); t += 50) {
+        await game.configureCombat({ health: state.maxHealth, enemies: held });
+        await game.step(50);
+        state = await game.state();
+      }
+      // The bombers' frame holds a ring drawn on the floor, the guards' none.
+      expect(state.scatterMarks.filter((m) => m.drawn).length > 0, `precondition: a ring is drawn in the frame exactly when bombers stand (${pair}s)`).toBe(pair === 'bomber');
+      expect(state.health, 'the knight fell before the frame was drawn').toBeGreaterThan(0);
+      await spend(game, scene);
+      expect((await game.state()).render.calls, 'over the 508 every chamber is held to').toBeLessThanOrEqual(508);
+    });
+  });
+}
 
 test.describe('the busiest chamber plan 018 deals', () => {
   test('a caller with four rattlers standing beside a shieldbearer, a pyre and a warden stays inside its budget', async ({ game, page }) => {

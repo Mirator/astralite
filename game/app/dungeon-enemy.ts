@@ -5,6 +5,7 @@
 // instead of by hand-driving a browser, which is how every spatial regression here has been caught.
 import { BESTIARY, byKind, ELITES, type Archetype, type EliteModifier, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
 import { TILE, bodyRadius, canStand, cellKey, hasClearPath, moveOnFloor } from './dungeon-floor.ts';
+import { scatterRings, type Pool } from './dungeon-projectile.ts';
 
 export { ENEMY_KINDS, BESTIARY, ELITES, type EliteModifier, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
 export type Point = { x: number; z: number };
@@ -157,6 +158,28 @@ export const volleyDemand = (kind: EnemyKind) => {
   if (!volleys.length) return 0;
   const gap = Math.min(...volleys.map(move => move.tell)) + RECOVERY[kind];
   return Math.max(...volleys.map(move => (move.bolt!.fan?.count ?? 1) * Math.ceil(move.bolt!.flight / gap)));
+};
+
+/**
+ * Plan 025 Stage G (D12 b), the bomber: an ordinary kind whose one attack is a `scatter` of its own (`Archetype.scatter`), decided by `decideEnemy` as a boss's scatter is - the tell begins when the knight is
+ * inside `attackRange` with a clear line, and `scatter` is set on the one frame it runs out. These are the two halves the caller asks around it. `bombMarks` is where the bomb will come down, marked when the tell
+ * begins: on the knight, where he stands then (so walking out of the ring is the answer), and never on more rings than the game can still draw (`scatterRings`): with none free it marks nothing, and nothing lands.
+ * Empty for a kind with no scatter of its own (a boss marks off its move).
+ */
+export const bombMarks = (kind: EnemyKind, knight: Point, live: { hostile: number; own: number }): Point[] => {
+  const lob = BESTIARY[kind].moves ? undefined : BESTIARY[kind].scatter;
+  return lob ? scatterRings([{ x: knight.x, z: knight.z }], lob.rings, live) : [];
+};
+/**
+ * The bomb lands on a marked spot (the frame `decideEnemy` says `scatter` for the body that marked it): `hurts` is whether the blast catches the knight (he stands inside the ring it marked; a dash's immunity is
+ * the caller's, `hurt` in dungeon-sim.ts), and `pool` is the short fire it leaves there. The blast costs the body's own damage (`enemyStats`, so `ORDINARY_DAMAGE` applies), which the caller holds; the fire's first
+ * bite waits one `interval`, so the blast and the fire never bill him on the same frame. Null for a kind with no scatter of its own.
+ */
+export const bombLands = (kind: EnemyKind, at: Point, knight: Point): { hurts: boolean; pool: Pool } | null => {
+  const lob = BESTIARY[kind].moves ? undefined : BESTIARY[kind].scatter;
+  if (!lob) return null;
+  const fire = lob.pool;
+  return { hurts: Math.hypot(knight.x - at.x, knight.z - at.z) < fire.radius, pool: { x: at.x, z: at.z, radius: fire.radius, life: fire.life, damage: fire.damage, interval: fire.interval, timer: fire.interval } };
 };
 
 // Everything a decision reads off an enemy. The renderer's Enemy also carries a THREE.Group, a health

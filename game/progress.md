@@ -6554,3 +6554,69 @@ New scenes, one stand in the most furnished fight chamber floor one lays (seed 0
 - The furniture barely moves the bot; whether it changes how a room plays is for the operator's playtest.
 - BOON_ODDS 0.05 was chosen against the default knight's escape; the operator may want Boon doors commoner and the keep harder elsewhere.
 - D12 (b), new enemy kinds, is Stage G.
+
+## 2026-10-08 - Plan 025 Stage G, first part: the spawn log, G0, and the bomber (D12 b)
+
+Branch `feat/p025-g-new-kinds` on `feat/p025-integration` (fast-forwarded to 05bafa5 before finishing). Uncommitted, for the coordinator.
+
+### 1. Measured first: the kinds met per floor (node sim, default bot, 30 runs from seed 1, before the bomber)
+
+New reporting option: `npm run balance -- --runs 30 --kinds` (scripts/balance/main.ts), off a new spawn log in the sim (`FloorReport.dealtKinds`, `metKinds`). Dealt = every standing spawn the floor laid (later waves included, buried reserves not); met = a body that noticed the knight or fell to him (a raised rattler counts). Cells: bodies a run reaching the floor, dealt / met, then the runs (of those reaching it) that met at least one.
+
+| Floor (reached) | guard | stalker | warden | archer | shieldbearer | reaper | pyre | bonecaller | rattler |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 (30) | 16.10 / 7.33, 30 | 24.03 / 11.73, 30 | 1.80 / 0.63, 13 | 4.17 / 1.87, 28 | - | - | - | - | - |
+| 2 (30) | 16.13 / 9.10, 30 | 36.57 / 16.30, 30 | 3.43 / 1.03, 16 | 8.67 / 2.93, 30 | 1.90 / 0.73, 18 | - | 4.83 / 1.90, 26 | - | - |
+| 3 (29) | 14.41 / 8.24, 29 | 41.41 / 20.10, 29 | 11.41 / 4.21, 29 | 11.79 / 4.14, 29 | 2.34 / 1.03, 20 | - | 5.79 / 2.45, 28 | 2.52 / 0.79, 18 | 0 / 2.31, 29 (reserve only) |
+
+The bot meets about 45% of what a floor deals (it walks the stair's path and the doors that pay).
+
+### 2. G0: not warranted, no change
+
+The rarest kinds where they are dealt are the shieldbearer (met in 18 of 30 floor-two runs, 20 of 29 on floor three, about one a floor) and the bonecaller (18 of 29 on floor three). Nothing with a share is "almost never" met (my threshold: met in under a third of the runs reaching a floor its `firstFloor` allows). The reaper is never dealt by design (`firstFloor: Infinity`, arena-only); that is not G0. A note: the shieldbearer and the pyre both hold .07 of the mixes, but the pyre is dealt 2.5x as often - the waves' ranged rule (`withRanged`, plan 024 D4) swaps a body for an archer or a pyre. Not chased.
+
+### 3. G1: the bomber
+
+- **Design** (`BESTIARY.bomber`): an ordinary kind from floor two (`firstFloor: 2`, like the archer). 6 vitality (an archer's), speed 2.1, `attackRange` 7, `holdRange` 6, `keepAway` 3.5, `recovery` 2.0, not steadfast (a blow early in the tell breaks the throw). Its one attack is a `scatter` of its own (`Archetype.scatter`, new: one ring): the **tell** (1.0 s) marks a ring of radius 1.5 on the knight where he stands when it begins, in the threat colour, closing over the tell (the boss scatter's own mesh and animation); a small ring (0.9) also closes at its feet. When the tell runs out the bomb lands: the **blast** catches him if he is still inside the ring and costs the bomber's own `enemyStats` damage (stats.damage 10, so 15 / 17 / 20 on floors 1 / 2 / 3 with ORDINARY_DAMAGE and the floor step); the ring becomes a **fire patch** (radius 1.5, 1.6 s, a bite of 3 every 0.5 s, the first one interval after the blast, unscaled like a pyre's death fire). The answer: step out of the ring, then reach it.
+- **Rule** (pure, `dungeon-enemy.ts`): `decideEnemy` runs it through the existing `scatter` branch; new `bombMarks` (where it lands: on the knight, never on a seventh fire ring - with none free it marks nothing and nothing lands) and `bombLands` (the blast test and the fire). The game (`dungeon-game.tsx`, beside the boss scatter) and the sim call the same two. A bomber's death takes its ring with it (every body's death now `unmark`s, not only a boss's).
+- **Where dealt**: `PACK_MIX.middle` .07 and `.late` .05, appended last, from the guards' share (late had only .08 left). Waves draw from `late`, so later waves deal it too. Not added to the waves' ranged list (`rangedKinds`): that would move the ranged stream's picks. After: a run reaching floor two is dealt 1.67 and meets 0.57 (13 of 30 runs); floor three 1.41 / 0.52 (12 of 29). Floor one is unchanged in every column.
+- **Checklist**: figure on the guard's skeleton and helm (no shield or blade; a bomb with a lit fuse in the hand, a bandolier of three, a sack on the back, a scorched apron), `PALETTE` row (green eyes 0x6aff7a), `CUTAWAY_ELLIPSE` (the guard's), `CAUSE_LABELS` ("Blown apart by a bomber"). `volleyDemand('bomber')` is 0: it draws on the six shared fire rings (`HOSTILE_POOL_RINGS`), not the arrow pool. No new mesh, light or shader.
+- **Sim** (scripts/balance/sim.ts): marks and lands as the game does; the blast is an ordinary blow (`ordinaryDamage`), the fire a pool (`poolDamage`). The knight's dodge roll is taken on its tell as on any other (`reaction` seconds in); a "yes" walks him out of the ring (the boss rings' `avoidMarks`, which for a boss stays unconditional), never a dash. New report fields `bombsLanded`, `bombsOnKnight`. In a 10-seed arena (shieldbearer, warden, two bombers, floor two) the default knight was caught by 8 of 39 bombs; a knight who never steps out by 32 of 43.
+
+### Balance (`balance:check`, 30 runs a policy from seed 1, 2026-10-08; before = bands.json's Stage F measured block on this tree)
+
+| Policy | Escape | Floor-3 deaths | Ordinary damage a chamber, floors 1/2/3 | Median run (s) |
+| --- | --- | --- | --- | --- |
+| default | 73.3 -> 70.0 | 24.1 -> 27.6 | 2.68 / 6.98 / 11.45 -> 2.68 / 7.42 / 11.83 | 253.6 -> 252.7 |
+| skilled | 86.7 -> 83.3 | 13.3 -> 16.7 | 1.75 / 3.68 / 6.36 -> 1.75 / 3.68 / 6.59 | 262 -> 269.6 |
+| weak | 0 -> 0 | 100 -> 100 | 12.28 / 22.68 / 40.33 -> 12.28 / 22.5 / 40.33 | 67.8 -> 67.8 |
+
+Stop rule (skilled under 75, weak over 20): not tripped. Others, escape: special 90 -> 83.3, special-fangs 93.3 -> 90, special-cleaver 60 -> 63.3, special-crossbow 6.7 -> 10, special-flask 30 -> 40, meta-max 96.7 -> 96.7, weak-meta-max 3.3 -> 3.3.
+
+**Bands** (`measured` re-taken for all ten policies from this run; moved to the next five, a half for ordinary damage, beyond what was measured, none further): skilled `floor3.ordinaryDamagePerChamber` max 6.5 -> 7 (6.59); special-cleaver `floor2.ordinaryDamagePerChamber` max 8.5 -> 9 (8.83) and `floor3` max 12 -> 13 (12.74); special-crossbow `medianPearls` min 50 -> 40 (45.0 exactly, so the next five beyond it is 40); special-flask `floor2.ordinaryDamagePerChamber` max 8 -> 9 (8.74). Held offline against the run's summary with `compareBands`: 0 violations. No confirm run.
+
+### Draw calls (`frame-budget.spec.ts`, d3d11, 2026-10-08)
+
+New scenes, one arena stand on floor two: two bombers (one ring drawn) beside a pyre and a warden **401 calls / 252,093 triangles**; two guards in their place **390 / 252,753**: about +5 calls a bomber against the guard it replaces, +1 for the ring; 107 under the 508. Every other scene held. Risk: the caller chamber reads 505 on d3d11 (ceiling 509); a late pack that deals a bomber where a guard stood in a chamber that full could go a few calls over 508. Not measured.
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- `tests/dungeon-bomber.test.ts` (new, 8 tests): the row; the tell (begins with its warning, lands once, only after the whole tell); no throw out of reach or through a wall; the mark (on the knight, never a seventh ring); blast in and out of the ring; the fire bites after the blast and burns out; the blast through `enemyStats`; the deal over the sweep's floors; the sim's model.
+  - Plant "the bomb lands with no tell" (the bomber's tell started at 1e-4 s) -> `the bomb landed with no tell: 0.02 s after it began, against a 1 s tell`.
+  - Plant "the fire patch never expires" (`bombLands` life Infinity) -> `the bomber's fire never burns out (166.7 s and still burning)`.
+  - Plant "dealt on a floor it should not be" (`firstFloor: 1`) -> `a bomber was dealt on floor one (seed 1, room 9)`.
+- `tests/browser/arena-kinds.spec.ts`: the ring drawn on the knight in the threat colour, nothing until the tell has run, the blast costs `enemies[0].damage` to a knight left inside, the fire burns out, and a knight who walks out of the next ring with the arrow keys pays nothing. Plant: the game never bills the blast -> `the blast did not cost the knight left inside the bomber's own damage`.
+- Updated for the new kind: the kind counts in dungeon-enemy (a BASE_STATS row; ten ordinary kinds), dungeon-hits, dungeon-elites (the bomber can be elite). `dungeon-enemy.test.ts`'s pre-plan-021 recording excludes the bomber (it did not exist; its rule is the new file's). `dungeon-waves.test.ts`'s byte-for-byte generator digest now reads bombers back as guards and still matches the recorded digest: the bomber took only the guards' share, on the same rolls.
+
+### Runs
+
+- `npm run balance -- --runs 30 --kinds` x2 (before and after the bomber; not `balance:check`). `balance:check` x1 (the after, `--summary`, 843 s); the before is Stage F's measured block, the bands held offline.
+- Node: touched files while iterating; `npm test` once (606 of 613: the seven count and digest tests above), the four fixed files, then `npm test` once more after the fast-forward, 613 of 613.
+- Browser (d3d11, port 3800, one worker): `arena-kinds.spec.ts` 7 of 7, plus the bomber test once with the plant; `frame-budget.spec.ts` once, 20 of 20 (its two new ceilings were then set to the readings, not re-run). `npm run figures -- --figures bomber,guard,archer,pyre` once: `game/outputs/figures/2026-10-08T11-37-18-494Z.png`.
+- typecheck, lint clean.
+- **Not run:** the PR-gate browser subset, `balance:bosses` (no boss changed), SwiftShader, `dealt-kinds.spec.ts`.
+
+### Open
+
+- The operator plays the bomber (`?arena=bomber:3&level=2`) before the chanter. Its share (met in about 40% of floor-two and -three runs, half a body a floor) is as rare as the shieldbearer's; raise it if it should be met every run.
+- No bomb is drawn in flight: the throw is the overhead pose and the closing ring. A flying mesh is a follow-up if the playtest asks for it.

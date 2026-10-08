@@ -299,6 +299,7 @@ test('bodies grow with the floor: vitality by one blade a floor, damage by fifte
     pyre: { hp: 1.5 * HIT, damage: 8, tell: 0.5, speed: 2.4 },
     bonecaller: { hp: 2 * HIT, damage: 0, tell: 1.2, speed: 2.2 },
     rattler: { hp: 1 * HIT, damage: 5, tell: 0.38, speed: 3.6 },
+    bomber: { hp: 1.5 * HIT, damage: 10, tell: 1.0, speed: 2.1 },
     captain: { hp: 72.5 * HIT, damage: 7, tell: 0.8, speed: 1.8 },
     mother: { hp: 37.5 * HIT, damage: 9, tell: 0.8, speed: 2.1 },
     hound: { hp: 65 * HIT, damage: 5, tell: 0.7, speed: 3.0 },
@@ -506,7 +507,8 @@ const BEFORE_PLAN_021: Record<string, Omit<Recorded, 'neutral'>> = {
 
 test('an archetype without moves produces exactly the intents it produced before plan 021, and leaves the boss fields idle', () => {
   // Plan 021 Stage B: a kind with moves is a boss (the Captain), and the recording is of every kind without them.
-  const ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].moves);
+  // Plan 025 Stage G: the bomber came after plan 021 and has no recording; its rule (a scatter of its own, which this recording's `neutral` would rightly call a scatter) is tests/dungeon-bomber.test.ts's.
+  const ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].moves && kind !== 'bomber');
   for (const kind of ENEMY_KINDS) if (BESTIARY[kind].moves) assert.ok(BESTIARY[kind].boss, `${kind} has moves but is not marked a boss`);
   assert.ok(ordinary.length === 9 && ordinary.length < ENEMY_KINDS.length, 'precondition: the nine kinds that existed before plan 021 are ordinary and a boss is not among them');
   assert.deepEqual(Object.keys(BEFORE_PLAN_021).sort(), [...ordinary].sort(), 'a kind has no recorded sequence');
@@ -673,7 +675,7 @@ test('a boss\'s blow costs what its move says, scaled by the floor as an ordinar
 // Plan 023 (D5): the two dials on how hard an ordinary body presses. Each is held at values the game does not ship, so the rule is held whatever the tuning says.
 test('the recovery scale reaches every ordinary kind and never a boss (plan 023 D5)', () => {
   const bosses = ENEMY_KINDS.filter(kind => BESTIARY[kind].boss), ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].boss);
-  assert.ok(bosses.length === 5 && ordinary.length === 9, 'precondition: five bosses and nine ordinary kinds');
+  assert.ok(bosses.length === 5 && ordinary.length === 10, 'precondition: five bosses and ten ordinary kinds');
   for (const kind of ordinary) assert.equal(recoveryFor(BESTIARY[kind], 0.5), BESTIARY[kind].recovery * 0.5, `a ${kind} was not made to recover at half the time`);
   for (const kind of bosses) assert.equal(recoveryFor(BESTIARY[kind], 0.5), BESTIARY[kind].recovery, `the scale reached the ${kind}, a boss`);
   // And the table the rules read is that rule at the shipped scale, kind by kind.
@@ -699,7 +701,7 @@ test('floor damage scales an ordinary kind by FLOOR_DAMAGE and a boss by its own
 // Plan 025 (D10): ordinary bodies hit harder by one dial, and no boss does.
 test('an ordinary guard\'s swing deals ORDINARY_DAMAGE times the table\'s blow and a boss\'s swing deals its move row (plan 025 D10)', () => {
   const bosses = ENEMY_KINDS.filter(kind => BESTIARY[kind].boss), ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].boss);
-  assert.ok(bosses.length === 5 && ordinary.length === 9, 'precondition: five bosses and nine ordinary kinds');
+  assert.ok(bosses.length === 5 && ordinary.length === 10, 'precondition: five bosses and ten ordinary kinds');
   assert.ok(ORDINARY_DAMAGE > 1, `precondition: ORDINARY_DAMAGE is ${ORDINARY_DAMAGE}, so a boss left alone is not the same as a boss scaled`);
   assert.ok(ORDINARY_DAMAGE >= 1.25 && ORDINARY_DAMAGE <= 1.5, `ORDINARY_DAMAGE is ${ORDINARY_DAMAGE}: D10 starts at 1.5 and steps toward 1.25`);
   // The rule, held at a scale the game does not ship.

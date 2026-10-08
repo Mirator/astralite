@@ -21,13 +21,16 @@ const waved = (floor: Floor, level: number, table: WaveTable = D2) => dealWaves(
 test('generateFloor deals what it dealt before waves existed, byte for byte, over 900 floors (D5)', () => {
   // Recorded at plan 022's start (main + the plan, 2fa0546), before any of this plan's code existed: the rooms, doors, props, spawns, weapon drop and
   // counts of 300 seeds on each floor. A waves change that reached into the generator, even by one `random()` call, changes every pack after it.
+  // Plan 025 Stage G: the bomber takes its share of a pack from the guard's leftover (PACK_MIX), on the same one roll a body, so a floor is the floor plan 022 started from with some guards dealt as bombers: read back as
+  // guards, the digest is the recorded one. Anything else that moved - a draw more, a body moved, a kind other than a guard replaced - still changes it.
   const hash = createHash('sha256');
-  let floors = 0;
+  let floors = 0, bombers = 0;
   for (let i = 1; i <= 300; i++) for (const level of LEVELS) {
-    const f = generateFloor(i * 7919 + 13, level);
-    hash.update(JSON.stringify([f.rooms, f.doors, f.props, f.spawns, f.weaponDrop, f.guardCount, f.goal, f.tiles.length])); floors++;
+    const f = generateFloor(i * 7919 + 13, level), spawns = f.spawns.map(spawn => spawn.kind === 'bomber' ? (bombers++, { ...spawn, kind: 'guard' as const }) : spawn);
+    hash.update(JSON.stringify([f.rooms, f.doors, f.props, spawns, f.weaponDrop, f.guardCount, f.goal, f.tiles.length])); floors++;
   }
   assert.equal(floors, 900);
+  assert.ok(bombers > 0, 'precondition: the corpus deals bombers, so reading them back as guards is tested');
   assert.equal(hash.digest('hex'), 'b6b554323fefc359b9dced4f12f8116d3c3be644fbeca47f27e4ba4b759dd308', 'generateFloor no longer deals the floors plan 022 started from: a wave rule reached into the generator, or it drew a random number it did not draw before');
 });
 
