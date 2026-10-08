@@ -20,9 +20,9 @@ that can fail": plant the named bug and record it in the commit.
 | --- | --- | --- |
 | D1 | Waves | **Settled: shorter timers, same rule.** `WAVE_PAUSE` 0.5 → 0.15, `WAVE_MARK` 0.9 → 0.6, the raised body's opening cooldown 0.9 → 0.6 (lift it to a named constant `WAVE_OPENING` in `dungeon-waves.ts` so the sim and the game read one number). Dead air goes from ~2.3 s to ~1.35 s. No overlap of waves. |
 | D2 | Boon guard | **Settled: a confirm step.** The first click or key on an option *selects* it (highlight, name repeated on a TAKE button); a second activation of the same option, or TAKE, takes it. Clicking a different option moves the selection. Keyboard: arrows or 1–3 select, Enter/Space confirm. Pad: as keyboard. Plus one guard against the very first selection: input that was already held when the card opened (a pointer or key down before `openedAt`) does nothing until released. Without it, a held attack button still pre-selects. Rule lives in a pure module (`dungeon-input.ts` or a new `dungeon-draft.ts`): `draftPress(state, option, pressedAt) -> { state, take }`. |
-| D3 | Boss bar | Desktop (≥ 900px): `width: min(960px, calc(100% - 420px))`, track 18 → 28px, name 20 → 26px, phase ticks 3 → 4px, plus a numeric "hp / max" right-aligned in the track at 13px. Phone (< 900px): track 10 → 14px, name 15 → 17px. Check it still clears the title and options at 1280 and 1024. **Assumption: the operator means desktop first.** |
+| D3 | Boss bar | **Settled 2026-10-08 ("bar ok").** Desktop (≥ 900px): `width: min(960px, calc(100% - 420px))`, track 18 → 28px, name 20 → 26px, phase ticks 3 → 4px, plus a numeric "hp / max" right-aligned in the track at 13px. Phone (< 900px): track 10 → 14px, name 15 → 17px. Check it still clears the title and options at 1280 and 1024. **Assumption: the operator means desktop first.** |
 | D4 | Lights | **Settled: every source in the knight's chamber gets a real light; frame-budget tests may be relaxed.** See Stage C. |
-| D5 | Altar room | **Open (the operator's answer: "it is not about the altar itself, but about the room - make it differently").** Proposal below; needs a yes or a correction before Stage D starts. |
+| D5 | Altar room | **Settled 2026-10-08: the sanctuary proposal below.** |
 
 ### D5 proposal: a hand-built sanctuary, not a reused gate
 
@@ -109,8 +109,18 @@ re-staging; the boot-cost note from plan 020 (the hall builds on every return) m
 
 Clustered/deferred lighting; wave overlap (rejected for D1); redesigning the altar's purchase flow (plan 025 D8 stands).
 
-## Open questions
+## As built (2026-10-08)
 
-1. D5: is the sanctuary proposal what "make the room differently" means, or did you mean something else (bigger, darker,
-   a different theme, no shop clutter)?
-2. D3: is ~960px × 28px the right ballpark, or do you want it even larger (full-width band)?
+Deviations from the stages above, each for a reason found while building:
+
+- D2: TAKE is the only way to take a card; a second click on the selected card does *not* take it. A strike-spamming player clicks the
+  same spot over and over, so "click again to take" would have reproduced the bug at two clicks. The "input held when the card opened"
+  guard is a 0.4 s arming delay (`DRAFT_ARM`) instead: a browser never fires `click` on a button whose press began on the canvas, so the
+  held-button case cannot happen, and the delay covers the click already in flight.
+- D3: the bar keeps to the top and the title gives up its row for the fight on desktop too (it already did on a phone); the bar did not fit
+  between the title and the options at any useful width.
+- D4: `LIGHT_POOL` 24. The painted floor pools stay. Only a water bounce (up to six a chamber) can be left over in the most crowded chamber.
+- D5: the chapel is a 15 x 15 `cross` of the `flooded` theme, the altar at the crossing, the way out at the south arm's end, columns and braziers
+  in the apse (north, away from the camera, so nothing stands between it and the knight), racks down the west arm and shrines down the east.
+  The altar keeps its disc and crystal and gains a stone kerb and four candle posts (three draw calls). No new floor motif was made: the
+  arms are five tiles wide and the paving planner lays almost nothing in them; the sanctuary reads from its shape and dressing.

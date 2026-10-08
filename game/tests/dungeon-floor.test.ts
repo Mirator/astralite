@@ -625,115 +625,97 @@ test('gateRacks is the same for the same floor and draws nothing: not from the g
 
 // --- Plan 020 Stage A: the Tide Altar's hall ---------------------------------------------------------------------------
 
-/** The tiles a door was cut through the wall by: going back from the door, the ones the gate's own floor does not hold. Read off the generated floor, not off `altarHall`. */
-const alcoveOf = (gate: Floor['rooms'][number], door: Floor['doors'][number]) => {
-  const tiles: { x: number; z: number }[] = [];
-  for (let at = { x: door.x, z: door.z }; !ownFloor(gate, at.x, at.z); at = { x: at.x - door.face.x, z: at.z - door.face.z }) {
-    assert.ok(tiles.length < 4, `door ${door.id} has no mouth within three tiles`);
-    tiles.push(at);
-  }
-  return tiles;
-};
 const HALL_SWEEP = Array.from({ length: 300 }, (_, i) => i + 1);
 
-test('the hall is the Tide Gate alone: one room, nobody in it, one door, a goal that is the room, and no other door\'s alcove', () => {
-  const full = generateFloor(HALL_SEED, 1), hall = altarHall(), gate = full.rooms[0];
-  const gateDoors = full.doors.filter(door => door.from === 0);
-  // Precondition: the generator cut more than one door from this room and left an alcove for each, so "one door" can fail.
-  assert.ok(gateDoors.length >= 2, `HALL_SEED ${HALL_SEED} has ${gateDoors.length} door(s) from the Tide Gate`);
-  const other = gateDoors.slice(1).flatMap(door => alcoveOf(gate, door));
-  assert.ok(other.length >= 1 && other.every(tile => full.cells.has(cellKey(tile.x, tile.z))), 'precondition: the other door\'s alcove is on the generated floor');
-  assert.equal(hall.rooms.length, 1, 'the hall holds more than one room');
-  assert.deepEqual(hall.rooms[0], gate);
-  assert.equal(hall.doors.length, 1, `the hall keeps ${hall.doors.length} doors`);
-  assert.deepEqual(hall.doors[0], gateDoors[0], 'the kept door is not the first the generator cut from the room');
-  assert.deepEqual(hall.edges, []);
-  assert.equal(hall.spawns.length, 0, 'someone stands in the hall');
-  assert.equal(hall.guardCount, 0);
-  assert.equal(hall.goal, 0);
-  assert.equal(hall.start, 0);
-  assert.deepEqual(hall.spine, [0]);
-  for (const tile of other) {
-    assert.equal(hall.cells.has(cellKey(tile.x, tile.z)), false, `the other door's alcove tile ${tile.x},${tile.z} is still floor`);
-    assert.equal(hall.tiles.some(t => t.x === tile.x && t.z === tile.z), false, `the other door's alcove tile ${tile.x},${tile.z} is still a tile`);
+/** Every tile of `floor` the knight can walk to from `from` (tiles), four ways, across floor cells only. */
+const walkable = (floor: Floor, from: { x: number; z: number }) => {
+  const seen = new Set([cellKey(from.x, from.z)]), queue = [from];
+  while (queue.length) {
+    const at = queue.pop()!;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const key = cellKey(at.x + dx, at.z + dz); if (floor.cells.has(key) && !seen.has(key)) { seen.add(key); queue.push({ x: at.x + dx, z: at.z + dz }); } }
   }
-  // The kept door's alcove is there to be walked into; nothing but the one door's alcove and the room's own floor remains.
-  for (const tile of alcoveOf(gate, hall.doors[0])) assert.ok(hall.cells.has(cellKey(tile.x, tile.z)), 'the kept door\'s alcove was cut away');
-  assert.equal(hall.tiles.length, full.tiles.filter(t => t.room === 0).length - other.length);
-  assert.ok(hall.tiles.every(t => t.room === 0 && hall.cells.has(cellKey(t.x, t.z)) && full.cells.has(cellKey(t.x, t.z))));
+  return seen;
+};
+
+// Plan 026 (D5): the hall is an authored chapel, not floor one's Tide Gate with its other doors walled up. These hold its plan: the shape, one way out at
+// the near end, the altar at the crossing, arms down the west arm and upgrades down the east, every one of them walkable from where the knight arrives.
+test('the hall is the authored sanctuary: a cross with the altar at its heart, one way out at the south arm\'s end, nobody in it, and every tile walkable', () => {
+  const hall = altarHall(), gate = hall.rooms[0];
+  assert.deepEqual([gate.shape, gate.halfX * 2 + 1, gate.halfZ * 2 + 1, gate.name], ['cross', 15, 15, 'The Tide Altar'], 'the hall is not the chapel plan 026 laid out');
+  assert.deepEqual([hall.rooms.length, hall.spawns.length, hall.edges.length, hall.guardCount, hall.goal, hall.start], [1, 0, 0, 0, 0, 0]);
+  assert.deepEqual(hall.spine, [0]);
+  assert.equal(hall.doors.length, 1, `the hall keeps ${hall.doors.length} doors`);
+  const door = hall.doors[0];
+  // The way out is past the south arm's end (+z, the camera's side), so the knight arrives facing the altar.
+  assert.deepEqual([door.x, door.z, door.face], [gate.x, gate.z + gate.halfZ + 1, { x: 0, z: 1 }], 'the way down is not at the south arm\'s end');
+  assert.ok(hall.cells.has(cellKey(door.x, door.z)), 'the door\'s own tile is not floor');
+  assert.ok(gate.entry.z > gate.z && gate.entry.x === gate.x, 'the knight does not arrive in the nave, south of the altar');
+  // Every tile is the cross's own floor (or the door's), none is a prop's, and the bookkeeping agrees with itself.
+  for (const t of hall.tiles) assert.ok((t.x === door.x && t.z === door.z) || ownFloor(gate, t.x, t.z), `tile ${t.x},${t.z} is off the cross`);
+  for (const p of hall.props) assert.ok(!hall.cells.has(cellKey(p.x, p.z)), `the ${p.kind} at ${p.x},${p.z} stands on floor`);
   assert.equal(hall.cells.size, hall.tiles.length);
-  assert.deepEqual([...hall.roomByCell.values()].filter(room => room !== 0), []);
   assert.equal(hall.roomByCell.size, hall.tiles.length);
-  assert.deepEqual(hall.bounds, { minX: Math.min(...hall.tiles.map(t => t.x)), maxX: Math.max(...hall.tiles.map(t => t.x)), minZ: Math.min(...hall.tiles.map(t => t.z)), maxZ: Math.max(...hall.tiles.map(t => t.z)) });
-  // The room's props and nothing else's, and braziers among them: they are the hall's only light.
-  assert.deepEqual(hall.props, full.props.filter(prop => prop.room === 0));
-  assert.ok(hall.props.filter(prop => prop.kind === 'brazier').length >= 2, 'the hall has fewer than two braziers');
+  assert.deepEqual([...hall.roomByCell.values()].filter(room => room !== 0), []);
+  assert.ok(hall.tiles.every(t => t.x >= hall.bounds.minX && t.x <= hall.bounds.maxX && t.z >= hall.bounds.minZ && t.z <= hall.bounds.maxZ), 'a tile lies outside the bounds');
+  // Braziers in the apse (north of the altar): the hall's own fire, and nothing on the camera's side of the knight.
+  const braziers = hall.props.filter(prop => prop.kind === 'brazier');
+  assert.ok(braziers.length >= 2, 'the hall has fewer than two braziers');
+  for (const p of hall.props) assert.ok(p.z < gate.z, `the ${p.kind} at ${p.x},${p.z} stands between the camera and the altar`);
+  // The whole floor is one walk from the arrival: no rack, shrine or the altar can be cut off by a column.
+  const walked = walkable(hall, gate.entry);
+  assert.equal(walked.size, hall.cells.size, `${hall.cells.size - walked.size} tile(s) cannot be reached from the arrival`);
   assert.equal(hall.weaponDrop.room, 0);
   assert.ok(hall.cells.has(cellKey(Math.round(hall.weaponDrop.x / TILE), Math.round(hall.weaponDrop.z / TILE))));
-  // The same holds for every first-floor Tide Gate in a wide sweep, so the reduction is not something HALL_SEED happens to survive.
-  let withCut = 0;
-  for (const seed of HALL_SWEEP) {
-    const gen = generateFloor(seed, 1), one = altarHall(seed), doors = gen.doors.filter(door => door.from === 0), gone = doors.slice(1).flatMap(door => alcoveOf(gen.rooms[0], door));
-    assert.deepEqual(one.doors, [doors[0]], `seed ${seed}: the hall's door`);
-    assert.deepEqual([one.rooms.length, one.spawns.length, one.edges.length, one.goal], [1, 0, 0, 0], `seed ${seed}`);
-    assert.equal(one.tiles.length, gen.tiles.filter(t => t.room === 0).length - gone.length, `seed ${seed}: the hall's floor is not the gate's less the other alcoves`);
-    for (const tile of gone) assert.equal(one.cells.has(cellKey(tile.x, tile.z)), false, `seed ${seed}: the other door's alcove tile ${tile.x},${tile.z} is still floor`);
-    withCut += +(gone.length > 0);
-  }
-  assert.equal(withCut, HALL_SWEEP.length, 'a sweep floor cut no second door, so this checked little');
 });
 
-test('the hall is the same room on every call and takes nothing from any random stream', () => {
+test('the hall is the same room on every call, takes nothing from any random stream, and its seed moves nothing of its plan', () => {
   const first = altarHall();
-  // Twenty calls, all equal: a door picked at random would have disagreed with itself inside a handful.
   for (let i = 0; i < 20; i++) assert.deepEqual(altarHall(), first, `call ${i + 1} disagrees with the first`);
   const real = Math.random, own = Object.getOwnPropertyDescriptor(globalThis.crypto, 'getRandomValues');
   try {
     Math.random = () => { throw new Error('altarHall drew a random number'); };
     Object.defineProperty(globalThis.crypto, 'getRandomValues', { value: () => { throw new Error('altarHall asked the crypto for a random number'); }, configurable: true });
     assert.deepEqual(altarHall(), first);
-    // And it leaves the generator where it was: a floor made after a hall is the floor a fresh process makes.
     for (const seed of [0x1, 0x4, 0x60, 7919]) {
       const fresh = generateFloor(seed, 1);
       altarHall();
-      const after = generateFloor(seed, 1);
-      assert.deepEqual(after, fresh, `seed ${seed}: the floor after a hall differs from a fresh one`);
+      assert.deepEqual(generateFloor(seed, 1), fresh, `seed ${seed}: the floor after a hall differs from a fresh one`);
     }
   } finally {
     Math.random = real;
     if (own) Object.defineProperty(globalThis.crypto, 'getRandomValues', own); else delete (globalThis.crypto as { getRandomValues?: unknown }).getRandomValues;
   }
-  // Precondition for "the same" above: a different seed does give a different hall.
-  assert.notDeepEqual(altarHall(HALL_SEED + 1).props, first.props, 'every seed gives the same hall, so the calls above agreeing proves nothing');
+  assert.equal(first.seed, HALL_SEED, 'the hall the game builds does not carry HALL_SEED');
+  const other = altarHall(HALL_SEED + 1);
+  assert.equal(other.seed, HALL_SEED + 1, 'precondition: the sweep\'s halls carry their own seed, which the art hashes');
+  assert.deepEqual({ ...other, seed: HALL_SEED }, first, 'a different seed moved the plan');
 });
 
-test('the hall seats seven racks, clear of the altar at its heart, and is the room that was judged by eye', () => {
-  const hall = altarHall(), gate = hall.rooms[0], heart = { x: gate.x * TILE, z: gate.z * TILE }, slots = gateRacks(hall);
-  // The altar is the sanctuary shrine's mesh (dungeon-floor-scene.ts: a disc of spread 1.9, its prompt ring 1.5); no slot may stand inside it.
+test('the hall seats seven racks down its west arm and four shrines down its east arm, clear of the altar, the way in, the way down, every prop and each other', () => {
+  const hall = altarHall(), gate = hall.rooms[0], heart = { x: gate.x * TILE, z: gate.z * TILE }, slots = gateRacks(hall), spots = hallShrines(hall);
+  // The altar is the sanctuary shrine's mesh (dungeon-floor-scene.ts: a disc of spread 1.9, its prompt ring 1.5, its kerb 2.05); no slot may stand inside it.
   const ALTAR_RADIUS = 1.9;
   assert.ok(HEART_CLEAR >= ALTAR_RADIUS, `the heart keeps ${HEART_CLEAR} clear, less than the altar's ${ALTAR_RADIUS}`);
   assert.equal(slots.length, 7, `the hall seats ${slots.length} racks`);
   assert.deepEqual(slots.map(slot => slot.arm), [...GATE_ARMS]);
-  const mouth = doorMouth(gate, hall.doors[0]);
-  for (const slot of slots) {
-    const tile = { x: Math.round(slot.x / TILE), z: Math.round(slot.z / TILE) };
-    assert.ok(hall.cells.has(cellKey(tile.x, tile.z)) && ownFloor(gate, tile.x, tile.z), `${slot.arm}: the slot is off the hall's floor`);
-    assert.ok(Math.hypot(slot.x - heart.x, slot.z - heart.z) > ALTAR_RADIUS, `${slot.arm}: the slot is inside the altar's ${ALTAR_RADIUS}`);
-    assert.ok(Math.hypot(tile.x - hall.doors[0].x, tile.z - hall.doors[0].z) >= 2 && Math.hypot(tile.x - mouth.x, tile.z - mouth.z) >= 2, `${slot.arm}: the slot stands in the way down`);
-    assert.ok(Math.hypot(tile.x - gate.entry.x, tile.z - gate.entry.z) >= 2, `${slot.arm}: the slot is at the knight's arrival`);
-    for (const prop of hall.props) assert.ok(Math.hypot(tile.x - prop.x, tile.z - prop.z) >= 1, `${slot.arm}: the slot stands in a ${prop.kind}`);
-  }
-  let closest = Infinity;
-  for (let a = 0; a < slots.length; a++) for (let b = a + 1; b < slots.length; b++) closest = Math.min(closest, Math.hypot(slots[a].x - slots[b].x, slots[a].z - slots[b].z));
-  assert.ok(closest >= GATE_SPACING, `two slots are ${closest} apart, closer than two pickup radii`);
-  // Measured for HALL_SEED 2063 (plan 020 Stage 0): a 13 x 11 crypt, closest slots 4.19 apart (the rule is 2.8) and the nearest slot 4.44 from the heart.
-  // A different seed, or a generator change that moves this room, fails here on purpose: the hall is one room, judged by eye.
-  assert.deepEqual([HALL_SEED, gate.shape, gate.halfX * 2 + 1, gate.halfZ * 2 + 1], [2063, 'crypt', 13, 11], 'the hall is not the room that was judged');
-  assert.ok(closest > 4.1 && closest < 4.3, `closest pair ${closest}`);
-  assert.ok(Math.min(...slots.map(slot => Math.hypot(slot.x - heart.x, slot.z - heart.z))) > 4.4, 'the nearest slot to the altar moved in');
-  assert.deepEqual(hall.props.map(prop => `${prop.kind}@${prop.x},${prop.z}`), ['brazier@-3,2', 'brazier@3,2', 'pillar@3,-4', 'barrel@-3,-4']);
-  // And the rule is not something this seed alone satisfies: every hall in the sweep seats seven.
-  for (const seed of HALL_SWEEP) assert.equal(gateRacks(altarHall(seed)).length, 7, `seed ${seed}'s hall seats fewer than seven racks`);
+  assert.equal(HALL_SHRINES, UPGRADES.length, 'a shrine for each upgrade');
+  assert.equal(spots.length, HALL_SHRINES, 'the hall seats fewer shrines than there are upgrades');
+  const mouth = doorMouth(gate, hall.doors[0]), walked = walkable(hall, gate.entry);
+  const check = (spot: { x: number; z: number }, what: string, side: -1 | 1, clear: number) => {
+    const tile = { x: Math.round(spot.x / TILE), z: Math.round(spot.z / TILE) };
+    assert.ok(hall.cells.has(cellKey(tile.x, tile.z)) && ownFloor(gate, tile.x, tile.z), `${what}: off the hall's floor`);
+    assert.ok(walked.has(cellKey(tile.x, tile.z)), `${what}: cannot be walked to`);
+    assert.ok(Math.sign(tile.x - gate.x) === side && Math.abs(tile.z - gate.z) <= 2, `${what}: not in the ${side < 0 ? 'west' : 'east'} arm`);
+    assert.ok(Math.hypot(spot.x - heart.x, spot.z - heart.z) > clear, `${what}: inside the altar's reach`);
+    assert.ok(Math.hypot(tile.x - hall.doors[0].x, tile.z - hall.doors[0].z) >= 2 && Math.hypot(tile.x - mouth.x, tile.z - mouth.z) >= 2, `${what}: in the way down`);
+    assert.ok(Math.hypot(tile.x - gate.entry.x, tile.z - gate.entry.z) >= 2, `${what}: at the knight's arrival`);
+    for (const prop of hall.props) assert.ok(Math.hypot(tile.x - prop.x, tile.z - prop.z) >= 1.5, `${what}: in a ${prop.kind}`);
+  };
+  for (const slot of slots) check(slot, `the ${slot.arm} rack`, -1, ALTAR_RADIUS);
+  spots.forEach((spot, i) => check(spot, `the ${UPGRADES[i].id} shrine`, 1, HEART_CLEAR + PICKUP_RADIUS));
+  // No one ring can hold two things.
+  const all = [...slots, ...spots];
+  for (let a = 0; a < all.length; a++) for (let b = a + 1; b < all.length; b++) assert.ok(Math.hypot(all[a].x - all[b].x, all[a].z - all[b].z) >= GATE_SPACING - 1e-9, `two rings overlap at ${all[a].x.toFixed(2)},${all[a].z.toFixed(2)} and ${all[b].x.toFixed(2)},${all[b].z.toFixed(2)}`);
 });
 
 test('only the hall carries the hall marker: no generated floor has the key at all, so the generator\'s output (and every recorded fixture of it) is what it was', () => {
@@ -747,35 +729,7 @@ test('only the hall carries the hall marker: no generated floor has the key at a
   assert.ok(generateFloor(HALL_SEED, 1).rooms.length > 1 && altarHall().rooms.length === 1, 'HALL_SEED\'s generated floor is as small as the hall, so the marker is not what tells them apart');
 });
 
-// --- Plan 025 Stage C: the hall's upgrade shrines ------------------------------------------------------------------------
-
-test('the hall seats one shrine for each upgrade, on its own floor, clear of every rack ring, the altar, the way in, the way down, every prop and each other', () => {
-  assert.equal(HALL_SHRINES, UPGRADES.length, 'a shrine for each upgrade');
-  const check = (hall: Floor, at: string) => {
-    const gate = hall.rooms[0], spots = hallShrines(hall), slots = gateRacks(hall);
-    assert.equal(slots.length, 7, `${at}: precondition: the racks were seated, or "clear of every rack" is vacuous`);
-    for (const spot of spots) {
-      const tile = { x: Math.round(spot.x / TILE), z: Math.round(spot.z / TILE) }, where = `${at} shrine at ${tile.x},${tile.z}`;
-      assert.equal(hall.roomByCell.get(cellKey(tile.x, tile.z)), gate.id, `${where}: off the hall's floor`);
-      assert.ok(ownFloor(gate, tile.x, tile.z), `${where}: in a door's alcove`);
-      assert.ok(Math.hypot(spot.x - gate.x * TILE, spot.z - gate.z * TILE) > HEART_CLEAR + PICKUP_RADIUS, `${where}: inside the altar's reach`);
-      assert.ok(Math.hypot(tile.x - gate.entry.x, tile.z - gate.entry.z) >= 2, `${where}: at the knight's arrival`);
-      for (const door of hall.doors) {
-        assert.ok(Math.hypot(tile.x - door.x, tile.z - door.z) >= 2, `${where}: in the way down`);
-        const mouth = doorMouth(gate, door);
-        assert.ok(Math.hypot(tile.x - mouth.x, tile.z - mouth.z) >= 2, `${where}: in the mouth of the way down`);
-      }
-      for (const prop of hall.props) assert.ok(Math.hypot(tile.x - prop.x, tile.z - prop.z) >= 1.5, `${where}: in a ${prop.kind}`);
-      for (const slot of slots) assert.ok(Math.hypot(spot.x - slot.x, spot.z - slot.z) >= 2 * PICKUP_RADIUS - 1e-9, `${where}: one ring could hold it and the ${slot.arm} rack`);
-    }
-    for (let a = 0; a < spots.length; a++) for (let b = a + 1; b < spots.length; b++) assert.ok(Math.hypot(spots[a].x - spots[b].x, spots[a].z - spots[b].z) >= 2 * PICKUP_RADIUS - 1e-9, `${at}: two shrines share a ring`);
-    return spots;
-  };
-  // The hall the game builds seats all four.
-  assert.equal(check(altarHall(), `hall ${HALL_SEED}`).length, HALL_SHRINES, 'the hall seats fewer shrines than there are upgrades');
-  // Other halls never break the spacing, even where they seat fewer.
-  for (const seed of HALL_SWEEP.slice(0, 60)) assert.ok(check(altarHall(seed), `hall ${seed}`).length <= HALL_SHRINES);
-});
+// --- Plan 025 Stage C: the hall's upgrade shrines (where they stand is held with the racks above, plan 026) -------------------------------
 
 test('hallShrines is the same for the same hall and draws nothing', () => {
   const real = Math.random;

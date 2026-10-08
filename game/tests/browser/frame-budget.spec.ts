@@ -279,7 +279,10 @@ for (const [scene, rooms] of [['furnished-chamber', null], ['plain-chamber', 'pl
 // Each ceiling is the figure measured (counts are deterministic); each floor is 95% of it.
 // Plan 025 Stage B added +2 calls and +146 triangles to the old hall (its sconce pools and the way down's name). Merged on top of Stage C's hall,
 // the ceilings below are Stage C's figures plus that delta, and the integration branch measured exactly that (2026-10-08, d3d11): 285 / 120,751 / 86 and 312 / 120,733 / 104.
-const ARMOURY = { locked: { calls: 285, triangles: 120_751, shadowCalls: 86 }, owned: { calls: 312, triangles: 120_733, shadowCalls: 104 } };
+// Plan 026 (D5) replaced the hall's room with the authored chapel (a cross with more wall runs, two columns, the altar's kerb, posts and flames), from the same
+// kind of stand. Measured 2026-10-08 on SwiftShader: nothing owned 311 / 129,647 / 88, all owned 338 / 129,481 / 106 (+26 calls, +9%; +8,896 triangles; +2 shadow
+// calls on the old hall), still 170 calls under the 508 the worst chamber is held to.
+const ARMOURY = { locked: { calls: 311, triangles: 129_647, shadowCalls: 88 }, owned: { calls: 338, triangles: 129_481, shadowCalls: 106 } };
 test.describe('the Tide Altar\'s hall with the whole armoury bought', () => {
   test('six racks stand in the hall, owned or locked, and their cost stays where it was measured', async ({ game }) => {
     const drawn = async () => {
