@@ -14,7 +14,8 @@ import { ARRIVAL_CLEAR, carves, drawKind, oneCaller, PACK_MIX, packSource, TILE,
 //   - `LAST_WAVE_EXTRA` is how many bodies a deeper floor adds to a chamber's last wave (floor two and three).
 //   - `WAVE_CAP` (bodies in one dealt wave) and `CHAMBER_CAP` (every standing body of a chamber, wave one included) bound what the table may ask for; they exist
 //     for the frame budget (`tests/browser/frame-budget.spec.ts`, the `wave-chamber` scene is held to them) and for how much of a chamber is readable.
-//   - `WAVE_PAUSE` is the breath after the last body of a wave falls, `WAVE_MARK` how long the rings show on the floor before the bodies stand.
+//   - `WAVE_PAUSE` is the breath after the last body of a wave falls, `WAVE_MARK` how long the rings show on the floor before the bodies stand, `WAVE_OPENING`
+//     how long a raised body waits before its first blow (the game and the balance sim both read it).
 //   - A chamber with `layer <= FIRST_WAVE_LAYERS` is never dealt later waves: the first fight past the gate is the tutorial beat (plan 023 D4; it was the first two).
 // ELITES (plan 022 Stage C) are dealt here too, by `dealElites`, after the waves, from a second stream of their own (`eliteStream`): `ELITE_RATE` is the share of a floor's eligible bodies (`eliteKind`, dungeon-bestiary.ts) that carry a modifier,
 // `ELITE_PER_WAVE` the most one wave of one chamber may hold, and floor one deals none. What a modifier does is the bestiary's `ELITES`; this file only says who gets one. A chamber's rolls are per body in spawn order and always draw the same two numbers
@@ -24,10 +25,12 @@ import { ARRIVAL_CLEAR, carves, drawKind, oneCaller, PACK_MIX, packSource, TILE,
 // After a change: `npm test` (tests/dungeon-waves.test.ts holds every cap and the append-only rule), `npm run balance:check` and re-measure the bands.
 // The hash stream is per chamber (`stream`), so adding a rule to one source moves no other source's bodies.
 
-/** Seconds between the last body of a wave falling and its successor's rings appearing. */
-export const WAVE_PAUSE = 0.5;
-/** Seconds the rings show on the floor before the bodies stand. */
-export const WAVE_MARK = 0.9;
+/** Seconds between the last body of a wave falling and its successor's rings appearing. Plan 026 (D1): 0.5 -> 0.15, the operator found the gap between waves too long. */
+export const WAVE_PAUSE = 0.15;
+/** Seconds the rings show on the floor before the bodies stand. Plan 026 (D1): 0.9 -> 0.6. */
+export const WAVE_MARK = 0.6;
+/** Seconds a raised wave's body waits before it may strike (its opening cooldown). Plan 026 (D1): 0.9 -> 0.6. The game and the balance sim both read it. */
+export const WAVE_OPENING = 0.6;
 /** A ring is never put within this of the knight (world units): a body is never raised on him. */
 export const WAVE_CLEAR = 2.5;
 /** The most bodies one dealt wave may hold, and the most standing bodies one chamber may hold in all its waves. */

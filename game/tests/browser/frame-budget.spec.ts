@@ -1,3 +1,4 @@
+import { LIGHT_POOL } from '../../app/dungeon-lights.ts';
 import {
   CAPTURING,
   enterKeep,
@@ -521,7 +522,7 @@ test.describe('the light budget', () => {
   test.use({ seeds: [0x60] });
   // One walk down and back for both claims: each rebuild is the expensive part, and both are read off the
   // same drawn frame after it.
-  test('every floor draws with the same small, fixed set of point lights, and a rebuild reuses the programs the last one compiled', async ({ game }) => {
+  test('every floor draws with the same fixed set of point lights, and a rebuild reuses the programs the last one compiled', async ({ game }) => {
     const lights: number[] = [], programs: number[] = [];
     for (const level of [1, 2, 3, 1]) {
       await game.buildFloor(level);
@@ -530,7 +531,8 @@ test.describe('the light budget', () => {
       lights.push(render.pointLights);
       programs.push(render.programs);
     }
-    expect(lights[0], 'more point lights than the torches, the fill and the anchor pool').toBeLessThanOrEqual(9);
+    // Plan 026 (D4): the pool is LIGHT_POOL (24, every source of the most crowded chamber) plus the knight's fill. The count, not its size, is what this guards.
+    expect(lights[0], 'more point lights than the pool and the fill').toBeLessThanOrEqual(LIGHT_POOL + 1);
     expect(lights, 'a floor changed the point-light count, which recompiles every lit shader').toEqual([lights[0], lights[0], lights[0], lights[0]]);
     // three.js destroys a program when its last material is disposed, and every rebuild disposes the old
     // floor's materials - so without pinning the count dips after each rebuild and the same programs compile

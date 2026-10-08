@@ -20,7 +20,7 @@ import { playerAttackPose, playerSpecialPose } from '../../app/dungeon-attack-po
 import { TILE, bodyRadius, bossOnFloor, cellKey, dealBosses, dealRewards, generateFloor, hasClearPath, moveOnFloor, type Door } from '../../app/dungeon-floor.ts';
 import { arenaFloor } from '../../app/dungeon-arena.ts';
 import type { Floor } from '../../app/dungeon-floor.ts';
-import { calledIn, idleClock, roomTiles, springing, waveDue, wavedFloor, waveSpots, type WaveClock } from '../../app/dungeon-waves.ts';
+import { calledIn, idleClock, roomTiles, springing, waveDue, wavedFloor, waveSpots, WAVE_OPENING, type WaveClock } from '../../app/dungeon-waves.ts';
 import { STARTING_WEAPON, TIDEBLADE, type Weapon } from '../../app/dungeon-weapon.ts';
 import { BOLT_RADIUS, deathPool, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, fanHeadings, ARROW_POOL, type Mark, type Pool, type Shot } from '../../app/dungeon-projectile.ts';
 import { armFor, pearlsFor, runStart, type Meta } from '../../app/dungeon-meta.ts';
@@ -696,7 +696,7 @@ function simulateFloor(seed: number, level: number, run: Run, policy: Policy, ne
         // D4: a ring the knight has since walked onto moves off him, as the game moves it at the raise.
         const rung = [...waveRings.keys()], placed = waveSpots(openOf(activeRoom), rung.map(b => waveRings.get(b)!), player);
         rung.forEach((b, i) => waveRings.set(b, placed[i]));
-        for (const [body, at] of waveRings) { body.awake = true; body.x = at.x; body.z = at.z; body.anchor = { x: at.x, z: at.z }; body.cooldown = Math.max(body.cooldown, 0.9); }
+        for (const [body, at] of waveRings) { body.awake = true; body.x = at.x; body.z = at.z; body.anchor = { x: at.x, z: at.z }; body.cooldown = Math.max(body.cooldown, WAVE_OPENING); }
         waveRings.clear(); wavesRaised++;
       }
     }

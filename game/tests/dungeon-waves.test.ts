@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import { generateFloor, PACK_MIX, TILE, ARRIVAL_CLEAR, type Spawn } from '../app/dungeon-floor.ts';
 import { BESTIARY, reserveSize } from '../app/dungeon-bestiary.ts';
-import { CHAMBER_CAP, CORPSE_DEPTH, corpseSink, corpsesDue, dealWaves, fitWave, FIRST_WAVE_LAYERS, idleClock, isRanged, rangedKinds, withRanged, springing, calledIn, roomTiles, spotOf, waveDue, waveSpots, WAVE_CAP, WAVE_CLEAR, WAVE_MARK, WAVE_PAUSE, WAVE_TABLE, wavedFloor, type WaveBody, type WaveClock, type WaveTable } from '../app/dungeon-waves.ts';
+import { CHAMBER_CAP, CORPSE_DEPTH, corpseSink, corpsesDue, dealWaves, fitWave, FIRST_WAVE_LAYERS, idleClock, isRanged, rangedKinds, withRanged, springing, calledIn, roomTiles, spotOf, waveDue, waveSpots, WAVE_CAP, WAVE_CLEAR, WAVE_MARK, WAVE_OPENING, WAVE_PAUSE, WAVE_TABLE, wavedFloor, type WaveBody, type WaveClock, type WaveTable } from '../app/dungeon-waves.ts';
 
 type Floor = ReturnType<typeof generateFloor>;
 const SEEDS = Array.from({ length: 150 }, (_, i) => i * 7919 + 13);
@@ -213,7 +213,7 @@ const runRule = (bodies: WaveBody[], frames: number, onFrame?: (second: number) 
 test('a chamber calls its second wave only after the last body of the first has fallen, after the pause and the rings', () => {
   const first = [body(), body()], second = [body({ wave: 2, awake: false }), body({ wave: 2, awake: false })];
   const bodies = [...first, ...second];
-  // One body falls at 1 s and the other at 3 s; the rule must say nothing until 3 s, ring at 3.5 s and raise at 4.4 s.
+  // One body falls at 1 s and the other at 3 s; the rule must say nothing until 3 s, ring after WAVE_PAUSE and raise WAVE_MARK after that.
   const { marks, raises } = runRule(bodies, 60 * 8, second_ => { if (second_ >= 1) first[0].dead = true; if (second_ >= 3) first[1].dead = true; });
   assert.equal(marks.length, 1, 'the rings were called more than once, or never');
   assert.equal(raises.length, 1, 'the wave was raised more than once, or never');
@@ -221,6 +221,17 @@ test('a chamber calls its second wave only after the last body of the first has 
   assert.ok(marks[0] <= 3 + WAVE_PAUSE + 2 * FRAME, `the rings came at ${marks[0].toFixed(2)} s, late`);
   assert.ok(raises[0] - marks[0] >= WAVE_MARK - 2 * FRAME && raises[0] - marks[0] <= WAVE_MARK + 2 * FRAME, `the wave stood ${(raises[0] - marks[0]).toFixed(2)} s after its rings, not ${WAVE_MARK}`);
   assert.ok(second.every(b => b.awake), 'the second wave did not stand up');
+});
+
+test('plan 026 (D1): the next wave is back on the knight within 1.4 s of the last body falling, opening cooldown included', () => {
+  const first = [body()], second = [body({ wave: 2, awake: false })];
+  const { marks, raises } = runRule([...first, ...second], 60 * 4, second_ => { if (second_ >= 1) first[0].dead = true; });
+  assert.equal(raises.length, 1, 'the wave was never raised, so there is no gap to measure');
+  assert.ok(marks[0] >= 1, `the rings came at ${marks[0].toFixed(2)} s, before the last body fell`);
+  // The operator found 0.5 + 0.9 + 0.9 = 2.3 s of dead air too slow (2026-10-08); the gap is the rule's own raise plus the cooldown a raised body is given.
+  const gap = raises[0] - 1 + WAVE_OPENING;
+  assert.ok(gap <= 1.4, `${gap.toFixed(2)} s from the last body falling to the next wave's first possible blow (pause ${WAVE_PAUSE}, rings ${WAVE_MARK}, opening ${WAVE_OPENING})`);
+  assert.ok(WAVE_MARK >= 0.5, `the rings show for ${WAVE_MARK} s, too short to read where the wave will stand`);
 });
 
 test('a wave is never called by time alone, and the first death of a pack calls nothing', () => {

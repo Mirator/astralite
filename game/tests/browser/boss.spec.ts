@@ -94,9 +94,15 @@ test('the fight is wired: the Captain winds up its moves in order with each move
   await expect(bar).toHaveAttribute('aria-valuenow', '250');
   await expect(bar).toHaveAttribute('aria-valuemax', '290');
   await expect(bar.locator('u')).toHaveCount(1);
-  // Plan 025 D5: big enough to read across the room - an 18px track, a 20px name and 3px phase ticks, as the page lays them out.
+  // Plan 026 D3 (after plan 025 D5's 18px / 20px / 3px was still too small): a 28px track, a 26px name and 4px phase ticks, as the page lays them out,
+  // the vitality as numbers inside the track, and across most of the 1000px screen (measured 800px, 2026-10-08) while clear of the options button.
   const size = await bar.evaluate((node) => { const css = (selector: string) => getComputedStyle(node.querySelector(selector)!); return { track: css('.boss-track').height, name: css('b').fontSize, tick: css('u').width }; });
-  expect(size, 'the boss bar is not the size plan 025 D5 set').toEqual({ track: '18px', name: '20px', tick: '3px' });
+  expect(size, 'the boss bar is not the size plan 026 D3 set').toEqual({ track: '28px', name: '26px', tick: '4px' });
+  await expect(bar.locator('.boss-track small'), 'the bar does not show the vitality as numbers').toHaveText('250 / 290');
+  const span = (await bar.boundingBox())!, menu = (await page.locator('.game-options button').boundingBox())!;
+  expect(span.width, `the bar is ${span.width}px wide on a 1000px screen`).toBeGreaterThanOrEqual(780);
+  expect(span.x + span.width, 'the bar runs under the options button').toBeLessThanOrEqual(menu.x);
+  await expect(page.locator('.game-title'), 'the title still shows under the wider bar').toBeHidden();
   const ticked = await bar.evaluate((node) => (node.querySelector('u') as HTMLElement).style.left);
   expect(ticked, 'the tick is not at the half way phase').toBe('50%');
   // The rest of the rotation, as the real fight plays it: swing, then a sweep drawn as the ring it reaches, each with a cue of its own.
