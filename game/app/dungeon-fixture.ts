@@ -15,6 +15,8 @@ export type FixtureEnemy = {
   dead: boolean; hp: number; maxHp: number; windup: number; tell: number; cooldown: number; notice: number;
   group: { position: { x: number; y: number; z: number } };
   aim: { x: number; y: number; z: number };
+  /** Plan 025 (D3): where a body that repositions was walking; a body the fixture moves forgets it, so it does not walk on to a spot picked from where it stood. */
+  roam?: { still: number; to: { x: number; z: number } | null; walked: number };
 };
 
 export type FixtureWorld = {
@@ -55,6 +57,7 @@ export const applyCombatFixture = (fixture: CombatFixture, world: FixtureWorld) 
       const z = finite(change.z ?? enemy.group.position.z, 'z');
       if (!world.canStand(x, z)) throw new Error(`enemy ${change.index} cannot stand at ${x}, ${z}`);
       enemy.group.position.x = x; enemy.group.position.z = z;
+      if (enemy.roam) enemy.roam = { still: 0, to: null, walked: 0 };
     }
     if (change.hp !== undefined) {
       const value = Math.round(finite(change.hp, 'hp'));

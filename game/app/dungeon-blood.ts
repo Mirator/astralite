@@ -16,7 +16,7 @@ function bloodTexture() {
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
   const blot = (x: number, y: number, r: number, alpha: number) => {
     const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-    grad.addColorStop(0, `rgba(140,12,16,${alpha})`); grad.addColorStop(.55, `rgba(110,8,12,${alpha * .85})`); grad.addColorStop(1, 'rgba(70,4,6,0)');
+    grad.addColorStop(0, `rgba(176,18,0,${alpha})`); grad.addColorStop(.55, `rgba(136,11,0,${alpha * .85})`); grad.addColorStop(1, 'rgba(88,6,0,0)');
     ctx.fillStyle = grad;
     ctx.save(); ctx.translate(x, y); ctx.scale(1, .6 + random() * .3); ctx.translate(-x, -y);
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
@@ -29,7 +29,12 @@ function bloodTexture() {
     const a = random() * Math.PI * 2, d = 30 + random() * 46;
     blot(64 + Math.cos(a) * d, 64 + Math.sin(a) * d * .7, 3 + random() * 7, .5 + random() * .3);
   }
-  return new THREE.CanvasTexture(canvas);
+  // Plan 025 D7: the reds above are sRGB, as every other canvas texture in the game is read. Left linear, the splat came out pale and pink (d3d11,
+  // 2026-10-07: mean (164,45,67), 11 degrees of HSV hue off red). Read as sRGB the old reds (140,12,16 to 70,4,6) drew a dark crimson the grade's
+  // shadow teal pushed 19 degrees toward magenta (94,21,44); these warmer, stronger ones land at (121,19,42), 13 degrees off red. progress.md has the table.
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }
 
 export function bloodDecals(capacity = 18) {

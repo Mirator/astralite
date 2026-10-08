@@ -1,4 +1,4 @@
-import { gateRacks, type Floor, type Room, TILE } from './dungeon-floor.ts';
+import { gateRacks, hallShrines, type Floor, type Room, TILE } from './dungeon-floor.ts';
 
 /** A conservative world-space footprint another system (later macro paving) must not colour over. */
 export type Rect = { minX: number; maxX: number; minZ: number; maxZ: number };
@@ -55,6 +55,8 @@ export function decorReservations(floor: Floor): Rect[] {
   // (it is `level: 1` too, so the level cannot tell it from floor one). Every slot is reserved whether or not the arm stands on it,
   // so what has been bought never changes the decor (the slots read the floor alone). Floor one's gate holds none.
   if (floor.hall) for (const slot of gateRacks(floor)) rects.push(rectAt(slot.x, slot.z, 1.5));
+  // Plan 025 (D8): and so is every upgrade shrine of the hall, for the same reason.
+  if (floor.hall) for (const spot of hallShrines(floor)) rects.push(rectAt(spot.x, spot.z, 1.5));
   return rects;
 }
 

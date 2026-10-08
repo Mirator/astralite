@@ -1,5 +1,6 @@
 import { canStand, expect, hasClearPath, SCREEN_DIRECTIONS, strikeStance, test, trackEnemy, hold, press, release, type Snapshot } from './helpers.ts';
 import { generateFloor } from '../../app/dungeon-floor.ts';
+import { enemyStats } from '../../app/dungeon-enemy.ts';
 
 type PlayerPose = { bodyYaw:number; trail:boolean; trailTriangles:number };
 type EnemyPose = { weapon:number; weaponYaw:number; pitch:number; height:number; attackAge:number|null; trails:number; cue:boolean };
@@ -101,7 +102,7 @@ for(const kind of ['guard','stalker','warden'] as const){
     await game.step(current.windup*1000+1);current=trackEnemy(await game.state(),kind,current);
     expect(enemyPose(current).attackAge).not.toBeNull();
     if(kind!=='stalker'){
-      expect((await game.state()).health).toBe(health-(kind==='warden'?20:12));
+      expect((await game.state()).health).toBe(health-enemyStats(kind,1).damage);
       expect(enemyPose(current).weapon).toBeLessThan(0);
       expect(enemyPose(current).trails).toBe(1);
     }else{

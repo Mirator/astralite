@@ -5,8 +5,9 @@
 //
 // Kept free of React, the DOM and three.js so node can execute it directly.
 import type { RunEnd } from './dungeon-save.ts';
-import { FOUND_WEAPONS, STARTING_WEAPON, type WeaponId } from './dungeon-weapon.ts';
+import { FOUND_WEAPONS, STARTING_WEAPON, weaponById, type WeaponId } from './dungeon-weapon.ts';
 import { DRAFT_SIZE, START_HP } from './dungeon-sim.ts';
+import { armDeal } from './dungeon-floor.ts';
 
 /**
  * How many floors a descent has. The game and the balance sim each keep their own constant; a node test holds
@@ -88,14 +89,15 @@ export const FLOOR_PEARLS = 5;
 export const BOSS_PEARLS = 10;
 /** Plan 022 (D9): an elite pays a pearl of its own, on top of its chamber's. */
 export const ELITE_PEARLS = 1;
-export const pearlsFor = (end: Pick<RunEnd, 'floor' | 'won' | 'kills' | 'chambers'> & Partial<Pick<RunEnd, 'bosses' | 'elites'>>) => {
+// Plan 025 Stage F: `found` (optional, none when absent) is what the run picked up - a Pearls door, a pearl from an urn or a crate, a chest - banked as it was found.
+export const pearlsFor = (end: Pick<RunEnd, 'floor' | 'won' | 'kills' | 'chambers'> & Partial<Pick<RunEnd, 'bosses' | 'elites' | 'found'>>) => {
   const floorsCompleted = end.won ? FLOORS : Math.max(0, end.floor - 1);
   const fought = CHAMBER_PEARLS * Math.max(0, end.chambers) + FLOOR_PEARLS * floorsCompleted;
-  return fought + (end.won ? 25 : 0) + BOSS_PEARLS * Math.max(0, end.bosses ?? 0) + ELITE_PEARLS * Math.max(0, end.elites ?? 0);
+  return fought + (end.won ? 25 : 0) + BOSS_PEARLS * Math.max(0, end.bosses ?? 0) + ELITE_PEARLS * Math.max(0, end.elites ?? 0) + Math.max(0, end.found ?? 0);
 };
 
 /** A new `Meta` with the run's earnings added. Never touches its input. */
-export const bank = (meta: Meta, end: Pick<RunEnd, 'floor' | 'won' | 'kills' | 'chambers'> & Partial<Pick<RunEnd, 'bosses' | 'elites'>>): Meta =>
+export const bank = (meta: Meta, end: Pick<RunEnd, 'floor' | 'won' | 'kills' | 'chambers'> & Partial<Pick<RunEnd, 'bosses' | 'elites' | 'found'>>): Meta =>
   ({ ...meta, pearls: Math.min(PEARL_CAP, meta.pearls + pearlsFor(end)), upgrades: { ...meta.upgrades }, arms: [...meta.arms] });
 
 /** The next rank, or null when it cannot be had: unknown id, already at the top, or too few pearls. */
@@ -127,3 +129,108 @@ export const runStart = (meta: Meta): RunStart => ({
   defiance: rankOf(meta.upgrades, 'tide'),
   arm: meta.arms.includes(meta.arm) ? meta.arm : STARTING_WEAPON,
 });
+
+// Plan 025 (D8): the hall is the shop. Every arm stands on its rack from the start, a locked one as a silhouette with its price on a plaque; standing
+// there the swap key takes it into the knight's hand to try (in the hall only), and holding the key buys it. The four upgrades are shrines bought the
+// same way. What follows is every rule that decides something; the hall only draws it and answers the key.
+
+/** Seconds the swap key is held, on one press, to buy. */
+export const BUY_HOLD = 0.6;
+
+/**
+ * One press of the swap key, followed frame by frame. `target` is what that press is buying (null when nothing under it can be bought), `time` how long
+ * it has been held on that target, `down` whether the key was down last frame, and `spent` whether this press has already bought, or wandered off
+ * the target it started on: either way it buys nothing more until the key comes up. A purchase is one press, never a held key that keeps buying ranks.
+ */
+export type Hold = { target: string | null; time: number; down: boolean; spent: boolean };
+export const idleHold = (): Hold => ({ target: null, time: 0, down: false, spent: false });
+
+/** The hold one frame on, and whether it buys this frame. A press that starts off a target, or moves to another, is spent until released. */
+export const holdStep = (hold: Hold, down: boolean, target: string | null, dt: number): { hold: Hold; buys: boolean } => {
+  if (!down) return { hold: idleHold(), buys: false };
+  if (!hold.down) return { hold: { target, time: 0, down: true, spent: target === null }, buys: false };
+  if (hold.spent) return { hold: { ...hold, time: hold.target === target ? hold.time : 0, target: hold.target === target ? target : null }, buys: false };
+  if (target !== hold.target) return { hold: { target: null, time: 0, down: true, spent: true }, buys: false };
+  const time = hold.time + Math.max(0, dt), buys = time >= BUY_HOLD;
+  return { hold: { target, time: buys ? BUY_HOLD : time, down: true, spent: buys }, buys };
+};
+
+/** How full the ring is, 0 to 1. */
+export const holdFill = (hold: Hold) => hold.target === null ? 0 : Math.min(1, hold.time / BUY_HOLD);
+
+/** One thing the hall sells, as its rack, shrine and list show it: the price of what is next (null when there is nothing next), and whether it is affordable. */
+export type ShopItem = { kind: 'arm' | 'upgrade'; id: string; name: string; price: number | null; held: number; ranks: number; affordable: boolean; short: number };
+
+export const shopItem = (meta: Meta, kind: 'arm' | 'upgrade', id: string): ShopItem | null => {
+  if (kind === 'arm') {
+    if (!ARM_ORDER.includes(id as WeaponId)) return null;
+    const owned = meta.arms.includes(id as WeaponId), price = owned || !isBoughtArm(id) ? null : ARM_PRICES[id];
+    return { kind, id, name: weaponById(id).name, price, held: owned ? 1 : 0, ranks: 1, affordable: price !== null && meta.pearls >= price, short: price === null ? 0 : Math.max(0, price - meta.pearls) };
+  }
+  const upgrade = upgradeById(id);
+  if (!upgrade) return null;
+  const held = rankOf(meta.upgrades, upgrade.id), price = held >= upgrade.ranks ? null : upgrade.price(held);
+  return { kind, id, name: upgrade.name, price, held, ranks: upgrade.ranks, affordable: price !== null && meta.pearls >= price, short: price === null ? 0 : Math.max(0, price - meta.pearls) };
+};
+
+/** Buys the next of an item, through the same refusals as the list: null when owned, at its top rank, unknown, or too dear. */
+export const buyItem = (meta: Meta, kind: 'arm' | 'upgrade', id: string): Meta | null => kind === 'arm' ? buyArm(meta, id) : buyUpgrade(meta, id);
+
+/** Every item that could be bought right now, as `kind:id`, in the table's order. */
+export const affordable = (meta: Meta): string[] => [
+  ...ARM_ORDER.map(id => shopItem(meta, 'arm', id)!).filter(item => item.affordable).map(item => `arm:${item.id}`),
+  ...UPGRADES.map(upgrade => shopItem(meta, 'upgrade', upgrade.id)!).filter(item => item.affordable).map(item => `upgrade:${item.id}`),
+];
+
+/** What a bank made affordable that was not before it: the hall's pearl counter pulses when this is not empty. */
+export const newlyAffordable = (before: Meta, after: Meta): string[] => { const had = new Set(affordable(before)); return affordable(after).filter(key => !had.has(key)); };
+
+/** Whether an arm can be taken off its rack to try: any arm there is, and only in the hall. Trying never changes the save. */
+export const canTry = (id: string, inHall: boolean) => inHall && ARM_ORDER.includes(id as WeaponId);
+
+/**
+ * The arm a run takes down: the one in hand if it is owned, else the owned arm he last held (the one he set down to try another), else the save's own.
+ * A tried arm is never owned by being carried, so walking down with one starts the run with what he owns.
+ */
+export const armForRun = (meta: Meta, inHand: WeaponId, lastOwned: WeaponId): WeaponId =>
+  meta.arms.includes(inHand) ? inHand : meta.arms.includes(lastOwned) ? lastOwned : meta.arms.includes(meta.arm) ? meta.arm : STARTING_WEAPON;
+
+/** The save the way down writes: `armForRun` chosen. It never adds an arm to what is owned. */
+export const settleArm = (meta: Meta, inHand: WeaponId, lastOwned: WeaponId): Meta =>
+  chooseArm(meta, armForRun(meta, inHand, lastOwned)) ?? { ...meta, upgrades: { ...meta.upgrades }, arms: [...meta.arms] };
+
+/**
+ * What the card at a rack says: damage in blows of the Tideblade's first cut (the quarter-hit grain over four), reach in world units (a ranged arm's is
+ * how far its shot flies), swings a second off its swing's length, and its special.
+ */
+export const armFacts = (id: WeaponId) => {
+  const weapon = weaponById(id), reach = weapon.ranged ? weapon.ranged.speed * weapon.ranged.flight : weapon.reach;
+  return { name: weapon.name, detail: weapon.detail, damage: +(weapon.damage / 4).toFixed(2), reach: +reach.toFixed(1), speed: +(1 / weapon.duration).toFixed(1), ranged: !!weapon.ranged, special: weapon.special ? { name: weapon.special.name, detail: weapon.special.detail } : null };
+};
+
+/**
+ * Whether two saves hold the same things: the purse, the arm, the arms owned and every rank. Not their JSON: the save keeps upgrades in the table's order
+ * whatever order they were bought in, so a purchase checked against what was read back by its string (as the altar's list once was) reported a save that
+ * had worked as one that had failed, for anyone who bought Second Tide before Deep Lungs.
+ */
+export const sameMeta = (a: Meta, b: Meta) =>
+  a.pearls === b.pearls && a.arm === b.arm && ARM_ORDER.every(id => a.arms.includes(id) === b.arms.includes(id)) && UPGRADES.every(({ id }) => rankOf(a.upgrades, id) === rankOf(b.upgrades, id));
+
+/**
+ * Plan 025 Stage F (D9): the arm a run's arm chamber offers, or null when it can offer none. Only an arm the save owns (bought at the altar, so pearls still
+ * matter) and never the one in hand: of those, the one `roll` (the run's own, `armDeal`) lands on, in the table's order. A fresh save owns the Tideblade alone,
+ * so a knight holding it is offered nothing, and the chamber keeps the mend or purse it was dealt.
+ */
+export const armOffer = (owned: readonly WeaponId[], inHand: WeaponId, roll: number): WeaponId | null => {
+  const choices = ARM_ORDER.filter(arm => arm !== inHand && owned.includes(arm));
+  return choices.length ? choices[Math.min(choices.length - 1, Math.floor(Math.max(0, roll) * choices.length))] : null;
+};
+
+/**
+ * The arm a floor of the run that began on `runSeed` offers (D9), or null: the floor `armDeal` names for the run, and on it `armOffer`'s arm. One deal a run,
+ * read off the run seed alone, so a run is offered at most one arm whatever happens between its floors; the game and the balance sim both ask this.
+ */
+export const armFor = (runSeed: number, level: number, owned: readonly WeaponId[], inHand: WeaponId): WeaponId | null => {
+  const deal = armDeal(runSeed);
+  return deal && deal.level === level ? armOffer(owned, inHand, deal.roll) : null;
+};

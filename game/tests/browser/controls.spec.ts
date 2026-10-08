@@ -50,15 +50,21 @@ test('Tab opens and closes the floor map while playing, and moves focus everywhe
 
   await game.enter();
   await game.step(120);
+  // Plan 025 D1: no minimap. While the knight plays there is no room graph on screen at all; Tab is how it is seen.
+  expect((await game.state()).mode, 'precondition: the knight is playing').toBe('playing');
+  await expect(page.locator('.floor-map'), 'the corner minimap is still on the HUD').toHaveCount(0);
   await press(page, 'map');
   await game.step(16);
   await expect(page.locator('.map-screen')).toBeVisible();
   expect((await game.state()).mode, 'the map holds the world like a pause').toBe('paused');
+  await expect(page.locator('.floor-map'), 'Tab opened the map screen without the room graph').toBeVisible();
+  await expect(page.locator('.floor-map circle[id^="map-room-"]'), 'the map drew no rooms').toHaveCount((await game.floor()).rooms.length);
   const focus = () => page.evaluate(() => { const el = document.activeElement as HTMLElement | null; return el ? `${el.tagName}.${el.className}` : null; });
   const held = await focus();
   await press(page, 'map');
   await game.step(16);
   await expect(page.locator('.map-screen')).toHaveCount(0);
+  await expect(page.locator('.floor-map'), 'the room graph outlived the map screen').toHaveCount(0);
   expect(await focus(), 'the Tab that closed the map moved no focus').toBe(held);
   expect((await game.state()).mode).toBe('playing');
 
@@ -114,18 +120,19 @@ test('a pad opens and closes the map on View, dodges on B and RB, and answers X 
     // X is the special now, and no longer takes an arm off a rack.
     await game.buildHall();
     await game.equip('cleaver');
-    const rack = (await game.state()).racks[0];
-    expect(rack?.kind, 'the hall shows the one arm owned besides the one in hand').toBe('maul');
+    // Plan 025 (D8): the hall stands every arm on a rack, the ones not owned locked, so the open racks are the owned ones.
+    const rack = (await game.state()).racks.find((r) => r.kind === 'maul')!;
+    expect(rack?.locked, 'the hall shows the one arm owned besides the one in hand').toBe(false);
     // The knight stands in the rack's ring, where the swap key would take the maul; the precondition that makes "X took nothing" mean something.
     await game.teleport(rack.x, rack.z);
     await game.step(32);
-    expect((await game.state()).racks[0].over, 'the knight is in the rack\'s ring').toBe(true);
+    expect((await game.state()).racks.find((r) => r.kind === 'maul')!.over, 'the knight is in the rack\'s ring').toBe(true);
     await setButton(2, true);
     await game.step(16);
     const whirled = await game.state();
     expect((whirled.player as Snapshot['player'] & { special: { live: boolean } }).special.live, 'X is the Whirl').toBe(true);
     expect(whirled.weapon.id, 'and did not swap anything').toBe('cleaver');
-    expect(whirled.racks.map((r) => r.kind), 'and the maul is still on its rack').toEqual(['maul']);
+    expect(whirled.racks.filter((r) => !r.locked).map((r) => r.kind), 'and the maul is still on its rack').toEqual(['maul']);
     await setButton(2, false);
     await game.step(1000);
   } finally {

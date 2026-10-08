@@ -111,7 +111,8 @@ test('every dungeon-action detail parses to the command the game answers', () =>
   assert.deepEqual(parseCommand('start:7'), { kind: 'start', seed: 7 });
   // Plan 020: RETURN TO THE ALTAR, the hall's shop put away and LEAVE TO TITLE. TO THE GATE (`gate`) went with the old card.
   assert.deepEqual(parseCommand('altar'), { kind: 'altar' });
-  assert.deepEqual(parseCommand('shop-close'), { kind: 'shop-close' });
+  // Plan 025: the shop overlay is gone, and the command that put it away with it.
+  assert.equal(parseCommand('shop-close'), null);
   assert.deepEqual(parseCommand('title'), { kind: 'title' });
   for (const junk of ['gate', 'gates', 'altars', 'shop', 'titles']) assert.equal(parseCommand(junk), null, `${junk} is not a command`);
   assert.deepEqual(parseCommand('slot:2'), { kind: 'slot', slot: 2 });
@@ -122,7 +123,7 @@ test('every dungeon-action detail parses to the command the game answers', () =>
   assert.deepEqual(parseCommand('stick:junk'), { kind: 'stick', stick: null }, 'junk is a release');
   assert.deepEqual(parseCommand('move:up'), { kind: 'move', action: 'up' });
   assert.deepEqual(parseCommand('stop:up'), { kind: 'stop', action: 'up' });
-  for (const kind of ['map', 'pause', 'mute', 'fullscreen', 'attack', 'hold-attack', 'release-attack', 'dash', 'swap', 'special', 'hold-special', 'release-special'] as const) {
+  for (const kind of ['map', 'pause', 'mute', 'fullscreen', 'attack', 'hold-attack', 'release-attack', 'dash', 'swap', 'special', 'hold-special', 'release-special', 'hold-swap', 'release-swap'] as const) {
     assert.deepEqual(parseCommand(kind), { kind });
   }
   assert.equal(parseCommand('restarting'), null);

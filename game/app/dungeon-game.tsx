@@ -9,7 +9,7 @@ import { impactEffects } from './dungeon-impact';
 import { footstepEffects } from './dungeon-footsteps';
 import { footfalls, footSupport, type FootstepKind } from './dungeon-footstep-rules';
 import { startDeath } from './dungeon-death';
-import { stoneTexture, type LightAnchor } from './dungeon-atmosphere';
+import { SCONCE_GLOW_VERTICES, stoneTexture } from './dungeon-atmosphere';
 import { flameShaderKeeper } from './dungeon-flame-fx';
 import { createPostChain, postQuality } from './dungeon-post';
 import { bloodDecals } from './dungeon-blood';
@@ -17,17 +17,20 @@ import { getFlagstoneTexturesSteps, getMasonryTexturesSteps } from './dungeon-te
 import { createDungeonAudio } from './dungeon-audio';
 import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidate } from './dungeon-occlusion';
 import { animateCloth } from './dungeon-motion';
-import { altarHall, canStand, dealBosses, gateRacks, generateFloor, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
+import { altarHall, bodyRadius, canStand, dealBosses, dealRewards, gateRacks, generateFloor, hallShrines, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
 import { FINAL_BOSS } from './dungeon-bestiary';
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
 import { allElite, corpseSink, corpsesDue, idleClock, parseElite, roomTiles, springing, waveDue, waveSpots, wavedFloor, WAVE_CAP, WAVE_MARK, type WaveClock } from './dungeon-waves';
 import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import SlotPicker from './dungeon-slot-picker';
-import AltarPanel, { type AltarKind } from './dungeon-altar-panel';
+import AltarPanel, { HallPurse, RackCard, type AltarKind, type ShopCard } from './dungeon-altar-panel';
+import { createHallKit, type HallKit, type Shrine } from './dungeon-hall';
 import { CAMERA_OFFSET, groundAim, SNAP_REACH, snapAim } from './dungeon-aim';
 import { boltBlow, DASH_BUFFER, dashImmune, dragToward, hurledBlow, lineContacts, specialAvailable, specialGate, specialMayCut, specialSpends, swordContacts, vaultLanding, vaultTarget } from './dungeon-combat';
-import { ALERT_STAGGER, BESTIARY, decideEnemy, fallOf, moveOf, NOTICE_TIME, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, type Wakeable } from './dungeon-enemy';
-import { awayFrom, bossPush, burn as burnBody, landBlow } from './dungeon-hits';
+import { ALERT_STAGGER, BESTIARY, bombLands, bombMarks, decideEnemy, fallOf, moveOf, NOTICE_TIME, nearbyDozers, pressed, raiseSpot, scaledDamage, separateCrowd, type Wakeable } from './dungeon-enemy';
+import { awayFrom, blastOf, bossPush, burn as burnBody, fuseStep, KEG_CHAIN, KEG_DAMAGE, KEG_FUSE, KEG_HURT, landBlow, SPIKE_DAMAGE, SPIKE_HURT, spikeBites, spikeState, strikeProp, swingProps } from './dungeon-hits';
+import { furnishFloor } from './dungeon-furnish';
+import { raiseProps, type PropsView } from './dungeon-props-view';
 import { chargePose } from './dungeon-attack-pose';
 import { chainLength, chargeLevel, chargeReleases, devStartingArm, drawDamage, drawn, lungeStep, specialSwing, STARTING_WEAPON, TIDEBLADE, vaultHeight, vaultLanded, vaultStep, weaponById, type Special, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
@@ -36,17 +39,17 @@ import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { createSparks } from './dungeon-sparks';
-import { nearestFirst } from './dungeon-nearest';
 import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
 import { createGovernor, observeFrame, startPixelRatio, type QualityStage } from './dungeon-quality';
 import { ACTIONS, appendRun, betterRun, bindKey, defaultSettings, eraseSlot, readBest, readMeta, readRuns, readSettings, readSlot, RESERVED, slotSummary, SLOTS, summariseRuns, writeBest, writeMeta, writeRuns, writeSeed, writeSettings, writeSlot, type Action, type BestRun, type RunCause, type RunEnd, type Settings, type Slot } from './dungeon-save';
-import { bank, buyArm, buyUpgrade, chooseArm, freshMeta, pearlsFor, runStart as metaRunStart, UPGRADES, type Meta } from './dungeon-meta';
-import { clearChamber, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, SHRINE, SHRINE_REACH, STAIR_RADIUS, takeBoon, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
+import { armFor, armForRun, bank, BUY_HOLD, buyArm, buyItem, buyUpgrade, canTry, freshMeta, holdFill, holdStep, idleHold, newlyAffordable, pearlsFor, runStart as metaRunStart, sameMeta, settleArm, shopItem, UPGRADES, type Meta } from './dungeon-meta';
+import { clearChamber, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, PICKUP_RADIUS, rankCost, resetSpecial, resolveKill, specialReady, spendSpecial, SHRINE, SHRINE_REACH, STAIR_RADIUS, takeBoon, takeDrop, tickRun, XP_PER_BOSS, XP_PER_ENEMY, type Boon, type Reward } from './dungeon-sim';
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
 import { beginMove, dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, THREAT, type Enemy, type EnemyKind } from './dungeon-enemy-view';
-import { createFloorStage, doorSign, doorSignOf, raiseFloor, type DoorSign, type FloorArt } from './dungeon-floor-scene';
+import { createFloorStage, DOOR_LABEL, DOOR_TINT, doorLabelTexture, doorSign, doorSignOf, raiseFloor, REWARD_SIGNS, type DoorSign, type FloorArt } from './dungeon-floor-scene';
+import { assignSlots, chamberLights, GLANCE_PULL, GLANCE_SPAN, glanceWeight, fadeSlot, LIGHT_POOL, type LightSource, type PoolSlot } from './dungeon-lights';
 import { createMood } from './dungeon-mood';
 import { driveSliced as driveSlicedSteps, linkedPrograms, pollProgramsReady as pollPrograms, precompilePost } from './dungeon-warmup';
 // What the veil says is happening, one label per stage of `stagedBuild`, and how far its bar has run.
@@ -57,7 +60,7 @@ import { actorStat, countDisposals, drainGpu, lightDiagnostics, pointLightCount,
 const FLOORS = 3;
 /** Short in-world lines, crossfaded one at a time under the bar (CSS only). */
 // What the prompt at the foot of the screen says a door leads to (plan 017).
-const DOOR_WORDS: Record<DoorSign, string> = { mend: 'a mending', cache: 'a purse of experience', rest: 'a quiet shrine', stair: 'the stair down', fight: 'a fight', down: 'the way down' };
+const DOOR_WORDS: Record<DoorSign, string> = { mend: 'a mending', cache: 'a purse of experience', boon: 'a boon', pearls: 'a purse of pearls', arm: 'an arm to take up', rest: 'a quiet shrine', stair: 'the stair down', fight: 'a fight', down: 'the way down' };
 // Plan 020: how close to the altar's heart the knight must stand for the swap key to open it (the sanctuary shrine's own healing radius).
 const ALTAR_PROMPT = 1.5;
 // Each half of the fade a door is taken behind: dark by the first, lit again by the second.
@@ -115,12 +118,15 @@ export default function DungeonGame() {
   // What the swap key would do where the knight stands - take the arm he is over, or the open stair - or
   // null when it would do nothing. It is the whole of the prompt's state: the key it names is read off
   // the bindings at render, so a rebind is live at once.
-  const [swapOffer, setSwapOffer] = useState<{ act: string; detail: string } | null>(null);
+  // Plan 025 (D8): `hold` when the key is held rather than pressed (a purchase), and `card` the stat card the hall shows at a rack or a shrine.
+  const [swapOffer, setSwapOffer] = useState<{ act: string; detail: string; hold?: boolean; card?: ShopCard } | null>(null);
   // Only on screen while a ranged arm is held, so the minimal HUD stays minimal for every other weapon.
   const [ammo, setAmmo] = useState<{ held: number; of: number } | null>(null);
   const [floorMap, setFloorMap] = useState<Floor | null>(null);
   const [visitedCount, setVisitedCount] = useState(1);
   const mapPlayer = useRef<SVGCircleElement>(null);
+  // Plan 025 D1: the map is drawn only while it is open, so what the run has painted on it and where the knight stands are handed to it as it opens.
+  const [mapView, setMapView] = useState<{ fills: Record<number, string>; at: number }>({ fills: {}, at: 0 });
   const crossFade = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<'playing' | 'complete' | 'won' | 'lost'>('playing');
   const [mapOpen, setMapOpen] = useState(false);
@@ -158,7 +164,9 @@ export default function DungeonGame() {
   const hydrated = useSyncExternalStore(noSubscription, () => true, () => false);
   // Which page of the menu card is showing. Controls and Settings open in place of the menu list, with a
   // way back, rather than unfolding beneath it and pushing ENTER THE KEEP off a short screen.
-  const [menuView, setMenuView] = useState<'main' | 'controls' | 'settings' | 'arena' | 'slots'>('main');
+  const [menuView, setMenuView] = useState<'main' | 'controls' | 'settings' | 'arena' | 'slots' | 'altar'>('main');
+  // Plan 025 (D8): the page the pause card opens on. The altar's swap key opens it on the altar's list; everything else on the main list.
+  const [menuStart, setMenuStart] = useState<'main' | 'altar'>('main');
   // The arena page's counts and floor (development only), kept here so they survive leaving the page.
   const [arenaChoice, setArenaChoice] = useState<ArenaChoice>({ pick: { guard: 1 }, level: 1 });
   // The arena the world closure is charting floors as, mirrored for the card that names it and for the
@@ -202,15 +210,18 @@ export default function DungeonGame() {
   // Plan 019: the pearl balance, what is bought and which arms are unlocked, as the result card shows them. A mirror of the
   // active slot's save, never the source: the world closure re-reads the save at every run start and at every bank (D11).
   const [meta, setMeta] = useState<Meta>(freshMeta);
-  // Plan 020: the Tide Altar's hall. `hallOn` mirrors the closure's `hall` (the floor drawn is the hall), `altarShow` is the shop overlay and `altarNote` the line under its lists.
+  // Plan 020: the Tide Altar's hall. `hallOn` mirrors the closure's `hall` (the floor drawn is the hall), `altarNote` is the line under the altar's lists.
   // `buy` is plan 019's purchase, back from the title: it re-reads the active slot's save before it spends, and what it buys is dealt at the next run start (D11).
-  const [hallOn, setHallOn] = useState(false), [altarShow, setAltarShow] = useState(false), [altarNote, setAltarNote] = useState(''), [veilHall, setVeilHall] = useState(false);
+  // Plan 025 (D8): the shop overlay is gone; the list is a page of the hall's pause card (`menuView === 'altar'`). `pursePulse` is the hall's pearl counter
+  // pulsing because a bank put something newly in reach, and `buyRing` the fill ring on the prompt, driven from the frame loop like the dash sweep.
+  const [hallOn, setHallOn] = useState(false), [altarNote, setAltarNote] = useState(''), [veilHall, setVeilHall] = useState(false), [pursePulse, setPursePulse] = useState(false);
+  const buyRing = useRef<HTMLElement>(null);
   const buy = (kind: AltarKind, id: string, refusal: string) => {
     const stored = readMeta(slotOn), next = kind === 'arm' ? buyArm(stored, id) : buyUpgrade(stored, id);
     if (!next) { setMeta(stored); setAltarNote(refusal); return; }
     writeMeta(slotOn, next); const kept = readMeta(slotOn); setMeta(kept);
     const label = kind === 'arm' ? weaponById(id as WeaponId).name : UPGRADES.find(upgrade => upgrade.id === id)?.name ?? id;
-    setAltarNote(JSON.stringify(kept) === JSON.stringify(next) ? `${label} ${kind === 'arm' ? 'unlocked' : 'bought'}.` : `${label} could not be saved: this browser is not keeping the keep’s memory.`);
+    setAltarNote(sameMeta(kept, next) ? `${label} ${kind === 'arm' ? 'unlocked' : 'bought'}.` : `${label} could not be saved: this browser is not keeping the keep’s memory.`);
   };
   // Built at call time, not at render time: the ref is only ever read inside a handler, which is the one
   // place a ref may be read at all.
@@ -359,7 +370,8 @@ export default function DungeonGame() {
     // parts, the flood, the atmosphere pass and the walking-surface index - written by `raiseFloor`
     // (dungeon-floor-scene.ts) and replaced field by field by the next build.
     const stage = createFloorStage();
-    let visited = new Set<number>([0]), cleared = new Set<number>([0]), spineRooms = new Set<number>();
+    let visited = new Set<number>([0]), cleared = new Set<number>([0]), spineRooms = new Set<number>(), mapAt = 0;
+    const mapFills = new Map<number, string>();
     let reached = 0, level = 1;
     let floorStart = 0, floorKills = 0, floorXp = 0;
     // Run-scoped, not floor-scoped: these three outlive a descent and are reset only by `restart`, which
@@ -420,6 +432,8 @@ export default function DungeonGame() {
         if (run.pendingRanks > 0 && !run.choosing) offerBoon();
       }
       if (reward.healed > 0) setHealth(run.hp);
+      // Plan 025 Stage F: a Boon door owes a card with no experience behind it.
+      if (reward.xp <= 0 && reward.ranks > 0 && run.pendingRanks > 0 && !run.choosing) offerBoon();
     };
     // A body going down, however it was brought there: its fall starts, its marks go, and the kill pays -
     // unless it is one a bonecaller raised and the caller still stands, which goes back into the ground
@@ -427,9 +441,11 @@ export default function DungeonGame() {
     const fell = (enemy: Enemy) => {
       const fall = fallOf(stage.enemies, stage.enemies.indexOf(enemy));
       if (fall.reassembles) { rebury(enemy, stage.enemies[enemy.summoner]); return; }
-      enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind); dropMarks(enemy);
+      enemy.dead = true; enemy.death = startDeath(enemy.group, enemy.kind, floor.cells); dropMarks(enemy);
       award(resolveKill(run, enemy.kind, !!enemy.elite)); burst(enemy.group.position, 0xd9d1bd, 12); setDefeated(run.kills);
-      if (BESTIARY[enemy.kind].boss) { setBossBar(null); bossKey = ''; unmark(enemy); }
+      if (BESTIARY[enemy.kind].boss) { setBossBar(null); bossKey = ''; }
+      // A boss's rings, or a bomber's (plan 025 Stage G), go with it: nothing it marked lands.
+      unmark(enemy);
       // A pyre leaves its fire where it fell (dungeon-projectile's `deathPool`), which bites the knight.
       const fire = deathPool(enemy.kind, enemy.group.position, enemy.elite), ring = fire ? hostilePoolMeshes.find(mesh => !mesh.visible) : undefined;
       if (fire && ring) { ring.visible = true; ring.position.set(fire.x, .07, fire.z); ring.scale.setScalar(fire.radius); hostilePools.push({ pool: fire, mesh: ring, kind: enemy.kind }); burst(enemy.group.position, 0xff8c38, 18); }
@@ -437,7 +453,7 @@ export default function DungeonGame() {
       for (const at of fall.crumble) {
         const body = stage.enemies[at];
         body.dead = true;
-        if (!body.buried) { body.death = startDeath(body.group, body.kind); dropMarks(body); burst(body.group.position, 0xd9d1bd, 10); }
+        if (!body.buried) { body.death = startDeath(body.group, body.kind, floor.cells); dropMarks(body); burst(body.group.position, 0xd9d1bd, 10); }
       }
     };
     // A raised body cut down while its caller stands: a puff of bone dust, and it is back in the reserve
@@ -455,7 +471,7 @@ export default function DungeonGame() {
     const raise = (caller: Enemy, index: number, perTell = BESTIARY[caller.kind].summons?.perTell ?? 0) => {
       const reserve = stage.enemies.filter(e => e.buried && !e.dead && e.summoner === index).slice(0, perTell);
       reserve.forEach((body, slot) => {
-        const at = raiseSpot(floor.cells, caller.group.position, player.position, slot);
+        const at = raiseSpot(floor.cells, caller.group.position, player.position, slot, bodyRadius(body.kind));
         body.buried = false; body.awake = true; body.group.visible = true; body.room = caller.room;
         body.group.position.set(at.x, .03, at.z); body.anchor = { x: at.x, z: at.z }; body.cooldown = Math.max(body.cooldown, .6);
         burst(body.group.position, 0xb9a4ff, 14);
@@ -469,12 +485,39 @@ export default function DungeonGame() {
         cleared.add(id);
         const room = floor.rooms[id], ways = stage.doors.filter(view => view.door.from === id);
         award(clearChamber(run, room));
-        setNotice(`${room.name} · ${ways.length ? 'the way on opens' : 'cleansed'}`);
+        // Plan 025 D2 (d): the notice names what the open doors pay, not merely that they opened.
+        const rewards = [...new Set(ways.map(view => doorSignOf(floor, view.door)).filter(sign => REWARD_SIGNS.includes(sign)))].map(sign => DOOR_LABEL[sign]);
+        setNotice(`${room.name} · ${rewards.length > 1 ? `Choose your reward: ${rewards.join(' · ')}` : rewards.length ? `Your reward: ${rewards[0]}` : ways.length ? 'the way on opens' : 'cleansed'}`);
+        // Plan 025 D2 (c): and the camera glances towards them, so a door off the frame is seen to open.
+        if (ways.length) { glanceAt.set(0, 0, 0); for (const view of ways) glanceAt.add(view.spot); glanceAt.divideScalar(ways.length); glanceAge = 0; }
         noticeTime = 3.5; rewardTime = 1.4; audio.play('clear'); burst(player.position,0x71f4c4,18);
         for (const view of ways) burst(view.spot, view.color, 14);
-        document.getElementById(`map-room-${id}`)?.setAttribute('fill', '#a8d5b0');
+        mapFills.set(id, '#a8d5b0'); document.getElementById(`map-room-${id}`)?.setAttribute('fill', '#a8d5b0');
       }
       if (id === floor.goal && stairClear()) openStair();
+    };
+    // Plan 025 Stage F: a prop struck by steel or caught in a blast: a breakable breaks and pays what it held (dungeon-sim `takeDrop`), a keg lights (`fuse` seconds, the telegraph).
+    const strikeFurniture = (index: number, fuse: number) => {
+      const prop = props.live[index], struck = strikeProp(prop, fuse);
+      if (struck.lit) { audio.play('warn'); burst(new THREE.Vector3(prop.at.x, .8, prop.at.z), 0xffd27a, 6); return; }
+      if (!struck.broke) return;
+      props.spend(index); burst(new THREE.Vector3(prop.at.x, .35, prop.at.z), prop.kind === 'chest' ? 0xfbc956 : 0xb98a5c, 12); audio.play('hit');
+      const paid = takeDrop(run, prop.kind, prop.drop);
+      award(paid);
+      if (paid.pearls) { setNotice(paid.pearls > 1 ? `${paid.pearls} pearls` : 'A pearl'); noticeTime = 2; burst(new THREE.Vector3(prop.at.x, .6, prop.at.z), 0xf2efe6, 10); }
+      else if (paid.healed) { setNotice('A sip of vitality'); noticeTime = 2; burst(player.position, 0xff8a8a, 10); }
+    };
+    // A keg goes up: what its blast catches (dungeon-hits `blastOf`) - the knight, every standing body, and the props beside it, which break or light on the short fuse.
+    const blastFurniture = (index: number) => {
+      const keg = props.live[index], at = new THREE.Vector3(keg.at.x, .5, keg.at.z);
+      props.spend(index); burst(at, 0xff8c38, 26); burst(at, 0xffd27a, 12); impacts.emit(at, 0xff8763, true); audio.play('warn'); shake = Math.max(shake, .16);
+      const standing = stage.enemies.filter(e => !e.dead && !e.buried && e.awake), caught = blastOf(keg, player.position, standing.map(e => e.group.position), props.live);
+      if (caught.knight && hurt(run, KEG_HURT, { dashing: dashImmune(pc.dashTime) })) {
+        setHealth(run.hp); hurtFlash = .65; audio.play('hurt'); burst(player.position, 0xff4529, 10); tideReturns();
+        if (run.hp === 0) { endRun('hazard'); return; }
+      }
+      for (const n of caught.bodies) { const enemy = standing[n]; if (enemy.dead) continue; burst(enemy.group.position, 0xff8c38, 8); if (burnBody(enemy, KEG_DAMAGE)) { fell(enemy); settleRoom(enemy.room); } }
+      for (const n of caught.props) strikeFurniture(n, KEG_CHAIN);
     };
     const chooseBoon = (id: string) => {
       const boon = takeBoon(run, id);
@@ -497,9 +540,9 @@ export default function DungeonGame() {
       // began, and the log is cheap enough to reread once per run that guessing is not worth it.
       const end: RunEnd = { at: Date.now(), floor: level, won: !cause, cause, seconds: Math.max(0, Math.round(elapsed - runStart)), rank: run.rankLevel, xp: run.totalXp, kills: run.kills, boons: [...boonsTaken], seed: firstSeed,
         // Plan 019: the arm the run began holding, the ranks it began with and what it earns (D3). An arena pays nothing.
-        arm: runArm, upgrades: { ...runUpgrades }, pearls: arena ? 0 : pearlsFor({ floor: level, won: !cause, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites }),
+        arm: runArm, upgrades: { ...runUpgrades }, pearls: arena ? 0 : pearlsFor({ floor: level, won: !cause, kills: run.kills, chambers: run.chambers, bosses: run.bosses, elites: run.elites, found: run.found }),
         // Plan 021: the bosses felled, and which boss each floor the run reached held.
-        bosses: run.bosses, ...(runBosses.length ? { bossKinds: runBosses.slice(0, level) } : null), ...(run.elites ? { elites: run.elites } : null), chambers: run.chambers };
+        bosses: run.bosses, ...(runBosses.length ? { bossKinds: runBosses.slice(0, level) } : null), ...(run.elites ? { elites: run.elites } : null), chambers: run.chambers, ...(run.found ? { found: run.found } : null) };
       setBossBar(null); bossKey = '';
       setEnded(end);
       if (arena) return;
@@ -507,7 +550,7 @@ export default function DungeonGame() {
       writeRuns(activeSlot, log); setRunLog(log);
       // Banked after the arena return and after the log, win or lose (D2). The save is re-read first, for the same
       // second-tab reason as the log; `endRun` refuses a second entry for one run, so a run can only be paid once.
-      const banked = bank(readMeta(activeSlot), end); writeMeta(activeSlot, banked); setMeta(banked);
+      const before = readMeta(activeSlot), banked = bank(before, end); writeMeta(activeSlot, banked); setMeta(banked); bankedFrom = before;
     };
     // Second Tide (plan 019): `hurt` has already stood the knight up at 40% and spent the revive; this is the moment
     // it deserves on screen. The flag is the sim's, and it is cleared here so each revive is shown once.
@@ -595,36 +638,51 @@ export default function DungeonGame() {
     // lazy upload made the renderer's texture count grow mid-floor, which reads as a leak to every check
     // that compares resource counts across rebuilds - and it was a hitch on the first windup besides.
     for (const shared of [telegraphTex, laneTex, alertTex]) renderer.initTexture(shared);
-    const torchLights: THREE.PointLight[] = [];
-    // Cutoff distance is what was drawing the hard-edged ellipse. Three windows a point light's falloff
-    // by `(1 - (d/distance)^4)^2`, which collapses to zero over the last few units, and at distance 15 in
-    // a room about that wide the collapse landed inside the frame — so the pool had a rim and read as a
-    // decal. No cutoff and a physical inverse square instead: the same brightness where it matters and a
-    // tail that simply runs out. The intensity here is dead code, overwritten by the flicker each frame.
-    for (let i = 0; i < 4; i++) { const light = new THREE.PointLight(0xff9440,22,0,2); torchLights.push(light); scene.add(light); }
-    // The sconces, lanterns and water bounces the atmosphere pass lays out are anchors, not lights (see
-    // `LightAnchor`): this fixed pool is lent to the ones nearest the knight each frame. A spare one sits
-    // at zero intensity rather than hidden, because an invisible light drops out of the count and a new
-    // count recompiles every lit shader - the very stall the pool exists to prevent.
-    const ANCHOR_LIGHTS = 4;
-    const anchorLights: THREE.PointLight[] = [];
-    for (let i = 0; i < ANCHOR_LIGHTS; i++) { const light = new THREE.PointLight(0xff9c52,0,6.5,2); anchorLights.push(light); scene.add(light); }
-    // No fifth torch. The review's complaint was that an effect throws no light,
+    // Plan 025 D2 (b): a door's floating name, one material per sign for the page's life. Made like the alert glyph (a map, no depth test, no
+    // fog), so the sprite program it draws with is the one that glyph already links.
+    const doorLabels = Object.fromEntries((Object.keys(DOOR_LABEL) as DoorSign[]).map((sign) => [sign, new THREE.SpriteMaterial({ map: doorLabelTexture(DOOR_LABEL[sign], DOOR_TINT[sign]), depthTest: false, transparent: true, fog: false })])) as Record<DoorSign, THREE.SpriteMaterial>;
+    for (const label of Object.values(doorLabels)) if (label.map) renderer.initTexture(label.map);
+    // Plan 025 D6: the braziers, doors, sconces and water bounces are sources, not lights (see `LightAnchor`
+    // and dungeon-lights.ts): this fixed pool of eight goes to the chamber the knight is in, by `chamberLights`,
+    // and stays put until he leaves it. It replaced four torches and four anchors lent to whatever was nearest
+    // him each frame. A spare one sits at zero intensity rather than hidden, because an invisible light drops
+    // out of the count and a new count recompiles every lit shader - the very stall the pool exists to prevent.
+    // A brazier's light keeps no cutoff (distance 0): three windows a point light's falloff by
+    // `(1 - (d/distance)^4)^2`, which collapsed inside the frame and gave the pool a rim, so it burns a
+    // physical inverse square whose tail simply runs out. A sconce, door or bounce keeps its short reach.
+    const pool: THREE.PointLight[] = [];
+    for (let i = 0; i < LIGHT_POOL; i++) { const light = new THREE.PointLight(0xff9440,0,0,2); pool.push(light); scene.add(light); }
+    // What each slot lights and how far up it is; what each slot is meant to light; the floor's sources and the
+    // stage they were read off; the chamber (and whether it was open) the slots were last chosen for.
+    let slots: PoolSlot[] = pool.map(() => ({ shown: null, level: 0 })), wanted: (LightSource | null)[] = pool.map(() => null);
+    let lightSources: LightSource[] = [], lightsOf: unknown = null, lightsFor = '';
+    // Plan 025 D2 (a): a door's light hangs between its ring and its arch, in the tint of what lies behind it.
+    const DOOR_LIGHT = { intensity: 12, distance: 7, y: 1.6, out: .25 };
+    const floorLights = (): LightSource[] => {
+      const at = stage.atmosphere; if (!at) return [];
+      return [
+        ...at.torchPositions.map((p, i): LightSource => ({ id: `brazier:${i}`, kind: 'brazier', room: at.torchRooms[i], x: p.x, y: p.y, z: p.z, color: 0, intensity: 0, distance: 0 })),
+        ...stage.doors.map((view): LightSource => ({ id: `door:${view.door.id}`, kind: 'door', room: view.door.from, x: view.spot.x + view.door.face.x * TILE * DOOR_LIGHT.out, y: DOOR_LIGHT.y, z: view.spot.z + view.door.face.z * TILE * DOOR_LIGHT.out, color: view.color, intensity: DOOR_LIGHT.intensity, distance: DOOR_LIGHT.distance })),
+        ...at.lightAnchors.map((a, i): LightSource => ({ id: `${a.kind}:${i}`, kind: a.kind, room: a.room, x: a.x, y: a.y, z: a.z, color: a.color, intensity: a.intensity, distance: a.distance })),
+      ];
+    };
+    // Plan 025 D2 (c): on a clear, the camera glances towards the open doors and back.
+    let glanceAge = Infinity; const glanceAt = new THREE.Vector3();
+    // No extra light for an effect. The review's complaint was that an effect throws no light,
     // and the honest fix is a real one — but the renderer's light budget is spent
-    // (a moon, a hemisphere, four torches and the knight's lantern) and a sixth
-    // point light is paid for by every lit fragment in the keep, every frame,
-    // whether anything is happening or not. So the fourth torch is lent out
-    // instead. It is the fourth-nearest by construction, which makes it the least
-    // of the four in any frame, and it is only ever away from its sconce while
-    // something louder than a torch is on screen.
-    const ember = borrowedLight(torchLights[3], 0xff9440);
+    // and another point light is paid for by every lit fragment in the keep, every frame,
+    // whether anything is happening or not. So the pool's last slot is lent out
+    // instead: an idle one when the chamber leaves one, else the one holding the least of
+    // the chamber's lights (a sconce, which keeps its painted pool meanwhile); it is only
+    // ever away while something louder than a sconce is on screen.
+    // Only an event in the knight's chamber may borrow it (plan 025 D6: a pool light never lights another chamber).
+    const ember = borrowedLight(pool[LIGHT_POOL - 1], 0xff9440, (at) => floor.roomByCell.get(cellKey(Math.round(at.x / TILE), Math.round(at.z / TILE))) === activeRoom);
     // One scratch vector for every bid: a light hung at floor level throws a hot
     // ring and reaches no wall, so each event lifts its offer off the paving.
     const lampAt = new THREE.Vector3();
     // Scratch for the frame's own arithmetic, so a frame allocates nothing it throws away: the fill
     // light's hang, the camera's lead, the shake, a blow's shove, and the lamps nearest the knight.
     const FILL_OFFSET = new THREE.Vector3(1.4,3.2,2.2), focusAhead = new THREE.Vector3(), shakeBy = new THREE.Vector3();
-    const nearTorches: THREE.Vector3[] = [], nearAnchors: LightAnchor[] = [];
     const player = makeKnight(); world.add(player);
     // Every transform the rig is born with, so a reset can put it back. The pose is reached by
     // damping, which approaches a rest value without arriving, and `advanceTime(0)` moves nothing -
@@ -649,7 +707,8 @@ export default function DungeonGame() {
     const fill = new THREE.PointLight(0xffdfbe, 46, 0, 2); scene.add(fill);
     // The chamber the knight is standing in decides the key, the bounce, the fog and the fire; see
     // dungeon-mood.ts for why, and for the slide across a threshold.
-    const mood = createMood({ scene, moon, hemisphere, torches: torchLights, emberHome: ember.home });
+    // Plan 025: the pool lights more than braziers now, so the mood colours no light itself; a brazier's slot takes the tint off `ember.home`.
+    const mood = createMood({ scene, moon, hemisphere, torches: [], emberHome: ember.home });
     // Plan 014 round 7 (lever 5): a .05-unit-wide `RingGeometry` annulus has no room for its own edges
     // to feather even with antialiasing on, which is what "hard, aliased thin line" was describing.
     // Widened into an actual band and given a radial alpha curve instead - RingGeometry's own UV.y runs
@@ -712,19 +771,28 @@ export default function DungeonGame() {
     // Plan 019: the racks laid out on this floor, each with the ring that marks it - the armoury in floor one's Tide
     // Gate (an owned arm on its own slot), the dev arena's one rack, and none anywhere else. `kept` is what an arm the
     // knight set down there still owed: its special's cooldown and its quiver; `lit` is how far its ring has eased open.
-    type Rack = {group:THREE.Group; ring:THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; blade:ArmedWeapon; kind:WeaponId; x:number; z:number; kept?:Kept; lit:number};
+    // Plan 025 (D8): in the hall every arm stands on a rack; `locked` is one the save does not own (drawn as a silhouette), with its price on `plaque`.
+    // Plan 025 Stage F (D9): `found` marks the rack of the run's arm chamber, the one rack the swap key answers past the hall, once its chamber is clear.
+    type Rack = {group:THREE.Group; ring:THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>; blade:ArmedWeapon; kind:WeaponId; x:number; z:number; kept?:Kept; lit:number; locked:boolean; plaque:THREE.Mesh|null; shown:string; found?:boolean};
     let racks: Rack[] = [];
+    // Plan 025 Stage F: the floor's furniture as the scene draws it (dungeon-props-view), and the floor clock its spike plates run on.
+    let props: PropsView = { live: [], spend: () => {}, animate: () => {}, drawn: () => ({ shown: false, spikes: null }) }, propClock = 0;
     // The rack whose ring the knight is inside this frame (the gate's spacing leaves at most one), and what the prompt
     // was last told. The second exists only so the offer is pushed into React on the step he arrives and the step he
     // leaves, rather than sixty times a second for as long as he stands there.
-    let overRack: Rack | null = null, offered: WeaponId | 'stair' | 'altar' | 'down' | `door:${number}` | null = null;
+    let overRack: Rack | null = null, offered: WeaponId | 'stair' | 'altar' | 'down' | 'buy' | `door:${number}` | `shrine:${string}` | null = null;
     // Plan 019 (D9), moved by plan 020 (D7): once the way down out of the Tide Altar's hall is taken the run's arm is settled - the racks are gone and
     // the swap key can never equip an arm again. True on every floor but the hall (and the dev arena, which keeps its one rack); a build sets it.
     let armLocked = false;
     // Plan 020: the Tide Altar's hall. `hall` is read off the floor that was built (`floor.hall`), so it is what the scene holds and not what was asked
-    // for; `wantHall` is the ask, set by whatever requests a build before it charts (`chart`). `altarOpen` is the shop overlay, which holds the world the
-    // way a boon draft does (it sets `run.choosing`), and `overAltar` the knight standing in its prompt ring. A hall has no enemies, no stair, no XP and no record.
-    let hall = false, wantHall = false, altarOpen = false, overAltar = false;
+    // for; `wantHall` is the ask, set by whatever requests a build before it charts (`chart`).
+    // `overAltar` is the knight standing in the altar's prompt ring. A hall has no enemies, no stair, no XP and no record.
+    let hall = false, wantHall = false, overAltar = false;
+    // Plan 025 (D8): the hall's shop. `kit` is what it draws with (built with the hall, released with it), `shrines` the four upgrades, `overShrine` the one
+    // under the knight. `hold` follows one press of the swap key toward a purchase (dungeon-meta `holdStep`). `lastOwned` is the owned arm he last held, which
+    // is what the way down takes if he walks down trying one he does not own. `bankedFrom` is the save before the last run banked, read once by the next
+    // hall to pulse the counter when that bank put something newly in reach (`pulse` is what it found).
+    let kit: HallKit | null = null, shrines: Shrine[] = [], overShrine: Shrine | null = null, hold = idleHold(), lastOwned: WeaponId = STARTING_WEAPON, bankedFrom: Meta | null = null, pulse: string[] = [], shopMeta: Meta = freshMeta(), refusing = 0;
     // Plan 017: the door the knight is standing at, and the fade he is crossing to the next chamber behind.
     let overDoor: Door | null = null, crossing: { door: Door; time: number; flipped: boolean } | null = null;
     // Put a different arm in the knight's hand. The old geometry is released; the materials are his own
@@ -846,49 +914,103 @@ export default function DungeonGame() {
     // Push the prompt at the bottom of the screen, or take it away. Null-to-null and same-arm-to-same-arm
     // are dropped here rather than in React: the loop asks every frame and setState on every one of them
     // would re-render the whole shell sixty times a second for a line of text that never changed.
-    const showOffer = (kind: WeaponId | 'stair' | 'altar' | 'down' | `door:${number}` | null) => {
+    const showOffer = (kind: WeaponId | 'stair' | 'altar' | 'down' | 'buy' | `door:${number}` | `shrine:${string}` | null) => {
       if (offered === kind) return;
       offered = kind;
       if (kind === 'stair') { setSwapOffer({ act: 'take the stair down', detail: level >= FLOORS ? 'Out of the keep' : `To floor ${level + 1}` }); return; }
       // Plan 020: the hall's two places. The altar says what is in the purse; the way down says which arm goes with him, since it settles the choice.
-      if (kind === 'altar') { const pearls = readMeta(activeSlot).pearls; setSwapOffer({ act: 'open the altar', detail: `${pearls} ${pearls === 1 ? 'pearl' : 'pearls'} to spend` }); return; }
-      if (kind === 'down') { setSwapOffer({ act: 'take the way down', detail: `Into the keep, the ${pc.weapon.name} in hand` }); return; }
+      // Plan 025 (D8): the altar opens its list on the pause card; the shop itself is the racks and the shrines.
+      if (kind === 'altar') { const pearls = readMeta(activeSlot).pearls; setSwapOffer({ act: 'open the altar\'s list', detail: `${pearls} ${pearls === 1 ? 'pearl' : 'pearls'} to spend` }); return; }
+      // A tried arm stays in the hall: the prompt says which owned arm goes down instead.
+      if (kind === 'down') { const meta = readMeta(activeSlot), going = armForRun(meta, pc.weapon.id, lastOwned); setSwapOffer({ act: 'take the way down', detail: going === pc.weapon.id ? `Into the keep, the ${pc.weapon.name} in hand` : `Into the keep with the ${weaponById(going).name}; the ${pc.weapon.name} is only tried, and stays` }); return; }
+      if (kind === 'buy') { const item = shopItem(readMeta(activeSlot), 'arm', pc.weapon.id)!; setSwapOffer({ act: `buy the ${item.name}`, hold: true, detail: priceLine(item.price, item.short), card: { kind: 'arm', id: pc.weapon.id, owned: false, price: item.price, short: item.short } }); return; }
+      if (kind?.startsWith('shrine:')) {
+        const item = shopItem(readMeta(activeSlot), 'upgrade', kind.slice(7))!, upgrade = UPGRADES.find(each => each.id === item.id)!, card: ShopCard = { kind: 'upgrade', id: item.id, held: item.held, ranks: item.ranks, price: item.price, short: item.short };
+        setSwapOffer(item.price === null ? { act: `look at ${item.name}`, detail: `${upgrade.detail} · fully bought`, card } : { act: `buy ${item.name}`, hold: true, detail: `${item.ranks > 1 ? `Rank ${item.held + 1} of ${item.ranks} · ` : ''}${priceLine(item.price, item.short)}`, card }); return;
+      }
       if (kind?.startsWith('door:')) { const to = floor.rooms[floor.doors[Number(kind.slice(5))].to]; setSwapOffer({ act: 'take this door', detail: `${to.name} · ${DOOR_WORDS[doorSign(to)]}` }); return; }
       const arm = kind === null ? null : weaponById(kind);
+      if (arm && hall) { const item = shopItem(readMeta(activeSlot), 'arm', arm.id)!, owned = item.price === null; setSwapOffer({ act: owned ? `switch to ${arm.name}` : `try the ${arm.name}`, detail: owned ? arm.detail : `Hold to buy · ${priceLine(item.price, item.short)}`, card: { kind: 'arm', id: arm.id, owned, price: item.price, short: item.short } }); return; }
       setSwapOffer(arm ? { act: `switch to ${arm.name}`, detail: arm.detail } : null);
     };
+    const priceLine = (price: number | null, short: number) => price === null ? 'Owned' : `${price} ${price === 1 ? 'pearl' : 'pearls'}${short > 0 ? ` · ${short} short` : ''}`;
     // Lay an arm on a rack. Called once for each rack when the floor is built and again on every swap, because what
     // the knight sets down stays where he found it: a pickup he regrets is a walk back, not a dead run.
+    // Plan 025 (D8): in the hall an arm the save does not own is laid as a silhouette in the kit's one dark stone, its glow and ring cooled, with its price on a plaque.
     const layRack = (kind: WeaponId, x: number, z: number, kept?: Kept): Rack => {
       const {palette, plate} = player.userData.armoury as {palette: ArmoryPalette; plate: Plate};
-      const built = makeWeaponDrop(kind, palette, plate);
+      const meta = hall && kit ? readMeta(activeSlot) : null, item = meta ? shopItem(meta, 'arm', kind) : null, locked = !!item && item.price !== null;
+      const built = makeWeaponDrop(kind, locked && kit ? kit.silhouette : palette, plate);
       built.group.position.set(x, 0, z);
+      if (locked) { built.ring.material.color.setHex(0x7fb6c4); built.group.traverse(o => { if (o instanceof THREE.Mesh && o !== built.ring && o.material instanceof THREE.MeshBasicMaterial) { o.material.color.setHex(0x5d8590); o.material.opacity = .3; } }); }
       floorGroup.add(built.group);
-      return {...built, kind, x, z, kept, lit: 0};
+      const plaque = locked && kit && item?.price != null ? kit.plaque(item.price, item.affordable, x, z) : null;
+      if (plaque) floorGroup.add(plaque);
+      return {...built, kind, x, z, kept, lit: 0, locked, plaque, shown: `${locked}:${!!item?.affordable}`};
     };
-    const clearRacks = () => { const {palette} = player.userData.armoury as {palette: ArmoryPalette}; for (const rack of racks) disposeWeaponDrop(rack, palette); racks = []; overRack = null; };
+    const dropRack = (rack: Rack) => { disposeWeaponDrop(rack, rack.locked && kit ? kit.silhouette : (player.userData.armoury as {palette: ArmoryPalette}).palette); if (rack.plaque) { rack.plaque.geometry.dispose(); rack.plaque.removeFromParent(); } };
+    const clearRacks = () => { for (const rack of racks) dropRack(rack); racks = []; overRack = null; };
     // Plan 019 (D8), moved by plan 020 (D7) from floor one's Tide Gate to the Tide Altar's hall: the armoury. Every arm the save owns except the one in hand
     // stands on its own slot of `gateRacks`; the slots of the arms not owned stay empty. The hall of a campaign only, and only until the way down is taken; an
     // arena keeps the one rack `build` laid (D14). Left as it is when the racks already stand as they should (the first ENTER asks again, and so does a purchase).
     const layGateRacks = () => {
       if (arena) return;
-      const owned = hall && !armLocked ? readMeta(activeSlot).arms : [];
-      const want = gateRacks(floor).filter(slot => owned.includes(slot.arm) && slot.arm !== pc.weapon.id);
-      if (want.length === racks.length && want.every((slot, at) => racks[at].kind === slot.arm)) return;
+      // Plan 025 (D8): every arm but the one in hand, owned or not; one that is not owned stands locked. Re-laid when what is owned or affordable changed, so a plaque never shows a stale purse.
+      const meta = readMeta(activeSlot), want = hall && !armLocked ? gateRacks(floor).filter(slot => slot.arm !== pc.weapon.id) : [];
+      shopMeta = meta;
+      const shown = (kind: WeaponId) => { const item = shopItem(meta, 'arm', kind)!; return hall && kit ? `${item.price !== null}:${item.affordable}` : 'false:false'; };
+      if (want.length === racks.length && want.every((slot, at) => racks[at].kind === slot.arm && racks[at].x === slot.x && racks[at].z === slot.z && racks[at].shown === shown(slot.arm))) return;
       clearRacks(); showOffer(null);
       for (const slot of want) racks.push(layRack(slot.arm, slot.x, slot.z));
     };
     // Plan 019 (D9), plan 020 (D7): the knight takes the way down out of the hall, and the arm he carries is his for the run. It is
     // written to the save here and not at run end, so a run lost on floor one still remembers the choice.
+    // Plan 025 (D8): an arm only tried in the hall is refused here (`settleArm`): the run takes the owned arm he last held, and the save never gains the tried one.
     const lockArm = () => {
-      armLocked = true; runArm = pc.weapon.id;
-      const chosen = chooseArm(readMeta(activeSlot), pc.weapon.id);
-      if (chosen) { writeMeta(activeSlot, chosen); setMeta(chosen); }
-      clearRacks();
+      const meta = readMeta(activeSlot), chosen = settleArm(meta, pc.weapon.id, lastOwned);
+      armLocked = true; runArm = chosen.arm;
+      if (!sameMeta(chosen, meta)) { writeMeta(activeSlot, chosen); setMeta(chosen); }
+      clearRacks(); clearShrines();
+    };
+    // Plan 025 (D8): the four upgrade shrines, laid from the save as it stands: a notch lit for each rank held, the next rank's price on a plaque. Re-laid whole after a purchase.
+    const clearShrines = () => { for (const shrine of shrines) { shrine.group.traverse(o => { if (o instanceof THREE.Mesh) { if (!o.geometry.userData.shared) o.geometry.dispose(); if (o === shrine.glyph || o === shrine.ring) o.material.dispose(); } }); shrine.group.removeFromParent(); if (shrine.plaque) { shrine.plaque.geometry.dispose(); shrine.plaque.removeFromParent(); } } shrines = []; overShrine = null; };
+    const layShrines = () => {
+      clearShrines();
+      if (!hall || armLocked || !kit) return;
+      const meta = readMeta(activeSlot);
+      hallShrines(floor).forEach((spot, i) => {
+        const upgrade = UPGRADES[i]; if (!upgrade) return;
+        const item = shopItem(meta, 'upgrade', upgrade.id)!, shrine = kit!.shrine(upgrade.id, spot.x, spot.z, item.held, item.ranks, item.price, item.affordable);
+        floorGroup.add(shrine.group); if (shrine.plaque) floorGroup.add(shrine.plaque); shrines.push(shrine);
+      });
+    };
+    // Plan 025 (D8): what the press under the knight would buy, or null. A shrine he stands on; otherwise the arm in his hand when he only tried it. Only what
+    // the purse covers: a hold on anything else fills no ring (the prompt says how many pearls short).
+    const buyCandidate = (): { key: string; affordable: boolean } | null => {
+      if (!hall || armLocked) return null;
+      const meta = shopMeta;
+      if (overShrine) { const item = shopItem(meta, 'upgrade', overShrine.id); return item && item.price !== null ? { key: `upgrade:${item.id}`, affordable: item.affordable } : null; }
+      const item = shopItem(meta, 'arm', pc.weapon.id);
+      return item && item.price !== null && canTry(pc.weapon.id, hall) ? { key: `arm:${item.id}`, affordable: item.affordable } : null;
+    };
+    // The purchase a completed hold makes, through the same rule the altar's list uses (`buyItem`): the save re-read and charged, the chime, the pearls flown
+    // from the altar to what was bought, and the hall re-laid so a bought arm lights up in his hand and a shrine lights its notch.
+    const purchase = (key: string) => {
+      const [kind, id] = key.split(':') as ['arm' | 'upgrade', string], stored = readMeta(activeSlot), next = buyItem(stored, kind, id);
+      if (!next) { audio.play('refuse'); return; }
+      writeMeta(activeSlot, next); const kept = readMeta(activeSlot); setMeta(kept);
+      const name = kind === 'arm' ? weaponById(id).name : UPGRADES.find(upgrade => upgrade.id === id)?.name ?? id;
+      if (!sameMeta(kept, next)) { setNotice(`${name} could not be saved: this browser is not keeping the keep’s memory`); noticeTime = 4; return; }
+      if (kind === 'arm') lastOwned = id as WeaponId;
+      const shrine = kind === 'upgrade' ? shrines.find(each => each.id === id) : null;
+      const to = shrine ? new THREE.Vector3(shrine.x, .9, shrine.z) : new THREE.Vector3(player.position.x, 1.1, player.position.z);
+      if (kit && stage.altar) kit.flight.fly(new THREE.Vector3(stage.altar.mesh.position.x, 1.2, stage.altar.mesh.position.z), to);
+      audio.play('chime'); setNotice(`${name} bought`); noticeTime = 3;
+      layGateRacks(); layShrines(); offered = null; dirty = true;
     };
     // What a floor build borrows from the world: the shared telegraph art, the scene root and the cutaway
     // controller's registration.
-    const floorArt: FloorArt = { telegraph: telegraphTex, lane: laneTex, alert: alertMaterial, world, register: (mesh) => cutaway.register(mesh) };
+    const floorArt: FloorArt = { telegraph: telegraphTex, lane: laneTex, alert: alertMaterial, doorLabels, world, register: (mesh) => cutaway.register(mesh) };
     // The pose the live swing is in: a strike's curve, a special's own tracks (`swingPose`), or the maul being wound.
     const poseAt=(age:number)=>charging!==null&&age===0&&pc.swingKind!=='special'&&pc.weapon.special?chargePose(charging/(pc.weapon.special.chargeMin??1),pc.weapon.special.kind):swingPose(pc,age);
     const posePlayer=(age:number)=>{
@@ -939,7 +1061,9 @@ export default function DungeonGame() {
       cutaway.releaseFloor();
       // Before the traversal below disposes every material on the floor: the rack is drawn in the
       // knight's own palette, and he is still wearing it.
-      clearRacks();
+      clearRacks(); clearShrines();
+      // Plan 025: the hall's kit goes with the floor that drew with it.
+      kit?.dispose(); kit = null;
       stage.atmosphere?.dispose();
       impacts.clear(); footsteps.clear();
       floorGroup.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose()); } });
@@ -995,12 +1119,19 @@ export default function DungeonGame() {
     const devBoss = process.env.NODE_ENV !== 'production' ? parseBoss(new URLSearchParams(window.location.search).get('boss')) : null;
     // Plan 022 (D14): `?waves=off` (development only, ignored by a production build) deals every chamber its first wave and nothing after, as the keep was before waves.
     const devWavesOff = process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('waves') === 'off';
+    // Plan 025 Stage F: `?rooms=plain` (development only, ignored by a production build) lays no furniture and deals no Boon, Pearls or arm door.
+    const devRoomsPlain = process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('rooms') === 'plain';
+    // The seed of the run's floor one, which its arm chamber is dealt from (`armFor`), as its bosses are.
+    let runArmSeed = 0;
     // A run's bosses are dealt when its floor one is charted, from that floor's seed; every later floor reads them back, so a restart on a seed meets the same bosses.
     const bossedFloor = (seed: number, nextLevel: number): Floor => {
-      if (nextLevel === 1) { const dealt = dealBosses(seed); runBosses = [devBoss ?? dealt[0], devBoss ?? dealt[1], FINAL_BOSS]; }
+      if (nextLevel === 1) { const dealt = dealBosses(seed); runBosses = [devBoss ?? dealt[0], devBoss ?? dealt[1], FINAL_BOSS]; runArmSeed = seed; }
       const laid = generateFloor(seed, nextLevel, { boss: runBosses[nextLevel - 1] ?? FINAL_BOSS });
       // Plan 022 (D5): the later waves are dealt on top of what the generator laid, appended after every spawn, from their own hash stream. `?waves=off` (development only, D14) leaves the first wave alone, for comparing.
-      return devWavesOff ? laid : wavedFloor(laid, seed, nextLevel);
+      const waved = devWavesOff ? laid : wavedFloor(laid, seed, nextLevel);
+      // Plan 025 Stage F: then the new door rewards (the run's one arm chamber on the floor `armFor` names, from floor one's seed, offering an arm the save owns and the knight does not hold), then the
+      // furniture, each from its own stream. `?rooms=plain` (development only) lays neither, as the keep was before them; the test suite boots with it, and the Stage F specs ask for the keep as it ships.
+      return devRoomsPlain ? waved : furnishFloor(dealRewards(waved, seed, nextLevel, armFor(runArmSeed, nextLevel, readMeta(activeSlot).arms, pc.weapon.id)), seed, nextLevel);
     };
     const eliteArena = (laid: Floor, set: Arena): Floor => set.elite ? { ...laid, spawns: allElite(laid.spawns, set.elite) } : laid;
     const chart = (seed: number | undefined, nextLevel: number): Floor => wantHall ? altarHall() : arena ? eliteArena(arenaFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel, arena.roster), arena) : bossedFloor(seed ?? crypto.getRandomValues(new Uint32Array(1))[0], nextLevel);
@@ -1139,7 +1270,7 @@ export default function DungeonGame() {
       buildMs = {};
       if (stage.atmosphere) clearFloor();
       phase('dispose'); yield;
-      level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; stage.features = []; stairOpen = false; onStair = false; stairLit = 0; racks = []; overRack = null; overAltar = false; showOffer(null);
+      level = nextLevel; floorStart = elapsed; floorKills = run.kills; floorXp = run.totalXp; stage.features = []; stairOpen = false; onStair = false; stairLit = 0; racks = []; overRack = null; overAltar = false; shrines = []; overShrine = null; hold = idleHold(); showOffer(null);
       gameStatus = 'playing'; setStatus('playing');
       // A staged build (see `stagedBuild`) charts the layout a stage early so the veil can name it; the
       // floor it drew is taken here instead of drawing a second seed. Only a match is taken - the same
@@ -1162,13 +1293,21 @@ export default function DungeonGame() {
       // endSpecial first: a spear in the air is one of the shots, and dropping it without it leaves the arm out of hand.
       swingHits.clear();slash.clear();endSpecial();clearShots();blood.clear();posePlayer(0);
       setBossBar(null); bossKey = '';
-      visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
-      reached = 0; activeRoom = 0; pathCell = ''; distances.clear(); overDoor = null; crossing = null; if (crossFade.current) crossFade.current.style.opacity = '0';
+      visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine); mapFills.clear(); mapAt = 0;
+      reached = 0; activeRoom = 0; pathCell = ''; distances.clear(); overDoor = null; crossing = null; glanceAge = Infinity; ember.clear(); if (crossFade.current) crossFade.current.style.opacity = '0';
       // The floor itself - paving, flood, parapets, atmosphere, the walking-surface index, hazards, shrines,
       // the stair and every skeleton - is raised by dungeon-floor-scene.ts, one timed phase per yield.
       for (const name of raiseFloor(floor, level, floorGroup, pavingPlan, stage, floorArt)) { phase(name); yield; }
       // The dev arena keeps its one rack where the generator reserved it (D14); a campaign floor never places that spot. The hall lays the armoury.
+      // Plan 025 (D8): the hall's shop is drawn with a kit of its own, made here and released with the floor; its pearls fly in the floor's group.
+      if (hall) { kit = createHallKit(); floorGroup.add(kit.flight.mesh); }
       if (arena) racks.push(layRack(floor.weaponDrop.kind, floor.weaponDrop.x, floor.weaponDrop.z)); else layGateRacks();
+      // Plan 025 Stage F: the furniture, drawn from the floor's own list, and the run's arm chamber's rack (D9), standing from the first frame and answered once the chamber is clear.
+      props = raiseProps(floor, floorGroup); propClock = 0;
+      if (floor.armRack && !hall && !arena) racks.push({ ...layRack(floor.armRack.kind, floor.armRack.x, floor.armRack.z), found: true });
+      layShrines();
+      // The counter pulses once on arriving, when the run just banked put something newly in reach. Read once: the next hall without a bank does not pulse.
+      pulse = hall && bankedFrom ? newlyAffordable(bankedFrom, readMeta(activeSlot)) : []; if (hall) bankedFrom = null; setPursePulse(pulse.length > 0);
       // The gate holds nobody, so its doors stand open from the first frame; every other door starts barred.
       for (const view of stage.doors) view.bars.visible = !cleared.has(view.door.from);
       // Every texture the new floor uses goes to the GPU now. three.js otherwise uploads a texture the
@@ -1251,9 +1390,9 @@ export default function DungeonGame() {
       const startArm = (process.env.NODE_ENV !== 'production' ? devStartingArm(window.location.search) : null) ?? start.arm;
       // The same arm is not re-made, but it starts the run as a found one does: loaded (the fresh run is ready).
       if (pc.weapon.id !== startArm) equip(startArm); else fillQuiver();
-      setHeldWeapon(weaponById(startArm).name); runArm = startArm; began = startOf();
+      setHeldWeapon(weaponById(startArm).name); runArm = startArm; lastOwned = start.arm; began = startOf();
       setNotice(''); setFloorResult({ kills: 0, xp: 0, seconds: 0 });
-      setPaused(false); setMapOpen(false); mapShown = false; altarOpen = false; setAltarShow(false);
+      setPaused(false); setMapOpen(false); mapShown = false;
       await driveSliced(buildFloorSteps(startLevel, seed), token);
       player.rotation.set(0, Math.atan2(-pc.facing.x, -pc.facing.z), 0); player.userData.sword.rotation.y = 0;
       audio.pause(false);
@@ -1388,15 +1527,13 @@ export default function DungeonGame() {
     };
     // Plan 020: the Tide Altar's shop is an overlay that holds the world the way a boon draft does, by the same flag (`run.choosing`), so every guard that
     // already waits on a draft waits on it. What is bought there is dealt at the next run start; an arm bought appears on its rack when the shop is put away.
+    // Plan 025 (D8): the list survives as a page of the hall's pause card, for touch and for a keyboard player who would rather read than walk. The altar's
+    // swap key opens the card on it; the pause holds the world, and resuming re-lays the racks and shrines from whatever the list bought.
     const openAltar = () => {
-      if (altarOpen) return;
-      altarOpen = true; run.choosing = true; keys.clear(); dropBuffers(pc); cancelCharge(); specialBuffer = 0; velocity.set(0, 0, 0); showOffer(null);
-      setAltarNote(''); setMeta(readMeta(activeSlot)); setAltarShow(true); audio.play('clear'); dirty = true;
+      if (isPaused) return;
+      setAltarNote(''); setMeta(readMeta(activeSlot)); setMenuStart('altar'); togglePause(); audio.play('clear');
     };
-    const closeAltar = () => {
-      if (!altarOpen) return;
-      altarOpen = false; run.choosing = false; setAltarShow(false); layGateRacks(); dirty = true;
-    };
+    const refreshHall = () => { if (!hall || armLocked) return; layGateRacks(); layShrines(); offered = null; };
     // The way down: the arm in hand is written to the save, and a fresh run is dealt from it on floor one behind the veil - the one path into a run (D8).
     const goDown = () => { lockArm(); restart(); };
     // RETURN TO THE ALTAR (D9): a finished run, won or lost, goes back to the hall, with what it banked ready to spend. The only way off the death and win cards.
@@ -1416,18 +1553,23 @@ export default function DungeonGame() {
     // is a walk back, not a dead run.
     const requestSwap = () => {
       if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing' || building || crossing) return;
-      // Plan 020: the hall's altar opens the shop, and its one door is the way down: it settles the arm and starts the run.
+      // Plan 020: the hall's altar opens its list (plan 025: on the pause card), and its one door is the way down: it settles the arm and starts the run.
       if (hall && overAltar) { openAltar(); return; }
       const rack = overRack;
-      if (!rack || armLocked) { if (stairOpen && onStair) descend(); else if (overDoor && cleared.has(overDoor.from)) { if (hall) goDown(); else takeDoor(overDoor); } return; }
+      // Plan 025 Stage F (D9): past the hall only the arm chamber's rack answers, and only once its chamber is clear.
+      const foundOpen = !!rack?.found && !!floor.armRack && cleared.has(floor.armRack.room);
+      if (!rack || (armLocked && !foundOpen)) { if (stairOpen && onStair) descend(); else if (overDoor && cleared.has(overDoor.from)) { if (hall) goDown(); else takeDoor(overDoor); } return; }
+      // Plan 025 (D8): a locked arm is taken to try, in the hall only; the owned arm set down for it is what the way down will take.
+      if (rack.locked && !canTry(rack.kind, hall)) return;
+      if (!rack.locked) lastOwned = rack.kind;
       // Both arms keep their own clocks: read the one in hand before `equip` hands over the rack's.
       const taken = weaponById(rack.kind), set = pc.weapon.id, at = { x: rack.x, z: rack.z }, left = keep(), slot = racks.indexOf(rack);
       equip(rack.kind, rack.kept);
-      disposeWeaponDrop(rack, (player.userData.armoury as {palette: ArmoryPalette}).palette);
+      dropRack(rack);
       // What he set down goes on the same slot; standing still after the swap, the prompt comes straight back naming it.
-      racks[slot] = overRack = layRack(set, at.x, at.z, left); showOffer(set);
+      racks[slot] = overRack = { ...layRack(set, at.x, at.z, left), found: rack.found }; showOffer(set);
       audio.play('clear'); burst(player.position, 0xfbc956, 14);
-      setNotice(`${taken.name} in hand`); noticeTime = 3.5;
+      setNotice(rack.locked ? `${taken.name} in hand, to try` : `${taken.name} in hand`); noticeTime = 3.5;
       setHeldWeapon(taken.name);
     };
     // Plan 016: the arm's own verb. An arm without one leaves the input inert (decision 3). It is a swing
@@ -1478,7 +1620,7 @@ export default function DungeonGame() {
       if (!hasStarted || gameStatus !== 'playing' || run.choosing) return;
       // An armed rebind goes with the card. Left live, the first key pressed back in the fight would be
       // bound instead of swung, which is the worst possible moment to find out the capture was still open.
-      isPaused = !isPaused; setMapOpen(false); mapShown = false; setCapturing(null); keys.clear(); dropBuffers(pc); specialBuffer = 0; cancelCharge(); impacts.clearShock(); laneLife = 0; lane.visible = false; clearFlares(); setPaused(isPaused); audio.pause(isPaused);
+      isPaused = !isPaused; if (!isPaused) refreshHall(); setMapOpen(false); mapShown = false; setCapturing(null); keys.clear(); dropBuffers(pc); specialBuffer = 0; cancelCharge(); impacts.clearShock(); laneLife = 0; lane.visible = false; clearFlares(); setPaused(isPaused); audio.pause(isPaused);
       dirty = true;
     };
     // Mute is a setting like any other now, so it goes out through the same funnel and comes back through
@@ -1486,7 +1628,7 @@ export default function DungeonGame() {
     const toggleMute = () => updateSettings({ muted: !settingsRef.current.muted });
     // The map is a pause with the floor on it, so it opens through the pause and closes the same way.
     // The hall is one room with nothing to chart (and no map button), so the map key and the pad's VIEW are inert there.
-    const openMap = () => { if (!hasStarted || run.choosing || gameStatus !== 'playing' || hall) return; if (!isPaused) togglePause(); setMapOpen(true); mapShown = true; };
+    const openMap = () => { if (!hasStarted || run.choosing || gameStatus !== 'playing' || hall) return; if (!isPaused) togglePause(); setMapView({ fills: Object.fromEntries(mapFills), at: mapAt }); setMapOpen(true); mapShown = true; };
     const toggleMap = () => { if (mapShown) togglePause(); else openMap(); };
     const fullscreen = () => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); else void mount.parentElement?.requestFullscreen?.().catch(() => undefined); };
     const keyDown = (e: KeyboardEvent) => {
@@ -1496,7 +1638,7 @@ export default function DungeonGame() {
       if (intent.prevent) e.preventDefault();
       // Escape answers whatever else it is set to. It is the one key no rebind can take away, so a player
       // cannot shut themselves out of the menu that would let them undo the rebind.
-      if (intent.command === 'pause') { if (altarOpen) closeAltar(); else togglePause(); return; }
+      if (intent.command === 'pause') { togglePause(); return; }
       if (intent.command === 'mute') { toggleMute(); return; }
       if (intent.command === 'fullscreen') { fullscreen(); return; }
       // Only while the fight is live or the map is already up (`readKey`), so a map key pressed on a menu
@@ -1536,10 +1678,11 @@ export default function DungeonGame() {
       // The first descent never passes through `restart`, so a dev `?arm=` has to be honoured here as well.
       if (process.env.NODE_ENV !== 'production') { const arm = devStartingArm(window.location.search); if (arm && pc.weapon.id !== arm) { equip(arm); setHeldWeapon(weaponById(arm).name); } }
       // The keep was built before the save was last read (or before a dev `?arm=`), so the armoury is asked again: an arm bought since stands on its slot, and the one in hand does not.
-      layGateRacks();
+      // Plan 025: and so are the shrines, whose notches and plaques are the save's.
+      layGateRacks(); layShrines();
       // Plan 020: the keep may have been built before the picker chose its slot (a test boot builds at mount), so entering records it under this one.
       if (!arena && level === 1 && !hall) writeSeed(activeSlot, floor.seed);
-      runArm = pc.weapon.id; began = startOf();
+      runArm = pc.weapon.id; lastOwned = pc.weapon.id; began = startOf();
       floorStart = elapsed; runStart = elapsed; hasStarted = true; setStarted(true); setCapturing(null); };
     const trigger = (e: Event) => {
       const command = parseCommand((e as CustomEvent<string>).detail);
@@ -1548,9 +1691,8 @@ export default function DungeonGame() {
         case 'continue': continueDescent(); return;
         // `restart` opens a fresh keep, `restart:<seed>` takes the same one again; a junk seed just means fresh.
         case 'restart': restart(command.seed); return;
-        // Plan 020: RETURN TO THE ALTAR, the shop put away, and LEAVE TO TITLE. (TO THE GATE, plan 019's way off the card to the title, is gone with the card's other buttons.)
+        // Plan 020: RETURN TO THE ALTAR and LEAVE TO TITLE (plan 025 retired the shop overlay's `shop-close`). (TO THE GATE, plan 019's way off the card to the title, is gone with the card's other buttons.)
         case 'altar': toAltar(); return;
-        case 'shop-close': closeAltar(); return;
         case 'title': toTitle(); return;
         // Plan 020: the title's slot picker. Choosing is two events, `slot:<n>` then `start`, so the slot is set before anything is dealt or built.
         // Neither is answered while a run is live or a build is pending; erasing the slot in play re-reads the mirrors the title shows.
@@ -1582,6 +1724,8 @@ export default function DungeonGame() {
         // arrived between plant and lift, or the knight would keep walking with no thumb on the glass.
         // Junk parses as a release for the same reason.
         case 'stick': stick = command.stick; return;
+        // Plan 025: the prompt's lift, above the guard for the stick's reason.
+        case 'release-swap': keys.delete('Touchswap'); return;
       }
       if (!hasStarted || isPaused || run.choosing || gameStatus !== 'playing') return;
       switch (command.kind) {
@@ -1599,6 +1743,8 @@ export default function DungeonGame() {
         // The prompt at the foot of the screen sends this too, so a tap answers the rack on a phone, where
         // there is no key to press and the prompt is the only thing naming the arm.
         case 'swap': requestSwap(); break;
+        // Plan 025 (D8): pressed and held, so a phone can hold the prompt to buy in the hall the way the key is held.
+        case 'hold-swap': keys.add('Touchswap'); requestSwap(); break;
         case 'move': keys.add(`Touch${command.action}`); break;
         case 'stop': keys.delete(`Touch${command.action}`); break;
       }
@@ -1693,7 +1839,7 @@ export default function DungeonGame() {
         // never close the map it opened.
         padStick = null; padLook = null;
         const start = pad.buttons[PAD_START]?.pressed ?? false, view = pad.buttons[PAD_VIEW]?.pressed ?? false;
-        if (start && !padPressed.has(PAD_START)) { if (altarOpen) closeAltar(); else togglePause(); }
+        if (start && !padPressed.has(PAD_START)) togglePause();
         else if (view && !padPressed.has(PAD_VIEW)) toggleMap();
         padPressed = new Set([...(start ? [PAD_START] : []), ...(view ? [PAD_VIEW] : [])]);
         return;
@@ -1759,7 +1905,6 @@ export default function DungeonGame() {
       // hold the near field after the decay went from 1.9 to a physical 2 and the cutoff came off.
       // Plan 014 round A: 22 -> 34, the warm bounce a torch throws on everything within a couple of tiles.
       const torchFlicker = (i: number) => 34 + Math.sin(t * 9 + i * 2.2) * 2.6 + Math.sin(t * 17) * 0.9;
-      for (let i = 0; i < torchLights.length - 1; i++) torchLights[i].intensity = torchFlicker(i);
       if (stage.water) stage.water.position.y = -2.8 + Math.sin(t * 0.9) * 0.05;
       if (stage.tide) stage.tide.time.value=t;
       animateCloth(player.userData.cape,t,pc.dashTime>0?.32:velocity.lengthSq()>0?.16:.045);
@@ -1811,14 +1956,14 @@ export default function DungeonGame() {
         const entered = activeRoom !== roomId;
         if (entered) { activeRoom = roomId; setRoomName(currentRoom?.name ?? 'Passage'); }
         if (currentRoom && entered) {
-          if (!visited.has(roomId)) { visited.add(roomId); setVisitedCount(visited.size); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#6a9995'); }
+          if (!visited.has(roomId)) { visited.add(roomId); setVisitedCount(visited.size); mapFills.set(roomId, '#6a9995'); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#6a9995'); }
           // Only the trunk counts as progress; a dead end must never read as ground gained.
           if (spineRooms.has(currentRoom.id) && currentRoom.depth > reached) { reached = currentRoom.depth; setAdvance(reached); }
           if (currentRoom.id === floor.goal && !stairClear()) { const holder = stage.enemies.find(e => e.room === floor.goal && !e.dead && BESTIARY[e.kind].boss); setNotice(`${goalRoom().name} · ${holder ? BESTIARY[holder.kind].title : 'wardens'} bars the stair`); noticeTime = 4; }
           // Plan 017: a chamber with nobody in it has nothing to hold the knight for, so its ways on are
           // open the moment he arrives. Any other seals behind him until its last body falls.
-          if (!cleared.has(roomId) && !stage.enemies.some(e => e.room === roomId)) { cleared.add(roomId); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#a8d5b0'); }
-          const node = mapNode(floor, roomId); mapPlayer.current?.setAttribute('cx', String(node.x)); mapPlayer.current?.setAttribute('cy', String(node.y));
+          if (!cleared.has(roomId) && !stage.enemies.some(e => e.room === roomId)) { cleared.add(roomId); mapFills.set(roomId, '#a8d5b0'); document.getElementById(`map-room-${roomId}`)?.setAttribute('fill', '#a8d5b0'); }
+          mapAt = roomId; const node = mapNode(floor, roomId); mapPlayer.current?.setAttribute('cx', String(node.x)); mapPlayer.current?.setAttribute('cy', String(node.y));
           const sprung = springing(stage.enemies, currentRoom.id);
           if (sprung.length) {
             sprung.forEach(e => { e.awake = true; e.group.visible = true; e.cooldown = Math.max(e.cooldown, 0.9); burst(e.group.position, 0xff4529, 10); });
@@ -1844,18 +1989,43 @@ export default function DungeonGame() {
         }
         // Plan 020: the hall's altar, a prompt ring like a rack's. It outranks nothing it overlaps: the racks stand clear of it by construction (`HEART_CLEAR`).
         overAltar = !!stage.altar && Math.hypot(player.position.x - stage.altar.mesh.position.x, player.position.z - stage.altar.mesh.position.z) < ALTAR_PROMPT;
+        // Plan 025 (D8): the shrines' rings answer the step as a rack's does, and the swap key held on one press, on one target, for BUY_HOLD buys it once.
+        overShrine = null;
+        for (const shrine of shrines) {
+          const over = Math.hypot(player.position.x - shrine.x, player.position.z - shrine.z) < PICKUP_RADIUS;
+          if (over) overShrine = shrine;
+          shrine.lit += ((over ? 1 : 0) - shrine.lit) * (1 - Math.exp(-11 * dt));
+          shrine.ring.material.opacity = .3 + shrine.lit * .6; shrine.ring.scale.setScalar(1 + shrine.lit * .12);
+          shrine.glyph.rotation.y += dt * (over ? 1.6 : .5); shrine.glyph.position.y = 1.08 + Math.sin(t * 2 + shrine.x) * .05;
+        }
+        if (hall) {
+          const down = held('swap') || keys.has('Touchswap'), candidate = buyCandidate();
+          // Held as long as a purchase on something the purse cannot cover: one dull knock, not a knock on every press that only tries an arm.
+          const wanting = down && !!candidate && !candidate.affordable, waited = wanting ? refusing + dt : 0;
+          if (wanting && refusing < BUY_HOLD && waited >= BUY_HOLD) audio.play('refuse');
+          refusing = waited;
+          const step = holdStep(hold, down, candidate?.affordable ? candidate.key : null, dt); hold = step.hold;
+          if (step.buys && hold.target) purchase(hold.target);
+          buyRing.current?.style.setProperty('--fill', String(holdFill(hold)));
+          const landed = kit?.flight.step(dt); if (landed) burst(landed, 0xf3ecd8, 18);
+        }
         // Plan 017: this chamber's ways out. Barred until it is clear, lit once it is, and brighter still
         // under the knight's feet, like the rack's ring: the door is his for the asking, and the asking is
         // the swap key.
         overDoor = null;
+        // Plan 025 D2 (b): a door's name floats over it once the choice is the knight's: his chamber is open and nobody in it stands.
+        // Not during a fight, where a label is a draw call the heaviest chamber has none of to spare (frame-budget.spec.ts, the 508).
+        const choosing = cleared.has(activeRoom) && !stage.enemies.some(e => e.room === activeRoom && !e.dead && e.awake);
         for (const view of stage.doors) {
+          view.label.visible = choosing && view.door.from === activeRoom;
           if (view.door.from !== activeRoom) continue;
           const open = cleared.has(view.door.from), near = !crossing && Math.hypot(player.position.x - view.spot.x, player.position.z - view.spot.z) < DOOR_RADIUS;
           if (near) overDoor = view.door;
           view.lit += ((open ? .5 : 0) + (open && near ? .5 : 0) - view.lit) * (1 - Math.exp(-9 * dt));
           view.bars.visible = !open;
           view.veil.material.opacity = .08 + view.lit * .5; view.ring.material.opacity = .15 + view.lit * .7;
-          view.sigil.rotation.y = t * 1.2; view.sigil.position.y = 1.25 + Math.sin(t * 2 + view.door.id) * .08; view.sigil.material.emissiveIntensity = .6 + view.lit * 1.6;
+          // Plan 025 D2 (b): reduced motion holds the sigil still; it is lit, not moved, to say the door is open.
+          view.sigil.rotation.y = easeMotion ? 0 : t * 1.2; view.sigil.position.y = 1.25 + (easeMotion ? 0 : Math.sin(t * 2 + view.door.id) * .12); view.sigil.material.emissiveIntensity = .6 + view.lit * 1.6;
         }
         // Only a floor that built a stair has one to open (the hall's goal is its own room, which nobody guards).
         if (!stairOpen && stairClear() && stage.stairRing) openStair();
@@ -1871,7 +2041,7 @@ export default function DungeonGame() {
           ember.bid(lampAt.set(stage.stairSpot.x, .55, stage.stairSpot.z), Math.hypot(player.position.x - stage.stairSpot.x, player.position.z - stage.stairSpot.z), 9 + stairLit * 19, 0xfbc956);
         }
         // One prompt, asked once a frame, so the rack and the stair never take turns clearing each other's.
-        showOffer(overRack ? overRack.kind : stairOpen && onStair ? 'stair' : overAltar ? 'altar' : overDoor && cleared.has(overDoor.from) ? hall ? 'down' : `door:${overDoor.id}` : null);
+        showOffer(overRack ? overRack.kind : overShrine ? `shrine:${overShrine.id}` : stairOpen && onStair ? 'stair' : overAltar ? 'altar' : overDoor && cleared.has(overDoor.from) ? hall ? 'down' : `door:${overDoor.id}` : hall && !armLocked && !shopMeta.arms.includes(pc.weapon.id) ? 'buy' : null);
         if (gameStatus !== 'playing') return;
         // The hall's altar is a shrine that heals nobody (below), so it burns like one and rides the same loop.
         for (const feature of stage.altar ? [stage.altar, ...stage.features] : stage.features) {
@@ -1928,6 +2098,24 @@ export default function DungeonGame() {
           }
         }
 
+        // Plan 025 Stage F: the furniture's own teeth, by the rules the balance sim asks (dungeon-hits): a lit keg's fuse and what its blast catches, then each spike plate of the
+        // knight's chamber, the knight first. The plates run on the floor's own clock.
+        propClock += dt; props.animate(propClock, activeRoom);
+        for (let i = 0; i < props.live.length && gameStatus === 'playing'; i++) {
+          const prop = props.live[i];
+          if (prop.kind === 'keg' && fuseStep(prop, dt)) blastFurniture(i);
+          if (prop.kind !== 'spikes') continue;
+          // The knight only ever stands on his own chamber's plates; a body is bitten on any (the balance sim asks the same).
+          if (prop.room === activeRoom && spikeBites(prop, propClock, -1, player.position.x, player.position.z) && hurt(run, SPIKE_HURT, { dashing: dashImmune(pc.dashTime) })) {
+            setHealth(run.hp); hurtFlash = .5; shake = .08; audio.play('hurt'); burst(player.position, 0xff4529, 8); tideReturns();
+            if (run.hp === 0) endRun('hazard');
+          }
+          stage.enemies.forEach((enemy, k) => {
+            if (enemy.dead || enemy.buried || !enemy.awake || enemy.room !== prop.room || !spikeBites(prop, propClock, k, enemy.group.position.x, enemy.group.position.z)) return;
+            burst(enemy.group.position, 0xe0202c, 8);
+            if (burnBody(enemy, SPIKE_DAMAGE)) { fell(enemy); settleRoom(enemy.room); }
+          });
+        }
         const groundSpeed=pc.dashTime<=0&&dt>0?travelled/dt:0;
         gaitSpeed=THREE.MathUtils.damp(gaitSpeed,groundSpeed,14,dt);
         const previousPhase=walkPhase;
@@ -2094,6 +2282,9 @@ export default function DungeonGame() {
               if (hit.killed) { fell(enemy); settleRoom(enemy.room); }
             }
           });
+          // Plan 025 Stage F: the same arc finds the chamber's props (dungeon-hits `swingProps`, the contact rule a body is found by), a strike's or an arc special's; a lunge's line and a
+          // vault's landing do not (the balance sim asks the same). A prop is struck once: broken, or a keg lit, it is no longer strikable.
+          if (!pc.swing.ranged && active && scoring && !line && !vaulting && gameStatus === 'playing') for (const index of swingProps(floor.cells, player.position, pc.attackFacing, run.reach, pc.swing, props.live)) strikeFurniture(index, KEG_FUSE);
         } else { posePlayer(0);slash.update(dt,false,player.userData.sword,bladeInner,bladeTip); }
         // A kill can open a boon draft, and a hazard can end the run, part-way through this update. Every
         // eligible hit and its exactly-once reward is resolved above; from here the world is frozen, so the
@@ -2150,7 +2341,7 @@ export default function DungeonGame() {
           const previousWindup=enemy.windup;
           // Plan 021: the move this frame's blow belongs to is the one the body went into the frame on (the rotation moves on in the very intent that spends it), and a boss's blow and bolt cost what that move says; scripts/balance/sim.ts reads it the same way.
           const doing = moveOf(enemy.kind, enemy.bossPhase, enemy.move), strike = doing ? scaledDamage(doing.damage, level) : enemy.damage;
-          const view = { kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z, room: enemy.room, cooldown: enemy.cooldown, hitFlash: enemy.hitFlash, windup: enemy.windup, lunge: enemy.lunge, tell: enemy.tell, speed: enemy.speed, aim: enemy.aim, anchor: enemy.anchor, notice: enemy.notice, hp: enemy.hp, maxHp: enemy.maxHp, move: enemy.move, phase: enemy.bossPhase, change: enemy.change };
+          const view = { kind: enemy.kind, x: enemy.group.position.x, z: enemy.group.position.z, room: enemy.room, cooldown: enemy.cooldown, hitFlash: enemy.hitFlash, windup: enemy.windup, lunge: enemy.lunge, tell: enemy.tell, speed: enemy.speed, aim: enemy.aim, anchor: enemy.anchor, notice: enemy.notice, hp: enemy.hp, maxHp: enemy.maxHp, move: enemy.move, phase: enemy.bossPhase, change: enemy.change, roam: enemy.roam };
           // Plan 024 (D3): a tell this body was about to begin may be held back so that it ends after the room's other tells (`pressed`, dungeon-enemy.ts); scripts/balance/sim.ts asks the same rule in the same place. `held` is the snapshot's per-enemy pressure delay.
           const pressure = pressed(view, decideEnemy(view, player.position, enemyWorld, dt), index, () => stage.enemies.map(e => ({ kind: e.kind, room: e.room, dead: e.dead || e.buried || !e.awake, windup: e.windup, held: e.held, tell: e.tell })), dt), intent = pressure.intent;
           enemy.held = pressure.held;
@@ -2170,7 +2361,9 @@ export default function DungeonGame() {
           enemy.windup = intent.windup; enemy.lunge = intent.lunge; enemy.aim.set(intent.aim.x,0,intent.aim.z);
           if(previousWindup>0&&enemy.windup===0)enemy.attackAge=0;
           else if(previousWindup<=0&&enemy.windup>0)enemy.attackAge=Infinity;
-          enemy.group.position.x = intent.x; enemy.group.position.z = intent.z;
+          enemy.group.position.x = intent.x; enemy.group.position.z = intent.z; enemy.roam = intent.roam;
+          // Plan 025 (D3): a veil step ran out - she is gone from where she stood (a burst there, her trails cut so none streaks across the room) and stands at the new spot in another.
+          if (intent.veil) { burst(new THREE.Vector3(view.x, .6, view.z), 0xff9a4a, 18); burst(new THREE.Vector3(intent.x, .6, intent.z), 0xff9a4a, 18); enemy.trails.forEach(trail => trail.effect.clear()); }
           if (BESTIARY[enemy.kind].moves) {
             enemy.move = intent.move; enemy.bossPhase = intent.phase; enemy.change = intent.change;
             // A tell beginning takes the move's own cue, length and pose; a phase change (D3) cancels what was winding, rings at its feet, and pushes the knight out of its reach (`bossPush`, which walls stop).
@@ -2194,6 +2387,21 @@ export default function DungeonGame() {
               // A boss's shield breaks in the phase `until` names (the Bastion's): it is gone from the arm, in a burst of steel, and `blocks` (dungeon-hits) stops turning blows aside.
               if (BESTIARY[enemy.kind].shield?.until === intent.phase) { (enemy.group.userData.shield as THREE.Object3D).visible = false; burst(enemy.group.position, 0xdfe6ea, 24); audio.play('hit'); }
             }
+          }
+          // Plan 025 Stage G (D12 b): a bomber's tell marks its ring on the knight where he stands (`bombMarks`), on a free fire ring in the threat colour, closing as the tell does; the frame it runs out the bomb lands there - the blast is its blow
+          // (`bombLands`, its own damage) and the ring becomes its short fire, on the mesh that marked it. A tell cut short takes its ring with it. scripts/balance/sim.ts asks the same rules in the same place.
+          if (!BESTIARY[enemy.kind].moves && BESTIARY[enemy.kind].scatter) {
+            if (previousWindup <= 0 && intent.windup > 0) for (const at of bombMarks(enemy.kind, player.position, { hostile: hostilePools.length + marked.length, own: pools.length })) {
+              const mesh = hostilePoolMeshes.find(ring => !ring.visible); if (!mesh) break;
+              mesh.visible = true; mesh.position.set(at.x, .07, at.z); mesh.material.color.setHex(THREAT); marked.push({ owner: enemy, mesh, at, radius: BESTIARY[enemy.kind].scatter!.pool.radius });
+            }
+            if (intent.scatter) for (const mark of marked.filter(m => m.owner === enemy)) {
+              const landed = bombLands(enemy.kind, mark.at, player.position)!;
+              mark.mesh.material.color.setHex(0xff5a2a); mark.mesh.scale.setScalar(mark.radius); hostilePools.push({ pool: landed.pool, mesh: mark.mesh, kind: enemy.kind }); marked.splice(marked.indexOf(mark), 1);
+              burst(new THREE.Vector3(mark.at.x, .4, mark.at.z), 0xff8c38, 22); shake = Math.max(shake, .08);
+              if (landed.hurts) hurtBy(enemy.kind, strike);
+            }
+            if (intent.windup <= 0 && !intent.scatter) unmark(enemy);
           }
           if (intent.sound) audio.play(intent.sound);
           if (intent.hit) hurtBy(enemy.kind, strike);
@@ -2222,7 +2430,7 @@ export default function DungeonGame() {
         if (barKey !== bossKey) { bossKey = barKey; setBossBar(shown ? { name: BESTIARY[shown.kind].title ?? shown.kind, hp: Math.max(0, Math.ceil(shown.hp)), maxHp: shown.maxHp, phases: BESTIARY[shown.kind].phases ?? [], phase: shown.bossPhase } : null); }
         // Separate bodies without moving a guard during its committed windup; the rule itself lives in
         // dungeon-enemy, and only the write back into the scene graph belongs here.
-        const spread = separateCrowd(floor.cells, stage.enemies.map(e => ({ x: e.group.position.x, z: e.group.position.z, windup: e.windup, dead: e.dead || e.buried })), dt);
+        const spread = separateCrowd(floor.cells, stage.enemies.map(e => ({ x: e.group.position.x, z: e.group.position.z, windup: e.windup, dead: e.dead || e.buried, radius: bodyRadius(e.kind) })), dt);
         stage.enemies.forEach((e, i) => { e.group.position.x = spread[i].x; e.group.position.z = spread[i].z; });
         // Bolts at the knight. The rule - stone stops them, a dash's opening frames let them through - is
         // dungeon-projectile's; the mesh, the sparks off stone and the hurt are what is left here.
@@ -2299,7 +2507,7 @@ export default function DungeonGame() {
               if (drags && hurled?.hurl && harpoon) {
                 harpoon.dragged = true;
                 const pull = dragToward(enemy.group.position, player.position, hurled.hurl.drag);
-                moveOnFloor(floor.cells, enemy.group.position, pull.x, pull.z);
+                moveOnFloor(floor.cells, enemy.group.position, pull.x, pull.z, bodyRadius(enemy.kind));
               }
               burst(enemy.group.position, 0xffb24a, 7); burst(enemy.group.position, 0xe0202c, 22); blood.spawn(enemy.group.position, BESTIARY[enemy.kind].look.blood); impacts.emit(enemy.group.position, enemy.hp <= 0 ? 0xddebd3 : 0xffedbb, BESTIARY[enemy.kind].look.heavy || !!live.heavy);
               shake = live.heavy ? 0.09 : 0.05; pc.hitStop = 0.025;
@@ -2371,21 +2579,34 @@ export default function DungeonGame() {
       cutaway.syncMaterials();
       // The parapet is carved work too, built here rather than in the atmosphere pass but lit the same.
       stage.parapetSkin?.color.copy(mood.masonry);
-      const nearest = nearestFirst(stage.atmosphere?.torchPositions ?? [], torchLights.length, (a) => a.distanceToSquared(player.position), nearTorches);
-      // Three of the four go to their sconces. The fourth is settled below, once
-      // the accents have had their chance to ask for it.
-      for (let i = 0; i < torchLights.length - 1; i++) if (nearest[i]) torchLights[i].position.copy(nearest[i]);
-      const anchors = stage.atmosphere?.lightAnchors ?? [];
-      const lent = anchors.length <= ANCHOR_LIGHTS ? anchors : nearestFirst(anchors, ANCHOR_LIGHTS, (a) => (a.x-player.position.x)**2+(a.z-player.position.z)**2, nearAnchors);
-      anchorLights.forEach((light, i) => { const a = lent[i]; if (!a) { light.intensity = 0; return; } light.position.set(a.x, a.y, a.z); light.color.setHex(a.color); light.intensity = a.intensity; light.distance = a.distance; });
       fill.position.copy(player.position).add(FILL_OFFSET);
       mood.move(1 - Math.exp(-6 * frameDt), floor, player.position.x, player.position.z);
+      // Plan 025 D6: the pool goes to this chamber's sources, chosen once on the way in and again when its doors
+      // open, never by where the knight stands. A new floor snaps its lights on; a chamber crossed into fades.
+      const snapLights = stage.atmosphere !== lightsOf;
+      if (snapLights) { lightsOf = stage.atmosphere; lightSources = floorLights(); lightsFor = ''; wanted = pool.map(() => null); }
+      const lightRoom = floor.rooms[activeRoom], lightKey = `${activeRoom}:${cleared.has(activeRoom)}`;
+      if (lightKey !== lightsFor) { lightsFor = lightKey; const order = lightRoom ? chamberLights({ id: lightRoom.id, x: lightRoom.x * TILE, z: lightRoom.z * TILE, sources: lightSources, open: cleared.has(lightRoom.id) }) : []; wanted = assignSlots(wanted.map(w => w?.id ?? null), order); const idle = wanted.indexOf(null); ember.lamp = pool[idle >= 0 ? idle : wanted.indexOf(order[order.length - 1])]; }
+      // The painted pools are this chamber's alone: a neighbour's mesh whose bounds graze the frame would be a draw call for nothing seen.
+      for (const glow of stage.atmosphere?.sconceGlows ?? []) glow.visible = glow.userData.room === activeRoom;
+      slots = slots.map((slot, i) => snapLights ? { shown: wanted[i], level: wanted[i] ? 1 : 0 } : fadeSlot(slot, wanted[i], dt));
+      pool.forEach((light, i) => {
+        const { shown, level } = slots[i];
+        if (!shown || level <= 0) { light.intensity = 0; return; }
+        light.position.set(shown.x, shown.y, shown.z);
+        // A brazier burns the chamber's fire run towards amber (`ember.home`, which the mood keeps), and flickers.
+        if (shown.kind === 'brazier') { light.color.copy(ember.home); light.intensity = torchFlicker(i) * level; light.distance = 0; }
+        else { light.color.setHex(shown.color); light.intensity = shown.intensity * level; light.distance = shown.distance; }
+      });
       playerRing.position.set(player.position.x,0.04,player.position.z); (playerRing.material as THREE.MeshBasicMaterial).opacity = pc.dashTime > 0 ? 0.85 : 0.14; ringTime.value = t;
       moon.position.copy(player.position).setY(0).add(MOONRISE); moon.target.position.set(player.position.x,0,player.position.z); moon.target.updateMatrixWorld();
       if (dashMeter.current) dashMeter.current.value = Math.max(0,1-pc.dashCooldown/run.dashSpan);
       if (dashSweep.current) dashSweep.current.style.setProperty('--ready', String(Math.max(0,Math.min(1,1-pc.dashCooldown/run.dashSpan))));
       if (specialSweep.current) { specialSweep.current.style.setProperty('--ready', String(pc.weapon.special ? harpoon ? 0 : pc.weapon.special.draw ? quiver > 0 ? 1 : Math.min(1, reload / (pc.weapon.ranged?.refill ?? 1)) : Math.max(0, Math.min(1, 1 - run.specialCooldown / pc.weapon.special.cooldown)) : 1)); specialSweep.current.parentElement?.classList.toggle('special-ready', glintTime > 0); }
-      const target = focusAhead.copy(player.position).addScaledVector(velocity,0.12); cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
+      const target = focusAhead.copy(player.position).addScaledVector(velocity,0.12);
+      // Plan 025 D2 (c): a clear's glance at the open doors, off under reduced motion like the shake.
+      glanceAge += frameDt; if (!easeMotion && glanceAge < GLANCE_SPAN) target.lerp(glanceAt, GLANCE_PULL * glanceWeight(glanceAge));
+      cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
       camera.position.set(cameraFocus.x + 9.2,12.5,cameraFocus.z + 11.5);
       // Reduced motion drops the shake outright: it is ~90 Hz camera translation that carries nothing the
       // particles, the sound and the health bar do not already say, so nothing is lost by not moving at all.
@@ -2421,7 +2642,7 @@ export default function DungeonGame() {
       // and the flat VFX quads were all tamed - the light itself, not anything drawn on screen, was
       // still bright enough to bloom the stone and the body around it into one shapeless glow.
       if (lamp) ember.bid(lampAt.set(lamp.at.x, .95, lamp.at.z), Math.hypot(lamp.at.x - player.position.x, lamp.at.z - player.position.z), (lamp.heavy ? 7 : 5) * lamp.glow, lamp.colour);
-      ember.settle(nearest[torchLights.length - 1], torchFlicker(torchLights.length - 1));
+      ember.settle(); if (ember.lent) ember.lamp.distance = 0;
       // The hurt filter is reduced, not removed. Its discomfort is the brightness ramping across the whole
       // screen as the flash decays; its job is telling the player they were hit, which is gameplay. So the
       // tint stays for exactly as long, holds still, and drops the brightness change entirely.
@@ -2457,7 +2678,7 @@ export default function DungeonGame() {
         setArena(null);
         hasStarted = false; setStarted(false); setCapturing(null); enterWhenBuilt = false; setEntering(false);
         // Plan 020: the shop put away, and the page rebuilt as the URL's mode boots (the hall, or floor 1 under `?hall=skip`).
-        altarOpen = false; setAltarShow(false); setAltarNote('');
+        setAltarNote(''); setMenuStart('main'); bankedFrom = null;
         // Plan 020: the slot and the picker go back to what a boot leaves - the slot last played (the harness has just cleared the store, so slot 1)
         // and the title's main list. (An armed Erase and the picker's note are cleared by opening the picker, so a closed one has nothing to leave.)
         activeSlot = readSlot() ?? 1; setSlotOn(activeSlot); restoreSave(); setMenuView('main');
@@ -2535,12 +2756,18 @@ export default function DungeonGame() {
       } catch (error) { fail(error); throw error; }
     };
     const renderText = () => JSON.stringify({
-      coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, fault: faulted, slot: activeSlot, boonOffer: run.choosing && !altarOpen, muted: isMuted, roomName: hall ? 'The Tide Altar' : floor.rooms[activeRoom]?.name ?? 'Passage',
+      coordinates: 'World X right, Z down; controls relative to camera; model forward -Z', mode: !hasStarted ? 'ready' : isPaused ? 'paused' : gameStatus, building, fault: faulted, slot: activeSlot, boonOffer: run.choosing, muted: isMuted, roomName: hall ? 'The Tide Altar' : floor.rooms[activeRoom]?.name ?? 'Passage',
       // Plan 020: whether the floor drawn is the Tide Altar's hall, whether its shop is open, and what the scene actually placed there (read off the groups, not off the plan that placed them).
-      hall, altarOpen,
+      // Plan 025: the shop overlay is gone (its list is a page of the pause card), and `altarOpen` with it.
+      hall,
       hallProps: hall ? {
         altar: stage.altar ? { x: stage.altar.mesh.position.x, z: stage.altar.mesh.position.z, radius: ALTAR_PROMPT, over: overAltar, inScene: stage.altar.mesh.parent === floorGroup && (stage.altar.mesh.userData.crystal as THREE.Object3D | undefined)?.parent === floorGroup } : null,
         racks: racks.filter(rack => rack.group.parent === floorGroup).map(rack => rack.kind),
+        // Plan 025 (D8): the shop as the scene holds it. Each shrine's lit notches are counted off the meshes it wears, its price off the plaque attached to the floor;
+        // `buying` is the press in progress (what it is buying and how full the ring is), `pearls` the pearls in the air, `tried` an arm in hand that is not owned.
+        shrines: shrines.map(shrine => ({ id: shrine.id, x: shrine.group.position.x, z: shrine.group.position.z, over: shrine === overShrine, inScene: shrine.group.parent === floorGroup, ranks: shrine.notches.length, lit: shrine.notches.filter(n => n.material === kit?.notchLit).length, plaque: shrine.plaque?.parent === floorGroup ? shrine.plaque.userData.price as number : null })),
+        buying: { target: hold.target, fill: holdFill(hold) }, pearls: kit?.flight.active ?? 0, pulse: [...pulse],
+        tried: armLocked || shopMeta.arms.includes(pc.weapon.id) ? null : pc.weapon.id,
         wayDown: stage.doors[0] ? { x: stage.doors[0].spot.x, z: stage.doors[0].spot.z, radius: DOOR_RADIUS, open: !stage.doors[0].bars.visible, over: overDoor === stage.doors[0].door, inScene: [stage.doors[0].ring, stage.doors[0].veil, stage.doors[0].sigil].every(part => part.parent === floorGroup), sign: doorSignOf(floor, stage.doors[0].door) } : null,
         stair: !!stage.stairRing && stage.stairRing.parent === floorGroup,
       } : null,
@@ -2551,13 +2778,26 @@ export default function DungeonGame() {
       boss: (() => { const body = stage.enemies.find(e => !e.dead && !e.buried && BESTIARY[e.kind].boss); if (!body) return null; const shape = body.cue.geometry as THREE.BufferGeometry & { type: string; parameters: { thetaLength?: number } };
         return { kind: body.kind, hp: body.hp, maxHp: body.maxHp, phase: body.bossPhase, move: body.move, unhittable: body.change > 0, change: body.change, awake: body.awake, windup: body.windup, attack: body.doing?.attack ?? null, cue: { visible: body.cue.visible, shape: shape.type === 'PlaneGeometry' ? 'lane' : (shape.parameters.thetaLength ?? 0) > 6 ? 'ring' : 'arc', scale: body.cue.scale.x }, bar: body.bar.visible, surge: body.surge?.visible ?? false, shield: BESTIARY[body.kind].shield ? (body.group.userData.shield as THREE.Object3D).visible : null }; })(),
       // Plan 019: what the live run was dealt, read off the run itself once it was dealt (not off the meta table).
-      run: { start: { ...began }, armLocked },
-      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: pc.weapon.special ?? null }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), hostilePools: hostilePools.map(h => ({ kind: h.kind, x: h.pool.x, z: h.pool.z, radius: h.pool.radius, life: h.pool.life, damage: h.pool.damage, drawn: h.mesh.visible })), scatterMarks: marked.map(m => ({ x: m.at.x, z: m.at.z, radius: m.radius, drawn: m.mesh.visible, threat: m.mesh.material.color.getHex() === THREAT })), arrowsDrawn: arrowPool.filter(arrow => arrow.visible).length, hostileRings: hostilePoolMeshes.filter(ring => ring.visible).length, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: stage.enemies.filter(e => !e.dead && !e.buried).length,
+      run: { start: { ...began }, armLocked, found: run.found },
+      health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: pc.weapon.special ?? null }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), hostilePools: hostilePools.map(h => ({ kind: h.kind, x: h.pool.x, z: h.pool.z, radius: h.pool.radius, life: h.pool.life, damage: h.pool.damage, drawn: h.mesh.visible })), scatterMarks: marked.map(m => ({ owner: stage.enemies.indexOf(m.owner), x: m.at.x, z: m.at.z, radius: m.radius, drawn: m.mesh.visible, threat: m.mesh.material.color.getHex() === THREAT })), arrowsDrawn: arrowPool.filter(arrow => arrow.visible).length, hostileRings: hostilePoolMeshes.filter(ring => ring.visible).length, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: stage.enemies.filter(e => !e.dead && !e.buried).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, onStair: stairOpen && onStair },
-      chamber: { id: activeRoom, layer: floor.rooms[activeRoom]?.layer ?? -1, reward: floor.rooms[activeRoom]?.reward ?? null, sealed: !cleared.has(activeRoom), wave: waveState(activeRoom), crossing: crossing ? (crossing.flipped ? 'in' : 'out') : null, doors: stage.doors.filter(view => view.door.from === activeRoom).map(view => ({ id: view.door.id, to: view.door.to, sign: doorSignOf(floor, view.door), x: view.spot.x, z: view.spot.z, radius: DOOR_RADIUS, open: !view.bars.visible, over: overDoor?.id === view.door.id })) },
+      // Plan 025 Stage F: the furniture, the knight's chamber's in full as the scene holds it (`shown` and a plate's `spikes` height are read back off the drawn instances), and the floor's count. `rack` is the arm chamber's.
+      furniture: { total: props.live.length, rack: floor.armRack ? { kind: floor.armRack.kind, room: floor.armRack.room, x: floor.armRack.x, z: floor.armRack.z } : null, here: props.live.flatMap((p, i) => p.room === activeRoom ? [{ id: p.id, kind: p.kind, x: +p.at.x.toFixed(3), z: +p.at.z.toFixed(3), broken: p.broken, lit: p.fuse >= 0, plate: p.kind === 'spikes' ? spikeState(propClock, p.phase) : null, solid: !floor.cells.has(cellKey(p.x, p.z)), drop: p.drop, ...props.drawn(i) }] : []) },
+      chamber: { id: activeRoom, layer: floor.rooms[activeRoom]?.layer ?? -1, reward: floor.rooms[activeRoom]?.reward ?? null, sealed: !cleared.has(activeRoom), wave: waveState(activeRoom), crossing: crossing ? (crossing.flipped ? 'in' : 'out') : null, doors: stage.doors.filter(view => view.door.from === activeRoom).map(view => ({ id: view.door.id, to: view.door.to, sign: doorSignOf(floor, view.door), x: view.spot.x, z: view.spot.z, radius: DOOR_RADIUS, open: !view.bars.visible, over: overDoor?.id === view.door.id, label: view.label.visible && view.label.parent === floorGroup, sigil: { scale: view.sigil.scale.x, y: view.sigil.position.y, spin: view.sigil.rotation.y } })) },
       stair: { x: stage.stairSpot.x, z: stage.stairSpot.z, radius: STAIR_RADIUS },
+      // Plan 025 D6: every fixture the atmosphere hung a flame or a bounce on, by chamber, read off what it laid out.
+      lights: { sources: [...(stage.atmosphere?.torchPositions ?? []).map((p, i) => ({ kind: 'brazier', room: stage.atmosphere?.torchRooms[i] ?? -1, x: p.x, y: p.y, z: p.z })), ...(stage.atmosphere?.lightAnchors ?? []).map(a => ({ kind: a.kind, room: a.room, x: a.x, y: a.y, z: a.z, wall: a.wall }))],
+        // What each pool light is doing, read off the light itself: where it hangs, its colour, whether it burns; and the source and fade level its slot holds.
+        pool: pool.map((light, i) => { const { shown, level } = slots[i]; return shown ? { id: shown.id, kind: shown.kind, room: shown.room, level, x: light.position.x, y: light.position.y, z: light.position.z, color: light.color.getHex(), on: light.intensity > 0 } : null; }),
+        // The sconces' painted pools, read off the merged mesh: each disc's centre from its own vertices, and whether the mesh is drawn and lit.
+        glow: (() => { const meshes = stage.atmosphere?.sconceGlows; if (!meshes) return null; const v = new THREE.Vector3(), discs: { x: number; z: number; room: number; drawn: boolean }[] = [];
+          for (const mesh of meshes) { const at = mesh.geometry.getAttribute('position'); mesh.updateMatrixWorld(); for (let k = 0; k * SCONCE_GLOW_VERTICES < at.count; k++) { v.fromBufferAttribute(at, k * SCONCE_GLOW_VERTICES).applyMatrix4(mesh.matrixWorld); discs.push({ x: v.x, z: v.z, room: mesh.userData.room as number, drawn: mesh.parent === floorGroup && mesh.visible && (stage.atmosphere?.sconcePool.pool.value ?? 0) > 0 }); } }
+          // How many holders the pools' linked program has (the post chain pins each program once, plus one a material): above two means another material - the impact ring - linked it first.
+          const linked = meshes[0] ? (renderer.properties.get(meshes[0].material) as { currentProgram?: { usedTimes: number } }).currentProgram : undefined;
+          return { discs, programHolders: linked?.usedTimes ?? 0 }; })(),
+        glance: glanceAge < GLANCE_SPAN ? { age: glanceAge, x: glanceAt.x, z: glanceAt.z } : null },
       // Plan 019: read off the scene - where each rack's group really stands and whether it is attached to the floor - not off the layout that placed it.
-      racks: racks.map(rack => ({ x: rack.group.position.x, z: rack.group.position.z, kind: rack.kind, radius: PICKUP_RADIUS, over: rack === overRack, inScene: rack.group.parent === floorGroup, offered: rack === overRack && offered && offered !== 'stair' && offered !== 'altar' && offered !== 'down' && !offered.startsWith('door:') ? offered : null })),
+      racks: racks.map(rack => ({ x: rack.group.position.x, z: rack.group.position.z, kind: rack.kind, radius: PICKUP_RADIUS, over: rack === overRack, inScene: rack.group.parent === floorGroup, offered: rack === overRack && offered && offered !== 'stair' && offered !== 'altar' && offered !== 'down' && offered !== 'buy' && !offered.startsWith('door:') && !offered.startsWith('shrine:') ? offered : null, locked: rack.locked, plaque: rack.plaque?.parent === floorGroup ? rack.plaque.userData.price as number : null, plaqueReady: !!rack.plaque && rack.plaque.material === kit?.ready })),
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, perBoss: XP_PER_BOSS, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
       render: { geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, calls: post.sceneCost.calls, triangles: post.sceneCost.triangles, frames: post.frames, shadow: post.shadow, passes: post.composer.passes.map(pass => pass.constructor.name), pointLights: pointLightCount(scene), programs: linkedPrograms(renderer), warmUp, quality: post.quality,
         // What the frame is drawn with now, read off the passes and the renderer rather than the governor's own rung.
@@ -2582,7 +2822,7 @@ export default function DungeonGame() {
       graphics: { motifs: stage.atmosphere?.motifs ?? [], flames: stage.atmosphere?.flames ?? [], paving: stage.pavingSummary },
       floor: { level, waterfalls: stage.atmosphere?.waterfalls, seed: floor.seed, tiles: floor.tiles.length, areaMultiplier: floor.tiles.length / 161, tileSize: TILE, bounds: floor.bounds, rooms: floor.rooms, edges: floor.edges, start: floor.start, goal: floor.goal, spine: floor.spine, visited: [...visited], cleared: [...cleared] },
       player: { x: player.position.x, z: player.position.z, facing: { x: pc.facing.x, z: pc.facing.z }, rotation: player.rotation.y, velocity: { x: velocity.x, z: velocity.z }, attackTime: pc.attackTime, attackBuffer: pc.attackBuffer, dashBuffer: pc.dashBuffer, dashTime: pc.dashTime, dashCooldown: pc.dashCooldown, chain: { beat: pc.chainBeat, beats: chainLength(pc.weapon), idle: Number.isFinite(pc.chainIdle) ? pc.chainIdle : null, damage: pc.swing.damage + run.strike, duration: pc.swing.duration }, invulnerable: run.invuln, hurtFlash, special: pc.weapon.special ? { id: pc.weapon.special.id, ready: specialAvailable(pc.weapon.special, { cooled: specialReady(run), quiver, out: !!harpoon }), cooldown: run.specialCooldown, charging: charging !== null, charge: charging !== null ? chargeLevel(pc.weapon.special, charging) : 0, held: charging ?? 0, live: pc.swingKind === 'special' && pc.attackTime > 0, buffered: specialBuffer, harpoon: harpoon ? { phase: harpoon.phase, x: harpoon.x, z: harpoon.z } : null, bare: !!harpoon, vault: vault ? { target: vault.target ? stage.enemies.filter(e => !e.dead).indexOf(vault.target) : null, distance: vault.distance, landed: vault.landed } : null } : null, swordAngle: player.userData.sword.rotation.y, cloak:{anchor:player.userData.cape.position.toArray(),pitch:player.userData.cape.rotation.x}, pose: {bodyYaw:player.userData.torso.rotation.y,trail:slash.mesh.visible,trailTriangles:slash.mesh.geometry.drawRange.count/3}, locomotion: {speed:gaitSpeed,phase:walkPhase,sprint:locomotion.sprint,pitch:player.userData.torso.rotation.x,height:player.position.y,arm:player.userData.arm.rotation.x,tabard:player.userData.tabard.rotation.x,knees:player.userData.legs.map((leg:THREE.Group)=>leg.userData.knee.rotation.x)}, legs: player.userData.legs.map((leg: THREE.Group) => leg.rotation.x) },
-      corpses: stage.enemies.filter(e=>e.dead).map(e=>({kind:e.kind,x:e.group.position.x,y:e.group.position.y,z:e.group.position.z,scale:e.group.scale.toArray(),rotation:e.group.userData.rig.rotation.x,age:e.death?.age,settled:e.death?.settled,parts:(()=>{let drawn=0;e.group.traverseVisible(o=>{if(o instanceof THREE.Mesh)drawn++;});return drawn;})(),visible:e.group.visible,cue:e.cue.visible,bar:e.bar.visible,trails:e.trails.some(trail=>trail.effect.mesh.visible)})),
+      corpses: stage.enemies.filter(e=>e.dead).map(e=>({kind:e.kind,x:e.group.position.x,y:e.group.position.y,z:e.group.position.z,scale:e.group.scale.toArray(),rotation:e.group.userData.rig.rotation.x,footprint:(()=>{e.group.updateWorldMatrix(true,true);const toBody=e.group.matrixWorld.clone().invert(),box=new THREE.Box3();e.group.traverseVisible(o=>{if(!(o instanceof THREE.Mesh)||o.parent===e.group&&o.name!=='corpse')return;if(!o.geometry.boundingBox)o.geometry.computeBoundingBox();box.union(o.geometry.boundingBox!.clone().applyMatrix4(toBody.clone().multiply(o.matrixWorld)));});return box.isEmpty()?[]:[[box.min.x,box.min.z],[box.max.x,box.min.z],[box.max.x,box.max.z],[box.min.x,box.max.z]].map(([x,z])=>{const at=e.group.localToWorld(new THREE.Vector3(x,0,z));return [at.x,at.z];});})(),age:e.death?.age,settled:e.death?.settled,parts:(()=>{let drawn=0;e.group.traverseVisible(o=>{if(o instanceof THREE.Mesh)drawn++;});return drawn;})(),visible:e.group.visible,cue:e.cue.visible,bar:e.bar.visible,trails:e.trails.some(trail=>trail.effect.mesh.visible)})),
       enemies: stage.enemies.filter(e => !e.dead).map(e => ({ x: e.group.position.x, z: e.group.position.z, hp: e.hp, kind: e.kind, buried: e.buried, summoner: e.summoner, blocked: e.blocked, visible: e.group.visible, windup: e.windup, held: e.held, lunge: e.lunge, cooldown: e.cooldown, aim: {x:e.aim.x,z:e.aim.z}, room: e.room, awake: e.awake, wave: e.wave, maxHp: e.maxHp, elite: e.elite ?? null, tell: e.tell, speed: e.speed, damage: e.damage, wears: { emissive: e.skins[0]?.emissive.getHex() ?? 0, intensity: e.skins[0]?.emissiveIntensity ?? 0, eye: (e.group.userData.eyes[0].material as THREE.MeshBasicMaterial).color.getHex(), frame: e.elite ? ((e.bar.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).color.getHex() : null }, pose: {shieldArm:e.group.userData.limbs[0].rotation.x,shieldTilt:e.group.userData.shield.rotation.x,pitch:e.group.userData.rig.rotation.x,height:e.group.userData.rig.position.y,weapon:e.group.userData.weapon.rotation.x,weaponYaw:e.group.userData.weapon.rotation.y,attackAge:Number.isFinite(e.attackAge)?e.attackAge:null,trails:e.trails.filter(trail=>trail.effect.mesh.visible).length,cue:e.cue.visible} })),
     });
     const animate = (now: number) => {
@@ -2699,13 +2939,13 @@ export default function DungeonGame() {
   // would activate on the very key a player is most likely still holding when a card opens. A dialog with
   // a name announces itself; Tab then reaches the card's own controls first.
   const focusCard = useCallback((card: HTMLElement | null) => { card?.focus({ preventScroll: true }); }, []);
-  const cardOpen = fault || !started || (paused && !mapOpen) || (boonChoice.length > 0 && status === 'playing') || altarShow || status === 'complete' || status === 'won' || status === 'lost';
+  const cardOpen = fault || !started || (paused && !mapOpen) || (boonChoice.length > 0 && status === 'playing') || status === 'complete' || status === 'won' || status === 'lost';
   const menuOpen = !displayFailed && !fault && (!started || (paused && !mapOpen));
   // Every time the card closes it reopens on the menu list, not on whichever page it was left at. Adjusted
   // during render rather than in an effect, so a reopened card never paints the stale page for a frame.
   const [menuWasOpen, setMenuWasOpen] = useState(menuOpen);
-  if (menuWasOpen !== menuOpen) { setMenuWasOpen(menuOpen); setMenuView('main'); }
-  const openView = (view: 'controls' | 'settings' | 'arena' | 'slots') => { returnTo.current = view; if (view === 'slots') { setSlots(SLOTS.map(slot => slotSummary(slot))); setErasing(null); setSlotNote(''); } setMenuView(view); };
+  if (menuWasOpen !== menuOpen) { setMenuWasOpen(menuOpen); setMenuView(menuOpen && hallOn ? menuStart : 'main'); setMenuStart('main'); }
+  const openView = (view: 'controls' | 'settings' | 'arena' | 'slots' | 'altar') => { returnTo.current = view; if (view === 'slots') { setSlots(SLOTS.map(slot => slotSummary(slot))); setErasing(null); setSlotNote(''); } setMenuView(view); };
   const closeView = () => { setCapturing(null); setBindNote(''); setMenuView('main'); };
   // Plan 020, D3: choosing a card is the slot, then the press. Erase arms on the first press and erases on the second; one card is armed at a time, so
   // arming another disarms this one, and the card that lost its Erase gets the focus the button had.
@@ -2746,11 +2986,11 @@ export default function DungeonGame() {
       {/* Plan 021 (D8): present only while a boss is awake and alive. Its name, its vitality and a tick at each phase threshold; a hand-set role for the same reason the vitality track has one. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
       {bossBar && <div className="boss-bar" role="progressbar" aria-label={bossBar.name} aria-valuemin={0} aria-valuemax={bossBar.maxHp} aria-valuenow={bossBar.hp} data-phase={bossBar.phase}><b>{bossBar.name}</b><span className="boss-track"><i style={{ width: `${Math.max(0, bossBar.hp / bossBar.maxHp * 100)}%` }} />{bossBar.phases.map(share => <u key={share} style={{ left: `${share * 100}%` }} />)}</span></div>}
-      <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || paused || status !== 'playing' || boonChoice.length > 0 || altarShow} aria-label="Pause game">☰</button></nav>
+      <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || paused || status !== 'playing' || boonChoice.length > 0} aria-label="Pause game">☰</button></nav>
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      <section className="hud" aria-label="Player status">{/* Plan 020 (D5): the knight is not at risk in the hall, so it shows neither vitality nor rank. */}{!hallOn && <><div className="health-row"><span aria-hidden="true" /><b>{health}<small>/{maxHealth}</small></b><span className="rank-badge" aria-label={`Rank ${rank}`}>{rank}</span></div><div className="health-track" role="progressbar" aria-label="Vitality" aria-valuemin={0} aria-valuemax={maxHealth} aria-valuenow={health}><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div></>}
+      <section className="hud" aria-label="Player status">{/* Plan 020 (D5): the knight is not at risk in the hall, so it shows neither vitality nor rank. Plan 025 (D8): the pearls show there, and only there. */}{hallOn && <HallPurse pearls={meta.pearls} pulse={pursePulse} />}{!hallOn && <><div className="health-row"><span aria-hidden="true" /><b>{health}<small>/{maxHealth}</small></b><span className="rank-badge" aria-label={`Rank ${rank}`}>{rank}</span></div><div className="health-track" role="progressbar" aria-label="Vitality" aria-valuemin={0} aria-valuemax={maxHealth} aria-valuenow={health}><i style={{ width: `${Math.max(0, health / maxHealth * 100)}%` }} /></div></>}
         {/* Plan 014 round 5 (lever C8): the two abilities the knight actually has, each named by its
             real bound key rather than a fixed legend - a rebind shows up here the same frame it shows
             up on the settings card. The dash icon's own conic-gradient sweep is what used to be the
@@ -2778,25 +3018,27 @@ export default function DungeonGame() {
         </div>
         {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
         {ammo && <div className="quiver" role="progressbar" aria-label="Bolts in hand" aria-valuemin={0} aria-valuemax={ammo.of} aria-valuenow={ammo.held}>{Array.from({ length: ammo.of }, (_, i) => <i key={i} className={i < ammo.held ? 'held' : ''} />)}</div>}{!hallOn && <progress className="xp-track" aria-label="Progress to the next boon" max={rankNeed} value={rankXp} />}</section>
-      {floorMap && !hallOn && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action(mapOpen ? 'pause' : 'map')} aria-label={mapOpen ? 'Close floor map' : 'Open floor map'}><svg key={floorBuild} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g>
+      {floorMap && !hallOn && mapOpen && <button className="floor-map" disabled={!started || status !== 'playing' || boonChoice.length > 0} onClick={() => action('pause')} aria-label="Close floor map"><svg key={floorBuild} viewBox={`${mapBounds.x} ${mapBounds.y} ${mapBounds.width} ${mapBounds.height}`}><g>
         {floorMap.doors.map(d => <line key={`door-${d.id}`} x1={mapNodes[d.from].x} y1={mapNodes[d.from].y} x2={mapNodes[d.to].x} y2={mapNodes[d.to].y} stroke="#3f6572" strokeWidth="1.1" />)}
-        {floorMap.rooms.map(r => <circle key={r.id} id={`map-room-${r.id}`} cx={mapNodes[r.id].x} cy={mapNodes[r.id].y} r="2.6" fill={r.id===0?'#6fd1c0':r.role==='goal'?'#d9a24f':'#5c9aa5'} />)}
+        {floorMap.rooms.map(r => <circle key={r.id} id={`map-room-${r.id}`} cx={mapNodes[r.id].x} cy={mapNodes[r.id].y} r="2.6" fill={mapView.fills[r.id] ?? (r.id===0?'#6fd1c0':r.role==='goal'?'#d9a24f':'#5c9aa5')} />)}
         <circle className="map-mark" cx={mapNodes[floorMap.goal].x} cy={mapNodes[floorMap.goal].y} r="4.4" fill="none" stroke="#ffc573" strokeWidth="0.9" opacity="0.9" />
-        <circle ref={mapPlayer} className="map-mark" cx={mapNodes[0].x} cy={mapNodes[0].y} r="1.6" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
+        <circle ref={mapPlayer} className="map-mark" cx={mapNodes[mapView.at]?.x ?? mapNodes[0].x} cy={mapNodes[mapView.at]?.y ?? mapNodes[0].y} r="1.6" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
       </g></svg></button>}
-      {notice && started && !paused && status === 'playing' && boonChoice.length === 0 && <output className="chamber-notice"><b>{notice.split(' · ').pop()}</b></output>}
+      {notice && started && !paused && status === 'playing' && boonChoice.length === 0 && <output className="chamber-notice"><b>{notice.includes(' · ') ? notice.slice(notice.indexOf(' · ') + 3) : notice}</b></output>}
       {/* The one prompt allowed to sit in the world, and it is not persistent: it exists only while the knight
           is standing in a rack's ring, and it is the only thing that will take an arm out of his hand. It is a
           button as well as a line of text so a phone, which has no key to press, can answer it by tap — pointer
           focus is refused outright, or Space would activate this instead of swinging the moment it is touched. */}
-      {swapOffer && started && !paused && status === 'playing' && boonChoice.length === 0 && !altarShow &&
-        <button className="swap-prompt" onPointerDown={(e) => { e.preventDefault(); action('swap'); }} aria-label={`Press ${bindLabel(settings.binds.swap, ' or ')} to ${swapOffer.act}`}>
-          <b><span className="swap-key">Press <kbd>{bindLabel(settings.binds.swap)}</kbd> to </span>{swapOffer.act}</b><small>{swapOffer.detail}</small>
-        </button>}
+      {swapOffer && started && !paused && status === 'playing' && boonChoice.length === 0 &&
+        <>{/* Plan 025 (D8): at a rack or a shrine of the hall, the card with what it is; held to buy, the ring on the prompt fills (`--fill`, set by the frame loop). */}
+        {swapOffer.card && <RackCard card={swapOffer.card} />}
+        <button className={`swap-prompt${swapOffer.hold || (swapOffer.card?.kind === 'arm' && !swapOffer.card.owned) ? ' buys' : ''}`} onPointerDown={(e) => { e.preventDefault(); action('hold-swap'); }} onPointerUp={() => action('release-swap')} onPointerCancel={() => action('release-swap')} onPointerLeave={() => action('release-swap')} aria-label={`${swapOffer.hold ? 'Hold' : 'Press'} ${bindLabel(settings.binds.swap, ' or ')} to ${swapOffer.act}`}>
+          <i className="buy-ring" ref={buyRing} aria-hidden="true" /><b><span className="swap-key">{swapOffer.hold ? 'Hold' : 'Press'} <kbd>{bindLabel(settings.binds.swap)}</kbd> to </span>{swapOffer.act}</b><small>{swapOffer.detail}</small>
+        </button></>}
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      {menuOpen && <div className="intro-screen"><section className={`intro-card${menuView === 'main' ? '' : ' sub-view'}`} role="dialog" aria-modal="true" aria-labelledby="intro-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : arenaOn ? `ARENA · ${arenaOn.roster.length} ${arenaOn.roster.length === 1 ? 'FOE' : 'FOES'} · FLOOR ${arenaOn.level}` : 'THE DROWNED KEEP'}</span><h1 id="intro-title">{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
+      {menuOpen && <div className="intro-screen"><section className={`intro-card${menuView === 'main' ? '' : ' sub-view'}${menuView === 'altar' ? ' altar-view' : ''}`} role="dialog" aria-modal="true" aria-labelledby="intro-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{paused ? `FLOOR ${floorLevel} · ${roomName}` : arenaOn ? `ARENA · ${arenaOn.roster.length} ${arenaOn.roster.length === 1 ? 'FOE' : 'FOES'} · FLOOR ${arenaOn.level}` : 'THE DROWNED KEEP'}</span><h1 id="intro-title">{paused ? 'Paused' : <>Below<br /><em>the tide.</em></>}</h1>
         {menuView === 'main' ? <>
         {paused && <p>{advance} / {goalDepth} chambers down · {visitedCount} of {roomCount} seen<br />Rank {rank} · {experience} XP · {rankXp} / {rankNeed} to next boon{xpReward > 0 ? ` · +${xpReward} XP` : ''}</p>}
         {!paused && best && <p className="best-run">Slot {slotOn} · Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</p>}
@@ -2805,6 +3047,8 @@ export default function DungeonGame() {
           <button className="primary-action" data-view={paused ? undefined : 'slots'} ref={returnFocus} disabled={!hydrated} onClick={() => paused ? action('pause') : openView('slots')}>{paused ? 'RESUME' : 'ENTER THE KEEP'} <span>→</span></button>
           {paused && !hallOn && <button onClick={() => action('map')}>Floor map</button>}
           {/* Plan 020 (D10): only in the hall. Mid-run the pause menu has no way out: a run ends on its card. */}
+          {/* Plan 025 (D8): the altar's two lists survive here, in the hall only, for touch and for anyone who would rather read than walk the racks. */}
+          {paused && hallOn && <button data-view="altar" ref={returnFocus} className="opens" onClick={() => { setAltarNote(''); openView('altar'); }}>The altar&rsquo;s list<span aria-hidden="true">›</span></button>}
           {paused && hallOn && <button onClick={() => { action('title'); openView('slots'); }}>LEAVE TO TITLE</button>}
           <button data-view="controls" ref={returnFocus} className="opens" onClick={() => openView('controls')}>Controls &amp; journey<span aria-hidden="true">›</span></button>
           <button data-view="settings" ref={returnFocus} className="opens" onClick={() => openView('settings')}>Settings<span aria-hidden="true">›</span></button>
@@ -2815,11 +3059,11 @@ export default function DungeonGame() {
         {/* Development only, and outside the menu list so the list reads the same in both builds. */}
         {process.env.NODE_ENV !== 'production' && <div className="menu-dev"><button data-view="arena" ref={returnFocus} className="opens" disabled={!hydrated} onClick={() => openView('arena')}>Arena · dev<span aria-hidden="true">›</span></button></div>}
         </> : <div className="menu-panel">
-        <button className="menu-back" ref={focusCard} onClick={closeView}><span aria-hidden="true">←</span> Back</button>
-        <h2>{menuView === 'controls' ? 'Controls & journey' : menuView === 'arena' ? 'Arena' : menuView === 'slots' ? 'Choose a slot' : 'Settings'}</h2>
+        {menuView === 'altar' ? <button className="menu-back" onClick={() => action('pause')}><span aria-hidden="true">←</span> Back to the hall</button> : <button className="menu-back" ref={focusCard} onClick={closeView}><span aria-hidden="true">←</span> Back</button>}
+        <h2>{menuView === 'controls' ? 'Controls & journey' : menuView === 'arena' ? 'Arena' : menuView === 'slots' ? 'Choose a slot' : menuView === 'altar' ? 'Spend what the tide gave' : 'Settings'}</h2>
         {/* Read off the bindings rather than written out, or this page would go on promising WASD to a player
             who rebound it ten seconds ago — which is the exact moment they would come here to check. */}
-        {process.env.NODE_ENV !== 'production' && menuView === 'arena' ? <ArenaPanel floors={FLOORS} choice={arenaChoice} choose={setArenaChoice} /> : menuView === 'slots' ? <SlotPicker slots={slots} last={slotOn} erasing={erasing} note={slotNote} choose={chooseSlot} erase={pressErase} /> : menuView === 'controls' ? <div className="menu-details"><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.special)}</kbd> {specialArm ? `${specialArm.name}, the arm's special` : 'Special · this arm has none'}</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.swap)}</kbd> Use what you stand on: an arm, the altar, a door, the open stair</span><span><kbd>{bindLabel(settings.binds.map)}</kbd> Floor map</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><div className="intro-controls"><span><kbd>Mouse</kbd> Point where to cut</span><span><kbd>Gamepad</kbd> Left stick moves, right stick aims, A strikes, B or RB dodges, X special, Y takes the arm or the stair, View opens the map</span></div><p className="control-note">A cursor over the keep aims every swing, so the knight can retreat and cut behind him. Striking from the keyboard or the pad hands the aim back, and those are helped onto whatever body is nearly in front of him; dodging does not. Every arm has a special of its own, and taking up another arm hands you a ready one.{specialArm ? ` ${specialArm.detail}` : ''}</p><p>Reach {goalName}. Defeat the stair wardens, then stand on the stair they guarded and answer the prompt to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality. An arm laid out on the floor is offered, never taken: stand in its ring and answer the prompt to trade for it.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</div> : <div className="menu-details settings-panel">
+        {process.env.NODE_ENV !== 'production' && menuView === 'arena' ? <ArenaPanel floors={FLOORS} choice={arenaChoice} choose={setArenaChoice} /> : menuView === 'altar' ? <AltarPanel meta={meta} buy={buy} note={altarNote} /> : menuView === 'slots' ? <SlotPicker slots={slots} last={slotOn} erasing={erasing} note={slotNote} choose={chooseSlot} erase={pressErase} /> : menuView === 'controls' ? <div className="menu-details"><div className="intro-controls"><span><kbd>{(['up', 'left', 'down', 'right'] as Action[]).map(a => bindLabel(settings.binds[a], '/')).join(' ')}</kbd> Move</span><span><kbd>{bindLabel(settings.binds.attack)}</kbd> Hold to strike</span><span><kbd>{bindLabel(settings.binds.special)}</kbd> {specialArm ? `${specialArm.name}, the arm's special` : 'Special · this arm has none'}</span><span><kbd>{bindLabel(settings.binds.dash)}</kbd> Dodge</span><span><kbd>{bindLabel(settings.binds.swap)}</kbd> Use what you stand on: an arm, the altar, a door, the open stair</span><span><kbd>{bindLabel(settings.binds.map)}</kbd> Floor map</span><span><kbd>{bindLabel(settings.binds.pause)}</kbd> Pause</span><span><kbd>{bindLabel(settings.binds.fullscreen)}</kbd> Fullscreen</span></div><div className="intro-controls"><span><kbd>Mouse</kbd> Point where to cut</span><span><kbd>Gamepad</kbd> Left stick moves, right stick aims, A strikes, B or RB dodges, X special, Y takes the arm or the stair, View opens the map</span></div><p className="control-note">A cursor over the keep aims every swing, so the knight can retreat and cut behind him. Striking from the keyboard or the pad hands the aim back, and those are helped onto whatever body is nearly in front of him; dodging does not. Every arm has a special of its own, and taking up another arm hands you a ready one.{specialArm ? ` ${specialArm.detail}` : ''}</p><p>Reach {goalName}. Defeat the stair wardens, then stand on the stair they guarded and answer the prompt to descend. Cyan shrines heal once; amber circles flare before they burn. Dodge through them. Side chambers grant XP and vitality. An arm laid out on the floor is offered, never taken: stand in its ring and answer the prompt to trade for it.</p><p><span className="end-kicker">IN HAND · </span>{heldWeapon}</p>{taken.length > 0 && <p><span className="end-kicker">BOONS HELD · </span>{taken.join(' · ')}</p>}</div> : <div className="menu-details settings-panel">
           {/* Everything here persists, and everything here has a default that is the game exactly as it
               shipped, so a player who never opens this changes nothing by not opening it. */}
           <div className="setting-row"><label htmlFor="set-volume">Volume</label><input id="set-volume" type="range" min="0" max="100" step="5" value={Math.round(settings.volume * 100)} onChange={(e) => change({ volume: Number(e.target.value) / 100 })} /><small>{settings.muted ? 'muted' : `${Math.round(settings.volume * 100)}%`}</small></div>
@@ -2851,11 +3095,6 @@ export default function DungeonGame() {
         <span className="end-kicker">RANK {rank} · CHOOSE A BOON</span><h1 id="boon-title">The tide gives back.</h1>
         <div className="boon-options">{boonChoice.map(boon => <button key={boon.id} className="boon-option" onClick={() => action(`boon:${boon.id}`)}><strong>{boon.name}</strong><span>{boon.detail}</span></button>)}</div>
       </div></div>}
-      {/* Plan 020 (D6): the Tide Altar's shop, the title's old panel as an overlay of the hall. It holds the world (see `openAltar`) and the card, not its Back button,
-          takes focus, for the same reason every card here does: the key that opened it may be a Space still held. Escape closes it too. */}
-      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      {altarShow && <div className="intro-screen altar-screen"><section className="intro-card sub-view altar-view" role="dialog" aria-modal="true" aria-labelledby="altar-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">THE TIDE ALTAR · SLOT {slotOn}</span><h1 id="altar-title">Spend what<br /><em>the tide gave.</em></h1>
-        <div className="menu-panel"><button className="menu-back" onClick={() => action('shop-close')}><span aria-hidden="true">←</span> Back to the hall</button><AltarPanel meta={meta} buy={buy} note={altarNote} /></div></section></div>}
       {started && (status === 'won' || status === 'lost') && <div className="end-screen result-screen"><div className="end-card result-card" role="alertdialog" aria-modal="true" aria-labelledby="result-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{status === 'won' ? 'THE KEEP IS BEHIND YOU' : `FLOOR ${floorLevel} · FAILED`}</span><h1 id="result-title">{status === 'won' ? 'You climb into the dawn.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'Three floors of the drowned watch lie still behind you.' : 'The tide carries you back to the altar.'}</p><div className="xp-summary"><strong>{experience} XP earned</strong><span>Floor {floorLevel} of {FLOORS} · rank {rank} · {defeated} guards felled · XP resets on a new run</span>{ended && (() => { const sum = summariseRunEnd(ended); return <>{sum.cause && <span className="run-cause">{sum.cause}</span>}<span className="run-detail">{sum.time} · {sum.boons}</span>{!arenaOn && <span className="run-pearls">+{ended.pearls} {ended.pearls === 1 ? 'pearl' : 'pearls'} · {meta.pearls} held</span>}</>; })()}{best && <small>Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</small>}</div>{/* Plan 020 (D9): one way off the card, won or lost. A seed is retried by the `restart:<seed>` command, never from here. */}<button className="return-altar" onClick={() => action('altar')}>RETURN TO THE ALTAR</button></div></div>}
       {/* Plain markup on purpose: the canvas was never mounted, so this is the only thing left to look at. */}
       {displayFailed && <div className="end-screen display-failed"><div className="end-card" role="alertdialog" aria-modal="true" aria-labelledby="display-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">THE GATE STAYS SHUT</span><h1 id="display-title">No light to see by.</h1><p>This browser could not open a 3D display, so the keep cannot be drawn. That most often means hardware acceleration is switched off in the browser&rsquo;s settings.</p></div></div>}

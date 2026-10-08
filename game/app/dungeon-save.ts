@@ -24,10 +24,12 @@ export type BestRun = { floor: number; xp: number; kills: number; won: boolean }
 //
 // Plan 023 added `chambers`, the fight chambers the run cleared (each paid `CHAMBER_PEARLS`).
 //
+// Plan 025 Stage F added `found`, the pearls the run found (a Pearls door, an urn, a crate, a chest; already counted in `pearls`); a run that found none has no `found` field.
+//
 // There are no players with older saves, so a record missing `arm`, `upgrades`, `pearls`, `bosses` or `chambers` is not
 // read the way an older build wrote it: it is malformed, and `parseRun` drops it.
 export type RunCause = EnemyKind | 'hazard';
-export type RunEnd = { at: number; floor: number; won: boolean; cause: RunCause | null; seconds: number; rank: number; xp: number; kills: number; boons: string[]; seed: number; arm: WeaponId; upgrades: Meta['upgrades']; pearls: number; bosses: number; bossKinds?: EnemyKind[]; elites?: number; chambers: number };
+export type RunEnd = { at: number; floor: number; won: boolean; cause: RunCause | null; seconds: number; rank: number; xp: number; kills: number; boons: string[]; seed: number; arm: WeaponId; upgrades: Meta['upgrades']; pearls: number; bosses: number; bossKinds?: EnemyKind[]; elites?: number; chambers: number; found?: number };
 
 // What the player has asked the game to be, as opposed to what one run left behind. Every default here
 // reproduces the game exactly as it shipped, so a blank, blocked or corrupt cell is not a different game:
@@ -166,8 +168,8 @@ export const parseRun = (value: unknown): RunEnd | null => {
   if (typeof arm !== 'string' || !ARM_ORDER.includes(arm as WeaponId) || !end.upgrades || typeof end.upgrades !== 'object' || Array.isArray(end.upgrades) || pearls === null || bosses === null || chambers === null) return null;
   // Plan 021 fields: a stored boss list keeps only kinds that are bosses, at most one a floor, and is left out when nothing survives.
   const bossKinds = Array.isArray(end.bossKinds) ? end.bossKinds.filter((kind): kind is EnemyKind => typeof kind === 'string' && (ENEMY_KINDS as readonly string[]).includes(kind) && !!BESTIARY[kind as EnemyKind].boss).slice(0, 3) : [];
-  const elites = Math.min(999, whole(end.elites) ?? 0);
-  return { at, floor, won, cause, seconds: whole(end.seconds) ?? 0, rank: whole(end.rank) || 1, xp: whole(end.xp) ?? 0, kills: whole(end.kills) ?? 0, boons, seed, arm: arm as WeaponId, upgrades: parseUpgrades(end.upgrades), pearls: Math.min(PEARL_CAP, pearls), bosses: Math.min(3, bosses), ...(bossKinds.length ? { bossKinds } : null), ...(elites ? { elites } : null), chambers: Math.min(999, chambers) };
+  const elites = Math.min(999, whole(end.elites) ?? 0), found = Math.min(9999, whole(end.found) ?? 0);
+  return { at, floor, won, cause, seconds: whole(end.seconds) ?? 0, rank: whole(end.rank) || 1, xp: whole(end.xp) ?? 0, kills: whole(end.kills) ?? 0, boons, seed, arm: arm as WeaponId, upgrades: parseUpgrades(end.upgrades), pearls: Math.min(PEARL_CAP, pearls), bosses: Math.min(3, bosses), ...(bossKinds.length ? { bossKinds } : null), ...(elites ? { elites } : null), chambers: Math.min(999, chambers), ...(found ? { found } : null) };
 };
 
 // A log that is not a list is not a log. A list keeps exactly the entries that survive re-validation,

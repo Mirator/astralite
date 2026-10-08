@@ -40,9 +40,12 @@ const WAVES_LINK = /\bget\(\s*[`'"]waves[`'"]\s*\)/;
 /** Plan 022 (D14): the dev `?elite=<modifier>` link, read the same way. Nothing else in the game reads an `elite` query parameter. */
 const ELITE_LINK = /\bget\(\s*[`'"]elite[`'"]\s*\)/;
 
+/** Plan 025 Stage F: the dev `?rooms=plain` link, read the same way. Nothing else in the game reads a `rooms` query parameter. */
+const ROOMS_LINK = /\bget\(\s*[`'"]rooms[`'"]\s*\)/;
+
 export function findLeaks(bundle: string, devOnly: string[]): LeakReport {
   return {
-    leaked: [...devOnly.filter((name) => bundle.includes(name)), ...DEV_MARKERS.filter((marker) => bundle.includes(marker)), ...(EAGER_BOOT.test(bundle) ? ['?boot=eager'] : []), ...(HALL_SKIP.test(bundle) ? ['?hall=skip'] : []), ...(BOSS_LINK.test(bundle) ? ['?boss='] : []), ...(WAVES_LINK.test(bundle) ? ['?waves='] : []), ...(ELITE_LINK.test(bundle) ? ['?elite='] : [])],
+    leaked: [...devOnly.filter((name) => bundle.includes(name)), ...DEV_MARKERS.filter((marker) => bundle.includes(marker)), ...(EAGER_BOOT.test(bundle) ? ['?boot=eager'] : []), ...(HALL_SKIP.test(bundle) ? ['?hall=skip'] : []), ...(BOSS_LINK.test(bundle) ? ['?boss='] : []), ...(WAVES_LINK.test(bundle) ? ['?waves='] : []), ...(ELITE_LINK.test(bundle) ? ['?elite='] : []), ...(ROOMS_LINK.test(bundle) ? ['?rooms='] : [])],
     missingPublic: PUBLIC_HOOKS.filter((name) => !bundle.includes(name)),
   };
 }

@@ -124,5 +124,11 @@ test('a chamber cleared with bolts pays, opens and is marked like one cleared wi
   expect(after.floor.cleared).toContain(branch!.id);
   expect(after.experience.total - xpBefore, 'the purse was paid on top of the kills').toBe(25 * bodies.length + 60);
   expect(after.chamber.doors.every((door) => door.open), 'and every door out of it opened').toBe(true);
+  // Plan 025 D1: the map is drawn only while it is open, so it is opened to be read, and it shows what the run painted on it while it was shut.
+  await expect(page.locator(`#map-room-${branch!.id}`), 'precondition: the map is not drawn while the knight plays').toHaveCount(0);
+  await press(page, 'map');
+  await game.step(16);
   await expect(page.locator(`#map-room-${branch!.id}`), 'and it is marked on the map as cleared').toHaveAttribute('fill', '#a8d5b0');
+  await press(page, 'map');
+  await game.step(16);
 });

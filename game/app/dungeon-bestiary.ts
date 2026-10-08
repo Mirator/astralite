@@ -29,7 +29,7 @@
 // `npm run balance:check`; never the moves, which are the design. (7) `?boss=<kind>` puts a pool boss on floors one and two for a playtest, `?arena=<kind>:1`
 // stages any boss alone, and the browser tests go in `tests/browser/boss.spec.ts`, the rules in a node test beside `dungeon-captain.test.ts`.
 
-export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler', 'captain', 'mother', 'hound', 'bastion', 'king'] as const;
+export const ENEMY_KINDS = ['guard', 'stalker', 'warden', 'archer', 'shieldbearer', 'reaper', 'pyre', 'bonecaller', 'rattler', 'bomber', 'captain', 'mother', 'hound', 'bastion', 'king'] as const;
 export type EnemyKind = typeof ENEMY_KINDS[number];
 
 /** Vitality, damage per blow, seconds of tell, and walking speed - the floor-one values. */
@@ -40,11 +40,12 @@ export type EnemyStats = { hp: number; damage: number; tell: number; speed: numb
  * `pounce` turns the tell into a lunge that connects on contact; `volley` looses a bolt along the aim,
  * which then has to fly to him (dungeon-projectile.ts) and can be stepped out of or dashed through;
  * `sweep` is a swing with no aim - everything inside its reach, all the way round; `summon` hurts no one
- * and raises from its buried reserve instead; `scatter` (plan 021, a boss's move only) hurts no one in the
+ * and raises from its buried reserve instead; `scatter` (plan 021, a boss's move, and plan 025 Stage G the bomber's one attack) hurts no one in the
  * tell either: it marks rings on the ground where the knight has been, and when the tell runs out each
- * becomes a fire pool.
+ * becomes a fire pool (the bomber's one ring is a bomb coming down: its blast is the blow, `bombLands` in dungeon-enemy.ts). `veil` (plan 025 D3, the Pyre Mother's below half) hurts no one: when the tell runs out the body
+ * is gone from where it stood and stands at `repositionTarget` (dungeon-enemy.ts) instead.
  */
-export type Attack = 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon' | 'scatter';
+export type Attack = 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon' | 'scatter' | 'veil';
 
 /**
  * Which body the pose drives: a cut across the body, a hammer over the crown, a crouch and leap, a bow
@@ -108,6 +109,12 @@ export type Archetype = {
   firstFloor: number;
   /** It backs away from the knight while inside this and recovering; 0 for a body that never gives ground. */
   keepAway: number;
+  /**
+   * Plan 025 (D3): instead of backing into a corner and staying there, it moves: cornered (backing would leave it less than `CORNERED` of floor) or held still
+   * for more than `HOLD_STILL`, it walks round the knight to `repositionTarget` (dungeon-enemy.ts). Absent for every body that backs straight away (the archer:
+   * a cornered archer is the knight's reward for closing).
+   */
+  repositions?: true;
   /** What a `volley` looses: units a second and seconds of flight. Absent for every other attack. */
   bolt?: Bolt;
   /**
@@ -117,6 +124,12 @@ export type Archetype = {
    * while the boss's phase is below it), which is the Bastion's whole change.
    */
   shield?: { arc: number; until?: number };
+  /**
+   * Plan 025 Stage G (D12 b): what an ordinary kind's `scatter` marks and lights - the bomber's one ring, marked on the knight where he stands when the tell begins, and the short fire it leaves.
+   * A boss's scatter is its move's (`Move.scatter`); this is for a kind with no `moves`. The blast that lands with it costs the kind's own `stats.damage` (through `enemyStats`, so `ORDINARY_DAMAGE` applies);
+   * the fire's `damage` is a bite, unscaled like a pyre's death fire.
+   */
+  scatter?: Move['scatter'];
   /** Fire it leaves where it falls, which bites the knight (dungeon-projectile.ts `deathPool`). */
   deathPool?: { radius: number; life: number; damage: number; interval: number };
   /**
@@ -296,6 +309,22 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
       death: { duration: .5, prone: true, weaponX: .45 }, shieldArm: false,
     },
   },
+  // Plan 025 Stage G (D12 b): the one body that makes the knight leave the spot he is standing on. It hangs back like an archer and lobs a bomb at him: the tell is a ring
+  // marked where he stood when it began, closing over a long second, and when it runs out the bomb lands there - a blast for anyone still inside, and a short fire that
+  // holds the ground for a breath after. The answer is to step out of the ring and then to reach it: frail, and it gives ground while it recovers. Floor two onward,
+  // with the archer: floor one teaches the melee kinds before anything throws.
+  bomber: {
+    stats: { hp: 1.5 * 4, damage: 10, tell: 1.0, speed: 2.1 },
+    // strikeRange is how far it lobs: the knight is inside attackRange when the tell begins, and the ring is marked on him.
+    strikeRange: 7.5, attackRange: 7, holdRange: 6, recovery: 2.0,
+    attack: 'scatter', steadfast: false, advanceBelow: Infinity, firstFloor: 2, keepAway: 3.5,
+    scatter: { rings: 1, pool: { radius: 1.5, life: 1.6, damage: 3, interval: 0.5 } },
+    look: {
+      pose: 'overhead', scale: [.98, 1, .98], cue: { shape: 'ring', radius: .9 }, cueScale: 1, barLift: 2.1, alertLift: 2.6, barColor: 0xe89a79, gait: .46, blood: .9, heavy: false,
+      trail: { from: 'weapon', color: 0xffb070, width: .08, inner: [0, 0, -.1], tip: [0, 0, -.45] },
+      death: { duration: .7, prone: true, weaponX: .5 }, shieldArm: false,
+    },
+  },
   // The Drowned Captain (plan 021 D4): a huge warden, the first floor's boss until the pool grows. Phase one is two heavy
   // swings and a sweep that takes everything round it; below half it adds a pounce across the room, and then goes round
   // swing, pounce, sweep. Steadfast like the warden it is grown from: only a stagger arm breaks a tell. The numbers are
@@ -327,23 +356,25 @@ export const BESTIARY: Record<EnemyKind, Archetype> = {
   // The Pyre Mother (plan 021 D4): the pool's ranged boss, a pyre grown into the thing that lights them. She holds off at range (a pyre's rows of fire are hers to lay) and
   // asks the knight to keep moving: phase one is a fan of three bolts, a fan again, and a scatter that marks two rings where he has been and lights them when the tell
   // runs out. Below half she looses five bolts to the fan, adds a close sweep for a knight who has rushed her (she gives ground while she recovers, so it is a punish and
-  // not a place to stand), and scatters twice running, three rings a time. A fan has no gap to walk through: the answer is the dash, or being elsewhere. Steadfast like every
-  // boss: only a stagger arm breaks her tell. The numbers are Stage F's (damage ×0.8 of D7's hypothesis) and plan 022 Stage E's (150 vitality, down from 215: the default bot's deaths to her were her fight's length, and she killed it in every one of its deaths); the moves are the design.
+  // not a place to stand), steps through the veil (plan 025 D3: a 0.5 s tell, then she stands somewhere better, `repositionTarget`), and scatters twice running, three rings a time.
+  // Plan 025 (D3): she does not back into a corner and stay there; cornered, or still for long, she walks round the knight to open floor (`repositions`). A fan has no gap to walk through: the answer is the dash, or being elsewhere. Steadfast like every
+  // boss: only a stagger arm breaks her tell. The numbers are Stage F's (damage ×0.8 of D7's hypothesis) and plan 022 Stage E's (150 vitality, down from 215: the default bot's deaths to her were her fight's length, and she killed it in every one of its deaths); the moves are the design. Plan 025 Stage D (D3): she moves (see above), and her phase-one volleys hit 9 (were 8): moving cost her standing shots, and at 8 the skilled knight lost no more to her than to the Captain (34 each, floor one), which `balance-bosses.test.ts` does not allow.
   mother: {
-    stats: { hp: 150, damage: 8, tell: 0.8, speed: 2.1 },
+    stats: { hp: 150, damage: 9, tell: 0.8, speed: 2.1 },
     strikeRange: 2.6, attackRange: 8, holdRange: 6, recovery: 1.4,
-    attack: 'volley', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 4,
+    attack: 'volley', steadfast: true, advanceBelow: Infinity, firstFloor: Infinity, keepAway: 4, repositions: true,
     boss: 'pool', title: 'The Pyre Mother', phaseNotice: ['', 'The Pyre Mother kindles'],
     phases: [.5],
     moves: [
       [
-        { attack: 'volley', tell: 0.8, damage: 8, strikeRange: 9, attackRange: 8, cue: { shape: 'lane', length: 8, width: 4.6 }, cueScale: 1, bolt: { speed: 12, flight: 0.75, fan: { count: 3, spread: 0.2 } } },
-        { attack: 'volley', tell: 0.8, damage: 8, strikeRange: 9, attackRange: 8, cue: { shape: 'lane', length: 8, width: 4.6 }, cueScale: 1, bolt: { speed: 12, flight: 0.75, fan: { count: 3, spread: 0.2 } } },
+        { attack: 'volley', tell: 0.8, damage: 9, strikeRange: 9, attackRange: 8, cue: { shape: 'lane', length: 8, width: 4.6 }, cueScale: 1, bolt: { speed: 12, flight: 0.75, fan: { count: 3, spread: 0.2 } } },
+        { attack: 'volley', tell: 0.8, damage: 9, strikeRange: 9, attackRange: 8, cue: { shape: 'lane', length: 8, width: 4.6 }, cueScale: 1, bolt: { speed: 12, flight: 0.75, fan: { count: 3, spread: 0.2 } } },
         { attack: 'scatter', tell: 0.9, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.4 }, cueScale: 1, scatter: { rings: 2, pool: { radius: 1.6, life: 2.2, damage: 4, interval: 0.6 } } },
       ],
       [
         { attack: 'volley', tell: 0.7, damage: 6, strikeRange: 9, attackRange: 8, cue: { shape: 'lane', length: 8, width: 6 }, cueScale: 1, bolt: { speed: 12, flight: 0.75, fan: { count: 5, spread: 0.15 } } },
         { attack: 'sweep', tell: 0.9, damage: 10, strikeRange: 2.6, attackRange: 2.3, cue: { shape: 'ring', radius: 2.6 }, cueScale: 1 },
+        { attack: 'veil', tell: 0.5, damage: 0, strikeRange: 0, attackRange: 12, cue: { shape: 'ring', radius: 1.2 }, cueScale: 1 },
         { attack: 'scatter', tell: 0.9, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.4 }, cueScale: 1, scatter: { rings: 3, pool: { radius: 1.6, life: 2.2, damage: 4, interval: 0.6 } } },
         { attack: 'scatter', tell: 0.9, damage: 0, strikeRange: 0, attackRange: 9, cue: { shape: 'ring', radius: 1.4 }, cueScale: 1, scatter: { rings: 3, pool: { radius: 1.6, life: 2.2, damage: 4, interval: 0.6 } } },
       ],

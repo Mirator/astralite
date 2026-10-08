@@ -519,14 +519,15 @@ test.describe('models', { tag: '@capture' }, () => {
         await game.buildHall();
         const floor = altarHall();
         const racks = (await game.state()).racks;
-        expect(racks.map((rack) => rack.kind), `the hall does not show exactly the ${kind}`).toEqual([kind]);
-        const drop = racks[0], right = SCREEN_DIRECTIONS.right;
+        // Plan 025 (D8): every arm stands on a rack in the hall, the ones not owned locked; the one owned is the open rack.
+        expect(racks.filter((rack) => !rack.locked).map((rack) => rack.kind), `the hall does not show exactly the ${kind}`).toEqual([kind]);
+        const drop = racks.find((rack) => rack.kind === kind)!, right = SCREEN_DIRECTIONS.right;
         const stand = openSpot(floor, { x: drop.x - right.x * 2.6, z: drop.z - right.z * 2.6 }, { radius: 3.4, avoid: [drop], clearance: 2.2 });
         await game.teleport(stand.x, stand.z);
         await game.step(SETTLE);
         const state = await game.state();
-        expect(state.racks[0].kind).toBe(kind);
-        expect(state.racks[0].over, 'the knight is standing in the ring').toBe(false);
+        expect(state.racks.find((rack) => rack.kind === kind)!.locked).toBe(false);
+        expect(state.racks.find((rack) => rack.kind === kind)!.over, 'the knight is standing in the ring').toBe(false);
         await shot(game, `models-drop-${kind}`);
       });
     });

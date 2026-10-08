@@ -1,14 +1,16 @@
 import { BESTIARY, BOSS_POOL, FINAL_BOSS, reserveSize, type EliteModifier, type EnemyKind } from './dungeon-bestiary.ts';
 import { FOUND_WEAPONS, PICKUP_RADIUS, STARTING_WEAPON, type WeaponId } from './dungeon-weapon.ts';
+import type { Furnishing } from './dungeon-furnish.ts';
 
 export const TILE = 1.48;
 export type Encounter = 'watch' | 'ambush' | 'gauntlet' | 'sanctuary' | 'warden';
 /**
  * What a chamber pays when it is cleared, and so what the door into it shows (plan 017): a real heal
  * (`mend`) or a purse of experience (`cache`, today's dead-end XP). A shrine, the gate and the stair hall
- * pay nothing of their own. No chamber pays an arm (plan 019, D7): arms are chosen in the Tide Gate.
+ * pay nothing of their own. `generateFloor` deals only these two; plan 025 Stage F's `dealRewards` (below) turns some into a
+ * `boon` (one boon card), `pearls` (a purse for the altar) or, rarely, the run's one `arm` (a rack to swap for, D9).
  */
-export type Reward = 'mend' | 'cache';
+export type Reward = 'mend' | 'cache' | 'boon' | 'pearls' | 'arm';
 export type Room = { encounter: Encounter; id: number; x: number; z: number; halfX: number; halfZ: number; shape: 'hall' | 'round' | 'cross' | 'court' | 'gallery' | 'crypt'; theme: 'keep' | 'ruins' | 'flooded'; name: string; role: 'start' | 'path' | 'goal'; depth: number; heading: number; layer: number; reward: Reward | null; entry: { x: number; z: number } };
 /**
  * A way out of a chamber, on one of the two walls facing away from the camera (the camera sits at +x/+z,
@@ -37,8 +39,9 @@ export const PACK_MIX = {
   opening: { stalker: .15, archer: .1 },
   // Plan 018: the shieldbearer, the pyre and the bonecaller are appended after the older kinds, so the stalker and
   // the archer keep their odds exactly and the new ones take only from the guard's leftover share.
-  middle: { stalker: .4, archer: .2, shieldbearer: .07, pyre: .07 },
-  late: { stalker: .5, archer: .2, shieldbearer: .07, pyre: .07, bonecaller: .08 },
+  // Plan 025 Stage G (D12 b): the bomber is appended last in the same way, from floor two (its `firstFloor`); the late mix has only .08 of guards left to give, so it takes less there.
+  middle: { stalker: .4, archer: .2, shieldbearer: .07, pyre: .07, bomber: .07 },
+  late: { stalker: .5, archer: .2, shieldbearer: .07, pyre: .07, bonecaller: .08, bomber: .05 },
 } satisfies Record<string, PackMix>;
 
 /** A second bonecaller in one pack is dealt as a guard: two callers is eight rattlers and two priorities. No random input. */
@@ -114,7 +117,7 @@ export const cellKey = (x: number, z: number) => `${x},${z}`;
  * A floor as `generateFloor` deals it, plus the one marker the Tide Altar's hall (plan 020) carries. `hall` is absent from every generated floor, so the
  * generator's output is untouched; a rule that must tell the hall from floor 1 (both are `level: 1`) reads it instead of guessing from the room count.
  */
-export type Floor = ReturnType<typeof generateFloor> & { hall?: true };
+export type Floor = ReturnType<typeof generateFloor> & { hall?: true; furniture?: Furnishing[]; armRack?: WeaponDrop };
 /** Whether a chamber's shape keeps the tile `x`,`z` away from its heart (tiles). The one rule `carveRoom` cuts by, shared so a later pass can tell a chamber's own floor from the alcove a door is cut into. */
 export const carves = (r: Pick<Room, 'shape' | 'halfX' | 'halfZ'>, x: number, z: number) => {
   if (r.shape === 'round') return (x / (r.halfX + .4)) ** 2 + (z / (r.halfZ + .4)) ** 2 <= 1;
@@ -344,6 +347,55 @@ export function generateFloor(seed: number, level = 1, options: FloorOptions = {
   return {seed,level,rooms,edges,doors,cells,tiles,roomByCell:new Map(tiles.filter(t=>t.room>=0).map(t=>[cellKey(t.x,t.z),t.room])),bounds,props,spawns:everyone,weaponDrop,start:0,goal:goal.id,spine:rooms.map(r=>r.id),guardCount:standing};
 }
 
+// --- Plan 025 Stage F (D12 c, D9): the new door rewards ---------------------------------------------------------------------------------------------
+// Dealt on top of what the generator laid, after the waves (whose `packSource` reads `cache` for a purse chamber's pack), from a salted stream of their own,
+// so every seed's layout and its mend and purse rewards stay byte for byte what `generateFloor` deals. The game and the balance sim both call `dealRewards`.
+
+/**
+ * The share of layers (from the third, `layer` 2, to the last before the stair hall) that turn one chamber's reward into a Boon, and into Pearls. A Boon is the
+ * strongest thing a door pays: at 0.15 (with Pearls 0.15, furniture off, 2026-10-08, 30 runs) the default knight, who takes a Boon door first, escaped 96.7% against
+ * Stage E's 63.3 and D10's 50-75, and the skilled one 96.7%. A default-knight probe with the furniture on read 56.7% at 0 and 73.3% at 0.05, so it is 0.05: about one
+ * Boon door a run, inside D10's band. Pearls stays 0.15: it pays the altar, not the run.
+ */
+export const BOON_ODDS = 0.05;
+export const PEARL_ODDS = 0.15;
+/**
+ * The share of runs dealt an arm chamber (D9), on floor two or three, set from the sim's reward log: over 2,000 run seeds walked by the balance knight's door
+ * preference with every arm owned (`tests/dungeon-rewards.test.ts`, 2026-10-08), a run dealt one is shown its door in 80% of them (81% at a first roll of 0.2,
+ * which offered it in 15.3% of runs, over D9's 15%), so 0.16 deals it in 15.5% of runs and offers it in 12.4%. A run dealt one whose save owns no arm but the one in hand is shown nothing new: the chamber keeps its mend or purse.
+ */
+export const ARM_ODDS = 0.16;
+const REWARD_SALT = 0x72657761, ARM_SALT = 0x61726d73;
+const rewardHash = (seed: number, salt: number, n: number) => { let h = (Math.imul(seed >>> 0 ^ salt, 0x9e3779b1) ^ Math.imul(n + 1, 0x85ebca6b)) >>> 0; h = Math.imul(h ^ h >>> 16, 0x85ebca6b) >>> 0; h = Math.imul(h ^ h >>> 13, 0xc2b2ae35) >>> 0; return ((h ^ h >>> 16) >>> 0) / 4294967296; };
+
+/**
+ * Which floor of the run that began on `runSeed` holds its arm chamber: 2 or 3, or null for most runs (`ARM_ODDS`). A pure hash of the run seed alone, the way
+ * `dealBosses` is, so a run is dealt at most one arm chamber by construction: one roll a run, not one a floor. `roll` is the arm it offers (`armOffer`, dungeon-meta.ts).
+ */
+export const armDeal = (runSeed: number): { level: 2 | 3; roll: number } | null =>
+  rewardHash(runSeed, ARM_SALT, 0) < ARM_ODDS ? { level: rewardHash(runSeed, ARM_SALT, 1) < .5 ? 2 : 3, roll: rewardHash(runSeed, ARM_SALT, 2) } : null;
+
+/**
+ * A floor's new rewards. Each layer from the third to the last before the stair hall rolls once: under `BOON_ODDS` one of its paying chambers turns Boon, under
+ * `BOON_ODDS + PEARL_ODDS` Pearls - the one whose mend or purse a sibling also pays where there is one, so the layer keeps both of the old choices it had.
+ * `arm` (the run's arm, on the floor `armDeal` names, already chosen by the caller) goes to the chamber the generator reserved for it (`weaponDrop.room`, on
+ * floor two and three; never a hoard, never the gate), which no Boon or Pearls roll touches; the rack stands on `weaponDrop`'s spot (`armRack`).
+ * Returns a copy: the rooms are new objects, nothing else moves.
+ */
+export function dealRewards<F extends Pick<Floor, 'rooms' | 'goal' | 'weaponDrop'>>(floor: F, seed: number, level: number, arm: WeaponId | null = null): F & { armRack?: WeaponDrop } {
+  const rooms = floor.rooms.map(room => ({ ...room })), goalLayer = rooms[floor.goal].layer;
+  const armRoom = arm && level >= 2 && floor.weaponDrop.room !== 0 && rooms[floor.weaponDrop.room]?.reward ? floor.weaponDrop.room : -1;
+  for (let layer = 2; layer < goalLayer; layer++) {
+    const roll = rewardHash(seed + level * 0x10001, REWARD_SALT, layer), paying = rooms.filter(r => r.layer === layer && r.role === 'path' && r.reward !== null && r.id !== armRoom);
+    if (!paying.length || roll >= BOON_ODDS + PEARL_ODDS) continue;
+    const doubled = paying.filter(r => rooms.some(o => o !== r && o.layer === layer && o.reward === r.reward));
+    (doubled.length ? doubled : paying)[0].reward = roll < BOON_ODDS ? 'boon' : 'pearls';
+  }
+  if (armRoom < 0 || !arm) return { ...floor, rooms };
+  rooms[armRoom].reward = 'arm';
+  return { ...floor, rooms, armRack: { ...floor.weaponDrop, kind: arm } };
+}
+
 /** One slot of the Tide Gate's armoury (plan 019, D8): the arm that stands on it when it is owned, and where, in world units. */
 export type GateRack = { arm: WeaponId; x: number; z: number };
 /** The arms the Tide Gate has a slot for, in slot order: the Tideblade first, then `FOUND_WEAPONS`. */
@@ -398,6 +450,35 @@ export function gateRacks(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors'>): Gate
   return picked.map((spot, i) => ({ arm: GATE_ARMS[i], x: spot.x, z: spot.z }));
 }
 
+/** Plan 025 (D8): the hall's upgrade shrines, one for each of dungeon-meta's four upgrades in its order (a node test holds the two counts together). */
+export const HALL_SHRINES = 4;
+
+/**
+ * Where the hall's upgrade shrines stand (plan 025, D8): one near each corner of the gate, on its own floor, read off the floor alone like `gateRacks`.
+ * Clear of every rack slot and of each other by `GATE_SPACING` (so one ring never holds a rack and a shrine), of the altar by `HEART_CLEAR` and a pickup
+ * ring more, of the entry and every doorway by two tiles as a slot is, and of a prop by a tile and a half, so a brazier never stands in one. Each corner
+ * takes the free tile nearest it, ties to the one farther from the heart. It draws nothing; a gate too crowded seats fewer, which the node test holds the
+ * hall (`HALL_SEED`) to never doing.
+ */
+export function hallShrines(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'props'>): { x: number; z: number }[] {
+  const gate = floor.rooms[0], heart = { x: gate.x * TILE, z: gate.z * TILE };
+  const own = (x: number, z: number) => Math.abs(x - gate.x) <= gate.halfX && Math.abs(z - gate.z) <= gate.halfZ && carves(gate, x - gate.x, z - gate.z);
+  const mouth = (door: Door) => { let at = { x: door.x, z: door.z }; for (let back = 0; back < 4 && !own(at.x, at.z); back++) at = { x: at.x - door.face.x, z: at.z - door.face.z }; return at; };
+  const shut = [gate.entry, ...floor.doors.filter(door => door.from === gate.id).flatMap(door => [door, mouth(door)])];
+  const slots = gateRacks(floor), away = (a: { x: number; z: number }, b: { x: number; z: number }) => Math.hypot(a.x - b.x, a.z - b.z);
+  const free = floor.tiles
+    .filter(t => t.room === gate.id && own(t.x, t.z) && shut.every(way => Math.hypot(way.x - t.x, way.z - t.z) >= 2) && floor.props.every(p => p.room !== gate.id || Math.hypot(p.x - t.x, p.z - t.z) >= 1.5))
+    .map(t => ({ x: t.x * TILE, z: t.z * TILE }))
+    .filter(spot => away(spot, heart) > HEART_CLEAR + PICKUP_RADIUS && slots.every(slot => away(slot, spot) >= GATE_SPACING - 1e-9));
+  const picked: { x: number; z: number }[] = [];
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const corner = { x: heart.x + sx * gate.halfX * TILE, z: heart.z + sz * gate.halfZ * TILE };
+    const spot = free.filter(c => picked.every(p => away(p, c) >= GATE_SPACING - 1e-9)).sort((a, b) => Math.round((away(a, corner) - away(b, corner)) * 1e6) || away(b, heart) - away(a, heart) || a.x - b.x || a.z - b.z)[0];
+    if (spot) picked.push(spot);
+  }
+  return picked;
+}
+
 /** The seed of the hall's room, fixed for good: the hall is this room on every visit. */
 export const HALL_SEED = 2063;
 
@@ -424,17 +505,56 @@ export function altarHall(seed = HALL_SEED): Floor {
   return { seed, level: 1, rooms: [gate], edges: [], doors: [kept], cells, tiles, roomByCell: new Map(tiles.map(t => [cellKey(t.x, t.z), t.room])), bounds, props: floor.props.filter(p => p.room === gate.id), spawns: [], weaponDrop: floor.weaponDrop, start: 0, goal: gate.id, spine: [gate.id], guardCount: 0, hall: true };
 }
 
-export function canStand(cells: Set<string>, x: number, z: number, radius = 0.32) {
+/** The footprint of a body at scale 1, the knight's. Plan 025 D4: a bigger body's grows with its `look.scale` (`bodyRadius`). */
+export const BODY_RADIUS = 0.32;
+// Never smaller than the knight's: a lane is sampled at his radius (`hasClearPath`), so a stalker or an archer let within 0.32 of a wall stood where no
+// blow could reach it, and the balance sim's knight stood on one forever (2026-10-07, seed 126707 floor 3, before the floor was put in).
+export const bodyRadius = (kind: EnemyKind) => BODY_RADIUS * Math.max(1, BESTIARY[kind].look.scale[0], BESTIARY[kind].look.scale[2]);
+
+export function canStand(cells: Set<string>, x: number, z: number, radius = BODY_RADIUS) {
   for (const dx of [-radius, radius]) for (const dz of [-radius, radius]) if (!cells.has(cellKey(Math.round((x + dx) / TILE), Math.round((z + dz) / TILE)))) return false;
   return true;
 }
 
-export function moveOnFloor(cells: Set<string>, position: { x: number; z: number }, dx: number, dz: number) {
+// A body already overlapping stone at its own radius (staged there, or grown since) walks as a scale-1 body until it is clear, rather than freezing where it stands.
+export function moveOnFloor(cells: Set<string>, position: { x: number; z: number }, dx: number, dz: number, radius = BODY_RADIUS) {
+  const r = radius > BODY_RADIUS && !canStand(cells, position.x, position.z, radius) ? BODY_RADIUS : radius;
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dz)) / 0.15));
   for (let i = 0; i < steps; i++) {
-    if (canStand(cells, position.x + dx / steps, position.z)) position.x += dx / steps;
-    if (canStand(cells, position.x, position.z + dz / steps)) position.z += dz / steps;
+    if (canStand(cells, position.x + dx / steps, position.z, r)) position.x += dx / steps;
+    if (canStand(cells, position.x, position.z + dz / steps, r)) position.z += dz / steps;
   }
+}
+
+/** A fallen body's extent on the floor in its own frame (forward is -z), in world units with its scale applied: what `deathFall` has to find floor for. */
+export type Fallen = { minX: number; maxX: number; minZ: number; maxZ: number };
+/** The turns a fall tries, off the body's own way down: its own, the opposite, then either side. */
+export const FALL_TURNS = [0, Math.PI, Math.PI / 2, -Math.PI / 2] as const;
+
+/** Whether every point of `fallen`, turned to `yaw` (a group's `rotation.y`) at `at`, lies on floor; sampled at a quarter unit, edges included. */
+export function liesOnFloor(cells: Set<string>, at: { x: number; z: number }, yaw: number, fallen: Fallen) {
+  const cos = Math.cos(yaw), sin = Math.sin(yaw), nx = Math.max(1, Math.ceil((fallen.maxX - fallen.minX) / .25)), nz = Math.max(1, Math.ceil((fallen.maxZ - fallen.minZ) / .25));
+  for (let i = 0; i <= nx; i++) for (let j = 0; j <= nz; j++) {
+    const x = fallen.minX + (fallen.maxX - fallen.minX) * i / nx, z = fallen.minZ + (fallen.maxZ - fallen.minZ) * j / nz;
+    if (!cells.has(cellKey(Math.round((at.x + x * cos + z * sin) / TILE), Math.round((at.z - x * sin + z * cos) / TILE)))) return false;
+  }
+  return true;
+}
+
+/**
+ * Plan 025 D4: which way a body goes down so that all of it lands on floor. Its own way first (backwards for the armoured, forwards for the
+ * low), then the opposite, then either side; when none fits where it stands, the same four from the nearest point it can slide to, a
+ * quarter unit at a time out to three. `turn` is added to its facing; `shift` moves its feet. Nothing fitting anywhere leaves it as it was.
+ */
+export function deathFall(position: { x: number; z: number }, facing: number, fallen: Fallen, cells: Set<string>): { turn: number; shift: { x: number; z: number } } {
+  const fits = (dx: number, dz: number) => FALL_TURNS.find(turn => liesOnFloor(cells, { x: position.x + dx, z: position.z + dz }, facing + turn, fallen));
+  const here = fits(0, 0);
+  if (here !== undefined) return { turn: here, shift: { x: 0, z: 0 } };
+  for (let ring = .25; ring <= 3; ring += .25) for (let k = 0; k < 16; k++) {
+    const dx = Math.cos(k * Math.PI / 8) * ring, dz = Math.sin(k * Math.PI / 8) * ring, turn = fits(dx, dz);
+    if (turn !== undefined) return { turn, shift: { x: dx, z: dz } };
+  }
+  return { turn: 0, shift: { x: 0, z: 0 } };
 }
 
 // Sample at less than a tile width, including body radius, so corners and props block attack lanes.

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { BESTIARY, byKind, type EnemyKind } from './dungeon-bestiary.ts';
+import { deathFall } from './dungeon-floor.ts';
 
 export type FallenKind = EnemyKind;
 export const DEATH_DURATION = byKind(a => a.look.death.duration);
@@ -8,8 +9,9 @@ type Joint = { node: THREE.Object3D; position: THREE.Vector3; rotation: THREE.Qu
 export type DeathAnimation = { age: number; duration: number; settled: boolean; joints: Joint[]; group: THREE.Group };
 
 // Capture the interrupted pose, then fall into a fixed, full-size corpse. No scene
-// objects are created during playback, and damage/collision remain in the combat rules.
-export function startDeath(group: THREE.Group, kind: FallenKind): DeathAnimation {
+// objects are created during playback, and damage/collision remain in the combat rules. Given the floor's `cells`, a body that would
+// come down across stone turns, and if it must slides, until all of it lies on floor (plan 025 D4, `deathFall`).
+export function startDeath(group: THREE.Group, kind: FallenKind, cells?: Set<string>): DeathAnimation {
   const rig = group.userData.rig as THREE.Group, limbs = group.userData.limbs as THREE.Group[], weapon = group.userData.weapon as THREE.Group;
   const nodes = [group, rig, ...limbs, weapon, group.userData.shield as THREE.Mesh];
   const joints = nodes.map(node => ({ node, position: node.position.clone(), rotation: node.quaternion.clone(), endPosition: new THREE.Vector3(), endRotation: new THREE.Quaternion() }));
@@ -22,6 +24,18 @@ export function startDeath(group: THREE.Group, kind: FallenKind): DeathAnimation
   });
   weapon.rotation.set(-rig.rotation.x, .65, 0); weapon.position.set(weaponX, .73, .08);
   (group.userData.shield as THREE.Mesh).rotation.set(-Math.PI / 2, 0, 0);
+  if (cells) {
+    // What it will cover, read off the pose it lands in, in its own frame and at its own scale.
+    group.updateWorldMatrix(true, true);
+    const toBody = group.matrixWorld.clone().invert(), lying = new THREE.Box3(), s = group.scale;
+    rig.traverseVisible(node => {
+      if (!(node instanceof THREE.Mesh)) return;
+      if (!node.geometry.boundingBox) node.geometry.computeBoundingBox();
+      lying.union(node.geometry.boundingBox!.clone().applyMatrix4(toBody.clone().multiply(node.matrixWorld)));
+    });
+    const fall = deathFall(group.position, group.rotation.y, { minX: lying.min.x * s.x, maxX: lying.max.x * s.x, minZ: lying.min.z * s.z, maxZ: lying.max.z * s.z }, cells);
+    group.rotation.y += fall.turn; group.position.x += fall.shift.x; group.position.z += fall.shift.z;
+  }
   group.updateWorldMatrix(true, true);
   // Ground the visible geometry (including shield and hammer), irrespective of actor scale.
   const bounds = new THREE.Box3();

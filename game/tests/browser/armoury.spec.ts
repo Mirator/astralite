@@ -27,8 +27,9 @@ test.describe('the armoury in the hall', () => {
     expect(opening.weapon.id).toBe('tideblade');
     expect(opening.hall, 'the page did not boot into the hall').toBe(true);
 
-    // 1. Only what is owned is on a rack: read off the scene, each on its own slot of the armoury.
-    expect(opening.racks.map((rack) => rack.kind), 'the hall does not show exactly the arms owned besides the one in hand').toEqual(['spear', 'maul']);
+    // 1. What is owned stands on an open rack, read off the scene, each on its own slot of the armoury. Plan 025 (D8): the rest stand there too, locked.
+    expect(opening.racks.filter((rack) => !rack.locked).map((rack) => rack.kind), 'the hall does not show exactly the arms owned besides the one in hand').toEqual(['spear', 'maul']);
+    expect(opening.racks.filter((rack) => rack.locked).map((rack) => rack.kind), 'the arms not owned are not on locked racks').toEqual(['fangs', 'cleaver', 'crossbow', 'flask']);
     expect(opening.racks.every((rack) => rack.inScene), 'a rack is not attached to the floor').toBe(true);
     const slots = gateRacks(hall);
     for (const rack of opening.racks) {
@@ -47,8 +48,9 @@ test.describe('the armoury in the hall', () => {
     await game.step(32);
     const armed = await game.state();
     expect(armed.weapon.id, 'the swap key did not take the arm of the rack he stood in').toBe('maul');
-    expect(armed.racks.map((rack) => [rack.kind, rack.x, rack.z]), 'the sword he set down is not on the maul\'s slot, or the spear\'s rack moved').toEqual(
-      [['spear', expect.closeTo(opening.racks[0].x, 3), expect.closeTo(opening.racks[0].z, 3)], ['tideblade', expect.closeTo(maul.x, 3), expect.closeTo(maul.z, 3)]],
+    const spear = opening.racks.find((rack) => rack.kind === 'spear')!;
+    expect(armed.racks.filter((rack) => !rack.locked).map((rack) => [rack.kind, rack.x, rack.z]), 'the sword he set down is not on the maul\'s slot, or the spear\'s rack moved').toEqual(
+      [['spear', expect.closeTo(spear.x, 3), expect.closeTo(spear.z, 3)], ['tideblade', expect.closeTo(maul.x, 3), expect.closeTo(maul.z, 3)]],
     );
     // Still his to undo: nothing is written until the way down is taken.
     expect((await game.meta()).arm, 'the choice was written before the way down').toBe('tideblade');
@@ -80,7 +82,7 @@ test.describe('the armoury in the hall', () => {
     const next = await game.state();
     expect(next.hall, 'the card did not bring him back to the hall').toBe(true);
     expect(next.weapon.id, 'the next attempt did not begin with the arm settled at the way down').toBe('maul');
-    expect(next.racks.map((rack) => rack.kind), 'the hall does not show the other two arms').toEqual(['tideblade', 'spear']);
+    expect(next.racks.filter((rack) => !rack.locked).map((rack) => rack.kind), 'the hall does not show the other two arms').toEqual(['tideblade', 'spear']);
     expect(next.run.armLocked, 'a new attempt began locked').toBe(false);
     await game.takeWayDown();
     const again = await game.state();

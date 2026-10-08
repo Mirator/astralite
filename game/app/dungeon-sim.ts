@@ -4,6 +4,8 @@ import { incomingDamage } from './dungeon-combat.ts';
 import { BESTIARY, type EnemyKind } from './dungeon-bestiary.ts';
 import type { Reward as ChamberReward, Room } from './dungeon-floor.ts';
 import type { RunStart } from './dungeon-meta.ts';
+import { CHEST_PEARLS, SIP } from './dungeon-hits.ts';
+import type { PropDrop, PropKind } from './dungeon-furnish.ts';
 
 // The numeric half of a run: vitality, experience, rank, boons and the rules that decide whether a hit
 // lands. Nothing here knows about three.js, the DOM or a clock — dungeon-game.tsx owns the world and
@@ -66,6 +68,8 @@ export type Run = {
   elites: number;
   // Plan 023 (D1): fight chambers cleared this run (`clearChamber`), which is what `pearlsFor` pays a chamber's pearls for.
   chambers: number;
+  // Plan 025 Stage F: pearls found this run - a door that pays them (`PURSE_PEARLS`), a pearl from an urn or a crate, a chest's `CHEST_PEARLS` - which `pearlsFor` banks on top of what the run earned.
+  found: number;
   rankLevel: number; rankProgress: number; pendingRanks: number; choosing: boolean;
   // Boon-derived modifiers. `guardAgainst` and `dashSpan` are multipliers, the rest are additive.
   // `strike` is a bonus on top of whatever the knight is holding, not the damage itself: the weapon
@@ -88,7 +92,7 @@ export type Run = {
 // With no argument this is the run the game has always started. `start` carries what was bought between runs;
 // `arm` is the game's to equip and means nothing here.
 export const createRun = (start?: RunStart): Run => ({
-  hp: start?.maxHp ?? START_HP, maxHp: start?.maxHp ?? START_HP, kills: 0, totalXp: 0, bosses: 0, elites: 0, chambers: 0,
+  hp: start?.maxHp ?? START_HP, maxHp: start?.maxHp ?? START_HP, kills: 0, totalXp: 0, bosses: 0, elites: 0, chambers: 0, found: 0,
   rankLevel: 1, rankProgress: 0, pendingRanks: 0, choosing: false,
   strike: start?.strike ?? 0, dashSpan: 0.8, reach: 0, draught: 0, guardAgainst: 1,
   invuln: 0, taken: [], specialCooldown: 0,
@@ -120,7 +124,7 @@ const amount = (value: number) => Number.isFinite(value) && value > 0 ? value : 
 
 // What a single reward is worth, so the caller can drive the HUD, the XP ticker and the boon draft
 // without re-deriving any of it. `ranks` is how many rank-ups this reward caused, not the new rank.
-export type Reward = { xp: number; ranks: number; healed: number };
+export type Reward = { xp: number; ranks: number; healed: number; pearls?: number };
 
 // Never overfills, never subtracts. Returns what was actually restored, which is also the caller's cue
 // to refresh the health readout.
@@ -200,10 +204,23 @@ export const resolveKill = (run: Run, kind?: EnemyKind, elite = false): Reward =
 
 // One payout per chamber, whatever brought its last body down. A shrine, the gate and the stair hall (no
 // reward) pay nothing now (`TOP_UP` is 0).
+// Plan 025 Stage F (D12 c): a Boon door pays one boon card (`ranks` 1: a rank's offer without the rank's experience, so `award` opens the draft as a rank
+// does); a Pearls door pays `PURSE_PEARLS` into the run's purse (`found`); an arm door (D9) pays its rack, which the game lays and this rule never sees.
+export const PURSE_PEARLS = 6;
 export const chamberReward = (run: Run, reward: ChamberReward | null): Reward => {
   const xp = reward === 'cache' ? XP_CACHE : 0;
-  const ranks = xp ? grantXp(run, xp).ranks : 0;
-  return { xp, ranks, healed: heal(run, reward === 'mend' ? MEND : TOP_UP) };
+  let ranks = xp ? grantXp(run, xp).ranks : 0;
+  if (reward === 'boon') { run.pendingRanks++; ranks++; }
+  const pearls = reward === 'pearls' ? PURSE_PEARLS : 0;
+  run.found += pearls;
+  return { xp, ranks, healed: heal(run, reward === 'mend' ? MEND : TOP_UP), ...(pearls ? { pearls } : null) };
+};
+
+/** Plan 025 Stage F: what a broken prop pays - a sip of vitality, a pearl, or a chest's pearls - straight into the run. */
+export const takeDrop = (run: Run, kind: PropKind, drop: PropDrop): Reward => {
+  const pearls = kind === 'chest' ? CHEST_PEARLS : drop === 'pearl' ? 1 : 0;
+  run.found += pearls;
+  return { xp: 0, ranks: 0, healed: drop === 'sip' && kind !== 'chest' ? heal(run, SIP) : 0, pearls };
 };
 
 /**

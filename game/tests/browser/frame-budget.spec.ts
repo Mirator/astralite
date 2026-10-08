@@ -99,34 +99,34 @@ const BUDGET = {
   // which is what the 375 it read before the doorway alcoves went in rose by. Each call ceiling is the figure
   // measured, so the saving is kept rather than handed back as headroom. The triangle ceilings stay the
   // owner's model-round headroom; the widest chamber takes the junction's.
-  'flooded-hall': { calls: 395, triangles: 596_454 },
-  'widest-chamber': { calls: 272, triangles: 1_031_148 },
+  'flooded-hall': { calls: 396, triangles: 596_454 },
+  'widest-chamber': { calls: 274, triangles: 1_031_148 },
   // Not one of the two heaviest frames, and here for a different reason: it is
   // the only scene that draws the blade trail, the impact accents and a hit
   // flash at once. Without it, work on how a blow lands is bounded by two
   // frames that contain no blow, and a change can spend draw calls freely in
   // the one place it actually touches.
-  'strike-contact': { calls: 271, triangles: 708_588 },
+  'strike-contact': { calls: 274, triangles: 708_588 },
   // Plan 018: the heaviest chamber the generator can now deal - a late pack with a caller in it, the shieldbearer, the
   // pyre and the warden standing, and the caller's four rattlers raised. Staged in the level-3 arena, and compared like
   // for like with today's heaviest (a floor-three purse, `guard:4,stalker:2,warden:1`: 7 bodies, 486 calls, 286,269
   // triangles), because four guards in the gate alone already read 398 and that measured body count, not the new kinds.
   // Measured 2026-09-29 on d3d11 (whose counters equalled SwiftShader's on the three scenes above): 8 bodies, 508 calls,
   // 286,247 triangles, 184 shadow calls, +4.5% calls on the purse. Each ceiling is the figure measured.
-  'caller-chamber': { calls: 508, triangles: 286_247 },
+  'caller-chamber': { calls: 509, triangles: 286_423 },
   // Plan 021 Stages B and E: the Captain in the tightest goal chamber floors one and two lay (seed 33 floor two, a 45-tile crypt), framed 5.5 from the boss, held quiet. Stage B took it in floor three's crypt (320 / 246,034, 188 under the 508 above), the
   // only place it stood as the last floor's boss; the Bone King now holds floor three, so the scene moved to the pool bosses' room: 273 calls, 212,078 triangles, 235 under the 508. Measured 2026-10-03 on SwiftShader. Each ceiling is the figure measured.
-  'captain-chamber': { calls: 273, triangles: 212_078 },
+  'captain-chamber': { calls: 274, triangles: 212_174 },
   // Plan 021 Stage E: the Bone King in the tightest goal chamber floor three can lay (seed 0x86, a 45-tile crypt) with his whole reserve standing (reserveSize: four rattlers), the knight framed 5.5 from him: the worst boss chamber, and the one the 508 above is held to.
   // Measured 2026-10-03 on SwiftShader, twice, identical: 428 calls, 268,012 triangles, 80 calls under the 508 (Stage 0: a reserve of six fits at 491, seven at 520). Each ceiling is the figure measured.
-  'king-chamber': { calls: 427, triangles: 267_984 },
+  'king-chamber': { calls: 428, triangles: 268_096 },
   // Plan 021 Stages C and D: the pool bosses in the tightest goal chamber floors one and two lay (seed 33 floor two, a 45-tile crypt), each the boss alone, held quiet, framed 5.5 from it. Measured 2026-10-03 on SwiftShader.
   // The Pyre Mother: 291 calls, 210,062 triangles (the floor-two crypt is cheaper than the floor-three one the Captain's number was taken in), 217 under the 508 above. Each ceiling is the figure measured.
-  'mother-chamber': { calls: 291, triangles: 210_062 },
+  'mother-chamber': { calls: 292, triangles: 210_158 },
   // The Tide Hound: 253 calls, 210,696 triangles (a leaner figure than the Mother's by calls, a hair heavier by triangles), 255 under the 508 above.
-  'hound-chamber': { calls: 253, triangles: 210_696 },
+  'hound-chamber': { calls: 254, triangles: 210_792 },
   // The Bastion: 273 calls, 212,962 triangles, 235 under the 508 above. Every pool boss's chamber is under it, with 191 to 255 to spare (Mother 217, Hound 255, Bastion 235, the Captain 235 in the same crypt; the King with his reserve 80).
-  'bastion-chamber': { calls: 273, triangles: 212_962 },
+  'bastion-chamber': { calls: 274, triangles: 213_058 },
   // Plan 022 Stage B: the biggest chamber the waves deal (floor three, seed 0x2's hall of ten bodies in waves of 3, 3 and 4), its last wave standing. A dormant wave to come draws nothing (Stage 0: 1, 5 and 9 dormant bodies all drew 201 calls,
   // 209,882 triangles, 56 shadow calls) but a corpse stays drawn and costs a standing body's calls (about 35 a body): with the six dead of the first two waves left in frame this scene read 586 calls / 294,968 triangles, 78 over the 508 above, so the
   // floor takes the dead of the waves before back as the next wave is rung (`corpseSink`: they sink into the paving over the rings' 0.9 s and are no longer drawn), and the frame is the four standing bodies of the last wave with six corpses lying undrawn.
@@ -134,7 +134,27 @@ const BUDGET = {
   // The scene used to be drawn 400 ms after the last wave was staged and read 255,930 to 255,958 triangles from run to run (CI saw 255,946 over a ceiling of 255,942): the swings that fell the first two waves are real input, so each run reached
   // the staging on a different frame, and a body still being eased apart (staged 0.7 apart, under the crowd's spacing) or a corpse still sinking sat in a different place and in or out of a culling sphere by a few triangles. It now waits until
   // every body of the chamber and every corpse has stood still for a second, and the counts repeat exactly.
-  'wave-chamber': { calls: 439, triangles: 255_774 },
+  'wave-chamber': { calls: 440, triangles: 255_886 },
+  // Plan 025 Stage F: the most furnished fight chamber floor one lays (seed 0x3c, room 14, a rotunda ambush: an urn, a crate, a keg, a spike plate, a chest and cover, so
+  // every prop mesh there is, six instanced draws), its four bodies sprung, framed from its heart; and the same frame with the chambers plain (`?rooms=plain`), so the
+  // difference is what the furniture costs. Measured 2026-10-08 on d3d11 only: furnished 378 calls, 241,267 triangles; plain 371 calls, 240,769 triangles (+7 calls, +498 triangles,
+  // 130 under the 508). CI's SwiftShader (run 37769551752, 2026-10-08) read furnished 377 calls, 241,259 triangles and plain 372 calls, 240,777 triangles: the
+  // renderers disagree by a call and a few triangles either way, so each call ceiling is the higher of the two readings. The triangles are not
+  // fixed from run to run on SwiftShader (three CI runs, 2026-10-08: plain 240,769 / 240,777 / 240,785, furnished 241,259 / 241,263 and
+  // d3d11's 241,267; the calls never moved), so each triangle ceiling sits just over the highest reading.
+  'furnished-chamber': { calls: 378, triangles: 241_300 },
+  'plain-chamber': { calls: 372, triangles: 240_800 },
+  // Plan 025 Stage G (D12 b): two bombers mid-throw beside a pyre and a warden on floor two, and the same stand with the two guards the pack mix would otherwise have dealt in their place, so the difference is
+  // what the bomber costs: its figure, and its rings (the shared fire rings, already in the scene). Measured 2026-10-08 on d3d11 only: two bombers with one ring drawn 401 calls, 252,093 triangles; two guards
+  // 390 calls, 252,753 triangles (+11 calls, about five a bomber and one for the ring; -660 triangles), 107 under the 508. SwiftShader has read the Stage F scenes a call and up to 16 triangles off d3d11 (above), so each ceiling is the d3d11 figure plus that margin until CI reads these.
+  'bomber-pair': { calls: 402, triangles: 252_120 },
+  'guard-pair': { calls: 391, triangles: 252_780 },
+  // Plan 025 Stage B, measured 2026-10-07 on d3d11 against the same scenes on d3d11 at 5045a89, and added to each ceiling above as a
+  // delta (d3d11 and SwiftShader disagree by up to 13 calls on some of these scenes, so a d3d11 figure is not a SwiftShader ceiling):
+  // every scene +1 call for the chamber's painted sconce pools (one merged mesh a chamber, single pass, only the knight's chamber drawn)
+  // and +96 to +192 triangles (16 a disc); the widest chamber +2 and strike contact +3, because they are drawn open and empty, where
+  // each door's floating name is a sprite (plan 025 D2 b; labels hide while bodies stand, which is why no fight scene pays for them).
+  // The caller chamber goes one over the 508 the other scenes are held under: that is the price of every sconce lighting its floor.
 } as const;
 
 /** Draws the staged frame, then holds its counters against the ceiling. */
@@ -207,6 +227,30 @@ test.describe('the widest room', () => {
   });
 });
 
+// Plan 025 Stage F (D12 a): the furniture is instanced, one draw a kind a chamber, no shadow, and a chamber out of frame draws none of it. The two frames are one stand in
+// one chamber, furnished and plain, so the difference between them is the furniture and nothing else; both stay under the 508 the other scenes are held to.
+for (const [scene, rooms] of [['furnished-chamber', null], ['plain-chamber', 'plain']] as const) {
+  test.describe(`the most furnished chamber, ${rooms === null ? 'furnished' : 'plain'}`, () => {
+    test.use({ seeds: [0x3c], rooms });
+    test(`seed 0x3c's furnished rotunda, framed from its heart with its ambush sprung, stays inside its budget (${scene})`, async ({ game }) => {
+      await game.enter();
+      const floor = await game.floor(), room = floor.rooms[14];
+      expect(room?.encounter === 'ambush' && room.shape === 'round', 'seed 0x3c floor one no longer holds the rotunda this budget was set on').toBe(true);
+      const centre = roomCentre(floor, room.id);
+      await game.teleport(centre.x, centre.z);
+      await game.step(640);
+      const state = await game.state();
+      expect(state.chamber.id).toBe(room.id);
+      expect(state.enemies.filter((e) => e.room === room.id && e.awake).length, 'precondition: the ambush sprang').toBeGreaterThanOrEqual(3);
+      // Read off the scene: furnished, every kind but cover drawn; plain, none.
+      const drawn = new Set(state.furniture.here.filter((p) => p.shown).map((p) => p.kind));
+      expect([...drawn].sort(), rooms === null ? 'the furnished chamber does not draw every kind of prop' : 'a plain chamber drew furniture').toEqual(rooms === null ? ['chest', 'crate', 'keg', 'spikes', 'urn'] : []);
+      await spend(game, scene);
+      expect((await game.state()).render.calls, 'over the 508 every chamber is held to').toBeLessThanOrEqual(508);
+    });
+  });
+}
+
 // Plan 019 Stage C: the armoury holds a rack for every owned arm but the one in hand, so with the whole armoury bought it stands six
 // at once: seven slots, but one arm is always in the knight's hand. The operator accepted what that costs on 2026-10-01, with no remedy
 // (Stage 0's stop rule had tripped: seed 0x1's gate drew 236 calls with the old single rack and 310 with seven racks staged by hand,
@@ -223,10 +267,20 @@ test.describe('the widest room', () => {
 //   six racks  289 calls, 119,695 triangles, 100 shadow calls (+71 calls, +33%; +5,066 triangles, +4.4%; +31 shadow calls, +45%).
 // Against the old gate's 298 / 203,164 / 87 that is -3.0% on calls and -41% on triangles (the hall is one room, the gate was one room of a
 // floor's many islands), and 13 more shadow calls than the gate: the altar's disc and crystal, and two braziers where the gate had none lit.
-// Each ceiling is the figure measured (counts are deterministic: three.js's own tally of a fixed scene); each floor is 95% of it.
-const ARMOURY = { empty: { calls: 218, triangles: 114_629, shadowCalls: 69 }, full: { calls: 289, triangles: 119_695, shadowCalls: 100 } };
+// Plan 025 (D8) put every arm on its rack whether it is owned or not (a locked one as a silhouette with a price plaque) and four upgrade shrines in the
+// hall's corners, so there is no bare hall left to difference against. The bound is the hall with nothing owned (six locked racks, four shrines) and with
+// the whole armoury owned (six racks in the knight's palette, four shrines), from the same stand. Measured 2026-10-07 on d3d11, whose counters have
+// equalled SwiftShader's on every scene here (three.js's own tally of a fixed scene):
+//   nothing owned  283 calls, 120,605 triangles, 86 shadow calls;
+//   all owned      310 calls, 120,587 triangles, 104 shadow calls.
+// Against plan 020's six racks (289 / 119,695 / 100) the whole armoury now costs +21 calls (the shrines), +892 triangles and +4 shadow calls, 198 calls
+// under the 508 the worst chamber is held to. A locked rack costs less than an owned one: its arm bakes into one material.
+// Each ceiling is the figure measured (counts are deterministic); each floor is 95% of it.
+// Plan 025 Stage B added +2 calls and +146 triangles to the old hall (its sconce pools and the way down's name). Merged on top of Stage C's hall,
+// the ceilings below are Stage C's figures plus that delta, and the integration branch measured exactly that (2026-10-08, d3d11): 285 / 120,751 / 86 and 312 / 120,733 / 104.
+const ARMOURY = { locked: { calls: 285, triangles: 120_751, shadowCalls: 86 }, owned: { calls: 312, triangles: 120_733, shadowCalls: 104 } };
 test.describe('the Tide Altar\'s hall with the whole armoury bought', () => {
-  test('six racks stand in the hall, and their cost stays where it was measured', async ({ game }) => {
+  test('six racks stand in the hall, owned or locked, and their cost stays where it was measured', async ({ game }) => {
     const drawn = async () => {
       const floor = altarHall();
       const racks = (await game.state()).racks;
@@ -235,22 +289,22 @@ test.describe('the Tide Altar\'s hall with the whole armoury bought', () => {
       await game.step(640);
       await game.step(0, true);
       const { render } = await game.state();
-      return { racks: racks.length, calls: render.calls, triangles: render.triangles, shadowCalls: render.shadow.calls };
+      return { racks: racks.length, locked: racks.filter((rack) => rack.locked).length, calls: render.calls, triangles: render.triangles, shadowCalls: render.shadow.calls };
     };
     await game.setMeta({ ...freshMeta(), arms: [...ARM_ORDER], arm: 'tideblade' });
     await game.enter();
     await game.buildHall();
     expect((await game.state()).hall, 'precondition: the scene drawn is the hall').toBe(true);
-    const full = await drawn();
-    // A bare hall from the same stand: the difference is the racks and nothing else.
+    const owned = await drawn();
+    // Nothing owned, from the same stand: the same six racks, every one locked.
     await game.setMeta(freshMeta());
     await game.buildHall();
     await game.step(0);
-    const empty = await drawn();
-    console.log(`ARMOURY empty=${JSON.stringify(empty)} full=${JSON.stringify(full)}`);
-    expect(empty.racks, 'the bare hall stood a rack').toBe(0);
-    expect(full.racks, 'the armoury is not six racks: seven arms, one in hand').toBe(6);
-    for (const [name, got, want] of [['empty', empty, ARMOURY.empty], ['full', full, ARMOURY.full]] as const) {
+    const locked = await drawn();
+    console.log(`ARMOURY locked=${JSON.stringify(locked)} owned=${JSON.stringify(owned)}`);
+    expect([locked.racks, locked.locked], 'the hall with nothing owned does not stand six locked racks').toEqual([6, 6]);
+    expect([owned.racks, owned.locked], 'the armoury is not six open racks: seven arms, one in hand').toEqual([6, 0]);
+    for (const [name, got, want] of [['locked', locked, ARMOURY.locked], ['owned', owned, ARMOURY.owned]] as const) {
       expect(got.calls, `${name} hall draws more often than measured; say what bought it and raise the number deliberately`).toBeLessThanOrEqual(want.calls);
       expect(got.calls, `${name} hall draws far fewer calls than it was measured at`).toBeGreaterThanOrEqual(want.calls * 0.95);
       expect(got.triangles, `${name} hall pushes more triangles than measured`).toBeLessThanOrEqual(want.triangles);
@@ -258,12 +312,35 @@ test.describe('the Tide Altar\'s hall with the whole armoury bought', () => {
       expect(got.shadowCalls, `${name} hall casts more shadow draws than measured`).toBeLessThanOrEqual(want.shadowCalls);
       expect(got.shadowCalls, `${name} hall casts far fewer shadow draws than measured`).toBeGreaterThanOrEqual(want.shadowCalls * 0.95);
     }
-    // And the racks themselves are what was added: some draw calls and some triangles, and not the order of a second hall.
-    expect(full.calls - empty.calls, 'six racks added no draw calls, so they are not being drawn').toBeGreaterThan(20);
-    expect(full.triangles - empty.triangles, 'six racks added no triangles').toBeGreaterThan(1000);
-    expect(full.calls, 'six racks cost more than half again the bare hall').toBeLessThan(empty.calls * 1.5);
+    // And what tells the two apart is the racks' palettes: an owned arm is drawn in the knight's materials, a locked one baked into one dark stone.
+    expect(owned.calls - locked.calls, 'an owned rack costs no more than a locked one, so the silhouettes are not what is drawn').toBeGreaterThan(10);
   });
 });
+
+// Plan 025 Stage G (D12 b): the pack mix deals a bomber where it would have dealt a guard, so the bound is the same arena stood twice - two bombers, then two guards, each pair beside a pyre and a warden on floor two -
+// framed from where the knight arrives. Only the bombers act (the rest hold their blows, and the guards theirs), and the bombers' frame is drawn with a ring marked on the knight, so a ring is in it; the guards' after the same wait.
+for (const [scene, pair] of [['bomber-pair', 'bomber'], ['guard-pair', 'guard']] as const) {
+  test.describe(`two ${pair}s beside a pyre and a warden`, () => {
+    test(`the arena with two ${pair}s stays inside its budget (${scene})`, async ({ game, page }) => {
+      await page.evaluate((roster) => (window as unknown as { dungeonTest: { buildArena: (roster: string[], level: number) => void } }).dungeonTest.buildArena(roster, 2), [pair, pair, 'pyre', 'warden']);
+      await game.enter();
+      const held = (pair === 'bomber' ? [2, 3] : [0, 1, 2, 3]).map((index) => ({ index, cooldown: 999, windup: 0 }));
+      await game.configureCombat({ enemies: held });
+      let state = await game.state();
+      expect(state.enemies.map((e) => e.kind), 'precondition: the arena stood the roster').toEqual([pair, pair, 'pyre', 'warden']);
+      for (let t = 0; t < 6000 && (pair === 'bomber' ? !state.scatterMarks.length : t < 1200); t += 50) {
+        await game.configureCombat({ health: state.maxHealth, enemies: held });
+        await game.step(50);
+        state = await game.state();
+      }
+      // The bombers' frame holds a ring drawn on the floor, the guards' none.
+      expect(state.scatterMarks.filter((m) => m.drawn).length > 0, `precondition: a ring is drawn in the frame exactly when bombers stand (${pair}s)`).toBe(pair === 'bomber');
+      expect(state.health, 'the knight fell before the frame was drawn').toBeGreaterThan(0);
+      await spend(game, scene);
+      expect((await game.state()).render.calls, 'over the 508 every chamber is held to').toBeLessThanOrEqual(508);
+    });
+  });
+}
 
 test.describe('the busiest chamber plan 018 deals', () => {
   test('a caller with four rattlers standing beside a shieldbearer, a pyre and a warden stays inside its budget', async ({ game, page }) => {

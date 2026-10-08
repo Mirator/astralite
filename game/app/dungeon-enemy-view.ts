@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { advanceDeath, type DeathAnimation } from './dungeon-death';
 import { ELITES, type Cue, type EliteModifier, type Move } from './dungeon-bestiary';
-import { BESTIARY, BOSS_PUSH_MARGIN, bossReach, eliteStats, NOTICE_TIME, PHASE_CHANGE, type EnemyIntent, type EnemyKind } from './dungeon-enemy';
+import { BESTIARY, BOSS_PUSH_MARGIN, bossReach, eliteStats, NOTICE_TIME, PHASE_CHANGE, STILL, type EnemyIntent, type EnemyKind, type Roam } from './dungeon-enemy';
 import { enemyPose, poseStyleOf } from './dungeon-enemy-pose';
 import type { Spawn } from './dungeon-floor';
 import { BONES, makeSkeleton } from './dungeon-skeleton';
@@ -28,6 +28,8 @@ export type Enemy = { group: THREE.Group; hp: number; speed: number; cooldown: n
   // Plan 021, a boss's: its rotation slot, its phase (`phase` above is the gait's), the seconds of phase change left and the move whose tell last began - what the
   // tell, the cue and the pose are drawn for - plus the ring a phase change plays at its feet and the cue textures a move's shape picks from. Zero and null on every other body.
   move: number; bossPhase: number; change: number; doing: Move | null; surge: THREE.Mesh | null; art: EnemyArt | null;
+  // Plan 025 (D3): where a body that repositions is going (`EnemyView.roam`), fed back each frame.
+  roam: Roam;
   // Every lit material on the body, found once at spawn: the flare and the tell are written to these
   // each frame rather than by walking the whole rig to find them again.
   skins: THREE.MeshStandardMaterial[] };
@@ -164,7 +166,7 @@ export const spawnEnemy = (spawn: Spawn, index: number, level: number, group: TH
   if (spawn.elite) tintEyes(body, spawn.elite);
   const skins: THREE.MeshStandardMaterial[] = [];
   body.traverse((o) => { if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshStandardMaterial && !skins.includes(o.material)) skins.push(o.material); });
-  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, held:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush && !spawn.buried, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity, buried:!!spawn.buried, summoner:spawn.summoner ?? -1, blocked:0, wave:spawn.wave ?? 1, elite:spawn.elite, move:0, bossPhase:0, change:0, doing:null, surge, art: boss ? art : null };
+  return { skins, group: body, hp:maxHp, maxHp, kind, tell, damage:stats.damage, cue, bar, alert, trails, attackAge:Infinity, speed:stats.speed, cooldown:0.4+(index%3)*0.2, hitFlash:0, dead:false, death:null, phase:spawn.room*1.7+index*0.6, windup:0, held:0, lunge:0, aim:new THREE.Vector3(), room:spawn.room, awake:!spawn.ambush && !spawn.buried, anchor:{x:spawn.x*tile,z:spawn.z*tile}, notice:0, alertIn:Infinity, buried:!!spawn.buried, summoner:spawn.summoner ?? -1, blocked:0, wave:spawn.wave ?? 1, elite:spawn.elite, move:0, bossPhase:0, change:0, roam:STILL, doing:null, surge, art: boss ? art : null };
 };
 
 /**

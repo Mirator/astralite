@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { cellKey, TILE } from '../app/dungeon-floor.ts';
 import { landBlow, burn } from '../app/dungeon-hits.ts';
-import { BOSS_FLOOR_DAMAGE, damageStep, FLOOR_DAMAGE, PHASE_CHANGE, RECOVERY_SCALE, recoveryFor, scaledDamage, strikeDamage, type EnemyIntent } from '../app/dungeon-enemy.ts';
+import { BOSS_FLOOR_DAMAGE, damageScale, damageStep, FLOOR_DAMAGE, ORDINARY_DAMAGE, PHASE_CHANGE, RECOVERY_SCALE, recoveryFor, scaledDamage, strikeDamage, type EnemyIntent } from '../app/dungeon-enemy.ts';
 import { asReaper, TEST_BOSS, TEST_KING } from './fixtures/test-boss.ts';
 import { recordSequence, type Recorded } from './fixtures/enemy-sequence.ts';
 import { AIM_LOCK, fallOf, raiseSpot, RAISE_SPREAD, ALERT_RADIUS, ALERT_STAGGER, BASE_STATS, BESTIARY, ENEMY_KINDS, HIT, HIT_COOLDOWN, hitCooldown, COMMITTED_WINDUP, CROWD_SPACING, decideEnemy, enemyStats, interruptsWindup, LUNGE_SPEED, LUNGE_TIME, nearbyDozers, NOTICE_TIME, PATROL_SPAN, PATROL_SPEED, pursuitStep, RECOVERY, separateCrowd, sweptContact, type CrowdBody, type EnemyView, type Wakeable, type World } from '../app/dungeon-enemy.ts';
@@ -299,28 +299,30 @@ test('bodies grow with the floor: vitality by one blade a floor, damage by fifte
     pyre: { hp: 1.5 * HIT, damage: 8, tell: 0.5, speed: 2.4 },
     bonecaller: { hp: 2 * HIT, damage: 0, tell: 1.2, speed: 2.2 },
     rattler: { hp: 1 * HIT, damage: 5, tell: 0.38, speed: 3.6 },
+    bomber: { hp: 1.5 * HIT, damage: 10, tell: 1.0, speed: 2.1 },
     captain: { hp: 72.5 * HIT, damage: 7, tell: 0.8, speed: 1.8 },
-    mother: { hp: 37.5 * HIT, damage: 8, tell: 0.8, speed: 2.1 },
+    mother: { hp: 37.5 * HIT, damage: 9, tell: 0.8, speed: 2.1 },
     hound: { hp: 65 * HIT, damage: 5, tell: 0.7, speed: 3.0 },
     bastion: { hp: 60 * HIT, damage: 6, tell: 0.7, speed: 1.7 },
     king: { hp: 157.5 * HIT, damage: 0, tell: 0.8, speed: 1.9 },
   });
-  // Floor one is exactly the base table, so every browser fixture pinned to floor one still holds.
-  for (const kind of ENEMY_KINDS) assert.deepEqual(enemyStats(kind, 1), BASE_STATS[kind]);
+  // Floor one is the base table, but for an ordinary blow, which costs ORDINARY_DAMAGE times the table's (plan 025 D10; the test below holds that rule).
+  for (const kind of ENEMY_KINDS) assert.deepEqual(enemyStats(kind, 1), { ...BASE_STATS[kind], damage: Math.round(BASE_STATS[kind].damage * damageScale(kind)) });
   assert.deepEqual([enemyStats('guard', 2).hp, enemyStats('guard', 3).hp], [3 * HIT, 4 * HIT]);
   // A floor-three stair is three wardens; at eight blades each that was a slog, so a warden grows like the rest.
   assert.deepEqual([enemyStats('warden', 2).hp, enemyStats('warden', 3).hp], [5 * HIT, 6 * HIT]);
-  assert.deepEqual([1, 2, 3].map(level => enemyStats('guard', level).damage), [12, 14, 16]);
-  assert.deepEqual([1, 2, 3].map(level => enemyStats('stalker', level).damage), [8, 9, 10]);
-  assert.deepEqual([1, 2, 3].map(level => enemyStats('warden', level).damage), [20, 23, 26]);
+  // Written out at the shipped ORDINARY_DAMAGE of 1.5 (the table's 12, 8 and 20 a blow).
+  assert.deepEqual([1, 2, 3].map(level => enemyStats('guard', level).damage), [18, 21, 23]);
+  assert.deepEqual([1, 2, 3].map(level => enemyStats('stalker', level).damage), [12, 14, 16]);
+  assert.deepEqual([1, 2, 3].map(level => enemyStats('warden', level).damage), [30, 35, 39]);
   // Tells and speeds hold still so a read learned on floor one stays true.
   for (const level of [2, 3]) for (const kind of ENEMY_KINDS) {
     assert.equal(enemyStats(kind, level).tell, BASE_STATS[kind].tell);
     assert.equal(enemyStats(kind, level).speed, BASE_STATS[kind].speed);
   }
   // Garbage levels fall back to floor one rather than to NaN vitality.
-  assert.deepEqual(enemyStats('guard', Number.NaN), BASE_STATS.guard);
-  assert.deepEqual(enemyStats('guard', 0), BASE_STATS.guard);
+  assert.deepEqual(enemyStats('guard', Number.NaN), enemyStats('guard', 1));
+  assert.deepEqual(enemyStats('guard', 0), enemyStats('guard', 1));
 });
 
 test('a warden flinches only for an arm that staggers, and only early in the tell', () => {
@@ -495,7 +497,9 @@ const BEFORE_PLAN_021: Record<string, Omit<Recorded, 'neutral'>> = {
   warden: { kind: 'warden', digest: 'fd8f6709', frames: 2400, windups: 7, hits: 5, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1817, dozing: 200 },
   archer: { kind: 'archer', digest: '2460d9ae', frames: 2400, windups: 18, hits: 0, looses: 11, raises: 0, lunges: 0, noticing: 40, ready: 1493, dozing: 200 },
   shieldbearer: { kind: 'shieldbearer', digest: 'c70db169', frames: 2400, windups: 7, hits: 4, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1884, dozing: 200 },
-  reaper: { kind: 'reaper', digest: 'bbc7ada5', frames: 2400, windups: 6, hits: 3, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1733, dozing: 200 },
+  // Plan 025 D4 (2026-10-07): a body's footprint grows with its scale, and the reaper (1.1) is the one kind the scripted fight walks near a wall, so it stops a
+  // hair farther from it. Every count is unchanged; only the digest moved (from bbc7ada5). The warden (1.3) and shieldbearer (1.05) never touch a wall here.
+  reaper: { kind: 'reaper', digest: '1e936e7d', frames: 2400, windups: 6, hits: 3, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1733, dozing: 200 },
   pyre: { kind: 'pyre', digest: 'd11fa9eb', frames: 2400, windups: 9, hits: 6, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1829, dozing: 200 },
   bonecaller: { kind: 'bonecaller', digest: 'c280ec6d', frames: 2400, windups: 12, hits: 0, looses: 0, raises: 8, lunges: 0, noticing: 40, ready: 1313, dozing: 200 },
   rattler: { kind: 'rattler', digest: 'ce119782', frames: 2400, windups: 11, hits: 5, looses: 0, raises: 0, lunges: 0, noticing: 40, ready: 1866, dozing: 200 },
@@ -503,7 +507,8 @@ const BEFORE_PLAN_021: Record<string, Omit<Recorded, 'neutral'>> = {
 
 test('an archetype without moves produces exactly the intents it produced before plan 021, and leaves the boss fields idle', () => {
   // Plan 021 Stage B: a kind with moves is a boss (the Captain), and the recording is of every kind without them.
-  const ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].moves);
+  // Plan 025 Stage G: the bomber came after plan 021 and has no recording; its rule (a scatter of its own, which this recording's `neutral` would rightly call a scatter) is tests/dungeon-bomber.test.ts's.
+  const ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].moves && kind !== 'bomber');
   for (const kind of ENEMY_KINDS) if (BESTIARY[kind].moves) assert.ok(BESTIARY[kind].boss, `${kind} has moves but is not marked a boss`);
   assert.ok(ordinary.length === 9 && ordinary.length < ENEMY_KINDS.length, 'precondition: the nine kinds that existed before plan 021 are ordinary and a boss is not among them');
   assert.deepEqual(Object.keys(BEFORE_PLAN_021).sort(), [...ordinary].sort(), 'a kind has no recorded sequence');
@@ -670,7 +675,7 @@ test('a boss\'s blow costs what its move says, scaled by the floor as an ordinar
 // Plan 023 (D5): the two dials on how hard an ordinary body presses. Each is held at values the game does not ship, so the rule is held whatever the tuning says.
 test('the recovery scale reaches every ordinary kind and never a boss (plan 023 D5)', () => {
   const bosses = ENEMY_KINDS.filter(kind => BESTIARY[kind].boss), ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].boss);
-  assert.ok(bosses.length === 5 && ordinary.length === 9, 'precondition: five bosses and nine ordinary kinds');
+  assert.ok(bosses.length === 5 && ordinary.length === 10, 'precondition: five bosses and ten ordinary kinds');
   for (const kind of ordinary) assert.equal(recoveryFor(BESTIARY[kind], 0.5), BESTIARY[kind].recovery * 0.5, `a ${kind} was not made to recover at half the time`);
   for (const kind of bosses) assert.equal(recoveryFor(BESTIARY[kind], 0.5), BESTIARY[kind].recovery, `the scale reached the ${kind}, a boss`);
   // And the table the rules read is that rule at the shipped scale, kind by kind.
@@ -685,10 +690,45 @@ test('floor damage scales an ordinary kind by FLOOR_DAMAGE and a boss by its own
   assert.ok(FLOOR_DAMAGE >= 0.15 && FLOOR_DAMAGE <= 0.3, `FLOOR_DAMAGE is ${FLOOR_DAMAGE}: D5 allows +15% to +30% a floor`);
   assert.equal(BOSS_FLOOR_DAMAGE, 0.15, 'a boss keeps its own step');
   // Written out: the guard's floor-one damage, two floors down.
-  const base = BASE_STATS.guard.damage;
+  const base = BASE_STATS.guard.damage * ORDINARY_DAMAGE;
   assert.equal(enemyStats('guard', 1).damage, base);
   assert.equal(enemyStats('guard', 3).damage, Math.round(base * (1 + 2 * FLOOR_DAMAGE)), 'a floor-three guard does not cost two steps more');
   assert.ok(enemyStats('guard', 3).damage > base, 'precondition: the floors scale damage at all');
   assert.equal(scaledDamage(20, 3, 0.25), 30, 'the step is a share of the floor-one damage for each floor down');
   for (const kind of ENEMY_KINDS.filter(kind => BESTIARY[kind].boss && BASE_STATS[kind].damage > 0)) assert.equal(enemyStats(kind, 3).damage, scaledDamage(BASE_STATS[kind].damage, 3, BOSS_FLOOR_DAMAGE), `${kind}: a boss's stat damage moved with the ordinary step`);
+});
+
+// Plan 025 (D10): ordinary bodies hit harder by one dial, and no boss does.
+test('an ordinary guard\'s swing deals ORDINARY_DAMAGE times the table\'s blow and a boss\'s swing deals its move row (plan 025 D10)', () => {
+  const bosses = ENEMY_KINDS.filter(kind => BESTIARY[kind].boss), ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].boss);
+  assert.ok(bosses.length === 5 && ordinary.length === 10, 'precondition: five bosses and ten ordinary kinds');
+  assert.ok(ORDINARY_DAMAGE > 1, `precondition: ORDINARY_DAMAGE is ${ORDINARY_DAMAGE}, so a boss left alone is not the same as a boss scaled`);
+  assert.ok(ORDINARY_DAMAGE >= 1.25 && ORDINARY_DAMAGE <= 1.5, `ORDINARY_DAMAGE is ${ORDINARY_DAMAGE}: D10 starts at 1.5 and steps toward 1.25`);
+  // The rule, held at a scale the game does not ship.
+  for (const kind of ordinary) assert.equal(damageScale(kind, 2), 2, `a ${kind} did not take the ordinary damage scale`);
+  for (const kind of bosses) assert.equal(damageScale(kind, 2), 1, `the ordinary damage scale reached the ${kind}, a boss`);
+  // Written out rather than through `scaledDamage`, so a scale slipped into the shared rounding cannot agree with itself: the blow, times the scale, times the floor step, rounded once.
+  const ordinaryBlow = (damage: number, level: number) => Math.round(damage * ORDINARY_DAMAGE * (1 + FLOOR_DAMAGE * (level - 1)));
+  const bossBlow = (damage: number, level: number) => Math.round(damage * (1 + BOSS_FLOOR_DAMAGE * (level - 1)));
+  // A guard's swing, as the game and the sim read it (`strikeDamage` and `enemyStats`, which `eliteStats` builds on), on every floor.
+  assert.equal(BESTIARY.guard.attack, 'swing', 'precondition: a guard swings');
+  for (const level of [1, 2, 3]) {
+    const swing = strikeDamage('guard', level), table = Math.round(BASE_STATS.guard.damage * (1 + FLOOR_DAMAGE * (level - 1)));
+    assert.equal(swing, ordinaryBlow(BASE_STATS.guard.damage, level), `a floor-${level} guard's swing is ${swing}, not ${ORDINARY_DAMAGE} times the table's blow`);
+    assert.ok(swing > table, `a floor-${level} guard's swing (${swing}) is no harder than the table's ${table}`);
+  }
+  for (const kind of ordinary) for (const level of [1, 2, 3]) assert.equal(enemyStats(kind, level).damage, ordinaryBlow(BASE_STATS[kind].damage, level), `a floor-${level} ${kind} is not scaled`);
+  // A boss's swing is its move row, floor-scaled and nothing more; so is its stat damage.
+  let swings = 0;
+  for (const kind of bosses) {
+    for (const level of [1, 2, 3]) {
+      assert.equal(enemyStats(kind, level).damage, bossBlow(BASE_STATS[kind].damage, level), `the ${kind}'s stat damage took the ordinary damage scale on floor ${level}`);
+      (BESTIARY[kind].moves ?? []).forEach((phase, p) => phase.forEach((move, m) => {
+        if (move.attack !== 'swing' || move.damage <= 0) return;
+        swings++;
+        assert.equal(strikeDamage(kind, level, p, m), bossBlow(move.damage, level), `the ${kind}'s swing (phase ${p}, move ${m}) took the ordinary damage scale on floor ${level}`);
+      }));
+    }
+  }
+  assert.ok(swings >= 3 * 3, `precondition: the bosses' move rows hold swings to check (found ${swings / 3} a floor)`);
 });

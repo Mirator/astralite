@@ -108,7 +108,11 @@ test.describe('the floor realizes exactly the motifs the planner plans', () => {
     };
     const restart = async (seed: number) => {
       await page.evaluate((from) => (window as import('./helpers.ts').GameWindow).dungeonTest!.reset(from), seed);
-      await game.settle();
+      // A reset rebuilds behind the veil and yields between stages, so wait for `building` to drop, as the harness's own
+      // reset does. Settling alone let the first visit's synchronous build start while the reset's build was still running
+      // on CI's slower shards (2026-10-08, PR #97): two of four runs read floor 1 or 2 of seed B three geometries dearer the
+      // second time, a different floor each time, which no local run reproduced.
+      await game.built();
     };
     const A = 0x1, B = 0x5eed, levels = [1, 2, 3];
     // Every pass starts from a restart, so all its visits are measured in the same mode: a restart leaves the keep at

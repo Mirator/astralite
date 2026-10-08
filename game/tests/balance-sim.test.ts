@@ -57,7 +57,8 @@ test('fight duration is measured per room fought, inside the floor it was fought
 
 test('the harness flies archers\' bolts and bills what lands to the archer, on floor one only from a later wave (plan 024 D4)', () => {
   // A knight that never dodges, so a bolt that is loosed and flies true has nothing between it and him.
-  const runs = [1, 2, 3, 4].map(seed => simulateRun(seed * 7919, policy({ dodge: 0 })));
+  // Plan 025 Stage F (furniture and the new doors) moved the seeds from 1, 2, 3, 4 (three deeper floors between them) to 1, 2, 7, 8.
+  const runs = [1, 2, 7, 8].map(seed => simulateRun(seed * 7919, policy({ dodge: 0 })));
   const deeper = runs.flatMap(run => run.floors.filter(floor => floor.level > 1));
   assert.ok(deeper.length >= runs.length, `the runs barely left floor one (${deeper.length} deeper floors), so this measured nothing`);
   const deeperArcher = deeper.reduce((sum, floor) => sum + floor.damage.archer, 0);
@@ -94,10 +95,12 @@ test('a shield turns a knight bolt by the heading the bolt left along, not the l
   // Plan 024 moved the seeds from 3 and 7 (5 and 11 against 7 and 10): the knight's dodges changed with the per-tell roll, so he stands elsewhere. Seeds 7, 14, 15, 16, 18, 20, 26, 30, 33 and 39 also differ, by one or two blocks
   // (measured 2026-10-04 over seeds 1-40); every other seed agrees between the two, so they cannot tell them apart and are not asserted.
   // Plan 024 Stage B (pressure holds a second tell back, so the fight runs differently) moved seed 28 to 39 (13 against 10 became 6 against 10); the pairs that differ are 5, 7, 11, 14, 16, 26, 28, 33 and 39.
+  // Plan 025 D4 (a body's footprint grows with its scale; the shieldbearer is 1.05) moved seed 11 from 7 to 6 blocks; along knight-to-body both seeds give 9 (measured 2026-10-07 over
+  // seeds 1-40: the pairs that differ are 5, 7, 11, 14, 16, 19, 26, 28, 33 and 39).
   const roster: EnemyKind[] = ['shieldbearer', 'shieldbearer', 'guard'];
   const reports = fight(roster, { weapon: weaponById('crossbow') }, [11, 39]);
   for (const r of reports) assert.ok(r.landed > 0, 'no bolt landed, so no push was ever passed to landBlow');
-  assert.deepEqual(reports.map(r => r.blocked), [7, 6], 'blocked bolts do not follow the bolt heading: the sim pushes along the knight-to-body line');
+  assert.deepEqual(reports.map(r => r.blocked), [6, 6], 'blocked bolts do not follow the bolt heading: the sim pushes along the knight-to-body line');
 });
 
 test('the harpoon breaks a raised shield, so the sim never has a blocked throw to withhold the drag from', () => {
@@ -220,22 +223,24 @@ test('a run report says what banking it would pay', () => {
   const elitesOf = (report: ReturnType<typeof simulateRun>) => report.floors.reduce((sum, floor) => sum + Object.values(floor.eliteKills).reduce((a, b) => a + (b ?? 0), 0), 0);
   const felled = (report: ReturnType<typeof simulateRun>) => report.floors.filter(floor => floor.bossHpLeft !== null).length;
   const fought = (report: ReturnType<typeof simulateRun>) => report.floors.reduce((sum, floor) => sum + floor.fightEncounters.filter(encounter => encounter !== 'warden').length, 0);
-  // Seed 3 (plan 022 Stage E moved it from 0x1, whom the stronger Bone King beats; plan 024 Stage E, a King that hits 1.4 times as hard, from 0x2).
-  const won = simulateRun(0x3, policy());
+  // Seed 4 (plan 022 Stage E moved it from 0x1, whom the stronger Bone King beats; plan 024 Stage E, a King that hits 1.4 times as hard, from 0x2; plan 025 Stage D, from 0x3, who no longer escapes with Stage A's body radius and the Mother moving).
+  const won = simulateRun(0x4, policy());
   assert.equal(won.outcome, 'escaped', 'precondition: the default knight escapes this seed');
   assert.equal(felled(won), 3, 'precondition: the escape went through three bosses');
   assert.ok(elitesOf(won) > 0, 'precondition: the escape felled an elite, so what an elite pays is in the sum');
   assert.ok(fought(won) > 3 && won.kills > fought(won), `precondition: the run cleared ${fought(won)} fight chambers and felled ${won.kills} bodies, so a pearl a kill would pay differently`);
   assert.equal(won.chambers, fought(won), 'the report counts the chambers the floors fought');
-  assert.equal(won.pearls, CHAMBER_PEARLS * fought(won) + 3 * FLOOR_PEARLS + 25 + 3 * 10 + elitesOf(won), 'an escaped run report does not carry what a win pays');
-  // Seeds 10 and 3 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159; plan 022 Stage D (no top-up) moved them from 11 and 8;
+  assert.equal(won.pearls, CHAMBER_PEARLS * fought(won) + 3 * FLOOR_PEARLS + 25 + 3 * 10 + elitesOf(won) + won.found, 'an escaped run report does not carry what a win pays');
+  // Seeds 10 and 4 are lost by the weak knight on floors 2 and 3. Plan 021 re-picks the first whenever the pool grows (the bosses a seed is dealt change with it): Stage B moved it from 15839, Stage C from 159; plan 022 Stage D (no top-up) moved them from 11 and 8;
   // plan 024 Stage A (the weak knight steps out of the embers, and draws its cards) moved them from 2 and 85; Stage B (pressure) moved the second from 2 (now lost on floor 1) to 3.
-  for (const [seed, floor] of [[10, 2], [3, 3]] as const) {
+  // Plan 025 (the sim knight's step-tie goes to the step nearer his quarry) moved the second from 3 (now lost on floor 2) to 4, the first seed lost on floor 3.
+  // Plan 025 Stage F (furniture and the new doors) moved it from 4 (now lost on floor 2) to 8, the first seed lost on floor 3. A run's found pearls (Stage F) are banked on top.
+  for (const [seed, floor] of [[10, 2], [8, 3]] as const) {
     const lost = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
     assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
     assert.equal(felled(lost), floor - 1, `precondition: a run lost on floor ${floor} felled the ${floor - 1} bosses behind it`);
     assert.ok(fought(lost) > 0, 'precondition: the run cleared a chamber before it died');
-    assert.equal(lost.pearls, CHAMBER_PEARLS * fought(lost) + (floor - 1) * FLOOR_PEARLS + (floor - 1) * 10 + elitesOf(lost), `a run lost on floor ${floor} does not report what a death pays`);
+    assert.equal(lost.pearls, CHAMBER_PEARLS * fought(lost) + (floor - 1) * FLOOR_PEARLS + (floor - 1) * 10 + elitesOf(lost) + lost.found, `a run lost on floor ${floor} does not report what a death pays`);
   }
 });
 
@@ -329,10 +334,12 @@ test('the sim deals a floor its later waves, calls each only after the one befor
 
 test('a floor the knight died on says whether it was before the stair hall (plan 022 carry-over)', () => {
   const weak = policy({ dodge: 0, reaction: 0.6 });
-  // Read off the boss, which the report observes on its own: a knight who died before the stair hall never met it. Seeds 1 and 2 (plan 022 Stage D moved them from 0x3ddf and 0x7bbd; plan 023 Stage D swapped them; plan 024 Stage A swapped them back).
-  const early = simulateRun(1, weak).floors.find(f => f.outcome === 'died');
-  const late = simulateRun(2, weak).floors.find(f => f.outcome === 'died');
-  assert.ok(early && late, 'seeds 1 and 2 no longer each end in a death with the weak knight: pick other seeds');
+  // Read off the boss, which the report observes on its own: a knight who died before the stair hall never met it. Seeds 1 and 5 (plan 022 Stage D moved them from 0x3ddf and 0x7bbd; plan 023 Stage D swapped them; plan 024 Stage A swapped them back; plan 025 Stage D moved the
+  // late one from 2, whose knight no longer dies to the boss once the Pyre Mother moves, to 4, who dies to the Bone King; plan 025 Stage E moved it to 5, since ordinary bodies hitting 1.5 times as hard kill seed 4's knight before the stair hall;
+  // plan 025 Stage F moved the early one from 1, whose knight now reaches the stair hall with the furniture and the new doors, to 2).
+  const early = simulateRun(2, weak).floors.find(f => f.outcome === 'died');
+  const late = simulateRun(5, weak).floors.find(f => f.outcome === 'died');
+  assert.ok(early && late, 'seeds 2 and 5 no longer each end in a death with the weak knight: pick other seeds');
   assert.equal(early.bossDamage + early.bossSeconds, 0, 'precondition: the boss never met the knight who died on this floor');
   assert.equal(early.hpAtStair, null, 'precondition: he never reached the stair hall');
   assert.equal(early.deathsBeforeBoss, 1, 'a death before the stair hall is not counted as one');
@@ -406,6 +413,16 @@ test('a body that hurts him outside a fight chamber is not ordinary damage, and 
     assert.equal(r.chambersEntered, 0);
     assert.equal(r.ordinaryDamagePerChamber, 0);
   }
+});
+
+// Plan 025: the knight's next step broke a tie in the flood by candidate order alone, and the flood is from the quarry's cell. On seed 8 at dodge 0.5 the
+// Captain stood astride a cell edge beside a brazier: the knight walked +x and -x on alternate frames as the Captain's cell flipped, the Captain's own
+// pursuit flipped with his, and neither moved for the 450 s left of the duel (traced 2026-10-07). The tie now goes to the step nearer the quarry itself.
+test('the knight and a pursuing boss never lock each other in place across a cell edge: the dodge 0.5 Captain duel on seed 8 ends (plan 025)', () => {
+  const r = simulateArena(8, 1, ['captain'], policy({ dodge: 0.5 }));
+  assert.ok(r.tellsRolled > 0, 'precondition: the Captain fought, so the duel measured something');
+  assert.notEqual(r.outcome, 'stuck', `the duel hit its timeout after ${r.seconds} s: the knight and the Captain locked each other in place`);
+  assert.equal(r.outcome, 'cleared', 'the knight did not fell the Captain');
 });
 
 // Plan 024 Stage A (D1): the dodge is one roll per tell. Fought against the Drowned Captain in the arena, a body whose tells are long, dashable and many (12 a duel), so a thousand of them are about eighty duels. The knight is never killed

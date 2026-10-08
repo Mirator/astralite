@@ -206,9 +206,8 @@ export type Snapshot = {
   fault: boolean;
   /** Plan 020: the save slot every read and write of progress speaks for, read off the game's closure. */
   slot: Slot;
-  /** Plan 020: whether the floor drawn is the Tide Altar's hall (read off the floor that was built), and whether its shop overlay is open. */
+  /** Plan 020: whether the floor drawn is the Tide Altar's hall (read off the floor that was built). Plan 025 retired the shop overlay's `altarOpen`: the list is a page of the pause card. */
   hall: boolean;
-  altarOpen: boolean;
   /**
    * Plan 020: what the scene actually placed in the hall, read off the groups it was attached to, or null on any other floor. `inScene` is true when the
    * piece's meshes are children of the floor being drawn; `stair` is whether a stair was built (it must not be).
@@ -216,6 +215,16 @@ export type Snapshot = {
   hallProps: {
     altar: { x: number; z: number; radius: number; over: boolean; inScene: boolean } | null;
     racks: string[];
+    /**
+     * Plan 025 (D8): the upgrade shrines as the scene holds them: `lit` counts the notches wearing the lit material, `plaque` is the price on the plaque
+     * attached to the floor (null when there is none). `buying` is the press of the swap key in progress, `pearls` the pearls in flight from the altar,
+     * `pulse` what the bank before this hall put newly in reach, and `tried` the arm in hand when it is not owned.
+     */
+    shrines: { id: string; x: number; z: number; over: boolean; inScene: boolean; ranks: number; lit: number; plaque: number | null }[];
+    buying: { target: string | null; fill: number };
+    pearls: number;
+    pulse: string[];
+    tried: string | null;
     wayDown: { x: number; z: number; radius: number; open: boolean; over: boolean; inScene: boolean; sign: string } | null;
     stair: boolean;
   } | null;
@@ -240,7 +249,7 @@ export type Snapshot = {
     fires: number;
   };
   /** Plan 019: what the live run was dealt (arm, vitality, strike, boon cards, revives), read off the run itself. */
-  run: { start: { arm: string; maxHp: number; strike: number; draftSize: number; defiance: number }; /** Plan 019 (D9), plan 020 (D7): the run's arm is settled - true on every floor but the hall (and the dev arena). */ armLocked: boolean };
+  run: { start: { arm: string; maxHp: number; strike: number; draftSize: number; defiance: number }; /** Plan 019 (D9), plan 020 (D7): the run's arm is settled - true on every floor but the hall (and the dev arena). */ armLocked: boolean; /** Plan 025 Stage F: pearls found this run (Pearls doors, urns, crates, chests). */ found: number };
   /** The development arena this page is charting floors as, or null for an ordinary keep. */
   arena: { roster: EnemyKind[]; level: number; /** Plan 022 (D14): the modifier the arena was built with, when it was. */ elite?: 'hasted' | 'armoured' | 'wrathful' | 'volatile' } | null;
   /** The bodies that have fallen and lie where they fell (the snapshot's `enemies` no longer lists them). */
@@ -254,7 +263,7 @@ export type Snapshot = {
    */
   boss: {
     kind: EnemyKind; hp: number; maxHp: number; phase: number; move: number; unhittable: boolean; change: number; awake: boolean; windup: number;
-    attack: 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon' | 'scatter' | null;
+    attack: 'swing' | 'pounce' | 'volley' | 'sweep' | 'summon' | 'scatter' | 'veil' | null;
     cue: { visible: boolean; shape: 'arc' | 'ring' | 'lane'; scale: number }; bar: boolean; surge: boolean; shield: boolean | null;
   } | null;
   /** Fire a pyre left where it fell, burning the knight. */
@@ -263,7 +272,8 @@ export type Snapshot = {
    * Plan 021 Stage C: the rings a boss's scatter has marked and not yet lit (`drawn` is whether the ring mesh is showing, `threat` whether it wears the tell's colour), the arrows the pool is
    * showing, and how many of the six hostile fire rings are showing (lit pools and marks together). Read off the meshes.
    */
-  scatterMarks: { x: number; z: number; radius: number; drawn: boolean; threat: boolean }[];
+  /** `owner` is the index in `enemies` of the body that marked the ring (a boss's scatter, or plan 025 Stage G's bomber). */
+  scatterMarks: { owner: number; x: number; z: number; radius: number; drawn: boolean; threat: boolean }[];
   arrowsDrawn: number;
   hostileRings: number;
   /** Bolts loosed at the knight, still in the air. */
@@ -298,11 +308,26 @@ export type Snapshot = {
     onStair: boolean;
   };
   /** Plan 017: the chamber the knight stands in and its ways out. */
+  /** Plan 025 Stage F: the furniture. `here` is the knight's chamber's, read off the scene (`shown`, and a plate's `spikes` height, off the drawn instances); `rack` the arm chamber's. */
+  furniture: { total: number; rack: { kind: string; room: number; x: number; z: number } | null; here: { id: number; kind: 'urn' | 'crate' | 'keg' | 'spikes' | 'cover' | 'chest'; x: number; z: number; broken: boolean; lit: boolean; plate: 'down' | 'tell' | 'up' | null; solid: boolean; drop: string | null; shown: boolean; spikes: number | null }[] };
   chamber: {
     id: number; layer: number; reward: 'mend' | 'cache' | null; sealed: boolean; crossing: 'out' | 'in' | null;
     /** Plan 022: the wave in play (the last one called), how many waves the chamber holds, and whether the rings of the next one are showing. */
     wave: { at: number; of: number; marked: boolean };
-    doors: { id: number; to: number; sign: string; x: number; z: number; radius: number; open: boolean; over: boolean }[];
+    doors: { id: number; to: number; sign: string; x: number; z: number; radius: number; open: boolean; over: boolean;
+      /** Plan 025 D2 (b): whether its floating name is drawn, and the sigil's size, height and spin, read off the meshes. */
+      label: boolean; sigil: { scale: number; y: number; spin: number } }[];
+  };
+  /**
+   * Plan 025 D6: every source the atmosphere laid out, by chamber; what each of the eight pool lights is doing (read off the
+   * light: where it hangs, its colour, whether it burns; null for an idle slot); the sconces' painted pools (each disc's centre
+   * read off the merged mesh); and the clear's camera glance while it lasts.
+   */
+  lights: {
+    sources: { kind: 'brazier' | 'sconce' | 'bounce'; room: number; x: number; y: number; z: number; wall?: string }[];
+    pool: ({ id: string; kind: 'brazier' | 'door' | 'sconce' | 'bounce'; room: number; level: number; x: number; y: number; z: number; color: number; on: boolean } | null)[];
+    glow: { discs: { x: number; z: number; room: number; drawn: boolean }[]; programHolders: number } | null;
+    glance: { age: number; x: number; z: number } | null;
   };
   /**
    * Plan 019: the racks on the floor, read off the scene. The Tide Gate of floor one holds one for every owned arm but the
@@ -319,6 +344,10 @@ export type Snapshot = {
     inScene: boolean;
     /** The arm the swap prompt is currently naming while the knight stands in this ring, or null when it is not on screen. */
     offered: string | null;
+    /** Plan 025 (D8): a rack of the hall whose arm the save does not own (drawn as a silhouette), the price on its plaque, and whether the plaque burns as affordable. */
+    locked: boolean;
+    plaque: number | null;
+    plaqueReady: boolean;
   }[];
   stair: { x: number; z: number; radius: number };
   experience: {
@@ -586,6 +615,13 @@ export const DEFAULT_BOSS = 'captain';
  * is held by `waves.spec.ts`. `test.use({ waves: null })` boots with them on, on a page of its own: the keep as a player meets it.
  */
 export const DEFAULT_WAVES = 'off';
+/**
+ * Plan 025 Stage F: whether every page boots with plain chambers (`?rooms=plain`, development only): no furniture (urns, kegs, spike plates, cover) and no Boon,
+ * Pearls or arm door. A spike plate or a keg would bill a scenario's vitality to nothing it staged, and a cover block takes a tile some scenario teleports onto,
+ * so the suite boots with them off as it boots with the later waves off, and what they do is held by `props.spec.ts`. `test.use({ rooms: null })` boots with
+ * them on, on a page of its own.
+ */
+export const DEFAULT_ROOMS = 'plain';
 
 /** Distance the knight keeps while lining a strike up: inside 1.8, with slack. */
 export const STRIKE_STANCE = 1.05;
@@ -690,6 +726,8 @@ export class Game {
     readonly boss: string | null = DEFAULT_BOSS,
     /** Plan 022 (D14): the `?waves=` link the page booted with, or null for none (the later waves are dealt). Every page boots with `off`, so what a chamber holds is its first wave. */
     readonly waves: string | null = DEFAULT_WAVES,
+    /** Plan 025 Stage F: the `?rooms=` link the page booted with, or null for none (the chambers are furnished). Every page boots with `plain`. */
+    readonly rooms: string | null = DEFAULT_ROOMS,
   ) {}
 
   /**
@@ -699,8 +737,8 @@ export class Game {
    * so the listeners belong to the pool, which re-points them at each scenario in turn. Attaching
    * them here too would go on charging a page's whole life to a object nobody holds any more.
    */
-  static async open(page: Page, info: TestInfo, seeds: number[], watch = true, hall = false, boss: string | null = DEFAULT_BOSS, waves: string | null = DEFAULT_WAVES) {
-    const game = new Game(page, info, seeds, hall, boss, waves);
+  static async open(page: Page, info: TestInfo, seeds: number[], watch = true, hall = false, boss: string | null = DEFAULT_BOSS, waves: string | null = DEFAULT_WAVES, rooms: string | null = DEFAULT_ROOMS) {
+    const game = new Game(page, info, seeds, hall, boss, waves, rooms);
     if (watch) {
       page.on('pageerror', (error) => game.pageErrors.push(String(error)));
       page.on('console', (message) => {
@@ -723,7 +761,7 @@ export class Game {
     // itself (loading.spec.ts) drives its own `page.goto` on the plain URL instead of going through `Game`.
     // Plan 020 (D11): `hall=skip` keeps today's flow - the boot builds floor 1 and ENTER enters it - for the 138 callers of `game.enter()`. A scenario that is
     // about the hall opts out with `test.use({ hall: true })`, which boots the page the way a player's is: into the Tide Altar's hall.
-    await page.goto(`${CAPTURING ? '/?quality=full&' : '/?'}boot=eager${hall ? '' : '&hall=skip'}${boss === null ? '' : `&boss=${boss}`}${waves === null ? '' : `&waves=${waves}`}`);
+    await page.goto(`${CAPTURING ? '/?quality=full&' : '/?'}boot=eager${hall ? '' : '&hall=skip'}${boss === null ? '' : `&boss=${boss}`}${waves === null ? '' : `&waves=${waves}`}${rooms === null ? '' : `&rooms=${rooms}`}`);
     // The hooks go up as soon as floor 1 exists, before the cold compile - but a fresh page on CI
     // shares its cores with a sibling worker's software-rasterised frames, and the 25 s default has
     // timed out here on three isolated specs in one run. This is a boot, so it gets the boot's budget.
@@ -1167,14 +1205,15 @@ export class Game {
     expect((await this.state()).hall, 'the way down led back to the hall').toBe(false);
   }
 
-  /** Plan 020: from the hall, stands the knight at the altar (a teleport) and opens its shop with the real swap key. */
+  /** Plan 020: from the hall, stands the knight at the altar (a teleport) and opens its list with the real swap key. Plan 025: the list is a page of the pause card. */
   async openAltar() {
     const altar = (await this.state()).hallProps!.altar!;
     await this.teleport(altar.x, altar.z);
     await this.step(64);
     await press(this.page, 'swap');
     await this.step(16);
-    expect((await this.state()).altarOpen, 'the swap key at the altar did not open the shop').toBe(true);
+    expect((await this.state()).mode, 'the swap key at the altar did not pause the hall on its list').toBe('paused');
+    await expect(this.page.locator('.altar-view .altar-panel'), 'the swap key at the altar did not open its list').toBeVisible();
   }
 
   /**
@@ -1366,6 +1405,7 @@ const needsOwnPage = (options: {
   hall: boolean;
   boss: string | null;
   waves: string | null;
+  rooms: string | null;
   hasTouch: boolean;
   isMobile: boolean;
   storageState: unknown;
@@ -1376,6 +1416,7 @@ const needsOwnPage = (options: {
   options.hall ||
   options.boss !== DEFAULT_BOSS ||
   options.waves !== DEFAULT_WAVES ||
+  options.rooms !== DEFAULT_ROOMS ||
   options.hasTouch ||
   options.isMobile ||
   options.storageState !== undefined ||
@@ -1383,7 +1424,7 @@ const needsOwnPage = (options: {
   options.viewport?.height !== 700;
 
 export const test = base.extend<
-  { seeds: number[]; isolate: boolean; hall: boolean; boss: string | null; waves: string | null; game: Game },
+  { seeds: number[]; isolate: boolean; hall: boolean; boss: string | null; waves: string | null; rooms: string | null; game: Game },
   { pool: Pool }
 >({
   seeds: [DEFAULT_SEEDS, { option: true }],
@@ -1402,6 +1443,8 @@ export const test = base.extend<
   boss: [DEFAULT_BOSS as string | null, { option: true }],
   /** Plan 022 (D14): the `?waves=` link the page boots with; `null` boots with the later waves dealt, and such a scenario has its own page. */
   waves: [DEFAULT_WAVES as string | null, { option: true }],
+  /** Plan 025 Stage F: the `?rooms=` link the page boots with; `null` boots with the chambers furnished and the new doors dealt, and such a scenario has its own page. */
+  rooms: [DEFAULT_ROOMS as string | null, { option: true }],
   pool: [
     async ({ browser }, runWorker) => {
       const pool = new Pool(browser);
@@ -1414,12 +1457,12 @@ export const test = base.extend<
   // the two have to be the same object. A scenario that needs its own gets a context built here from
   // the options it asked for; the rest are handed the worker's.
   page: async (
-    { browser, pool, isolate, hall, boss, waves, hasTouch, isMobile, storageState, viewport },
+    { browser, pool, isolate, hall, boss, waves, rooms, hasTouch, isMobile, storageState, viewport },
     runTest,
     info,
   ) => {
     if (
-      !needsOwnPage({ isolate, hall, boss, waves, hasTouch, isMobile, storageState, viewport })
+      !needsOwnPage({ isolate, hall, boss, waves, rooms, hasTouch, isMobile, storageState, viewport })
     ) {
       const pooled = await pool.take(info);
       pool.adopted = false;
@@ -1442,7 +1485,7 @@ export const test = base.extend<
   },
   // Named `runTest`, not `use`: a bare `use` reads as a React hook to the linter.
   game: async (
-    { page, pool, seeds, isolate, hall, boss, waves, hasTouch, isMobile, storageState, viewport },
+    { page, pool, seeds, isolate, hall, boss, waves, rooms, hasTouch, isMobile, storageState, viewport },
     runTest,
     info,
   ) => {
@@ -1451,13 +1494,14 @@ export const test = base.extend<
       hall,
       boss,
       waves,
+      rooms,
       hasTouch,
       isMobile,
       storageState,
       viewport,
     });
     const game = own
-      ? await Game.open(page, info, seeds, true, hall, boss, waves)
+      ? await Game.open(page, info, seeds, true, hall, boss, waves, rooms)
       : await Game.adopt(page, info, seeds, pool);
     await runTest(game);
     if (!own) await game.prove(pool);

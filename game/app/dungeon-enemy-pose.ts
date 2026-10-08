@@ -28,7 +28,7 @@ export type EnemyPose = {
  * ordinary kind, which has the one attack and the one style, is not asked.
  */
 export const poseStyleOf = (kind: EnemyKind, attack: Attack | null): PoseStyle =>
-  attack === 'sweep' ? 'spin' : attack === 'pounce' ? 'pounce' : attack === 'volley' ? 'draw' : attack === 'summon' || attack === 'scatter' ? 'channel' : BESTIARY[kind].look.pose;
+  attack === 'sweep' ? 'spin' : attack === 'pounce' ? 'pounce' : attack === 'volley' ? 'draw' : attack === 'summon' || attack === 'scatter' || attack === 'veil' ? 'channel' : BESTIARY[kind].look.pose;
 
 export function enemyPose(kind: EnemyKind, windup: number, tell: number, cooldown: number, lunge: number, attackAge = Infinity, styled: PoseStyle = BESTIARY[kind].look.pose): EnemyPose {
   // `stalker` and `warden` name the two bodies these styles were drawn for; any kind wearing the style moves the same way.

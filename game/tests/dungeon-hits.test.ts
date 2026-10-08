@@ -151,7 +151,7 @@ test('a bolt deals BOSS_BOLT times its damage to a boss and its own damage to an
   const crossbow = weaponById('crossbow'), cells = floor(5, 5), at = { x: 2 * TILE, z: 2 * TILE }, from = { x: 1, z: 0 };
   const bosses = [...BOSS_POOL, FINAL_BOSS], ordinary = ENEMY_KINDS.filter(kind => !BESTIARY[kind].boss);
   assert.ok(bosses.length === 5 && bosses.every(kind => BESTIARY[kind].boss), 'precondition: five kinds are bosses');
-  assert.ok(ordinary.length === 9 && ordinary.includes('warden'), 'precondition: the rest are ordinary, the warden among them');
+  assert.ok(ordinary.length === 10 && ordinary.includes('warden'), 'precondition: the rest are ordinary, the warden among them');
   const bolt = boltBlow(crossbow, 9);
   for (const kind of bosses) {
     const struck = body(kind, { hp: 500 });

@@ -6116,3 +6116,507 @@ Moved to the next five beyond what was measured, none widened further: default e
 ## 2026-10-05 - Plan 024 Stage F: documents
 
 `GAME_OVERVIEW.md` (the pressure rule, a ranged body in every later wave, Grave Draught 2, the softer Pyre Mother and harder Bone King, the bots' numbers), the `plans/README.md` row for 024, this log and the plan's Evidence. Documents only: **the operator's playtest is not done** (five runs on a GPU: do rooms cost vitality, is a double threat readable, does the Draught still feel worth taking; the tide-mark question is moot). Open for the operator: D7's room-cost lines are not met (Stage E's stop rule) and want a decision on ordinary-enemy damage and on what heals between chambers.
+
+## 2026-10-07 - Plan 025 Stage A: quick fixes (D1, D4, D5, D7)
+
+### What was shipped
+
+- **D1, no minimap.** The corner `.floor-map` widget is gone, markup and CSS (the corner, the 720px and coarse-pointer rules, the mark scaling). The room graph is drawn only while the map is open (Tab, the pad's View, the pause menu's Floor map), from the fills and the knight's room the run kept while it was shut and hands over as it opens (`openMap`), since the imperative `#map-room-*` writes land on nothing when it is not mounted.
+- **D4, bodies and walls.** `canStand`/`moveOnFloor` take a radius; every enemy step, lunge, shove, crowd push, raise spot and harpoon drag passes `bodyRadius(kind)` = 0.32 x `look.scale`, **floored at the knight's 0.32** (deviation, below). A body already overlapping stone at its radius walks as a scale-1 body until clear. The pure `deathFall(position, facing, fallen, cells)` in `dungeon-floor.ts` tries the body's own way down, the opposite, then either side, then slides out to three units a quarter at a time, until the whole fallen footprint lies on floor; `startDeath(group, kind, cells)` measures that footprint off the landing pose (in the body's frame, at its scale) and asks it. The corpse snapshot reports its observed footprint corners. The balance sim passes the same radii (raise, drag, crowd).
+- **D5, boss bar.** Track 18px, name 20px, ticks 3px, `min(640px, calc(100% - 700px))` (300px at the suite's 1000px viewport, 580px at 1280, 640px from 1340). Below 900px it keeps today's size as well as its insets (deviation, below).
+- **D7, blood.** `texture.colorSpace = SRGBColorSpace`, and warmer, stronger reds (176,18,0 / 136,11,0 / 88,6,0, were 140,12,16 / 110,8,12 / 70,4,6), because the colour-space fix alone failed D7's own 15-degree rule.
+
+### Measurements
+
+Blood splat, d3d11 (local GPU), 2026-10-07, the gate of seed 0x1: a guard struck at (0,0), everyone parked out of view, the frame with the splat differenced against the same view before the blow; the splat is the changed pixels in its screen box that moved toward red (about 900-1,050 px). SwiftShader was not run; no reference frame was produced.
+
+| splat | mean rendered RGB | HSV hue (off red) | OKLCh L / C / h |
+| --- | --- | --- | --- |
+| before (no colour space) | 164, 45, 67 | 349 (11) | .486 / .154 / 14.9 |
+| sRGB, old reds | 94, 21, 44 | 341 (19) | .328 / .106 / 6.8 |
+| sRGB, new reds (shipped) | 121, 19, 42 | 347 (13) | .378 / .134 / 15.1 |
+| the floor under it | 31, 59, 82 | - | .34 / .053 / 246 |
+
+The plan's premise was half right: unencoded, the splat was lighter (L .49) but not greyer (C .154, more chromatic than either sRGB version); on screen it read pink. Read as sRGB, the old reds are dark enough to fall into the grade's shadow branch, whose teal lift adds blue and turns them crimson-magenta. `shots:compare --base HEAD` on d3d11 (96 s + 79 s) shows the minimap gone and the bigger bar; every scene also moves by sub-8 grain and water noise (about 33% of pixels, 2-4% above 8), and no scene puts a splat where it can be read, so the table above is the blood measurement.
+
+Pool-boss duels, `duel(kind, floor, policy, 100)`, before D4 (every radius 0.32) -> after:
+
+| policy, floor | Mother deaths / 100 | Mother median damage | Captain, Hound, Bastion deaths |
+| --- | --- | --- | --- |
+| default, 1 | 0 -> 1 | 54 -> 60 | 0, 0, 0 both |
+| default, 2 | 2 -> **18** | 68 -> 76 | 0, 0, 0 both |
+| skilled, 1 | 0 -> 0 | 57 -> 59 | 0, 0, 0 both |
+| skilled, 2 | 2 -> **11** | 72 -> 75.5 | 0, 0, 0 both |
+
+At 30 duels (the test's size) default floor 2 is 0 -> 4 and skilled floor 2 is 1 -> 3. Either radius site alone (her keep-away step, or the blow's shove) brings default floor 2 back to 0 of 30, so it is the Mother no longer backing to within 0.32 of the wall she was cornered against.
+
+Mother corpse in the running game (boss.spec, d3d11): staged 0.550 from a straight wall, facing the room; the corpse's footprint (about 4.2 x 2.5) lies wholly on floor, 0 of 2,601 samples over stone; with `fell` not handing `startDeath` the floor, 1,736 are.
+
+### Deviations from the plan
+
+- `bodyRadius` is never below 0.32. With the plain `0.32 * look.scale`, the stalker (.94), archer (.96) and rattler (.72) could stand within 0.32 of a wall, where `hasClearPath` (sampled at the knight's radius) finds no lane to them: the balance sim's knight stood on an archer until the timeout (seed 126707 floor 3, `balance-sim` "walking into a chamber that holds a bonecaller"), and four other sim tests went `stuck`.
+- `deathFall` takes the measured footprint (`Fallen`: x and z extents in the body's frame, scale applied) instead of `scale`: the extent differs by kind, not only by scale (the Mother lies -1.0..3.4 along her fall and -1.1..1.4 across; the Bastion's shield makes it about 5 across at 1.7), and prone kinds lie forwards. It tries the kind's own way first (forwards for the prone), which for the armoured is the plan's "backwards first". Big bodies in small chambers will slide visibly as they fall.
+- Below 900px the boss bar keeps today's 15px name and 10px track: a 20px name wraps at 360px and the bar ran into the vitality row (the phone scenario failed on it).
+- The combat fixture still places a staged body by the knight's 0.32 (a scale-aware placement refused special.spec's Flashpoint warden staging); a big body staged overlapping stone walks out of it by the overlap escape.
+- D7's second branch was taken (re-authored reds rather than exempting the splat from the grade), by the plan's own rule.
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- `tests/dungeon-fall.test.ts` (new): `deathFall` with a wall behind, a wall behind and in front (falls to a side without sliding), a corner (slides), the open floor; `moveOnFloor` at the Mother's 0.48; an overlapping body walking out; the Mother backing into a wall through `decideEnemy`; `startDeath` with the real Mother figure. **Planted: `deathFall` returns the backwards direction unchanged** -> the three wall cases and the figure fail on stray points (`the corpse lies over stone at 4.10,11.10 ...`). **Planted: `moveOnFloor` ignores the radius** -> `she stands 0.423 from the wall` and `she backed to 0.345 from the wall`. **Planted: no overlap escape** -> `she moved only to 0.200 from the wall`. **Planted: the keep-away step without the radius** -> `she backed to 0.345 from the wall`.
+- `tests/dungeon-blood.test.ts` (new): every splat wears an sRGB texture. **Planted: the `colorSpace` line dropped** -> `a blood splat's texture is read as no colour space, not sRGB`.
+- `controls.spec` (Tab): no `.floor-map` while playing, the graph drawn with every room while the map is open, gone again after. **Planted: the widget restored** -> `the corner minimap is still on the HUD`.
+- `ranged.spec` opens the map to read the cleared mark. **Planted: the clear's fill not kept** -> `and it is marked on the map as cleared` (received `#6a9995`).
+- `boss.spec` (the Captain's fight): the bar's track, name and tick sizes. **Planted: the track at 10px** -> `the boss bar is not the size plan 025 D5 set`.
+- `boss.spec` (new): the Mother killed 0.55 from a wall leaves her corpse on the floor; precondition that she stood within 0.6 of it. **Planted: `fell` calls `startDeath` without the floor** -> `her corpse lies over stone at -6.73,-4.04 ...`.
+- Re-pinned from measurements: the reaper's scripted-fight digest (`1e936e7d`, was `bbc7ada5`; every count unchanged; the other eight kinds unchanged), and the shield-bolt seeds 11 and 39 at 6 and 6 blocks (9 and 9 along knight-to-body; the pairs that differ over seeds 1-40 are 5, 7, 11, 14, 16, 19, 26, 28, 33, 39).
+
+### Gates
+
+- `npm run typecheck`: clean. `npm run lint`: clean.
+- `npm test`: 569 tests, 567 pass, **2 fail**: `balance-bosses` pool fairness and `balance-sim` dodge 0.5 seed 8 (both under Open).
+- PR-gate browser run (`--grep-invert "@capture|@nightly"`, d3d11, port 3100, one worker): 181 scenarios, 178 passed, 3 failed in 13.6 min. Fixed and re-run green (gameplay, special and boss specs: 44 passed): `gameplay.spec` clicked the removed corner map (now opens it from the pause menu's Floor map), and `special.spec`'s Flashpoint staging was refused by a scale-aware fixture (reverted, above). Not fixed: `quality.spec` "a keep too slow to hold steps down", whose comment says it needs a software rasteriser to step down; on d3d11 the GPU holds full quality. Stage A touches no quality code.
+- `npm run shots:compare -- --base HEAD` (d3d11) ran; see Measurements.
+
+### Open
+
+- **`balance-bosses` pool fairness is red** (default floor 2: the Mother 4 of 30 against the Captain 0). A real shift from D4, measured above; not loosened. Stage D (D3, the Mother moves) changes the same fight and must re-measure fairness anyway; the operator decides whether A waits for D or D re-tunes her.
+- ~~`balance-sim` "a tell is dodged or not once" is red~~ **Fixed (2026-10-08, below).** On dodge 0.5, seed 8 the Captain duel timed out: the sim knight walked +x and -x on alternate frames between two cells beside a brazier, and the Captain's `pursuitStep` flipped its tie-break with the knight's cell, so neither moved for 450 s.
+- **Hand-off to Stage D: the Mother's pool fairness stays red here, on purpose.** D4 alone moved her floor-2 duels (100 each): default 2 -> 18 deaths, skilled 2 -> 11, median damage 68 -> 76 and 72 -> 75.5; the Captain, Hound and Bastion stay at 0. Not re-tuned in Stage A: Stage D (D3, her movement) is rebased on this branch and re-measures and re-tunes her fairness.
+
+### 2026-10-08 - the sim livelock
+
+The decision that flipped was the balance sim's knight, not the game: his next step broke a tie in the flood (from the quarry's cell) by candidate order alone, so it went whichever way the quarry's cell said, and the Captain astride an edge flipped that cell every frame while pursuing the knight's own flipping cell. The tie now goes to the step nearer the quarry (or shrine, door, stair) itself, then to the order (`scripts/balance/sim.ts`). The game's `pursuitStep` was left alone: a Euclidean tie-break there was tried and does break the cycle too, but it changes every ordinary kind's pursuit (all nine scripted-fight digests and their counts moved, the stalker's lunges 104 -> 188), which is a gameplay change beyond this fix; a real knight does not flip cells every frame. New test in `tests/balance-sim.test.ts`: the dodge 0.5 Captain duel on seed 8 ends. **Planted: the old tie-break** -> `the duel hit its timeout after 480 s: the knight and the Captain locked each other in place`. The weak knight's lost-on-floor-3 seed in "a run report says what banking it would pay" moved from 3 (now lost on floor 2) to 4, assertions unchanged. `npm test`: 570, 569 pass; only the Mother's pool fairness is red.
+
+## 2026-10-08 - Plan 025 Stage D step 1: the Pyre Mother moves (D3), on top of Stage A
+
+The playtest's item 3: "The Pyre Mother was always in the corner." She used the archer's rule: inside `keepAway` (4) she backed straight away from the knight and let the walls stop her, and between 4 and `holdRange` (6) with a clear line she stood still, so she backed into a corner and stayed.
+
+### What was shipped
+
+- `dungeon-enemy.ts` (pure): `wallClearance` (distance to the nearest non-floor cell, capped at 3), `floorAhead`, `repositionTarget(enemy, knight, cells, away?)` (bearings round the knight at 4 to 6, on floor at least 1.5 from every wall with a clear line to him, the most open counted up to 2.5 less 0.05 a unit of the way round him; the best available when nothing qualifies), `routeStep` (a breadth-first route over the cells keeping cell centres 2.2 from the knight, so the way round him is the way taken) and `roamStep`. A body whose row says `repositions` (the Mother only) walks to the spot when cornered (inside `keepAway` with less than 1.5 of floor behind her) or when she has stood still for more than 2.5 s (holding, winding up and recovering all count; then a spot at least 2 from where she stood). `EnemyView.roam` / `EnemyIntent.roam` carry the still clock and the spot frame to frame. The archer keeps its cornering rule.
+- Phase two adds the veil step (`attack: 'veil'`, tell 0.5, damage 0, a ring at her feet; the rotation is volley, sweep, veil, scatter, scatter): when the tell runs out she stands at `repositionTarget` (at least 2 away), with no recovery after it. The game bursts at both spots and cuts her trails; the sim's bot never rolls a dodge against it.
+- Game and sim both reach all of it through `decideEnemy`, as with `pressure`. `dungeon-game.tsx` gained three lines (feed `roam` back; the veil burst). The combat fixture forgets a moved body's spot. `canStand` and `moveOnFloor` are untouched (Stage A owns them).
+- The sim reports `bossWall` (the boss's mean wall distance over a duel) and `balance:bosses` prints it (`wall`).
+
+### Measurements (on top of Stage A: `duel` from `scripts/balance/bosses.ts`, 30 duels each, sim, 2026-10-08)
+
+"Before" is Stage A's branch with the rule off (no `repositions`, no veil step); "after" is what ships (phase-one volleys at 9). Wall is the Mother's mean distance to the nearest wall over a duel (the new `wall` column).
+
+| Mother | floor | wall before | wall after | deaths before | deaths after | damage before | damage after |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| default | 1 | 1.06 | 2.15 | 0 | 0 | 61 | 41.5 |
+| skilled | 1 | 1.17 | 2.26 | 0 | 0 | 58 | 35 |
+| weak | 1 | 0.56 | 2.06 | 0 | 0 | 46 | 57 |
+| weak from 86% | 1 | 0.56 | 2.06 | 0 | 0 | 46 | 57 |
+| default | 2 | 1.18 | 2.15 | 3 | 1 | 75 | 46.5 |
+| skilled | 2 | 1.32 | 2.22 | 1 | 0 | 65.5 | 43 |
+| weak | 2 | 0.54 | 2.06 | 0 | 0 | 53 | 66 |
+| weak from 86% | 2 | 0.54 | 2.06 | 0 | 2 | 53 | 66 |
+
+The other pool bosses on Stage A (not touched by this change) killed no knight in any of these duels. Their damage to the default / skilled knight on floors 1 and 2: Captain 36 / 34 and 42 / 40, Hound 23.5 / 7 and 30 / 11, Bastion 32.5 / 22 and 38 / 25. Before Stage A the Mother's wall distance was 0.55 / 0.56 for the default knight; Stage A's wider body alone raised it to 1.06 / 1.18.
+
+- **Wall rise: not met on every row.** Default +1.09 on floor one but **+0.97 on floor two**; skilled +1.09 and **+0.90**; weak +1.50 and +1.52. Against the pre-Stage-A figure (0.55 / 0.56) the default knight's rise is +1.60 / +1.59. Most of the shortfall is Stage A's own lift.
+- Pool fairness (D9, plan 022 D12, plan 023 D7) holds for every knight on both floors. On Stage A alone the default knight failed it on floor two (3 deaths to the Mother, none to anyone else); Stage A's 100-duel hand-off had 18 in 100. After: default floor two 1 to none, and the weak knight from 86% on floor two 2 to none. Both are allowed, since the fewest is floored at one.
+- Tuning iterations (three allowed):
+  1. Phase-one volleys 8 -> 9, with the row's `stats.damage`. With the rule alone, the skilled knight lost 34 to her and 34 to the Captain on floor one, and `balance-bosses.test.ts` requires her to hurt most, strictly.
+  2. A bug fix, not a dial: `roamStep` moved her at the knight's radius, not her own `bodyRadius`. The table above is after the fix. She hurts most for both bots on both floors (41.5 against the Captain's 36, 46.5 against 42; skilled 35 against 34, 43 against 40). The skilled floor-one margin is one point.
+  3. Tried and reverted: `CLEAR_ENOUGH` 2.5 -> 3 (prefer the most open floor). Every wall row rose (default 2.24 / 2.30, skilled 2.28 / 2.29; skilled floor two +0.97 still short), but the weak knight from 86% died to her 3 times on floor two against none: fairness NOT met. So it ships at 2.5.
+- The veil step has no recovery after it. On the old base a first version with the usual 1.4 s recovery dropped her damage below the Captain's.
+
+### Runs and bands
+
+Not re-measured on this base. Under the operator's test budget, `balance:check`, the whole-run half of `balance:bosses` and the PR-gate browser subset did not run, so `bands.json` is Stage A's, unchanged. On the old base (5045a89, before Stage A, volleys at 8) the change kept every band but two floor-three ones (skilled 53.6 against a min of 55, special-fangs 59.2 against 60). Re-take `measured` once the stages are together.
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- `tests/dungeon-mother.test.ts`: "from a corner with the knight at 3 units, the spot she picks is at least 1.5 from every wall and 4 to 6 from the knight"; the walls are read off the room's box, not off `wallClearance`. **Planted: return the straight-away point:** `she picked -1.41, -1.41, -0.67 from a wall`.
+- Same file: cornered, she walks round to open floor and never comes within 2 of him, and the archer cornered the same way stays. **Planted: ignore `repositions`:** `after 4.5 s she stands 0.49 from a wall, at -0.25, -0.25`. **Planted: every body with `keepAway` repositions:** `the archer left the corner for 5.89, 1.97`.
+- Same file: held still for more than 2.5 s she moves, not before, at least 2 away. **Planted: the still clock never counts:** `she never moved in five seconds`.
+- Same file: below half, the veil step: a 0.5 s tell with no movement, then open floor 4 to 6 from the knight. **Planted: the veil leaves her where she stood:** `she stepped to 0.00, 0.00, 0.74 from a wall`.
+- Same file: the sim's mean wall distance over ten default duels is at least 1.55 (0.55 + 1). **Planted: ignore `repositions`:** `averaged over ten duels she stood 1.05 from a wall, not at least 2.06` (the bound is Stage A's 1.06 plus one).
+- `tests/dungeon-fixture.test.ts`: a body the fixture moves forgets its spot, and one it does not move keeps it. **Planted: the reset removed:** fails with its own message.
+- `tests/browser/boss.spec.ts` "the Pyre Mother moves": in the arena she is placed in a corner of the chamber with the knight 3 away (precondition: under 1 from a wall). Within 10 s she stands 1.5 clear of the walls and 4 to 6 from him; standing there she moves on at least 1.7; below half the veil tell is drawn as a ring, she does not move during it, and then she stands at least 1.7 away, on open floor 4 to 6 from him. **Planted in the game: `roam` not fed back:** `in ten seconds she never stood 1.5 clear of the walls and 4 to 6 from the knight`. **Planted: the game ignores the veil's position:** `the veil step ran out and she stood where she was`.
+- Changed on purpose: the rotation pins in `dungeon-mother.test.ts` (021 D7 allows move-list changes), the index of phase two's scatter in the browser scatter spec (`moves[1][2]` was the scatter; now looked up), and the weak knight's late-death seed in `balance-sim.test.ts` (2 -> 4: with the Mother moving, seed 2's knight no longer dies to a boss in the stair hall), and the escaped default run in `a run report says what banking it would pay` (3 -> 4: seed 3 no longer escapes on Stage A with the Mother moving). `tests/dungeon-enemy.test.ts` pins her row damage at 9; the special-policy batch in `dungeon-special.test.ts` moved to seed 4 too (seed 3's Tideblade knight now dies); Stage A's `dungeon-fall.test.ts` "the Mother backing away ... stopped by the wall at her own radius" now stages a 3 by 3 chamber, where she has no spot to walk to and still backs straight (in a 6 by 6 she walks round instead, so its precondition no longer held).
+
+Open for the operator: play `?arena=mother:1` (and her in a stair hall) before the per-boss D11 sub-stages start.
+
+## 2026-10-07 - Plan 025 Stage B: step 1 (light sources per chamber), stop rule hit
+
+**Stop rule hit; Stage B stopped after step 1.** 78% of chambers need more than the 8 pooled lights (maximum 23: 2 braziers, 18 sconces, 3 doors). Thinning to fit cuts the keep's sconces from 7.6 to 4.2 a chamber (a 45% cut that undoes plan 014 rounds 3 and 5), and leaves a wall with no sconce in 1257 of 2598 chambers counting wall segments, or in 106 counting whole sides. Only the most generous reading passes: "a wall" means a side *and* open doors do not count against the set, and D6 counts them. Nothing past step 1 was built: no `chamberLights`, no door lights, no sigil, label, camera or notice changes. D2 (b) bigger sigils with a floating label, (c) the camera ease and (d) the truthful clear notice do not use the pool and could land on their own if the plan is re-cut. The options a re-decision could choose between: thin and accept bare segments; keep the sconces and paint their pools with `litDisc` so only braziers and doors take real lights; take doors out of the set; count per side; or (out of scope here) grow the pool. Floor-1 point lights: **9**, unchanged (4 torches + 4 anchors + the fill; `frame-budget.spec.ts`'s pin passes), the same as the "Light cap" figure.
+
+| Floor | Chambers | Braziers mean/max | Sconces mean/max | Bounces mean/max | Doors mean/max | Braziers+sconces+doors mean/max | Over 8 | Slots left for sconces (mean) | A side left dark | A wall line left dark |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 767 | 1.8 / 2 | 7.7 / 16 | 0.3 / 6 | 1.8 / 3 | 11.2 / 21 | 605 (79%) | 4.5 | 30 | 372 |
+| 2 | 862 | 1.7 / 2 | 7.5 / 17 | 0.3 / 6 | 1.8 / 3 | 11.1 / 21 | 658 (76%) | 4.5 | 32 | 412 |
+| 3 | 969 | 1.7 / 2 | 7.6 / 18 | 0.2 / 6 | 1.8 / 3 | 11.2 / 23 | 752 (78%) | 4.4 | 44 | 473 |
+| all | 2598 | 1.7 / 2 | 7.6 / 18 | 0.3 / 6 | 1.8 / 3 | 11.1 / 23 | 2015 (78%) | 4.5 | 106 | 1257 |
+
+Counted on 2026-10-07 in the running game (d3d11), not in node: the wall sconces are placed by the atmosphere pass (a tile hash gated on wall height and on `headroom`, which reads its own random stream), so only the scene knows where they are. The corpus is the generator tests' 40 seeds (`(i + 1) * 7919`) on floors 1, 2 and 3: `dungeonTest.buildFloor(level, seed)`, then `render_game_to_text().lights.sources` (new, see below) grouped by `room`, with doors counted off `generateFloor(seed, level).doors` by `from`. Every tile belongs to a chamber (plan 017), so every source has one. "A side left dark": thinning sconces to the slots left after the braziers and the doors (8 - braziers - doors, never fewer than 3) cannot keep one sconce on each face direction that carries one today. "A wall line": the same per straight wall segment (face direction plus the line it stands on).
+
+What landed is the measuring hook only, so the count can be re-run: `LightAnchor` carries `room`, `kind` (`sconce` or `bounce`) and, on a wall sconce, `wall`; the atmosphere returns `torchRooms` beside `torchPositions`; `render_game_to_text().lights.sources` lists them. Nothing reads these in the game, and placement, the random stream and the light pool are unchanged. Gates: typecheck, lint, `npm test` (560/560), `frame-budget.spec.ts` (16/16, d3d11). The PR-gate browser run was not run: nothing behavioural changed and the machine is shared.
+
+## 2026-10-07 - Plan 025 Stage B: lights that stay on, doors that tell you (amended D6)
+
+**Resumed under the amended D6 (2026-10-07).** The coordinator amended D6 after the count above: no thinning and no bigger pool. Every sconce paints a constant pool on the floor (`litDisc`), and the 8 real lights go by `chamberLights` to braziers, then open doors, then the sconces nearest the chamber's centre. D2 (a)-(d) were then built as written.
+
+What landed:
+- `app/dungeon-lights.ts` (pure, node-tested):
+  - `chamberLights(chamber)`: only this chamber's sources, at most `LIGHT_POOL` 8, in this order: braziers, open doors, sconces nearest the heart, water bounces nearest the heart. Nothing in it depends on where the knight stands.
+  - `assignSlots`: a source already lit keeps its slot.
+  - `fadeSlot`: a swap is 0.15 s down and 0.15 s up, 0.3 s in all.
+  - `glanceWeight`: GLANCE_SPAN 0.8 s, GLANCE_PULL 0.55.
+- The world (`dungeon-game.tsx`):
+  - The pool is 8 generic point lights instead of 4 torches and 4 anchors. They are re-chosen only when the knight changes chamber or his chamber opens. A new floor snaps them on.
+  - The borrowed flare light (`borrowedLight`) now takes an idle slot, or else the slot holding the chamber's least light. It accepts bids only from inside the knight's chamber; before, a firing grate two chambers away could take it.
+- Sconce pools (`dungeon-atmosphere.ts`): one merged mesh per chamber, radius 2.3, 16 sides, pool 0.2, only the knight's chamber drawn.
+  - The material is made like the impact ring's `hit-ground-v1` (same key and falloff, front side only), so it links no shader of its own.
+  - No wall wash: it was not cheap enough to share a program.
+- Doors:
+  - D2 (a): each open door gets a light in its tint: intensity 12, distance 7, y 1.6, a quarter tile out from the ring.
+  - D2 (b): sigils at `SIGIL_SCALE` 2.5. A floating name sprite (Mending, Purse, Shrine, Stair, Fight, Way down) shows over each door once the chamber is open and nobody in it stands.
+  - D2 (c): the camera glances at the open doors' centroid on a clear.
+  - D2 (d): the notice reads "Choose your reward: Mending · Purse", or "Your reward: X" when only one door pays. The HUD now drops only the chamber name, so the list survives.
+  - Reduced motion turns off the glance, the bob and the spin.
+
+Measurements (d3d11, 2026-10-07, against 5045a89 on d3d11):
+
+| What | Before | After |
+| --- | --- | --- |
+| Point lights, floor 1 / after floors 2, 3, 1 / the hall | 9 / 9 / 9 | 9 / 9 / 9 |
+| Linked programs, floor 1 / after floors 2, 3, 1 / the hall | 83 / 84 / 84 | 83 / 84 / 84 |
+| Draw calls, every fight scene in `frame-budget.spec.ts` | | +1 (the chamber's pools; labels hide while bodies stand) |
+| Draw calls, widest chamber / strike contact / the hall (drawn open) | | +2 / +3 / +2 (labels) |
+| Triangles | | +96 to +192 a scene (16 a disc) |
+| Clear glance, seed 0x1 chamber 1 | knight 5.23 from the doors | camera focus 2.64 from them at the glance's height |
+
+- **Budget ceilings:** raised by these deltas, not to the d3d11 figures, because d3d11 and SwiftShader disagree by up to 13 calls on some scenes.
+- **The 508:** `caller-chamber` goes to 509 calls (d3d11 reads 505). It is a dev-arena scene, but it is the 508 ceiling the other scenes are held under, so it is flagged here for the owner.
+- **Not verified on SwiftShader:** the new ceilings on CI's renderer.
+- **Not played:** the visual weight of the pools (pool 0.2) was looked at in two d3d11 screenshots only.
+
+Tests and planted bugs (each restored; each failed with its own message):
+- `tests/dungeon-lights.test.ts` (node, the generator's 40 seeds on floors 1-3):
+  - Plant: nearest to the knight (at the heart) across every chamber. Fails with "open door door:0 has no light".
+  - Plant: drop the room filter. Fails with "brazier:4 belongs to chamber 1".
+  - Plant: farthest sconces kept. Fails with "a sconce nearer the heart was left dark".
+  - Plant: `assignSlots` clears every slot. Fails with "an empty pool did not fill its slots in priority order".
+  - Plant: a swap without the fade-out. Fails with "the old light was dropped without fading out".
+  - Plant: a glance that jumps. Fails with "the glance never reached the doors".
+- `tests/browser/door-lights.spec.ts` (one story):
+  - Plant: assign by distance across the floor. Fails with "open door 2 (cache) has no light over it".
+  - Plant: assign by distance inside the chamber, re-chosen every frame. Fails with "the lights moved as the knight walked".
+  - Plant: skip the discs. Fails with "paints no pool".
+  - Plant: the old notice. Fails with "toContainText".
+  - Plant: no glance. Fails with "the camera did not ease towards the open doors".
+  - Plant: reduced motion ignored for the bob. Fails with "sigil bobs under reduced motion".
+  - Plant: reduced motion ignored for the glance. Fails with "reduced motion still glanced".
+  - Plant: no door sources. Fails with "has no light over it".
+  - Plant: no label. Fails with "has no floating label".
+  - Plant: the old sigil size. Fails with "the old size".
+  - Plant: the pools double-sided with `forceSinglePass`, a program of their own. Fails with "the painted pools linked a shader program of their own". The first form of this check (program count before and after the story) survived this plant, because the pools compile at the floor build; it was replaced by the program-holder check.
+- `tests/browser/frame-budget.spec.ts`: ceilings raised as above; the light-count pin and the program pin pass.
+- **A stale flare bid** (found by the interrupted gate run, `combat.spec.ts` "a lethal gauntlet ends the tick"): a frame that ends early on the knight's death never settles its bids, so the next frame on the reset floor lent the last pool slot to the old floor's firing grate and the pooled-reset guard caught it in `lights.pool`. `borrowedLight.clear()` now runs on every floor build. Planted (the clear removed): the guard fails with its own message; restored: passes.
+- **Runs:** typecheck, lint, `npm test` 564/564, `door-lights.spec.ts` + `frame-budget.spec.ts` 17/17 (d3d11), and `combat.spec.ts:612` alone. One full PR-gate run on d3d11 earlier in the stage, before the last three changes (front-side pools, the program-holder check, the bid clear), went 179 passed, 2 failed. `quality.spec.ts:18` (the governor) fails the same way at 5045a89 on d3d11, because it needs a software rasteriser. `gameplay.spec.ts:189` passed when re-run alone. A second gate run was stopped by the operator at 101/181 with the one failure above. **Not run after the final changes: the rest of the PR-gate subset**, which CI will run.
+
+**Light cap:** floor 1 still draws with 9 point lights (the figure above), and links 83 programs, the same as before.
+
+## 2026-10-07 - Plan 025 Stage C: the altar hall as a shop (D8)
+
+The Tide Altar's hall is the shop (D8, settled by the operator 2026-10-07). D9's in-run arm reward is Stage F and is not here. **The operator has not
+played the hall yet; plan 025 asks for that verdict before this merges.**
+
+### What changed
+
+- **Every arm on its rack.** The hall lays all seven slots of `gateRacks` but the arm in hand, owned or not. An unowned arm stands as a silhouette (the
+  arm baked in one dark stone, glow and ring cooled) with its price on a plaque, which burns when the purse covers it and is dimmed when it does not.
+  Standing in a rack's ring shows a card (`RackCard`: damage in blows, reach or range, swings a second, special, locked price or Owned).
+- **Try before buy.** The swap key at a locked rack takes the arm into the hand, in the hall only (`canTry`); it swings like any other. The arm set down
+  goes on that slot, as plan 019's racks always did. The way down refuses a tried arm (`settleArm` / `armForRun`): the run takes the owned arm he last
+  held, and the save never gains the tried one. The way-down prompt says so ("Into the keep with the Twin Fangs; the Salt Spear is only tried, and stays").
+- **Hold to buy.** One press of the swap key held `BUY_HOLD` (0.6 s) on one target buys it once (`holdStep`): the arm tried in hand, or the shrine under
+  the knight. A press that starts off a target or moves to another is spent until released, and a long hold never buys a second rank. The key's press at
+  a locked rack tries the arm at once, so one hold there is try-then-buy. A fill ring on the prompt (`--fill`, from the frame loop), a chime, ten pearls
+  flown from the altar to what was bought (one instanced draw, a fixed arc each), a pearl burst where they land, and the counter ticking down. A hold on
+  something the purse cannot cover fills nothing, knocks (`refuse`), and the prompt says how many pearls short.
+- **Upgrade shrines.** `hallShrines(floor)` (dungeon-floor.ts, pure, no draws) seats four on the hall's corners, clear of every rack ring, the altar, the
+  way in, the way down, every prop and each other; the decor layout reserves them as it does the rack slots. Each shrine: a plinth, a crystal that burns
+  when the next rank is affordable, a notch per rank lit for each rank held, a ring, and the next rank's price on a plaque.
+- **The pearl counter** (`HallPurse`) sits in the HUD in the hall only; it ticks to a new balance and pulses three times on arriving when the run just
+  banked put something newly in reach (`newlyAffordable` against the save before the bank).
+- **The dialog is a pause-card page.** The overlay, `altarOpen`, `closeAltar` and the `shop-close` command are gone. The hall's pause menu has "The
+  altar's list"; the altar's swap key opens the pause card on that page. Resuming re-lays the racks and shrines from whatever the list bought.
+- **Touch.** The prompt is pressed and held like the key (`hold-swap` / `release-swap`), so a phone can hold it to buy; the list stays the touch fallback.
+- Pure rules in `dungeon-meta.ts`: `BUY_HOLD`, `holdStep`, `holdFill`, `shopItem`, `buyItem`, `affordable`, `newlyAffordable`, `canTry`, `armForRun`,
+  `settleArm`, `armFacts`, `sameMeta`. The hall's meshes are a kit in the new `dungeon-hall.ts`, built with the hall and released with its floor. No light was
+  added (Stage B owns the pool); everything that glows is unlit or emissive.
+- **A latent bug in the altar's list, fixed.** `buy` compared the save it read back with the one it wrote by `JSON.stringify`; the save keeps upgrades in
+  the table's order, so buying Second Tide before Deep Lungs reported a working save as "could not be saved". `sameMeta` compares what the saves hold.
+
+### Measurements (d3d11, 2026-10-07)
+
+- Hall draw calls with the hall test's save (spear and maul owned, Tideblade in hand), framed from the way in: **212 calls, 114,368 triangles, 79 shadow
+  calls before; 255 calls, 118,196 triangles, 91 shadow calls after** (six racks, four of them locked with plaques, four shrines). 253 under the 508 the
+  frame budget holds the keep's worst chamber to. `tests/browser/hall.spec.ts` holds the hall between 212 (exclusive) and 255.
+- The frame budget's hall scene (`frame-budget.spec.ts`, the whole armoury) had no bare hall left to difference against, so it is now the hall with nothing
+  owned against the hall with everything owned, from the same stand: **nothing owned 283 calls, 120,605 triangles, 86 shadow calls; all owned 310 /
+  120,587 / 104**. Plan 020's six racks were 289 / 119,695 / 100 (SwiftShader), so the whole armoury costs +21 calls (the shrines), 198 under the 508.
+  Planted: locked racks in the knight's palette ("locked hall draws more often than measured").
+- `npm run figures` was not run: the bench lists figures, not racks or shrines, so it shows nothing this stage drew.
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- Node (`tests/dungeon-meta.test.ts`): hold duration (never on the press, once at BUY_HOLD, once however long, spent on a retarget), shop item prices and
+  shortfall, the rank cap, affordability and what a bank newly puts in reach, "a tried arm is not owned" (`canTry`, `armForRun`, `settleArm`), the rack
+  card's numbers, `sameMeta`. Planted: buy on the press ("the press itself bought"); lock whatever is in hand ("the run takes the arm tried"); no latch ("a
+  long hold bought more than once"); no rank cap ("at the top rank there is still a price"); affordability ignoring the purse; JSON in `sameMeta` ("the
+  same ranks in another order are not the same save").
+- Node (`tests/dungeon-floor.test.ts`): the shrines' spacing over the hall and a 60-hall sweep, and that seating them draws nothing. Planted: ignore the
+  rack spacing ("hall 1 shrine at 2,4: one ring could hold it and the cleaver rack").
+- Browser (`hall.spec.ts`, new scenario, real keyboard): a shrine bought by a hold exactly once, a locked arm tried and bought by one hold, a too-dear arm
+  tried and refused, and the way down taking the owned arm. Planted: buy on keydown ("the press bought before the hold had run"); lock whatever is in hand
+  ("the run did not start with the owned arm he last held (the Twin Fangs), with the spear only tried"); `enter()` not re-laying the shrines ("the Second
+  Tide shrine does not show the rank the save holds").
+- Browser (`meta.spec.ts`, new scenario): the counter pulses on the return when the bank put the Twin Fangs in reach, and a hall raised without a bank does
+  not. Planted: no memory of the bank ("the hall did not find what the bank put newly in reach").
+- Browser (`hall.spec.ts`, the altar scenario): the list's purchase is on the shrine when the hall resumes. Planted: no re-lay on resume ("the list's
+  purchase is not on the Deep Lungs shrine").
+- Updated for the new truth, not loosened: armoury, loading, meta, a11y and death specs read the owned racks among the locked ones, the pause card's list,
+  and six racks in the sliced-against-synchronous hall. One threshold moved: the 360 x 740 phone check allows half a pixel on a row's bottom edge (a row
+  scrolled flush with the edge measured 740.016 on the pause card; a cut-off row is many pixels over).
+
+### Gates
+
+- `npm run typecheck`: clean. `npm run lint`: clean. `npm test`: 569 passed, 0 failed.
+- PR-gate browser run (`GAME_TEST_GL=d3d11`, one worker, port 3300, `--grep-invert "@capture|@nightly"`): **174 passed, 8 failed** (14.5 min on a shared
+  machine). Seven were scenarios I had not updated that read the hall's racks by index or expected only owned arms on racks (controls pad X, the frame
+  budget's hall, models actorStats and teardown, special harpoon swap and swap-back, weapon rack offer); all seven updated and those five spec files re-run:
+  **51 passed**. The eighth, `quality.spec.ts` (the governor stepping down on "a software rasteriser"), never left full quality: on d3d11 the GPU holds
+  the frame, so there is nothing to step down from. It is a floor-one scenario this stage does not touch, and it needs SwiftShader; not re-run.
+
+Screenshots (d3d11, not committed; `output/**/*.png` is ignored): `output/plan-025/hall-shop-overview-d3d11.png`, `hall-shop-rack-d3d11.png`,
+`hall-shop-shrine-hold-d3d11.png`.
+
+## 2026-10-08 - Plan 025 integration (Stages A, B, C, D step 1 on one branch)
+
+`feat/p025-integration`: Stage D (which is rebased on Stage A), then Stage B, then Stage C merged in. Conflicts: the floor-reset line in `dungeon-game.tsx` (both resets kept: the map fills from A, the glance and ember reset from B), the `dungeon-floor` import (A's `bodyRadius` and C's `hallShrines`), the hall ceilings in `frame-budget.spec.ts`, and the appended sections of this log and the plan (both kept).
+
+- Hall ceilings: Stage C's figures plus Stage B's measured delta (+2 calls, +146 triangles). The merged branch measured exactly that on d3d11: nothing owned 285 calls / 120,751 triangles / 86 shadow calls, everything owned 312 / 120,733 / 104.
+- Gates run (the operator asked for a small test budget): typecheck clean, lint clean, `npm test` 589/589, `frame-budget.spec.ts` hall scenario 1/1 (d3d11, one worker).
+- Not run: the PR-gate browser subset, `balance:check`, the whole-run half of `balance:bosses`, SwiftShader. CI is the first full run. `quality.spec.ts` is expected to fail on d3d11 (it needs a software rasteriser); that failure is on the base commit too.
+- Owed: the operator's play of the hall (Stage C) and of `?arena=mother:1` (Stage D), and the bands re-taken once these land.
+
+## 2026-10-07 - The operator's playtest, recorded as the evidence for plans 021-024 (plan 025 Stage E step 1)
+
+The operator played a full descent on a real GPU on 2026-10-07 and reported eleven things; plan 025's Why quotes them and its decision table answers them. This is the playtest that plans 021 (Stage H), 022 (Stage G), 023 (Stage F) and 024 (Stage F) were each left waiting for. It was one descent, won on the first try, and no run log was copied, so it answers some of each plan's questions and leaves the rest open. What it answers, plan by plan:
+
+| Plan, stage | Its questions | What the playtest says | Answered by |
+| --- | --- | --- | --- |
+| 021 Stage H (bosses) | each move reads? the phase change reads? the bar helps or clutters? fair when it kills you? D4, D7, D9 re-decided | "All bosses felt quite similar" (8); "The Pyre Mother was always in the corner" (3); "Her corpse ended in the wall" (4); "The boss bar could be bigger" (5). No boss killed the operator, so "fair when it kills you" was not reached; the moves and phase changes were not reported as unreadable. | 025 D3 (the Mother moves, Stage D step 1), D4 (bodies and walls, Stage A), D5 (the bar, Stage A), D11 (one mechanic each and a 25% phase, Stage D step 2, open). D4 (the five bosses) and D9 (targets) stand; D7 ("HP and damage are the dials") is re-decided by D11. |
+| 022 Stage G (waves, elites, attrition) | chambers feel different? a wave reads? an elite told apart? the mend door a real choice? a run too long? D2, D7, D10, D13 re-decided | "All rooms still feel quite similar" (10); "When I win the room, I do not understand which room to take" (2); won every floor first try (8). Waves, elites and run length were not reported on. | 025 D2 (doors that tell you, Stage B), D10 (ordinary enemies hit harder, Stage E), D12 (props and new kinds, Stages F and G, open). D10 of 022 (no heal on clear) stands: the operator chose not to change healing (025 D10). |
+| 023 Stage F (pearls, crossbow, rooms that hurt) | rooms cost vitality? a mend door needed? the shop's pace? the crossbow beats a boss? | Rooms do not cost enough (8); "Spending pearls is a boring dialog; improve the UX x10" (9); "I do not understand the weapon system... I should be able to choose" (11). The crossbow and the shop's pace were not reported on. | 025 D8 (the altar hall as a shop, Stage C), D9 (rare arms in a run, Stage F, open), D10 (Stage E). |
+| 024 Stage F (rooms that threaten) | rooms cost vitality? a double threat readable? the Draught still worth taking? | Rooms do not cost enough (8), which agrees with the bots (the default knight enters floor one's stair hall at 100%, 1.73 ordinary damage a chamber against a target of 6). The double threat and the Draught were not reported on. Tide marks were skipped (024 D5). | 025 D10: the operator settled 024's open damage decision on 2026-10-07 (ordinary damage, starting at x1.5; healing between chambers unchanged). |
+
+Still open from those plans after this playtest: whether a wave's arrival and an elite read (022), whether the crossbow can beat a boss and the shop's pace (023), whether a double threat reads and the Draught is worth taking (024), and every "did it feel fair when it killed you" (021). The next playtest should copy the run log (`bossKinds`, `chambers`, `pearls`) so the bots' numbers can be held against a person's.
+
+## 2026-10-08 - Plan 025 Stage E: harder rooms (D10)
+
+Branch `feat/p025-e-harder-rooms`, on `feat/p025-integration` (Stages A, B, C and D step 1). Step 1 (the playtest record and the `plans/README.md` rows for 021-024) is the entry above.
+
+### What was shipped
+
+- `ORDINARY_DAMAGE = 1.5` and `damageScale(kind, ordinary)` in `dungeon-enemy.ts`, beside `FLOOR_DAMAGE` and `damageStep`: `enemyStats` multiplies the bestiary's `stats.damage` by it for every ordinary kind (1 for a boss) before the floor step and before the one rounding `scaledDamage` does. Everything that builds a body reads `enemyStats` (`eliteStats`, so the game's `spawnEnemy` and the sim's bodies; `strikeDamage`'s ordinary branch; archer and pyre bolts carry the body's damage), so this is one dial and not a per-kind edit. A boss's blow is its move row through `scaledDamage(doing.damage, level)` and is untouched.
+- Floor-one blows: guard 12 -> 18, stalker 8 -> 12, warden 20 -> 30, archer and shieldbearer 10 -> 15, reaper 18 -> 27, pyre 8 -> 12, rattler 5 -> 8 (the bonecaller deals none). Floor three: guard 23, stalker 16, warden 39.
+- **Not scaled:** the fire a pyre or a volatile elite leaves (`deathPool`, 8 a bite; it is not a blow, and `ordinaryDamagePerChamber` counts blows and bolts only), and healing between chambers (unchanged, as D10 says).
+- **Reaches the King's fight:** the rattlers the Bone King raises are an ordinary kind, so they hit 8 instead of 5 there too. The pool bosses raise nothing, so their duels cannot change; `balance:bosses` was not run (see Runs).
+- `scripts/balance/check.ts` also prints what `summarise` measures without a band (stair-hall vitality, the share of deaths before the stair hall), and `-- --summary` prints every policy's summary as one unrounded JSON line, so the bands are re-taken from the run that was checked. Reporting only; nothing it compares changed.
+
+### Measured (node sim, 30 runs a policy from seed 1, `balance:check`'s own; 2026-10-08)
+
+The before is a run at `ORDINARY_DAMAGE = 1` on this same tree, and the after is the run at 1.5. The x1 run was made before `feat/p025-integration` gained CI's re-take of Stages A-D (`5022286`); the two agree on every metric of all ten policies (CI's ordinary damage is rounded to one place), so it doubles as a check that the local sim matches CI's. Plan 024's sweep on the old base (x1.5 gave the default knight 43.3%) does not hold here: Stages A-D had made the default knight escape 76.7% (over D10's 50-75), so x1.5 lands it at 63.3, inside the band, and **no step toward x1.25 was needed**.
+
+| policy | escape % | deaths f1 / f2 / f3 (% of arrivals) | deaths before the stair hall | median vitality entering the stair hall f1 / f2 / f3 | ordinaryDamagePerChamber f1 / f2 / f3 | median pearls |
+| --- | --- | --- | --- | --- | --- | --- |
+| default | 76.7 -> **63.3** | 0 / 0 / 23.3 -> 0 / 3.3 / 34.5 | 0 of 7 -> 3 of 11 (27.3%) | 100 / 98.3 / 96.4 -> **100** / 94.4 / 90.7 | 1.79 / 4.85 / 7.46 -> **2.71** / 7.44 / 11.82 | 106.5 -> 106.5 |
+| skilled | 83.3 -> **76.7** | 0 / 0 / 16.7 -> 0 / 0 / 23.3 | 0 of 5 -> 1 of 7 (14.3%) | 100 / 100 / 98.5 -> 100 / 100 / 95.3 | 1.04 / 2.18 / 4.13 -> 1.56 / 3.37 / 6.46 | 107 -> 106.5 |
+| weak | 0 -> **0** | 20 / 54.2 / 100 -> 43.3 / 88.2 / 100 | 19 of 30 (63.3%) -> 21 of 30 (70%) | 82.4 / 59.2 / 31.2 -> 73.6 / 60 / - | 8.6 / 16.74 / 25.32 -> 12.61 / 24.46 / 41.5 | 30.5 -> 25 |
+| special | 86.7 -> 80 | 0 / 0 / 13.3 -> 0 / 0 / 20 | 0% -> 16.7% | 100 / 99.2 / 95.2 -> 100 / 96 / 92 | 1.48 / 3.81 / 5.82 -> 2.24 / 5.91 / 9.22 | 107 -> 106.5 |
+| special-fangs | 96.7 -> 90 | 0 / 0 / 3.3 -> 0 / 0 / 10 | 0% -> 66.7% | 100 / 97.2 / 92.8 -> 100 / 91.2 / 85.2 | 1.66 / 3.87 / 5.72 -> 2.5 / 5.91 / 9.13 | 108 -> 107.5 |
+| special-cleaver | 70 -> 53.3 | 0 / 0 / 30 -> 3.3 / 3.4 / 42.9 | 0% -> 21.4% | 100 / 97.8 / 98.4 -> 100 / 92.4 / 88.4 | 2.37 / 5.17 / 7.53 -> 3.6 / 7.79 / 11.76 | 106 -> 103 |
+| special-crossbow | 16.7 -> 10 | 0 / 26.7 / 77.3 -> 0 / 43.3 / 82.4 | 84% -> 88.9% | 100 / 100 / 92 -> 100 / 100 / 41.2 | 1.02 / 11.9 / 18.31 -> 1.53 / 15.77 / 23.81 | 55 -> 50.5 |
+| special-flask | 56.7 -> 43.3 | 0 / 0 / 43.3 -> 0 / 3.3 / 55.2 | 0% -> 17.6% | 100 / 99.6 / 91.2 -> 100 / 95.2 / 80.7 | 1.75 / 5.21 / 7.1 -> 2.62 / 7.81 / 11.27 | 104 -> 72.5 |
+| meta-max | 100 -> 93.3 | 0 / 0 / 0 -> 0 / 0 / 6.7 | none -> 0% | 100 / 100 / 96.5 -> 100 / 95.5 / 91.1 | 1.43 / 4.8 / 6.38 -> 2.18 / 7.35 / 10.11 | 108 -> 107 |
+| weak-meta-max | 23.3 -> **0** | 0 / 0 / 76.7 -> 0 / 33.3 / 100 | 21.7% -> 86.7% | 88.9 / 62.4 / 51.6 -> 78.9 / 38.1 / 12.8 | 6.94 / 15.9 / 24.45 -> 10.59 / 23.89 / 44.93 | 67 -> 51.5 |
+
+Death counts are derived from the rates (no run was `stuck`). The stop rule (weak above 20% or skilled below 75%) did **not** trip, but the skilled knight is one run of 30 above it (76.7).
+
+**Against plan 024 D7 (still the written targets):**
+
+| line | asks | x1 on this tree | x1.5 | |
+| --- | --- | --- | --- | --- |
+| default escape | 50-75 | 76.7 | 63.3 | met (D10's own line) |
+| skilled escape | 75-95 | 83.3 | 76.7 | met, one run from the stop line |
+| weak escape | 0-20 | 0 | 0 | met |
+| default deaths before the stair hall | at least a quarter | 0 of 7 | 3 of 11 (27.3%) | **met**, the first time since plan 022 |
+| default vitality entering floor one's stair hall | 50-85 | 100 | 100 | **NOT met** |
+| default ordinary damage a chamber, floor one | at least 6 | 1.79 | 2.71 | **NOT met** |
+| weak-meta-max over weak | at least 15 points | 23.3 | 0 | **NOT met**: the shop no longer rescues a never-dodging knight, which now dies on floor three in every run |
+| crossbow special over half the default | at least 0 points | 16.7 vs 38.4 | 10 vs 31.7 | **NOT met** (nor before) |
+| weak median pearls (plan 023 D2) | 30-55 | 30.5 | 25 | **NOT met** (it dies sooner) |
+
+So x1.5 moves the deaths, as plan 024's sweep predicted, but not floor one's room cost: the default knight still walks into floor one's stair hall at a median 100% and takes 2.7 a chamber there. Moving that needs a change to what heals between chambers, which the operator chose not to make (D10).
+
+### Bands (`bands.json`, `measured` re-taken for all ten policies from the x1.5 run)
+
+Moved to the next five (a half for `ordinaryDamagePerChamber`) beyond what was measured, none widened further: default floor-2 vitality min 80 -> 75 (76.8); skilled floor-3 deaths max 20 -> 25 (23.3; `5022286` had moved it 15 -> 20), floor-1 ordinary damage max 1.5 -> 2 (1.56), floor-3 max 6 -> 6.5 (6.46); weak floor-2 deaths max 65 -> 90 (88.2), medianPearls min 30 -> 25 (25), floor-3 ordinary damage max 38.5 -> 41.5 (41.5); special floor-3 ordinary damage max 8.5 -> 9.5 (9.22); special-fangs floor-3 vitality min 60 -> 55 (56); special-cleaver escape min 60 -> 50 (53.3), floor-3 deaths max 40 -> 45 (42.9), floor-2 vitality min 75 -> 70 (74.8), floor-3 vitality min 45 -> 40 (40.7), floor-1 ordinary damage max 3.5 -> 4 (3.6), floor-3 max 11.5 -> 12 (11.76); special-crossbow medianPearls min 55 -> 50 (50.5), floor-1 ordinary damage max 1.5 -> 2 (1.53); special-flask floor-2 vitality min 80 -> 75 (77.6), floor-1 ordinary damage max 2 -> 3 (2.62), floor-3 max 11 -> 11.5 (11.27); meta-max floor-3 ordinary damage max 10 -> 10.5 (10.11); weak-meta-max escape min 20 -> 0 (0), floor-2 deaths max 10 -> 35 (33.3), floor-3 deaths max 80 -> 100 (100), floor-2 vitality min 40 -> 25 (29.5), medianPearls min 65 -> 50 (51.5), floor-3 ordinary damage max 39 -> 45 (44.93). weak-meta-max's `floor3.medianHpLeft` (measured and band) is removed rather than widened: it clears no floor three at all now (`floor3.deathRate` 100 holds the same fact). The skilled knight's floor-3 vitality (50.4) holds the min of 45 that `5022286` set, so it did not move. These record where the bots sit, not an acceptance; the deliberate change is D10's.
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- `tests/dungeon-enemy.test.ts`, new: "an ordinary guard's swing deals ORDINARY_DAMAGE times the table's blow and a boss's swing deals its move row (plan 025 D10)". It holds the rule at a scale the game does not ship (2: every ordinary kind takes it, no boss does), then reads the guard's swing (`strikeDamage`) and every ordinary kind's `enemyStats` on floors 1-3, and every boss's stat damage and every boss swing in its move rows, against the damage written out (not through `scaledDamage`, so a scale slipped into the shared rounding cannot agree with itself). Preconditions: five bosses and nine ordinary kinds, `ORDINARY_DAMAGE > 1`, a guard swings, the bosses hold swings to check.
+  - **Plant: the scale applied to bosses too** (`damageScale` returns the scale for every kind): `the ordinary damage scale reached the captain, a boss`.
+  - **Plant: the scale applied to bosses too, in the shared rounding** (`scaledDamage` multiplies by `ORDINARY_DAMAGE`, `enemyStats` no longer does): `the captain's stat damage took the ordinary damage scale on floor 1` (11 !== 7).
+  - Plant: the scale dropped (1 for every kind): `a guard did not take the ordinary damage scale`.
+  - The first form of the test compared against `scaledDamage` and survived the second plant (both sides scaled); it was rewritten with the damage written out.
+- `tests/dungeon-enemy.test.ts`, changed pins: floor one is the base table but for an ordinary blow; guard / stalker / warden damage on floors 1-3 is 18 21 23 / 12 14 16 / 30 35 39; the floor-three guard is the table's blow times the scale.
+- `tests/browser/arena-kinds.spec.ts`: the floor-three wiring test writes the expected blow as the table's times `ORDINARY_DAMAGE` and two floor steps (it pinned the unscaled blow). `tests/browser/combat.spec.ts`: `MELEE` reads `enemyStats(kind, 1)` instead of the literal 12 / 8 / 20 (the boon-freeze scenario pinned the unscaled blow).
+
+### Runs
+
+- `npm run balance:check`, three runs, one at a time (node sim, this machine): x1.5 (663 s, 29 metrics out of the old bands, as a deliberate change must be), x1.0 on the same tree for the before (720 s), and the confirm on the re-taken bands (649 s, every metric inside its band). The confirm ran on the bands before the rebase onto `5022286`; after the rebase the bands were re-taken from the same x1.5 summary onto CI's file and held against it offline with `compareBands` (0 violations; the sim is seeded, and the x1 run reproduced CI's numbers).
+- Node: `tests/dungeon-enemy.test.ts` and `tests/balance-sim.test.ts` while iterating; `npm test` once at the end, 589 of 590: `balance-sim.test.ts` "a floor the knight died on says whether it was before the stair hall" lost its late death (seed 4's weak knight now dies before the stair hall), so the seed was re-picked to 5 with the assertions unchanged, and the file passes 35 of 35. A second `npm test` was started by mistake straight after the first; its output was thrown away.
+- Browser (d3d11, port 3600, one worker): `arena-kinds.spec.ts:125` and `combat.spec.ts:489`, 2 of 2. Planted in the game (bodies built with the table's unscaled damage in `dungeon-enemy-view.ts`): `arena-kinds.spec.ts:125` fails with `a floor-three guard does not cost the table's blow times the ordinary scale plus two floor-damage steps` (23 expected, 12 received). Restored.
+- typecheck and lint clean.
+- **Not run:** `balance:bosses` (the pool bosses raise nothing an ordinary scale reaches; the King's rattlers do hit harder, and his whole-run effect is in `balance:check`'s escape rates above), the PR-gate browser subset (CI's; a scenario that sets the knight's vitality just above one ordinary blow could now fail, and none was looked for beyond the two that pin the blow), SwiftShader.
+
+### Open
+
+- Plan 024 D7's floor-one room cost (2.71 a chamber against 6, floor one's stair hall at 100% against 50-85) is still not met at x1.5, and the operator chose not to touch healing between chambers.
+- weak-meta-max escapes 0% (was 23.3): with every upgrade bought a never-dodging knight no longer escapes. The weak knight's median pearls are 25 (plan 023 D2 asks 30-55).
+- The skilled knight is one run from the stop line (76.7 against 75). A human playtest of floor one and two at x1.5 is the next evidence.
+
+## 2026-10-08 - Plan 025 Stage F: fuller rooms (D12 a, c; D9)
+
+### What was shipped
+
+- **Furniture** (`app/dungeon-furnish.ts`, pure): `furnishFloor` / `furnishRoom` lay urns, crates, powder kegs, spike plates, low cover and the odd chest on every path chamber (not the Tide Gate, not the stair hall), drawn from a bag weighted by theme, after the waves and from a salted per-chamber stream (`FURNISH_SALT`). `generateFloor` is not asked, so every seed's layout bytes are unchanged (the existing `spawns-017` / `rewards-019` fixtures and the generator hash tests pass untouched). Kept clear: the heart (2.5 tiles), the arrival ring (`ARRIVAL_CLEAR`), every spawn tile of every wave (1.5), every doorway and the mouth it was cut back from (2.5), the reserved rack spot, and a **lane**: a walk from the arrival to every door, spawn and the heart over tiles with no prop on them or beside them. Only cover is solid: its tile leaves `cells` (the step, lane checks and bolts stop at it, and the wall pass rings it with a low parapet) and stays in `tiles`; `roomTiles` now skips it, so no wave ring lands on it, and a cover block may not cut a pocket of floor off. Over the generator's corpus (40 seeds x floors 1-3, waved): a path chamber holds generator stone + furniture **mean 6.54, median 7, 0 to 15** (the plan's "about 6-12"; it was 3-7), with 2,227 urns, 1,340 crates, 1,220 kegs, 1,279 plates, 2,115 cover blocks and 136 chests.
+- **Prop rules** (`app/dungeon-hits.ts`): `swingProps` (the arc finds a prop by the same `swordContacts` rule a body is found by), `strikeProp` (a breakable breaks, a keg lights), `fuseStep` (`KEG_FUSE` 0.9 s of smoke and flashing, the telegraph), `blastOf` (`KEG_RADIUS` 2.4: the knight takes `KEG_HURT` 15 unwarded, a body `KEG_DAMAGE` 8, a keg beside it lights on `KEG_CHAIN` 0.25 s, a breakable beside it breaks), `spikeState` / `spikeBites` (`SPIKE_CYCLE` 3.2 s: `SPIKE_TELL` 0.7 s of telegraph, `SPIKE_UP` 0.45 s up; `SPIKE_HURT` 8 to the knight, `SPIKE_DAMAGE` 4 to a body, once a rise each). `takeDrop` (dungeon-sim.ts): a sip is `SIP` 8 vitality, an urn's or crate's pearl is 1, a chest `CHEST_PEARLS` 3 (`DROP_ODDS`: urn sip .10 / pearl .06, crate .08 / .08). Steel and fire break props; a bolt flies over them (only cover stops one). A lunge's line and a vault's landing do not break props (game and sim alike).
+- **Door rewards** (`dealRewards` in `dungeon-floor.ts`, salted): each layer from the third to the last before the stair hall turns one paying chamber Boon (`BOON_ODDS` **0.05**) or Pearls (`PEARL_ODDS` 0.15), the one whose mend or purse a sibling also pays, so a layer keeps both old choices. A Boon door owes one boon card (no experience); a Pearls door pays `PURSE_PEARLS` 6 into the run's `found`, banked by `pearlsFor` (`RunEnd.found`, optional).
+- **The rare arm (D9)**: `armDeal(runSeed)` is one roll a run (floor two or three), so a run is offered at most one arm by construction; `armOffer(owned, inHand, roll)` (dungeon-meta.ts) offers only an arm the save owns and never the one in hand, else nothing (the chamber keeps its mend or purse); `armFor` joins them for the game and the sim. The arm chamber is the one the generator already reserved (`weaponDrop.room`, never a hoard), and its rack stands on `weaponDrop`'s spot (`floor.armRack`); in the game the swap key answers that rack only once its chamber is clear (swap for it, or leave it).
+- **World**: `app/dungeon-props-view.ts` draws the furniture instanced: one InstancedMesh a kind a chamber (a plate two: plate and spikes), one shared material with per-instance colour, one shared geometry a kind, no shadows; cover is the floor's own parapets. Spikes rise through their telegraph, a lit keg flashes faster as its fuse runs down, a spent prop's instance is scaled to nothing. `dungeon-game.tsx` lays rewards and furniture in `bossedFloor`, strikes props on the swing's contact frames, runs fuses and plates every frame, pays drops through `award`, names every reward in the clear notice (`REWARD_SIGNS`), lays the arm rack, and reports `render_game_to_text().furniture` (the knight's chamber's props, `shown` and the spikes' height read back off the drawn instances). `?rooms=plain` (development only, held by `scripts/build/leaks.ts`) lays neither furniture nor new doors; the harness boots with it (`DEFAULT_ROOMS`), `test.use({ rooms: null })` opts in.
+- **Sim**: `simulateRun` lays the rewards and the furniture as the game does (`Policy.props`, `check.ts --props=off`), breaks what its swings reach, takes blasts and bites (billed to `hazard`, never to `ordinaryDamage`), steps off a read plate or a lit keg (`propStep`, the grate's own rule), and keeps a reward log (`FloorReport.doorRewards`, `armOffered`; `RunReport.found`, `armDealt`, `armOffered`). The explore knight's door order is `pickDoor` / `DOOR_PREFERENCE`: Boon, purse, mending, Pearls, an arm (never taken up: a policy names its arm), then a door that pays nothing.
+
+### Finding: the Boon door at 0.15 undid Stage E
+
+The first cut dealt Boon at 0.15 a layer. Furniture off, 30 runs: **default escape 96.7% (Stage E: 63.3), skilled 96.7% (76.7), weak 3.3% (0)**, default floor-3 deaths 3.3% (34.5): about 2.5 Boon doors offered a run, taken every time. That is a retune the plan does not authorise. A default-knight probe (30 runs, furniture on, not a `balance:check`) read 56.7% at 0 and 73.3% at 0.05, so it ships at 0.05 (about 0.65 Boon doors offered a run), inside D10's 50-75.
+
+### Measured (node sim, `balance:check`, 30 runs a policy from seed 1, 2026-10-08; furniture off and on, both at BOON_ODDS 0.05)
+
+| Policy | Escape off -> on | Deaths before the stair hall off -> on | Ordinary damage a chamber, floors 1/2/3, off -> on | Median fight (s) off -> on |
+| --- | --- | --- | --- | --- |
+| default | 76.7 -> 73.3 | 2 of 7 -> 0 of 8 | 2.50 / 7.2 / 11.1 -> 2.68 / 6.98 / 11.45 | 4.52 -> 4.47 |
+| skilled | 93.3 -> 86.7 | 0 of 2 -> 1 of 4 | 1.8 / 3.6 / 5.8 -> 1.8 / 3.7 / 6.4 | 4.55 -> 4.57 |
+| weak | 0 -> 0 | 21 of 30 -> 20 of 30 | 12.3 / 22.3 / 40.3 -> 12.3 / 22.7 / 40.3 | 2.57 -> 2.58 |
+
+Stage E's measured (no Stage F at all): default 63.3, skilled 76.7, weak 0; ordinary damage 2.71 / 7.44 / 11.82 (default). Stop rule (skilled under 75, weak over 20): not tripped. The other policies, off -> on: special 80 -> 90, special-fangs 90 -> 93.3, special-cleaver 73.3 -> 60, special-crossbow 6.7 -> 6.7, special-flask 33.3 -> 30, meta-max 96.7 -> 96.7, weak-meta-max 3.3 -> 3.3.
+
+What the furniture did, a run, default knight (furniture on): 0.83 props broken, 0.80 vitality sipped, 0.20 pearls found in them, 0.27 kegs gone up (0.10 bodies caught, 0 vitality off him), spikes 0.27 vitality off him and 0.53 bites on bodies, 0.17 bodies felled by props. **To the bot the furniture is decoration**: escape moved by one run in thirty, fight length by 0.05 s and ordinary damage a chamber by under 0.6, all inside a batch's noise, and every kind's tally is under one event a run. Per kind: urns and crates (the bot never seeks them; it breaks what its swings at bodies happen to reach, about one a run) and chests, decoration; kegs, decoration (it steps out of a lit one and rarely lights one); spike plates, decoration to the knight (it steps off a read telegraph, as off the grates) and a small cost to bodies; cover, modelled for free through `cells`, no measurable effect. A human who smashes urns and lures bodies onto plates and kegs will feel more of it than the bot does; nothing here measures that.
+
+### The arm offer (D9)
+
+- Dealt in 15.5% of 2,000 run seeds, offered in **12.4%** (`tests/dungeon-rewards.test.ts`: every arm owned, the floors walked by the bot's own door choice, assuming he survives to them; 80% of the runs dealt one are shown its door). A first roll of 0.2 offered it in 15.3%, over D9's 15%, so `ARM_ODDS` is 0.16. The plan's "~15%" was the dealt rate's ceiling, not the offered rate's; the roll is set from the offered rate as D9 asks.
+- In the balance batch, meta-max (every arm owned) was dealt it 4 of 30 and offered 3 of 30; weak-meta-max 3 and 2. A fresh save (default, skilled, weak) is never offered one: it owns the Tideblade alone and holds it. The `special-<arm>` policies hold an arm their fresh save does not own, so they are offered the Tideblade (4 of 30 dealt): a sim-only state the game cannot reach. The bot never swaps.
+
+### Bands (`bands.json`, `measured` re-taken for all ten policies from the furniture-on run)
+
+Moved to the next five (a half for ordinary damage) beyond what was measured, none further: default `floor2.medianHpLeft` min 75 -> 70 (72.8); special `floor2.ordinaryDamagePerChamber` max 6 -> 6.5 (6.23); special-cleaver `floor2.medianHpLeft` min 70 -> 65 (69.8); special-crossbow `floor2.deathRate` max 45 -> 50 (46.7); meta-max `medianRunSeconds` max 255 -> 260 (258.1) and `floor2.ordinaryDamagePerChamber` max 7.5 -> 8 (7.54). Held offline against the furniture-on summary with `compareBands`: 0 violations.
+
+### Draw calls (`frame-budget.spec.ts`, d3d11, 2026-10-08)
+
+New scenes, one stand in the most furnished fight chamber floor one lays (seed 0x3c room 14, a rotunda ambush with every prop kind), its ambush sprung: **furnished 378 calls / 241,267 triangles, plain 371 / 240,769: the furniture costs +7 calls and +498 triangles**, 130 under the 508. Ceilings are the d3d11 figures; CI's SwiftShader run is their first reading there. Every other scene held its ceiling (they boot plain). Geometry sharing between chambers landed after this run (it changes the geometry count only, which nothing asserts).
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- `tests/dungeon-furnish.test.ts`: the lane over the corpus. Plant: skip the lane check -> `level 1 seed 7919 room 1 (round): no clear lane from the arrival to door 2`.
+- `tests/dungeon-props.test.ts`: blast, spikes, break, cover, the new doors. Plants: `blastOf` never catches the knight -> `the blast spared the knight standing 1.2 from it`; `SPIKE_TELL` 0 -> `the spikes rose from down, with no telegraph`; `swingProps` by distance with no arc -> `an urn behind the knight broke`.
+- `tests/dungeon-rewards.test.ts`: Boon and Pearls placement, the arm's rarity, cap, ownership and offer rate. Plant: `armFor` rolled per floor (the cap dropped) -> `run 187272 was dealt 2 arm chambers` (and the offer rate rose to 22.9%).
+- `tests/browser/props.spec.ts` (furnished page): a real arrow-aimed sword swing in seed 0x1's shrine breaks the urn, the drawn instance is gone, nothing else broke. Plants in the game: no prop strike on the swing -> `a real swing at the urn did not break it`; `spend` a no-op -> `the urn broke but the scene still draws it`. The first green attempt failed on that second line with the fix in: `Matrix4.decompose` reads a zero-scale matrix back as scale one, so the read-back now measures the matrix's own column.
+- Re-picked seeds (`tests/balance-sim.test.ts`): the archers' bolt scenario 1,2,3,4 -> 1,2,7,8; the banking floor-3 loss 4 -> 8 (and both pearl sums bank `found`); the early death before the stair hall 1 -> 2. `tests/dungeon-sim.test.ts`: `createRun()` carries `found: 0`.
+
+### Runs
+
+- `balance:check` x3, one at a time: furniture off at BOON_ODDS 0.15 (651 s; the finding above), furniture off at 0.05 (the before), furniture on at 0.05 with `--summary` (the after, from which `measured` was re-taken). Two default-only 30-run probes (BOON_ODDS 0 and 0.05) to choose the odds. No confirm run: the bands were held offline against the furniture-on summary.
+- Node: the touched files while iterating; `npm test` once, 600 of 602 (the two seeds above, re-picked and the three affected cases re-run green).
+- Browser (d3d11, port 3700, one worker): `props.spec.ts` (with the two plants), `frame-budget.spec.ts` once, 18 of 18.
+- typecheck and lint clean.
+- **Not run:** the PR-gate browser subset (CI's). Pages that `goto` a plain URL themselves (`hall.spec.ts`, `loading.spec.ts`, the slot scenarios) now meet furnished floors after the hall; none was run. `balance:bosses` (no boss chamber is furnished). SwiftShader.
+
+### Open
+
+- The furniture barely moves the bot; whether it changes how a room plays is for the operator's playtest.
+- BOON_ODDS 0.05 was chosen against the default knight's escape; the operator may want Boon doors commoner and the keep harder elsewhere.
+- D12 (b), new enemy kinds, is Stage G.
+
+## 2026-10-08 - Plan 025 Stage G, first part: the spawn log, G0, and the bomber (D12 b)
+
+Branch `feat/p025-g-new-kinds` on `feat/p025-integration` (fast-forwarded to 05bafa5 before finishing). Uncommitted, for the coordinator.
+
+### 1. Measured first: the kinds met per floor (node sim, default bot, 30 runs from seed 1, before the bomber)
+
+New reporting option: `npm run balance -- --runs 30 --kinds` (scripts/balance/main.ts), off a new spawn log in the sim (`FloorReport.dealtKinds`, `metKinds`). Dealt = every standing spawn the floor laid (later waves included, buried reserves not); met = a body that noticed the knight or fell to him (a raised rattler counts). Cells: bodies a run reaching the floor, dealt / met, then the runs (of those reaching it) that met at least one.
+
+| Floor (reached) | guard | stalker | warden | archer | shieldbearer | reaper | pyre | bonecaller | rattler |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 (30) | 16.10 / 7.33, 30 | 24.03 / 11.73, 30 | 1.80 / 0.63, 13 | 4.17 / 1.87, 28 | - | - | - | - | - |
+| 2 (30) | 16.13 / 9.10, 30 | 36.57 / 16.30, 30 | 3.43 / 1.03, 16 | 8.67 / 2.93, 30 | 1.90 / 0.73, 18 | - | 4.83 / 1.90, 26 | - | - |
+| 3 (29) | 14.41 / 8.24, 29 | 41.41 / 20.10, 29 | 11.41 / 4.21, 29 | 11.79 / 4.14, 29 | 2.34 / 1.03, 20 | - | 5.79 / 2.45, 28 | 2.52 / 0.79, 18 | 0 / 2.31, 29 (reserve only) |
+
+The bot meets about 45% of what a floor deals (it walks the stair's path and the doors that pay).
+
+### 2. G0: not warranted, no change
+
+The rarest kinds where they are dealt are the shieldbearer (met in 18 of 30 floor-two runs, 20 of 29 on floor three, about one a floor) and the bonecaller (18 of 29 on floor three). Nothing with a share is "almost never" met (my threshold: met in under a third of the runs reaching a floor its `firstFloor` allows). The reaper is never dealt by design (`firstFloor: Infinity`, arena-only); that is not G0. A note: the shieldbearer and the pyre both hold .07 of the mixes, but the pyre is dealt 2.5x as often - the waves' ranged rule (`withRanged`, plan 024 D4) swaps a body for an archer or a pyre. Not chased.
+
+### 3. G1: the bomber
+
+- **Design** (`BESTIARY.bomber`): an ordinary kind from floor two (`firstFloor: 2`, like the archer). 6 vitality (an archer's), speed 2.1, `attackRange` 7, `holdRange` 6, `keepAway` 3.5, `recovery` 2.0, not steadfast (a blow early in the tell breaks the throw). Its one attack is a `scatter` of its own (`Archetype.scatter`, new: one ring): the **tell** (1.0 s) marks a ring of radius 1.5 on the knight where he stands when it begins, in the threat colour, closing over the tell (the boss scatter's own mesh and animation); a small ring (0.9) also closes at its feet. When the tell runs out the bomb lands: the **blast** catches him if he is still inside the ring and costs the bomber's own `enemyStats` damage (stats.damage 10, so 15 / 17 / 20 on floors 1 / 2 / 3 with ORDINARY_DAMAGE and the floor step); the ring becomes a **fire patch** (radius 1.5, 1.6 s, a bite of 3 every 0.5 s, the first one interval after the blast, unscaled like a pyre's death fire). The answer: step out of the ring, then reach it.
+- **Rule** (pure, `dungeon-enemy.ts`): `decideEnemy` runs it through the existing `scatter` branch; new `bombMarks` (where it lands: on the knight, never on a seventh fire ring - with none free it marks nothing and nothing lands) and `bombLands` (the blast test and the fire). The game (`dungeon-game.tsx`, beside the boss scatter) and the sim call the same two. A bomber's death takes its ring with it (every body's death now `unmark`s, not only a boss's).
+- **Where dealt**: `PACK_MIX.middle` .07 and `.late` .05, appended last, from the guards' share (late had only .08 left). Waves draw from `late`, so later waves deal it too. Not added to the waves' ranged list (`rangedKinds`): that would move the ranged stream's picks. After: a run reaching floor two is dealt 1.67 and meets 0.57 (13 of 30 runs); floor three 1.41 / 0.52 (12 of 29). Floor one is unchanged in every column.
+- **Checklist**: figure on the guard's skeleton and helm (no shield or blade; a bomb with a lit fuse in the hand, a bandolier of three, a sack on the back, a scorched apron), `PALETTE` row (green eyes 0x6aff7a), `CUTAWAY_ELLIPSE` (the guard's), `CAUSE_LABELS` ("Blown apart by a bomber"). `volleyDemand('bomber')` is 0: it draws on the six shared fire rings (`HOSTILE_POOL_RINGS`), not the arrow pool. No new mesh, light or shader.
+- **Sim** (scripts/balance/sim.ts): marks and lands as the game does; the blast is an ordinary blow (`ordinaryDamage`), the fire a pool (`poolDamage`). The knight's dodge roll is taken on its tell as on any other (`reaction` seconds in); a "yes" walks him out of the ring (the boss rings' `avoidMarks`, which for a boss stays unconditional), never a dash. New report fields `bombsLanded`, `bombsOnKnight`. In a 10-seed arena (shieldbearer, warden, two bombers, floor two) the default knight was caught by 8 of 39 bombs; a knight who never steps out by 32 of 43.
+
+### Balance (`balance:check`, 30 runs a policy from seed 1, 2026-10-08; before = bands.json's Stage F measured block on this tree)
+
+| Policy | Escape | Floor-3 deaths | Ordinary damage a chamber, floors 1/2/3 | Median run (s) |
+| --- | --- | --- | --- | --- |
+| default | 73.3 -> 70.0 | 24.1 -> 27.6 | 2.68 / 6.98 / 11.45 -> 2.68 / 7.42 / 11.83 | 253.6 -> 252.7 |
+| skilled | 86.7 -> 83.3 | 13.3 -> 16.7 | 1.75 / 3.68 / 6.36 -> 1.75 / 3.68 / 6.59 | 262 -> 269.6 |
+| weak | 0 -> 0 | 100 -> 100 | 12.28 / 22.68 / 40.33 -> 12.28 / 22.5 / 40.33 | 67.8 -> 67.8 |
+
+Stop rule (skilled under 75, weak over 20): not tripped. Others, escape: special 90 -> 83.3, special-fangs 93.3 -> 90, special-cleaver 60 -> 63.3, special-crossbow 6.7 -> 10, special-flask 30 -> 40, meta-max 96.7 -> 96.7, weak-meta-max 3.3 -> 3.3.
+
+**Bands** (`measured` re-taken for all ten policies from this run; moved to the next five, a half for ordinary damage, beyond what was measured, none further): skilled `floor3.ordinaryDamagePerChamber` max 6.5 -> 7 (6.59); special-cleaver `floor2.ordinaryDamagePerChamber` max 8.5 -> 9 (8.83) and `floor3` max 12 -> 13 (12.74); special-crossbow `medianPearls` min 50 -> 40 (45.0 exactly, so the next five beyond it is 40); special-flask `floor2.ordinaryDamagePerChamber` max 8 -> 9 (8.74). Held offline against the run's summary with `compareBands`: 0 violations. No confirm run.
+
+### Draw calls (`frame-budget.spec.ts`, d3d11, 2026-10-08)
+
+New scenes, one arena stand on floor two: two bombers (one ring drawn) beside a pyre and a warden **401 calls / 252,093 triangles**; two guards in their place **390 / 252,753**: about +5 calls a bomber against the guard it replaces, +1 for the ring; 107 under the 508. Every other scene held. Risk: the caller chamber reads 505 on d3d11 (ceiling 509); a late pack that deals a bomber where a guard stood in a chamber that full could go a few calls over 508. Not measured.
+
+### Tests and planted bugs (each restored; each failed with its own message)
+
+- `tests/dungeon-bomber.test.ts` (new, 8 tests): the row; the tell (begins with its warning, lands once, only after the whole tell); no throw out of reach or through a wall; the mark (on the knight, never a seventh ring); blast in and out of the ring; the fire bites after the blast and burns out; the blast through `enemyStats`; the deal over the sweep's floors; the sim's model.
+  - Plant "the bomb lands with no tell" (the bomber's tell started at 1e-4 s) -> `the bomb landed with no tell: 0.02 s after it began, against a 1 s tell`.
+  - Plant "the fire patch never expires" (`bombLands` life Infinity) -> `the bomber's fire never burns out (166.7 s and still burning)`.
+  - Plant "dealt on a floor it should not be" (`firstFloor: 1`) -> `a bomber was dealt on floor one (seed 1, room 9)`.
+- `tests/browser/arena-kinds.spec.ts`: the ring drawn on the knight in the threat colour, nothing until the tell has run, the blast costs `enemies[0].damage` to a knight left inside, the fire burns out, and a knight who walks out of the next ring with the arrow keys pays nothing. Plant: the game never bills the blast -> `the blast did not cost the knight left inside the bomber's own damage`.
+- Updated for the new kind: the kind counts in dungeon-enemy (a BASE_STATS row; ten ordinary kinds), dungeon-hits, dungeon-elites (the bomber can be elite). `dungeon-enemy.test.ts`'s pre-plan-021 recording excludes the bomber (it did not exist; its rule is the new file's). `dungeon-waves.test.ts`'s byte-for-byte generator digest now reads bombers back as guards and still matches the recorded digest: the bomber took only the guards' share, on the same rolls.
+
+### Runs
+
+- `npm run balance -- --runs 30 --kinds` x2 (before and after the bomber; not `balance:check`). `balance:check` x1 (the after, `--summary`, 843 s); the before is Stage F's measured block, the bands held offline.
+- Node: touched files while iterating; `npm test` once (606 of 613: the seven count and digest tests above), the four fixed files, then `npm test` once more after the fast-forward, 613 of 613.
+- Browser (d3d11, port 3800, one worker): `arena-kinds.spec.ts` 7 of 7, plus the bomber test once with the plant; `frame-budget.spec.ts` once, 20 of 20 (its two new ceilings were then set to the readings, not re-run). `npm run figures -- --figures bomber,guard,archer,pyre` once: `game/outputs/figures/2026-10-08T11-37-18-494Z.png`.
+- typecheck, lint clean.
+- **Not run:** the PR-gate browser subset, `balance:bosses` (no boss changed), SwiftShader, `dealt-kinds.spec.ts`.
+
+### Open
+
+- The operator plays the bomber (`?arena=bomber:3&level=2`) before the chanter. Its share (met in about 40% of floor-two and -three runs, half a body a floor) is as rare as the shieldbearer's; raise it if it should be met every run.
+- No bomb is drawn in flight: the throw is the overhead pose and the closing ring. A flying mesh is a follow-up if the playtest asks for it.

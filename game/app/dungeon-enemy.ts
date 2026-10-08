@@ -4,7 +4,8 @@
 // each of them. Everything works over plain {x, z} points, so a whole fight can be replayed in node
 // instead of by hand-driving a browser, which is how every spatial regression here has been caught.
 import { BESTIARY, byKind, ELITES, type Archetype, type EliteModifier, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
-import { TILE, canStand, cellKey, hasClearPath, moveOnFloor } from './dungeon-floor.ts';
+import { TILE, bodyRadius, canStand, cellKey, hasClearPath, moveOnFloor } from './dungeon-floor.ts';
+import { scatterRings, type Pool } from './dungeon-projectile.ts';
 
 export { ENEMY_KINDS, BESTIARY, ELITES, type EliteModifier, type EnemyKind, type EnemyStats, type Move } from './dungeon-bestiary.ts';
 export type Point = { x: number; z: number };
@@ -103,9 +104,15 @@ export const BOSS_FLOOR_DAMAGE = 0.15;
 export const scaledDamage = (base: number, level: number, step = BOSS_FLOOR_DAMAGE) => Math.round(base * (1 + step * floorsDeeper(level)));
 /** The share of floor-one damage a kind's blow gains for every floor down: an ordinary kind's `FLOOR_DAMAGE`, a boss's own `BOSS_FLOOR_DAMAGE`. The steps are parameters so a test can hold the rule at values the game does not ship. */
 export const damageStep = (kind: EnemyKind, ordinary = FLOOR_DAMAGE, boss = BOSS_FLOOR_DAMAGE) => BESTIARY[kind].boss ? boss : ordinary;
+/**
+ * Plan 025 (D10, settled by the operator 2026-10-07): every ordinary body's blow, bolts included, costs this many times the bestiary's `stats.damage`, one dial for all nine kinds and never a boss (a boss's numbers are its move rows, tuned with `balance:bosses`).
+ * It multiplies the floor-one damage before the floor step and before the one rounding `scaledDamage` does. The fire a pyre or a volatile elite leaves is not a blow and is not scaled. `ordinary` is a parameter so a test can hold the rule at a value the game does not ship.
+ */
+export const ORDINARY_DAMAGE = 1.5;
+export const damageScale = (kind: EnemyKind, ordinary = ORDINARY_DAMAGE) => BESTIARY[kind].boss ? 1 : ordinary;
 export const enemyStats = (kind: EnemyKind, level: number): EnemyStats => {
   const base = BASE_STATS[kind], deeper = floorsDeeper(level);
-  return { hp: base.hp + deeper * HIT, damage: scaledDamage(base.damage, level, damageStep(kind)), tell: base.tell, speed: base.speed };
+  return { hp: base.hp + deeper * HIT, damage: scaledDamage(base.damage * damageScale(kind), level, damageStep(kind)), tell: base.tell, speed: base.speed };
 };
 
 /**
@@ -153,6 +160,28 @@ export const volleyDemand = (kind: EnemyKind) => {
   return Math.max(...volleys.map(move => (move.bolt!.fan?.count ?? 1) * Math.ceil(move.bolt!.flight / gap)));
 };
 
+/**
+ * Plan 025 Stage G (D12 b), the bomber: an ordinary kind whose one attack is a `scatter` of its own (`Archetype.scatter`), decided by `decideEnemy` as a boss's scatter is - the tell begins when the knight is
+ * inside `attackRange` with a clear line, and `scatter` is set on the one frame it runs out. These are the two halves the caller asks around it. `bombMarks` is where the bomb will come down, marked when the tell
+ * begins: on the knight, where he stands then (so walking out of the ring is the answer), and never on more rings than the game can still draw (`scatterRings`): with none free it marks nothing, and nothing lands.
+ * Empty for a kind with no scatter of its own (a boss marks off its move).
+ */
+export const bombMarks = (kind: EnemyKind, knight: Point, live: { hostile: number; own: number }): Point[] => {
+  const lob = BESTIARY[kind].moves ? undefined : BESTIARY[kind].scatter;
+  return lob ? scatterRings([{ x: knight.x, z: knight.z }], lob.rings, live) : [];
+};
+/**
+ * The bomb lands on a marked spot (the frame `decideEnemy` says `scatter` for the body that marked it): `hurts` is whether the blast catches the knight (he stands inside the ring it marked; a dash's immunity is
+ * the caller's, `hurt` in dungeon-sim.ts), and `pool` is the short fire it leaves there. The blast costs the body's own damage (`enemyStats`, so `ORDINARY_DAMAGE` applies), which the caller holds; the fire's first
+ * bite waits one `interval`, so the blast and the fire never bill him on the same frame. Null for a kind with no scatter of its own.
+ */
+export const bombLands = (kind: EnemyKind, at: Point, knight: Point): { hurts: boolean; pool: Pool } | null => {
+  const lob = BESTIARY[kind].moves ? undefined : BESTIARY[kind].scatter;
+  if (!lob) return null;
+  const fire = lob.pool;
+  return { hurts: Math.hypot(knight.x - at.x, knight.z - at.z) < fire.radius, pool: { x: at.x, z: at.z, radius: fire.radius, life: fire.life, damage: fire.damage, interval: fire.interval, timer: fire.interval } };
+};
+
 // Everything a decision reads off an enemy. The renderer's Enemy also carries a THREE.Group, a health
 // bar, a telegraph mesh and a gait phase; none of that decides anything.
 // `anchor` is fixed at spawn and never returned by an intent - it is the post a dozing body paces
@@ -161,7 +190,14 @@ export const volleyDemand = (kind: EnemyKind) => {
 // Plan 021: `hp` and `maxHp` are what a boss's phase is read from; `move` is its place in the current phase's rotation (the
 // move it is doing, or the next it will try), `phase` the phase it is in, and `change` the seconds of a phase change still to
 // run. They are fed back each frame like `windup`, and an ordinary kind never reads them: they leave as they came in.
-export type EnemyView = { kind: EnemyKind; x: number; z: number; room: number; cooldown: number; hitFlash: number; windup: number; lunge: number; tell: number; speed: number; aim: Point; anchor: Point; notice: number; hp: number; maxHp: number; move: number; phase: number; change: number };
+// Plan 025 (D3): `roam` is a body that repositions (`Archetype.repositions`): fed back each frame like `move`, absent (read as `STILL`) for everything else.
+export type EnemyView = { kind: EnemyKind; x: number; z: number; room: number; cooldown: number; hitFlash: number; windup: number; lunge: number; tell: number; speed: number; aim: Point; anchor: Point; notice: number; hp: number; maxHp: number; move: number; phase: number; change: number; roam?: Roam };
+/**
+ * Plan 025 (D3): where a body that repositions is going. `still` is the seconds it has stood where it stands (any frame it moves resets it), `to` the floor point it is walking to round the knight,
+ * or null, and `walked` the seconds it has walked toward that point (it gives up at `ROAM_GIVE_UP`).
+ */
+export type Roam = { still: number; to: Point | null; walked: number };
+export const STILL: Roam = Object.freeze({ still: 0, to: null, walked: 0 }) as Roam;
 
 export type World = {
   cells: Set<string>;
@@ -205,13 +241,15 @@ export type EnemyIntent = {
   // While `change` runs the body is still, and the caller keeps it unhittable (`Struck.change`, dungeon-hits.ts).
   move: number; phase: number; change: number;
   phaseChange: boolean;
+  // Plan 025 (D3): the roam to feed back (EnemyView.roam), and true on the one frame a `veil` tell ran out and the body moved to where it now stands (x, z) from where it stood.
+  roam: Roam; veil: boolean;
   sound: 'warn' | 'dash' | 'slash' | null;
   // Range to the knight before this frame's movement, which is what the gait and the poses read.
   // Not computed for a dozing body, which nothing looks at again this frame.
   distance: number;
 };
 
-export type CrowdBody = { x: number; z: number; windup: number; dead: boolean };
+export type CrowdBody = { x: number; z: number; windup: number; dead: boolean; radius?: number };
 
 // The shape `nearbyDozers` needs from a body: where it is, which room it claims, whether it has already
 // started noticing, and whether it is still around to notice anything at all.
@@ -281,8 +319,8 @@ export function separateCrowd(cells: Set<string>, bodies: readonly CrowdBody[], 
     const weightA = bodies[i].windup > 0 ? 0 : 1, weightB = bodies[j].windup > 0 ? 0 : 1, total = weightA + weightB;
     if (!total) continue;
     const push = Math.min(CROWD_SPACING - distance, dt * CROWD_PUSH_RATE);
-    moveOnFloor(cells, a, -dx * push * weightA / total, -dz * push * weightA / total);
-    moveOnFloor(cells, b, dx * push * weightB / total, dz * push * weightB / total);
+    moveOnFloor(cells, a, -dx * push * weightA / total, -dz * push * weightA / total, bodies[i].radius);
+    moveOnFloor(cells, b, dx * push * weightB / total, dz * push * weightB / total, bodies[j].radius);
   }
   return moved;
 }
@@ -309,7 +347,7 @@ function dozeIntent(enemy: EnemyView, world: World, dt: number, rest: Omit<Enemy
   if (forward && along >= PATROL_SPAN) { dirX = -heading.x; dirZ = -heading.z; }
   else if (!forward && along <= -PATROL_SPAN) { dirX = heading.x; dirZ = heading.z; }
   const landed = { x: enemy.x, z: enemy.z };
-  moveOnFloor(world.cells, landed, dirX * PATROL_SPEED * dt, dirZ * PATROL_SPEED * dt);
+  moveOnFloor(world.cells, landed, dirX * PATROL_SPEED * dt, dirZ * PATROL_SPEED * dt, bodyRadius(enemy.kind));
   return { ...rest, act: 'dozing', notice: 0, x: landed.x, z: landed.z, aim: { x: dirX, z: dirZ }, face: Math.atan2(-dirX, -dirZ), distance: 0 };
 }
 
@@ -322,13 +360,13 @@ export const RAISE_SPREAD = 0.7;
  * one side and 1 on the other, rather than on top of each other; a slot whose spot is stone falls back
  * to the centre of the pace, and that to the caller's own spot.
  */
-export function raiseSpot(cells: Set<string>, caller: Point, knight: Point, slot = 0): Point {
+export function raiseSpot(cells: Set<string>, caller: Point, knight: Point, slot = 0, radius?: number): Point {
   const toward = unit(knight.x - caller.x, knight.z - caller.z, Math.hypot(knight.x - caller.x, knight.z - caller.z));
   const side = slot % 2 ? -RAISE_SPREAD : RAISE_SPREAD;
   for (const at of [
     { x: caller.x + toward.x * 1.3 - toward.z * side, z: caller.z + toward.z * 1.3 + toward.x * side },
     { x: caller.x + toward.x * 1.3, z: caller.z + toward.z * 1.3 },
-  ]) if (canStand(cells, at.x, at.z)) return at;
+  ]) if (canStand(cells, at.x, at.z, radius)) return at;
   return { x: caller.x, z: caller.z };
 }
 
@@ -361,6 +399,14 @@ const pickMove = (moves: readonly Move[], from: number, distance: number) => {
 // One enemy, one frame. Assumes the caller has already dropped the asleep and the dying — those two are
 // visual states the renderer resolves, and neither ticks a cooldown.
 export function decideEnemy(enemy: EnemyView, player: Point, world: World, frameDt: number): EnemyIntent {
+  const intent = decideBody(enemy, player, world, frameDt);
+  if (!BESTIARY[enemy.kind].repositions) return intent;
+  // Plan 025 (D3): the still clock counts every frame it ends where it began - holding, winding up, recovering - and any step resets it.
+  const still = intent.x === enemy.x && intent.z === enemy.z;
+  return { ...intent, roam: { ...intent.roam, still: still ? intent.roam.still + step(frameDt) : 0 } };
+}
+
+function decideBody(enemy: EnemyView, player: Point, world: World, frameDt: number): EnemyIntent {
   const dt = step(frameDt);
   // A boss's moves for the phase it is in, and the slot it is on; null for every ordinary kind, which takes the path it always took.
   const archetype = BESTIARY[enemy.kind], table = archetype.moves;
@@ -369,7 +415,7 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   // of its recovery: reaching it must not hand the player a free swing it never earned.
   const hitFlash = Math.max(0, enemy.hitFlash - dt), cooldown = enemy.cooldown - dt;
   const change = table ? Math.max(0, enemy.change - dt) : enemy.change;
-  const rest = { x: enemy.x, z: enemy.z, cooldown, hitFlash, windup: enemy.windup, lunge: enemy.lunge, aim: { x: enemy.aim.x, z: enemy.aim.z }, notice: enemy.notice, face: null, hit: false, loose: null, raise: false, scatter: false, move: enemy.move, phase: enemy.phase, change, phaseChange: false, sound: null } satisfies Omit<EnemyIntent, 'act' | 'distance'>;
+  const rest = { x: enemy.x, z: enemy.z, cooldown, hitFlash, windup: enemy.windup, lunge: enemy.lunge, aim: { x: enemy.aim.x, z: enemy.aim.z }, notice: enemy.notice, face: null, hit: false, loose: null, raise: false, scatter: false, move: enemy.move, phase: enemy.phase, change, phaseChange: false, roam: enemy.roam ?? STILL, veil: false, sound: null } satisfies Omit<EnemyIntent, 'act' | 'distance'>;
   const cellX = Math.round(enemy.x / TILE), cellZ = Math.round(enemy.z / TILE);
   const nearby = isActive(world.pathDistance(cellX, cellZ), enemy.room === world.activeRoom);
   // A beat already under way - its own or one caught from a neighbour - runs to completion even on a
@@ -400,7 +446,7 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
 
   if (enemy.lunge > 0) {
     const landed = { x: enemy.x, z: enemy.z };
-    moveOnFloor(world.cells, landed, enemy.aim.x * LUNGE_SPEED * dt, enemy.aim.z * LUNGE_SPEED * dt);
+    moveOnFloor(world.cells, landed, enemy.aim.x * LUNGE_SPEED * dt, enemy.aim.z * LUNGE_SPEED * dt, bodyRadius(enemy.kind));
     // Connecting ends the pounce outright, so one leap can never bill the knight twice.
     const hit = sweptContact(enemy, landed, player), lunge = hit ? 0 : Math.max(0, enemy.lunge - dt);
     // A pounce is a boss's move done when the leap is over, not when its tell ran out: that is when the rotation moves on.
@@ -420,6 +466,8 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
     const recovered = { ...rest, act: 'windup' as const, windup: 0, aim, cooldown: chained ? 0 : RECOVERY[enemy.kind], distance, ...(moves && !pounce ? { move: (slot + 1) % moves.length } : null) };
     if (attack === 'summon') return { ...recovered, raise: true, sound: 'warn' };
     if (attack === 'scatter') return { ...recovered, scatter: true, sound: 'warn' };
+    // Plan 025 (D3): the veil step. The tell ran out: she is gone from here and stands where she would have walked to. It is a step, not a blow: no recovery follows it, and the next move's own tell is the warning.
+    if (attack === 'veil') { const to = repositionTarget(enemy, player, world.cells, ROAM_STEP); return { ...recovered, cooldown: 0, x: to.x, z: to.z, veil: true, roam: STILL, sound: 'dash' }; }
     // A sweep has no aim to step around: everything within reach, on every side, that no wall shelters.
     if (attack === 'sweep') return { ...recovered, hit: distance < strike && hasClearPath(world.cells, enemy, player), sound: 'slash' };
     // The tell has run out and the swing is committed: it is tested against where the knight is *now*,
@@ -439,12 +487,18 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   if (clearAttackLine && cooldown <= 0) {
     return { ...rest, act: 'ready', face, windup: moves ? moves[pick].tell : enemy.tell, aim: unit(toX, toZ, distance), sound: 'warn', distance, ...(moves ? { move: pick } : null) };
   }
+  // Plan 025 (D3): a body that repositions walks round the knight to open floor when cornered or still for long (`roamStep`); when it has nowhere to go it gives ground as below.
+  if (archetype.repositions) {
+    const roamed = roamStep(enemy, player, world.cells, dt, distance, rest.roam);
+    rest.roam = roamed.roam;
+    if (roamed.at) return { ...rest, act: 'ready', face, x: roamed.at.x, z: roamed.at.z, distance };
+  }
   // A body that fights at range gives ground while it recovers, rather than standing to be cut down. It
   // backs straight away and lets the walls stop it: a cornered archer is the knight's reward for closing.
   const keepAway = BESTIARY[enemy.kind].keepAway;
   if (distance < keepAway) {
     const away = unit(-toX, -toZ, distance), landed = { x: enemy.x, z: enemy.z };
-    moveOnFloor(world.cells, landed, away.x * enemy.speed * dt, away.z * enemy.speed * dt);
+    moveOnFloor(world.cells, landed, away.x * enemy.speed * dt, away.z * enemy.speed * dt, bodyRadius(enemy.kind));
     return { ...rest, act: 'ready', face, x: landed.x, z: landed.z, distance };
   }
   // Hold position when already in place with a clear line, and let a stalker stand still late in its
@@ -460,7 +514,7 @@ export function decideEnemy(enemy: EnemyView, player: Point, world: World, frame
   }
   const direction = unit(dirX, dirZ, Math.hypot(dirX, dirZ));
   const landed = { x: enemy.x, z: enemy.z };
-  moveOnFloor(world.cells, landed, direction.x * enemy.speed * dt, direction.z * enemy.speed * dt);
+  moveOnFloor(world.cells, landed, direction.x * enemy.speed * dt, direction.z * enemy.speed * dt, bodyRadius(enemy.kind));
   return { ...rest, act: 'ready', face, x: landed.x, z: landed.z, distance };
 }
 
@@ -500,4 +554,119 @@ export function pressed(view: EnemyView, intent: EnemyIntent, index: number, ros
   if (!(view.windup <= 0 && intent.windup > 0 && intent.act === 'ready')) return { intent, held: 0 };
   const held = pressure(roster(), index, dt);
   return held > 0 ? { intent: { ...intent, windup: 0, sound: null, aim: { x: view.aim.x, z: view.aim.z } }, held } : { intent, held: 0 };
+}
+
+/**
+ * Plan 025 (D3): how far `x`,`z` stands from the nearest wall, in units: the distance to the nearest square of a cell that is not floor, looked for within `reach` (the answer is capped there).
+ * A point off the floor reads 0. Its own geometry over `cells`, so it reads what the floor is and not what a body of some radius may stand on.
+ */
+export function wallClearance(cells: Set<string>, x: number, z: number, reach = 3): number {
+  const cx = Math.round(x / TILE), cz = Math.round(z / TILE), span = Math.ceil(reach / TILE) + 1;
+  if (!cells.has(cellKey(cx, cz))) return 0;
+  let nearest = reach;
+  for (let ix = cx - span; ix <= cx + span; ix++) for (let iz = cz - span; iz <= cz + span; iz++) {
+    if (cells.has(cellKey(ix, iz))) continue;
+    const dx = Math.max(0, Math.abs(x - ix * TILE) - TILE / 2), dz = Math.max(0, Math.abs(z - iz * TILE) - TILE / 2);
+    nearest = Math.min(nearest, Math.hypot(dx, dz));
+  }
+  return nearest;
+}
+
+/** Plan 025 (D3): how far along `dir` (a unit heading) from `from` the floor runs, looked for up to `reach`. */
+export function floorAhead(cells: Set<string>, from: Point, dir: Point, reach = 3): number {
+  for (let d = 0.1; d <= reach; d += 0.1) if (!cells.has(cellKey(Math.round((from.x + dir.x * d) / TILE), Math.round((from.z + dir.z * d) / TILE)))) return d - 0.1;
+  return reach;
+}
+
+/**
+ * Plan 025 (D3), the Pyre Mother's: where a body that repositions goes. `REPOSITION_RANGE` from the knight, on floor at least `REPOSITION_CLEAR` from every wall with a clear line to him, the one
+ * farthest from the walls (counted up to `CLEAR_ENOUGH`, past which open floor is open floor) less `TRAVEL_COST` a unit of the way round the knight to it, so she takes the nearest of the open spots rather than
+ * crossing the room for a little more. `away` keeps her from picking a spot nearer than that to where she stands (a body that has stood still for long, or steps through the veil, is to be seen to move).
+ * When no point qualifies (a small crypt with the knight in it) the most open point that has floor to stand on; when there is none, where she stands. Deterministic: bearings round the knight from +x, rings outward. The game and the balance sim both reach it through `decideEnemy`.
+ */
+export const REPOSITION_RANGE = { min: 4, max: 6 } as const;
+export const REPOSITION_CLEAR = 1.5, CLEAR_ENOUGH = 2.5, TRAVEL_COST = 0.05;
+const REPOSITION_RINGS = [4, 4.5, 5, 5.5, 6], REPOSITION_BEARINGS = 24, REPOSITION_FOOTING = 0.5;
+export function repositionTarget(enemy: Point, knight: Point, cells: Set<string>, away = 0): Point {
+  let best: Point | null = null, bestScore = -Infinity, bestOk = false;
+  for (const ring of REPOSITION_RINGS) for (let k = 0; k < REPOSITION_BEARINGS; k++) {
+    const bearing = k / REPOSITION_BEARINGS * Math.PI * 2, at = { x: knight.x + Math.cos(bearing) * ring, z: knight.z + Math.sin(bearing) * ring };
+    const clear = wallClearance(cells, at.x, at.z, CLEAR_ENOUGH);
+    // The way there is round the knight: what it costs is the arc to the spot's bearing and the step in or out to its ring, so a spot on her own side of him is the nearer one.
+    const here = Math.hypot(enemy.x - knight.x, enemy.z - knight.z), turn = Math.abs(Math.atan2(Math.sin(bearing - Math.atan2(enemy.z - knight.z, enemy.x - knight.x)), Math.cos(bearing - Math.atan2(enemy.z - knight.z, enemy.x - knight.x))));
+    const travel = turn * (here + ring) / 2 + Math.abs(ring - here);
+    if (clear < REPOSITION_FOOTING || Math.hypot(at.x - enemy.x, at.z - enemy.z) < away) continue;
+    const ok = clear >= REPOSITION_CLEAR && hasClearPath(cells, at, knight), score = clear - TRAVEL_COST * travel;
+    if ((ok && !bestOk) || (ok === bestOk && score > bestScore)) { best = at; bestScore = score; bestOk = ok; }
+  }
+  return best ?? { x: enemy.x, z: enemy.z };
+}
+
+/** Plan 025 (D3): backing would leave less floor than this behind her: cornered. Still for longer than `HOLD_STILL` seconds: time to move. Within `ARRIVED` of the spot she is there; `ROAM_GIVE_UP` seconds of walking and she stops trying. */
+export const CORNERED = 1.5, HOLD_STILL = 2.5, ARRIVED = 0.3, ROAM_GIVE_UP = 4;
+/** The least a move she makes because she stood still for long, or a veil step, takes her from where she stood. */
+export const ROAM_STEP = 2;
+/** The walk keeps this far from the knight (cell centres nearer him are not walked through, but for the one she stands on): she goes round him, not under his blade. */
+export const ROUTE_BERTH = 2.2;
+/** How many cells of the route ahead she looks for one she can walk straight at, and the most cells a route search opens. */
+const ROUTE_LOOK = 4, ROUTE_LIMIT = 600;
+
+/**
+ * Plan 025 (D3): the point a body walking to `to` heads for this frame: a breadth-first route over the floor's cells (eight ways, a diagonal only where both sides are floor) from its cell to the
+ * spot's, through no cell whose centre lies within `ROUTE_BERTH` of the knight (or nearer him than she stands, when that is nearer), so the way round him is the way it takes; of the next `ROUTE_LOOK` cells of that route, the farthest it has a clear
+ * line to that passes the knight no nearer than the berth. Null when there is no such route. Deterministic: the neighbours are opened in a fixed order.
+ */
+export function routeStep(cells: Set<string>, from: Point, to: Point, knight: Point): Point | null {
+  const start = [Math.round(from.x / TILE), Math.round(from.z / TILE)] as const, goal = [Math.round(to.x / TILE), Math.round(to.z / TILE)] as const;
+  if (start[0] === goal[0] && start[1] === goal[1]) return to;
+  const came = new Map<string, string>([[cellKey(start[0], start[1]), '']]), queue: (readonly [number, number])[] = [start];
+  // A knight already inside the berth narrows it to where she stands: she may not walk nearer him, but she is not trapped by having let him close.
+  const berth = Math.min(ROUTE_BERTH, Math.hypot(from.x - knight.x, from.z - knight.z));
+  const open = (x: number, z: number) => cells.has(cellKey(x, z)) && (x === goal[0] && z === goal[1] || Math.hypot(x * TILE - knight.x, z * TILE - knight.z) >= berth);
+  for (let head = 0; head < queue.length && head < ROUTE_LIMIT; head++) {
+    const [x, z] = queue[head];
+    if (x === goal[0] && z === goal[1]) break;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+      const nx = x + dx, nz = z + dz, key = cellKey(nx, nz);
+      if (came.has(key) || !open(nx, nz) || (dx && dz && !(cells.has(cellKey(x + dx, z)) && cells.has(cellKey(x, z + dz))))) continue;
+      came.set(key, cellKey(x, z)); queue.push([nx, nz]);
+    }
+  }
+  const goalKey = cellKey(goal[0], goal[1]);
+  if (!came.has(goalKey)) return null;
+  const route: Point[] = [];
+  for (let key = goalKey; key !== cellKey(start[0], start[1]); key = came.get(key)!) { const [x, z] = key.split(',').map(Number); route.unshift({ x: x * TILE, z: z * TILE }); }
+  route[route.length - 1] = to;
+  // A straight line to a cell further on may not cut nearer the knight than the berth either.
+  const passes = (p: Point) => { const dx = p.x - from.x, dz = p.z - from.z, t = Math.max(0, Math.min(1, ((knight.x - from.x) * dx + (knight.z - from.z) * dz) / (dx * dx + dz * dz || 1))); return Math.hypot(from.x + dx * t - knight.x, from.z + dz * t - knight.z) >= berth; };
+  for (let k = Math.min(ROUTE_LOOK, route.length) - 1; k > 0; k--) if (passes(route[k]) && hasClearPath(cells, from, route[k])) return route[k];
+  return route[0];
+}
+
+/**
+ * Plan 025 (D3): one on-guard frame of a body that repositions. `at` is where it walked to this frame, or null when it is not walking (nothing to walk to; the caller's own rule then runs), and `roam`
+ * what to feed back. A walk starts when the body is cornered (inside `keepAway` with less than `CORNERED` of floor straight behind it) or has held still for more than `HOLD_STILL`, toward
+ * `repositionTarget`; it goes round the knight rather than straight back (`routeStep`), and ends at the spot, after `ROAM_GIVE_UP`, when there is no way there, or when a wall stops it.
+ * A knight who has moved so the spot is no longer at range from him gets a new spot.
+ */
+export function roamStep(enemy: EnemyView, knight: Point, cells: Set<string>, dt: number, distance: number, roam: Roam): { at: Point | null; roam: Roam } {
+  let to = roam.to, walked = roam.walked;
+  const done = { at: null, roam: { still: 0, to: null, walked: 0 } };
+  if (to && (walked > ROAM_GIVE_UP || Math.hypot(to.x - enemy.x, to.z - enemy.z) < ARRIVED)) return done;
+  if (to) { const range = Math.hypot(to.x - knight.x, to.z - knight.z); if (range < REPOSITION_RANGE.min - 0.5 || range > REPOSITION_RANGE.max + 0.5) to = repositionTarget(enemy, knight, cells); }
+  if (!to) {
+    const away = unit(enemy.x - knight.x, enemy.z - knight.z, distance);
+    const cornered = distance < BESTIARY[enemy.kind].keepAway && floorAhead(cells, enemy, away) < CORNERED;
+    if (!cornered && !(roam.still > HOLD_STILL)) return { at: null, roam };
+    to = repositionTarget(enemy, knight, cells, cornered ? 0 : ROAM_STEP); walked = 0;
+    if (Math.hypot(to.x - enemy.x, to.z - enemy.z) < ARRIVED) return done;
+  }
+  const next = routeStep(cells, enemy, to, knight);
+  if (!next) return done;
+  const heading = unit(next.x - enemy.x, next.z - enemy.z, Math.hypot(next.x - enemy.x, next.z - enemy.z)), stride = enemy.speed * dt;
+  const landed = { x: enemy.x, z: enemy.z };
+  moveOnFloor(cells, landed, heading.x * stride, heading.z * stride, bodyRadius(enemy.kind));
+  // A wall in the way: give the walk up rather than grind against it.
+  const blocked = Math.hypot(landed.x - enemy.x, landed.z - enemy.z) < stride * 0.25;
+  return { at: landed, roam: blocked ? { still: 0, to: null, walked: 0 } : { still: 0, to, walked: walked + dt } };
 }

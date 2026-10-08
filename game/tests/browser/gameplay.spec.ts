@@ -214,7 +214,9 @@ test('pause and the expanded map freeze the world, and losing focus drops held i
   await page.locator('.intro-screen .primary-action').click();
   expect((await game.state()).mode).toBe('playing');
 
-  await page.getByRole('button', { name: 'Open floor map' }).click();
+  // Plan 025 D1: there is no corner map to click; the pause menu's Floor map is the pointer's way in.
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Floor map' }).click();
   await expect(page.locator('.map-screen')).toBeVisible();
   const mapped = await game.state();
   expect(mapped.mode).toBe('paused');
@@ -424,7 +426,7 @@ test.describe('committed enemy attacks', () => {
     await game.capture('warden-committed');
     await game.step(enemy.windup * 1000 + 120);
     const after = await game.state();
-    expect(before - after.health).toBe(20);
+    expect(before - after.health, 'the warden did not land its floor-one blow').toBe(enemyStats('warden', 1).damage);
   });
 });
 
