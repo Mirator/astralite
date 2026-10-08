@@ -22,7 +22,9 @@ const lungs = UPGRADES.find((upgrade) => upgrade.id === 'lungs')!;
 // Plan 025: the hall's draw calls with OWNED's save. Measured 2026-10-07 on d3d11: 212 calls (114,368 triangles, 79 shadow calls) before Stage C, with two racks;
 // 255 (118,196 triangles, 91 shadow calls) with six racks (four locked, with plaques) and four shrines. The floor is the old hall, so a shop that drew nothing fails;
 // the ceiling is the figure measured, 253 under the 508 the frame budget holds the worst chamber to.
-const CALLS_FLOOR = 212, CALLS_CEILING = 255;
+// Merged with Stage B (2026-10-08): 256 on both d3d11 (local) and SwiftShader (CI run 37735911805). The one call is Stage B's sconce floor pools,
+// the +1 it measured on every scene (frame-budget.spec.ts); Stage C's 255 was taken before the two met.
+const CALLS_FLOOR = 212, CALLS_CEILING = 256;
 
 test('ENTER lands in the hall behind the veil: the altar, the racks it owns and the way down are on the scene, nobody is in it, and it drew no random number', async ({ page }) => {
   test.setTimeout(120_000 + WARM_UP);
