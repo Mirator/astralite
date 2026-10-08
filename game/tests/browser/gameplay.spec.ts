@@ -426,7 +426,7 @@ test.describe('committed enemy attacks', () => {
     await game.capture('warden-committed');
     await game.step(enemy.windup * 1000 + 120);
     const after = await game.state();
-    expect(before - after.health).toBe(20);
+    expect(before - after.health, 'the warden did not land its floor-one blow').toBe(enemyStats('warden', 1).damage);
   });
 });
 
