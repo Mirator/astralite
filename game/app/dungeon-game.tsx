@@ -9,7 +9,7 @@ import { impactEffects } from './dungeon-impact';
 import { footstepEffects } from './dungeon-footsteps';
 import { footfalls, footSupport, type FootstepKind } from './dungeon-footstep-rules';
 import { startDeath } from './dungeon-death';
-import { stoneTexture, type LightAnchor } from './dungeon-atmosphere';
+import { SCONCE_GLOW_VERTICES, stoneTexture } from './dungeon-atmosphere';
 import { flameShaderKeeper } from './dungeon-flame-fx';
 import { createPostChain, postQuality } from './dungeon-post';
 import { bloodDecals } from './dungeon-blood';
@@ -36,7 +36,6 @@ import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
 import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { createSparks } from './dungeon-sparks';
-import { nearestFirst } from './dungeon-nearest';
 import { serialiseRunExport } from './dungeon-run-export';
 import { summariseRunEnd } from './dungeon-run-summary';
 import { createGovernor, observeFrame, startPixelRatio, type QualityStage } from './dungeon-quality';
@@ -46,7 +45,8 @@ import { clearChamber, createRun, DOOR_RADIUS, draftBoons, grantXp, heal, hurt, 
 import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD_BUTTONS, PAD_START, PAD_VIEW, padAxis, padLook as readPadLook, parseCommand, pointerNdc as toNdc, readKey, type Stick } from './dungeon-input';
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
 import { beginMove, dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, THREAT, type Enemy, type EnemyKind } from './dungeon-enemy-view';
-import { createFloorStage, doorSign, doorSignOf, raiseFloor, type DoorSign, type FloorArt } from './dungeon-floor-scene';
+import { createFloorStage, DOOR_LABEL, DOOR_TINT, doorLabelTexture, doorSign, doorSignOf, raiseFloor, type DoorSign, type FloorArt } from './dungeon-floor-scene';
+import { assignSlots, chamberLights, GLANCE_PULL, GLANCE_SPAN, glanceWeight, fadeSlot, LIGHT_POOL, type LightSource, type PoolSlot } from './dungeon-lights';
 import { createMood } from './dungeon-mood';
 import { driveSliced as driveSlicedSteps, linkedPrograms, pollProgramsReady as pollPrograms, precompilePost } from './dungeon-warmup';
 // What the veil says is happening, one label per stage of `stagedBuild`, and how far its bar has run.
@@ -469,7 +469,11 @@ export default function DungeonGame() {
         cleared.add(id);
         const room = floor.rooms[id], ways = stage.doors.filter(view => view.door.from === id);
         award(clearChamber(run, room));
-        setNotice(`${room.name} · ${ways.length ? 'the way on opens' : 'cleansed'}`);
+        // Plan 025 D2 (d): the notice names what the open doors pay, not merely that they opened.
+        const rewards = [...new Set(ways.map(view => doorSignOf(floor, view.door)).filter(sign => sign === 'mend' || sign === 'cache'))].map(sign => DOOR_LABEL[sign]);
+        setNotice(`${room.name} · ${rewards.length > 1 ? `Choose your reward: ${rewards.join(' · ')}` : rewards.length ? `Your reward: ${rewards[0]}` : ways.length ? 'the way on opens' : 'cleansed'}`);
+        // Plan 025 D2 (c): and the camera glances towards them, so a door off the frame is seen to open.
+        if (ways.length) { glanceAt.set(0, 0, 0); for (const view of ways) glanceAt.add(view.spot); glanceAt.divideScalar(ways.length); glanceAge = 0; }
         noticeTime = 3.5; rewardTime = 1.4; audio.play('clear'); burst(player.position,0x71f4c4,18);
         for (const view of ways) burst(view.spot, view.color, 14);
         document.getElementById(`map-room-${id}`)?.setAttribute('fill', '#a8d5b0');
@@ -595,36 +599,51 @@ export default function DungeonGame() {
     // lazy upload made the renderer's texture count grow mid-floor, which reads as a leak to every check
     // that compares resource counts across rebuilds - and it was a hitch on the first windup besides.
     for (const shared of [telegraphTex, laneTex, alertTex]) renderer.initTexture(shared);
-    const torchLights: THREE.PointLight[] = [];
-    // Cutoff distance is what was drawing the hard-edged ellipse. Three windows a point light's falloff
-    // by `(1 - (d/distance)^4)^2`, which collapses to zero over the last few units, and at distance 15 in
-    // a room about that wide the collapse landed inside the frame — so the pool had a rim and read as a
-    // decal. No cutoff and a physical inverse square instead: the same brightness where it matters and a
-    // tail that simply runs out. The intensity here is dead code, overwritten by the flicker each frame.
-    for (let i = 0; i < 4; i++) { const light = new THREE.PointLight(0xff9440,22,0,2); torchLights.push(light); scene.add(light); }
-    // The sconces, lanterns and water bounces the atmosphere pass lays out are anchors, not lights (see
-    // `LightAnchor`): this fixed pool is lent to the ones nearest the knight each frame. A spare one sits
-    // at zero intensity rather than hidden, because an invisible light drops out of the count and a new
-    // count recompiles every lit shader - the very stall the pool exists to prevent.
-    const ANCHOR_LIGHTS = 4;
-    const anchorLights: THREE.PointLight[] = [];
-    for (let i = 0; i < ANCHOR_LIGHTS; i++) { const light = new THREE.PointLight(0xff9c52,0,6.5,2); anchorLights.push(light); scene.add(light); }
-    // No fifth torch. The review's complaint was that an effect throws no light,
+    // Plan 025 D2 (b): a door's floating name, one material per sign for the page's life. Made like the alert glyph (a map, no depth test, no
+    // fog), so the sprite program it draws with is the one that glyph already links.
+    const doorLabels = Object.fromEntries((Object.keys(DOOR_LABEL) as DoorSign[]).map((sign) => [sign, new THREE.SpriteMaterial({ map: doorLabelTexture(DOOR_LABEL[sign], DOOR_TINT[sign]), depthTest: false, transparent: true, fog: false })])) as Record<DoorSign, THREE.SpriteMaterial>;
+    for (const label of Object.values(doorLabels)) if (label.map) renderer.initTexture(label.map);
+    // Plan 025 D6: the braziers, doors, sconces and water bounces are sources, not lights (see `LightAnchor`
+    // and dungeon-lights.ts): this fixed pool of eight goes to the chamber the knight is in, by `chamberLights`,
+    // and stays put until he leaves it. It replaced four torches and four anchors lent to whatever was nearest
+    // him each frame. A spare one sits at zero intensity rather than hidden, because an invisible light drops
+    // out of the count and a new count recompiles every lit shader - the very stall the pool exists to prevent.
+    // A brazier's light keeps no cutoff (distance 0): three windows a point light's falloff by
+    // `(1 - (d/distance)^4)^2`, which collapsed inside the frame and gave the pool a rim, so it burns a
+    // physical inverse square whose tail simply runs out. A sconce, door or bounce keeps its short reach.
+    const pool: THREE.PointLight[] = [];
+    for (let i = 0; i < LIGHT_POOL; i++) { const light = new THREE.PointLight(0xff9440,0,0,2); pool.push(light); scene.add(light); }
+    // What each slot lights and how far up it is; what each slot is meant to light; the floor's sources and the
+    // stage they were read off; the chamber (and whether it was open) the slots were last chosen for.
+    let slots: PoolSlot[] = pool.map(() => ({ shown: null, level: 0 })), wanted: (LightSource | null)[] = pool.map(() => null);
+    let lightSources: LightSource[] = [], lightsOf: unknown = null, lightsFor = '';
+    // Plan 025 D2 (a): a door's light hangs between its ring and its arch, in the tint of what lies behind it.
+    const DOOR_LIGHT = { intensity: 12, distance: 7, y: 1.6, out: .25 };
+    const floorLights = (): LightSource[] => {
+      const at = stage.atmosphere; if (!at) return [];
+      return [
+        ...at.torchPositions.map((p, i): LightSource => ({ id: `brazier:${i}`, kind: 'brazier', room: at.torchRooms[i], x: p.x, y: p.y, z: p.z, color: 0, intensity: 0, distance: 0 })),
+        ...stage.doors.map((view): LightSource => ({ id: `door:${view.door.id}`, kind: 'door', room: view.door.from, x: view.spot.x + view.door.face.x * TILE * DOOR_LIGHT.out, y: DOOR_LIGHT.y, z: view.spot.z + view.door.face.z * TILE * DOOR_LIGHT.out, color: view.color, intensity: DOOR_LIGHT.intensity, distance: DOOR_LIGHT.distance })),
+        ...at.lightAnchors.map((a, i): LightSource => ({ id: `${a.kind}:${i}`, kind: a.kind, room: a.room, x: a.x, y: a.y, z: a.z, color: a.color, intensity: a.intensity, distance: a.distance })),
+      ];
+    };
+    // Plan 025 D2 (c): on a clear, the camera glances towards the open doors and back.
+    let glanceAge = Infinity; const glanceAt = new THREE.Vector3();
+    // No extra light for an effect. The review's complaint was that an effect throws no light,
     // and the honest fix is a real one — but the renderer's light budget is spent
-    // (a moon, a hemisphere, four torches and the knight's lantern) and a sixth
-    // point light is paid for by every lit fragment in the keep, every frame,
-    // whether anything is happening or not. So the fourth torch is lent out
-    // instead. It is the fourth-nearest by construction, which makes it the least
-    // of the four in any frame, and it is only ever away from its sconce while
-    // something louder than a torch is on screen.
-    const ember = borrowedLight(torchLights[3], 0xff9440);
+    // and another point light is paid for by every lit fragment in the keep, every frame,
+    // whether anything is happening or not. So the pool's last slot is lent out
+    // instead: an idle one when the chamber leaves one, else the one holding the least of
+    // the chamber's lights (a sconce, which keeps its painted pool meanwhile); it is only
+    // ever away while something louder than a sconce is on screen.
+    // Only an event in the knight's chamber may borrow it (plan 025 D6: a pool light never lights another chamber).
+    const ember = borrowedLight(pool[LIGHT_POOL - 1], 0xff9440, (at) => floor.roomByCell.get(cellKey(Math.round(at.x / TILE), Math.round(at.z / TILE))) === activeRoom);
     // One scratch vector for every bid: a light hung at floor level throws a hot
     // ring and reaches no wall, so each event lifts its offer off the paving.
     const lampAt = new THREE.Vector3();
     // Scratch for the frame's own arithmetic, so a frame allocates nothing it throws away: the fill
     // light's hang, the camera's lead, the shake, a blow's shove, and the lamps nearest the knight.
     const FILL_OFFSET = new THREE.Vector3(1.4,3.2,2.2), focusAhead = new THREE.Vector3(), shakeBy = new THREE.Vector3();
-    const nearTorches: THREE.Vector3[] = [], nearAnchors: LightAnchor[] = [];
     const player = makeKnight(); world.add(player);
     // Every transform the rig is born with, so a reset can put it back. The pose is reached by
     // damping, which approaches a rest value without arriving, and `advanceTime(0)` moves nothing -
@@ -649,7 +668,8 @@ export default function DungeonGame() {
     const fill = new THREE.PointLight(0xffdfbe, 46, 0, 2); scene.add(fill);
     // The chamber the knight is standing in decides the key, the bounce, the fog and the fire; see
     // dungeon-mood.ts for why, and for the slide across a threshold.
-    const mood = createMood({ scene, moon, hemisphere, torches: torchLights, emberHome: ember.home });
+    // Plan 025: the pool lights more than braziers now, so the mood colours no light itself; a brazier's slot takes the tint off `ember.home`.
+    const mood = createMood({ scene, moon, hemisphere, torches: [], emberHome: ember.home });
     // Plan 014 round 7 (lever 5): a .05-unit-wide `RingGeometry` annulus has no room for its own edges
     // to feather even with antialiasing on, which is what "hard, aliased thin line" was describing.
     // Widened into an actual band and given a radial alpha curve instead - RingGeometry's own UV.y runs
@@ -888,7 +908,7 @@ export default function DungeonGame() {
     };
     // What a floor build borrows from the world: the shared telegraph art, the scene root and the cutaway
     // controller's registration.
-    const floorArt: FloorArt = { telegraph: telegraphTex, lane: laneTex, alert: alertMaterial, world, register: (mesh) => cutaway.register(mesh) };
+    const floorArt: FloorArt = { telegraph: telegraphTex, lane: laneTex, alert: alertMaterial, doorLabels, world, register: (mesh) => cutaway.register(mesh) };
     // The pose the live swing is in: a strike's curve, a special's own tracks (`swingPose`), or the maul being wound.
     const poseAt=(age:number)=>charging!==null&&age===0&&pc.swingKind!=='special'&&pc.weapon.special?chargePose(charging/(pc.weapon.special.chargeMin??1),pc.weapon.special.kind):swingPose(pc,age);
     const posePlayer=(age:number)=>{
@@ -1163,7 +1183,7 @@ export default function DungeonGame() {
       swingHits.clear();slash.clear();endSpecial();clearShots();blood.clear();posePlayer(0);
       setBossBar(null); bossKey = '';
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine);
-      reached = 0; activeRoom = 0; pathCell = ''; distances.clear(); overDoor = null; crossing = null; if (crossFade.current) crossFade.current.style.opacity = '0';
+      reached = 0; activeRoom = 0; pathCell = ''; distances.clear(); overDoor = null; crossing = null; glanceAge = Infinity; ember.clear(); if (crossFade.current) crossFade.current.style.opacity = '0';
       // The floor itself - paving, flood, parapets, atmosphere, the walking-surface index, hazards, shrines,
       // the stair and every skeleton - is raised by dungeon-floor-scene.ts, one timed phase per yield.
       for (const name of raiseFloor(floor, level, floorGroup, pavingPlan, stage, floorArt)) { phase(name); yield; }
@@ -1759,7 +1779,6 @@ export default function DungeonGame() {
       // hold the near field after the decay went from 1.9 to a physical 2 and the cutoff came off.
       // Plan 014 round A: 22 -> 34, the warm bounce a torch throws on everything within a couple of tiles.
       const torchFlicker = (i: number) => 34 + Math.sin(t * 9 + i * 2.2) * 2.6 + Math.sin(t * 17) * 0.9;
-      for (let i = 0; i < torchLights.length - 1; i++) torchLights[i].intensity = torchFlicker(i);
       if (stage.water) stage.water.position.y = -2.8 + Math.sin(t * 0.9) * 0.05;
       if (stage.tide) stage.tide.time.value=t;
       animateCloth(player.userData.cape,t,pc.dashTime>0?.32:velocity.lengthSq()>0?.16:.045);
@@ -1848,14 +1867,19 @@ export default function DungeonGame() {
         // under the knight's feet, like the rack's ring: the door is his for the asking, and the asking is
         // the swap key.
         overDoor = null;
+        // Plan 025 D2 (b): a door's name floats over it once the choice is the knight's: his chamber is open and nobody in it stands.
+        // Not during a fight, where a label is a draw call the heaviest chamber has none of to spare (frame-budget.spec.ts, the 508).
+        const choosing = cleared.has(activeRoom) && !stage.enemies.some(e => e.room === activeRoom && !e.dead && e.awake);
         for (const view of stage.doors) {
+          view.label.visible = choosing && view.door.from === activeRoom;
           if (view.door.from !== activeRoom) continue;
           const open = cleared.has(view.door.from), near = !crossing && Math.hypot(player.position.x - view.spot.x, player.position.z - view.spot.z) < DOOR_RADIUS;
           if (near) overDoor = view.door;
           view.lit += ((open ? .5 : 0) + (open && near ? .5 : 0) - view.lit) * (1 - Math.exp(-9 * dt));
           view.bars.visible = !open;
           view.veil.material.opacity = .08 + view.lit * .5; view.ring.material.opacity = .15 + view.lit * .7;
-          view.sigil.rotation.y = t * 1.2; view.sigil.position.y = 1.25 + Math.sin(t * 2 + view.door.id) * .08; view.sigil.material.emissiveIntensity = .6 + view.lit * 1.6;
+          // Plan 025 D2 (b): reduced motion holds the sigil still; it is lit, not moved, to say the door is open.
+          view.sigil.rotation.y = easeMotion ? 0 : t * 1.2; view.sigil.position.y = 1.25 + (easeMotion ? 0 : Math.sin(t * 2 + view.door.id) * .12); view.sigil.material.emissiveIntensity = .6 + view.lit * 1.6;
         }
         // Only a floor that built a stair has one to open (the hall's goal is its own room, which nobody guards).
         if (!stairOpen && stairClear() && stage.stairRing) openStair();
@@ -2371,21 +2395,34 @@ export default function DungeonGame() {
       cutaway.syncMaterials();
       // The parapet is carved work too, built here rather than in the atmosphere pass but lit the same.
       stage.parapetSkin?.color.copy(mood.masonry);
-      const nearest = nearestFirst(stage.atmosphere?.torchPositions ?? [], torchLights.length, (a) => a.distanceToSquared(player.position), nearTorches);
-      // Three of the four go to their sconces. The fourth is settled below, once
-      // the accents have had their chance to ask for it.
-      for (let i = 0; i < torchLights.length - 1; i++) if (nearest[i]) torchLights[i].position.copy(nearest[i]);
-      const anchors = stage.atmosphere?.lightAnchors ?? [];
-      const lent = anchors.length <= ANCHOR_LIGHTS ? anchors : nearestFirst(anchors, ANCHOR_LIGHTS, (a) => (a.x-player.position.x)**2+(a.z-player.position.z)**2, nearAnchors);
-      anchorLights.forEach((light, i) => { const a = lent[i]; if (!a) { light.intensity = 0; return; } light.position.set(a.x, a.y, a.z); light.color.setHex(a.color); light.intensity = a.intensity; light.distance = a.distance; });
       fill.position.copy(player.position).add(FILL_OFFSET);
       mood.move(1 - Math.exp(-6 * frameDt), floor, player.position.x, player.position.z);
+      // Plan 025 D6: the pool goes to this chamber's sources, chosen once on the way in and again when its doors
+      // open, never by where the knight stands. A new floor snaps its lights on; a chamber crossed into fades.
+      const snapLights = stage.atmosphere !== lightsOf;
+      if (snapLights) { lightsOf = stage.atmosphere; lightSources = floorLights(); lightsFor = ''; wanted = pool.map(() => null); }
+      const lightRoom = floor.rooms[activeRoom], lightKey = `${activeRoom}:${cleared.has(activeRoom)}`;
+      if (lightKey !== lightsFor) { lightsFor = lightKey; const order = lightRoom ? chamberLights({ id: lightRoom.id, x: lightRoom.x * TILE, z: lightRoom.z * TILE, sources: lightSources, open: cleared.has(lightRoom.id) }) : []; wanted = assignSlots(wanted.map(w => w?.id ?? null), order); const idle = wanted.indexOf(null); ember.lamp = pool[idle >= 0 ? idle : wanted.indexOf(order[order.length - 1])]; }
+      // The painted pools are this chamber's alone: a neighbour's mesh whose bounds graze the frame would be a draw call for nothing seen.
+      for (const glow of stage.atmosphere?.sconceGlows ?? []) glow.visible = glow.userData.room === activeRoom;
+      slots = slots.map((slot, i) => snapLights ? { shown: wanted[i], level: wanted[i] ? 1 : 0 } : fadeSlot(slot, wanted[i], dt));
+      pool.forEach((light, i) => {
+        const { shown, level } = slots[i];
+        if (!shown || level <= 0) { light.intensity = 0; return; }
+        light.position.set(shown.x, shown.y, shown.z);
+        // A brazier burns the chamber's fire run towards amber (`ember.home`, which the mood keeps), and flickers.
+        if (shown.kind === 'brazier') { light.color.copy(ember.home); light.intensity = torchFlicker(i) * level; light.distance = 0; }
+        else { light.color.setHex(shown.color); light.intensity = shown.intensity * level; light.distance = shown.distance; }
+      });
       playerRing.position.set(player.position.x,0.04,player.position.z); (playerRing.material as THREE.MeshBasicMaterial).opacity = pc.dashTime > 0 ? 0.85 : 0.14; ringTime.value = t;
       moon.position.copy(player.position).setY(0).add(MOONRISE); moon.target.position.set(player.position.x,0,player.position.z); moon.target.updateMatrixWorld();
       if (dashMeter.current) dashMeter.current.value = Math.max(0,1-pc.dashCooldown/run.dashSpan);
       if (dashSweep.current) dashSweep.current.style.setProperty('--ready', String(Math.max(0,Math.min(1,1-pc.dashCooldown/run.dashSpan))));
       if (specialSweep.current) { specialSweep.current.style.setProperty('--ready', String(pc.weapon.special ? harpoon ? 0 : pc.weapon.special.draw ? quiver > 0 ? 1 : Math.min(1, reload / (pc.weapon.ranged?.refill ?? 1)) : Math.max(0, Math.min(1, 1 - run.specialCooldown / pc.weapon.special.cooldown)) : 1)); specialSweep.current.parentElement?.classList.toggle('special-ready', glintTime > 0); }
-      const target = focusAhead.copy(player.position).addScaledVector(velocity,0.12); cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
+      const target = focusAhead.copy(player.position).addScaledVector(velocity,0.12);
+      // Plan 025 D2 (c): a clear's glance at the open doors, off under reduced motion like the shake.
+      glanceAge += frameDt; if (!easeMotion && glanceAge < GLANCE_SPAN) target.lerp(glanceAt, GLANCE_PULL * glanceWeight(glanceAge));
+      cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
       camera.position.set(cameraFocus.x + 9.2,12.5,cameraFocus.z + 11.5);
       // Reduced motion drops the shake outright: it is ~90 Hz camera translation that carries nothing the
       // particles, the sound and the health bar do not already say, so nothing is lost by not moving at all.
@@ -2421,7 +2458,7 @@ export default function DungeonGame() {
       // and the flat VFX quads were all tamed - the light itself, not anything drawn on screen, was
       // still bright enough to bloom the stone and the body around it into one shapeless glow.
       if (lamp) ember.bid(lampAt.set(lamp.at.x, .95, lamp.at.z), Math.hypot(lamp.at.x - player.position.x, lamp.at.z - player.position.z), (lamp.heavy ? 7 : 5) * lamp.glow, lamp.colour);
-      ember.settle(nearest[torchLights.length - 1], torchFlicker(torchLights.length - 1));
+      ember.settle(); if (ember.lent) ember.lamp.distance = 0;
       // The hurt filter is reduced, not removed. Its discomfort is the brightness ramping across the whole
       // screen as the flash decays; its job is telling the player they were hit, which is gameplay. So the
       // tint stays for exactly as long, holds still, and drops the brightness change entirely.
@@ -2554,10 +2591,19 @@ export default function DungeonGame() {
       run: { start: { ...began }, armLocked },
       health: run.hp, maxHealth: run.maxHp, rank: run.rankLevel, weapon: { id: pc.weapon.id, name: pc.weapon.name, damage: pc.weapon.damage, reach: pc.weapon.reach, duration: pc.weapon.duration, strikeDamage: pc.weapon.damage + run.strike, ranged: !!pc.weapon.ranged, quiver: pc.weapon.ranged ? quiver : null, capacity: pc.weapon.ranged ? pc.weapon.ranged.capacity : null, inFlight: shots.length, fires: pools.length, pools: pools.map(live => ({ x: live.pool.x, z: live.pool.z })), special: pc.weapon.special ?? null }, hostileBolts: hostile.map(h => ({ kind: h.kind, x: h.shot.x, z: h.shot.z, dx: h.shot.dx, dz: h.shot.dz, damage: h.shot.damage })), hostilePools: hostilePools.map(h => ({ kind: h.kind, x: h.pool.x, z: h.pool.z, radius: h.pool.radius, life: h.pool.life, damage: h.pool.damage, drawn: h.mesh.visible })), scatterMarks: marked.map(m => ({ x: m.at.x, z: m.at.z, radius: m.radius, drawn: m.mesh.visible, threat: m.mesh.material.color.getHex() === THREAT })), arrowsDrawn: arrowPool.filter(arrow => arrow.visible).length, hostileRings: hostilePoolMeshes.filter(ring => ring.visible).length, boons: { strike: run.strike, reach: run.reach, draught: run.draught, dashSpan: run.dashSpan, guardAgainst: run.guardAgainst }, remaining: stage.enemies.filter(e => !e.dead && !e.buried).length,
       objective: { floor: level, floors: FLOORS, goal: goalRoom().name, goalRoom: floor.goal, halls: reached, goalDepth: goalRoom().depth, atStair: activeRoom === floor.goal, stairClear: stairClear(), stairOpen, onStair: stairOpen && onStair },
-      chamber: { id: activeRoom, layer: floor.rooms[activeRoom]?.layer ?? -1, reward: floor.rooms[activeRoom]?.reward ?? null, sealed: !cleared.has(activeRoom), wave: waveState(activeRoom), crossing: crossing ? (crossing.flipped ? 'in' : 'out') : null, doors: stage.doors.filter(view => view.door.from === activeRoom).map(view => ({ id: view.door.id, to: view.door.to, sign: doorSignOf(floor, view.door), x: view.spot.x, z: view.spot.z, radius: DOOR_RADIUS, open: !view.bars.visible, over: overDoor?.id === view.door.id })) },
+      chamber: { id: activeRoom, layer: floor.rooms[activeRoom]?.layer ?? -1, reward: floor.rooms[activeRoom]?.reward ?? null, sealed: !cleared.has(activeRoom), wave: waveState(activeRoom), crossing: crossing ? (crossing.flipped ? 'in' : 'out') : null, doors: stage.doors.filter(view => view.door.from === activeRoom).map(view => ({ id: view.door.id, to: view.door.to, sign: doorSignOf(floor, view.door), x: view.spot.x, z: view.spot.z, radius: DOOR_RADIUS, open: !view.bars.visible, over: overDoor?.id === view.door.id, label: view.label.visible && view.label.parent === floorGroup, sigil: { scale: view.sigil.scale.x, y: view.sigil.position.y, spin: view.sigil.rotation.y } })) },
       stair: { x: stage.stairSpot.x, z: stage.stairSpot.z, radius: STAIR_RADIUS },
       // Plan 025 D6: every fixture the atmosphere hung a flame or a bounce on, by chamber, read off what it laid out.
-      lights: { sources: [...(stage.atmosphere?.torchPositions ?? []).map((p, i) => ({ kind: 'brazier', room: stage.atmosphere?.torchRooms[i] ?? -1, x: p.x, y: p.y, z: p.z })), ...(stage.atmosphere?.lightAnchors ?? []).map(a => ({ kind: a.kind, room: a.room, x: a.x, y: a.y, z: a.z, wall: a.wall }))] },
+      lights: { sources: [...(stage.atmosphere?.torchPositions ?? []).map((p, i) => ({ kind: 'brazier', room: stage.atmosphere?.torchRooms[i] ?? -1, x: p.x, y: p.y, z: p.z })), ...(stage.atmosphere?.lightAnchors ?? []).map(a => ({ kind: a.kind, room: a.room, x: a.x, y: a.y, z: a.z, wall: a.wall }))],
+        // What each pool light is doing, read off the light itself: where it hangs, its colour, whether it burns; and the source and fade level its slot holds.
+        pool: pool.map((light, i) => { const { shown, level } = slots[i]; return shown ? { id: shown.id, kind: shown.kind, room: shown.room, level, x: light.position.x, y: light.position.y, z: light.position.z, color: light.color.getHex(), on: light.intensity > 0 } : null; }),
+        // The sconces' painted pools, read off the merged mesh: each disc's centre from its own vertices, and whether the mesh is drawn and lit.
+        glow: (() => { const meshes = stage.atmosphere?.sconceGlows; if (!meshes) return null; const v = new THREE.Vector3(), discs: { x: number; z: number; room: number; drawn: boolean }[] = [];
+          for (const mesh of meshes) { const at = mesh.geometry.getAttribute('position'); mesh.updateMatrixWorld(); for (let k = 0; k * SCONCE_GLOW_VERTICES < at.count; k++) { v.fromBufferAttribute(at, k * SCONCE_GLOW_VERTICES).applyMatrix4(mesh.matrixWorld); discs.push({ x: v.x, z: v.z, room: mesh.userData.room as number, drawn: mesh.parent === floorGroup && mesh.visible && (stage.atmosphere?.sconcePool.pool.value ?? 0) > 0 }); } }
+          // How many holders the pools' linked program has (the post chain pins each program once, plus one a material): above two means another material - the impact ring - linked it first.
+          const linked = meshes[0] ? (renderer.properties.get(meshes[0].material) as { currentProgram?: { usedTimes: number } }).currentProgram : undefined;
+          return { discs, programHolders: linked?.usedTimes ?? 0 }; })(),
+        glance: glanceAge < GLANCE_SPAN ? { age: glanceAge, x: glanceAt.x, z: glanceAt.z } : null },
       // Plan 019: read off the scene - where each rack's group really stands and whether it is attached to the floor - not off the layout that placed it.
       racks: racks.map(rack => ({ x: rack.group.position.x, z: rack.group.position.z, kind: rack.kind, radius: PICKUP_RADIUS, over: rack === overRack, inScene: rack.group.parent === floorGroup, offered: rack === overRack && offered && offered !== 'stair' && offered !== 'altar' && offered !== 'down' && !offered.startsWith('door:') ? offered : null })),
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, perBoss: XP_PER_BOSS, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },
@@ -2786,7 +2832,7 @@ export default function DungeonGame() {
         <circle className="map-mark" cx={mapNodes[floorMap.goal].x} cy={mapNodes[floorMap.goal].y} r="4.4" fill="none" stroke="#ffc573" strokeWidth="0.9" opacity="0.9" />
         <circle ref={mapPlayer} className="map-mark" cx={mapNodes[0].x} cy={mapNodes[0].y} r="1.6" fill="#ffc573" stroke="#071119" strokeWidth="0.7" />
       </g></svg></button>}
-      {notice && started && !paused && status === 'playing' && boonChoice.length === 0 && <output className="chamber-notice"><b>{notice.split(' · ').pop()}</b></output>}
+      {notice && started && !paused && status === 'playing' && boonChoice.length === 0 && <output className="chamber-notice"><b>{notice.includes(' · ') ? notice.slice(notice.indexOf(' · ') + 3) : notice}</b></output>}
       {/* The one prompt allowed to sit in the world, and it is not persistent: it exists only while the knight
           is standing in a rack's ring, and it is the only thing that will take an arm out of his hand. It is a
           button as well as a line of text so a phone, which has no key to press, can answer it by tap — pointer

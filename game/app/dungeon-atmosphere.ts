@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { addCarvedArchitecture, headroom, OFF_FRAME, ROOM_MOOD } from './dungeon-art';
 import { TILE, type generateFloor } from './dungeon-floor';
 import {
@@ -10,6 +11,7 @@ import {
 import { makeFlameBillboard, type FlameHandle } from './dungeon-flame-fx';
 import { animateCloth, contactTexture, glowTexture, shorelineMaterial, weatherStone } from './dungeon-motion';
 import { applyStoneTextures, getMasonryTextures } from './dungeon-textures';
+import { litDisc } from './dungeon-radiance';
 
 /**
  * Plan 014 round 6: the billboard flame (`dungeon-flame-fx.ts`) is one shape, not six vertices per
@@ -101,6 +103,11 @@ export type LightAnchor={x:number;y:number;z:number;color:number;intensity:numbe
   room:number;kind:'sconce'|'bounce';
   /** A wall sconce's wall: face direction and the line it stands on. Absent on a pillar sconce and a bounce. */
   wall?:string};
+
+/** Plan 025 D6: the painted pool under every sconce - radius in world units, segments, colour and strength. */
+export const SCONCE_GLOW_RADIUS=2.3,SCONCE_GLOW_SIDES=16,SCONCE_GLOW_COLOUR=0xff9c52,SCONCE_GLOW_POOL=.2;
+/** Vertices one disc of the merged glow mesh holds; disc `k`'s centre is vertex `k * SCONCE_GLOW_VERTICES`. */
+export const SCONCE_GLOW_VERTICES=SCONCE_GLOW_SIDES+2;
 
 /** The banner cloth, drawn in greys so the chamber can hang its own colour on it. A `MeshStandardMaterial`
  * map only ever multiplies, so the field has to be the darker of the two for the device to stay the lighter
@@ -583,7 +590,23 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   const paleTint=new THREE.Color(),bowlTint=new THREE.Color(),black=new THREE.Color(0x000000);
   const inlayTint=new THREE.Color(),runnerTint=new THREE.Color(),trimTint=new THREE.Color();
   const brassCast=new THREE.Color(0xb08a4e);
-  return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,torchRooms,lightAnchors,motifs:carved.motifs,
+  // Plan 025 D6 (amended): every sconce paints its own warm pool on the floor, always, since Stage B's count
+  // found 78% of chambers carry more flames than the eight real lights (progress.md, plan 025 Stage B). One
+  // mesh a chamber, its discs merged into it, so a chamber in frame costs one draw call and the others are
+  // culled whole (a single mesh for the floor drew every disc in the keep, ~6,000 triangles, every frame);
+  // and one material made like the impact ring's ground glow (`hit-ground-v1` in dungeon-impact.ts: same
+  // flags, key and falloff, front side only), so three.js finds the program that ring already linked and
+  // compiles nothing. Change one, change both.
+  const sconceSkin=new THREE.MeshBasicMaterial({color:SCONCE_GLOW_COLOUR,transparent:true,opacity:1,depthWrite:false,toneMapped:false,blending:THREE.AdditiveBlending,side:THREE.FrontSide});
+  // Front side only, where the ring is double-sided: three draws a transparent double-sided mesh twice, back face then
+  // front, with the material's side switched for each pass, so the ring's front pass already linked exactly this
+  // program, and a disc lying face up under a camera that only looks down has no back face anyone sees. (Keeping
+  // DoubleSide with `forceSinglePass` would be one draw too, but a double-sided program nobody had linked: +1.)
+  const sconcePool=litDisc(sconceSkin,'hit-ground-v1',2.4);sconcePool.band.value=0;sconcePool.pool.value=SCONCE_GLOW_POOL;
+  const sconceGlows=[...new Set(lightAnchors.filter(a=>a.kind==='sconce').map(a=>a.room))].map(room=>{
+    const discs=lightAnchors.filter(a=>a.kind==='sconce'&&a.room===room).map(a=>new THREE.CircleGeometry(SCONCE_GLOW_RADIUS,SCONCE_GLOW_SIDES).rotateX(-Math.PI/2).translate(a.x,.05,a.z));
+    const glow=new THREE.Mesh(mergeGeometries(discs),sconceSkin);discs.forEach(d=>d.dispose());glow.renderOrder=2;glow.userData.room=room;world.add(glow);return glow;});
+  return {waterfalls:falls.map(f=>({x:f.position.x,z:f.position.z})),torchPositions,torchRooms,lightAnchors,sconceGlows,sconcePool,motifs:carved.motifs,
     // Plan 014 round 6: a billboard flame has no single "body" mesh to read a bounding box off any
     // more (three quads, each its own draw). A driver that wants a brazier's footprint reads
     // `FLAME_FOOTPRINT`/`FLAME_BASE_Y` directly (both exported from their own modules) instead of

@@ -302,7 +302,20 @@ export type Snapshot = {
     id: number; layer: number; reward: 'mend' | 'cache' | null; sealed: boolean; crossing: 'out' | 'in' | null;
     /** Plan 022: the wave in play (the last one called), how many waves the chamber holds, and whether the rings of the next one are showing. */
     wave: { at: number; of: number; marked: boolean };
-    doors: { id: number; to: number; sign: string; x: number; z: number; radius: number; open: boolean; over: boolean }[];
+    doors: { id: number; to: number; sign: string; x: number; z: number; radius: number; open: boolean; over: boolean;
+      /** Plan 025 D2 (b): whether its floating name is drawn, and the sigil's size, height and spin, read off the meshes. */
+      label: boolean; sigil: { scale: number; y: number; spin: number } }[];
+  };
+  /**
+   * Plan 025 D6: every source the atmosphere laid out, by chamber; what each of the eight pool lights is doing (read off the
+   * light: where it hangs, its colour, whether it burns; null for an idle slot); the sconces' painted pools (each disc's centre
+   * read off the merged mesh); and the clear's camera glance while it lasts.
+   */
+  lights: {
+    sources: { kind: 'brazier' | 'sconce' | 'bounce'; room: number; x: number; y: number; z: number; wall?: string }[];
+    pool: ({ id: string; kind: 'brazier' | 'door' | 'sconce' | 'bounce'; room: number; level: number; x: number; y: number; z: number; color: number; on: boolean } | null)[];
+    glow: { discs: { x: number; z: number; room: number; drawn: boolean }[]; programHolders: number } | null;
+    glance: { age: number; x: number; z: number } | null;
   };
   /**
    * Plan 019: the racks on the floor, read off the scene. The Tide Gate of floor one holds one for every owned arm but the
