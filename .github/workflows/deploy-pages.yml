@@ -104,7 +104,7 @@ jobs:
   # Once code changed, every gate must actually have succeeded — a gate that
   # skipped itself then is a bug in its `if`, not a pass.
   verified:
-    needs: [changes, checks, browser, build]
+    needs: [changes, checks, balance, browser, build]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -112,9 +112,9 @@ jobs:
         env:
           CHANGES: ${{ needs.changes.result }}
           CODE: ${{ needs.changes.outputs.code }}
-          GATES: ${{ needs.checks.result }} ${{ needs.browser.result }} ${{ needs.build.result }}
+          GATES: ${{ needs.checks.result }} ${{ needs.balance.result }} ${{ needs.browser.result }} ${{ needs.build.result }}
         run: |
-          echo "changes: $CHANGES (code changed: ${CODE:-unknown}); checks, browser, build: $GATES"
+          echo "changes: $CHANGES (code changed: ${CODE:-unknown}); checks, balance, browser, build: $GATES"
           [ "$CHANGES" = success ] || { echo "::error::the changes job did not succeed"; exit 1; }
           for result in $GATES; do
             case "$result" in
@@ -135,7 +135,7 @@ jobs:
   # `changes` and `verified` are in the list because either can be the only red
   # job: a broken diff step skips every gate after it, and nothing below it fails.
   alarm:
-    needs: [changes, checks, browser, build, verified]
+    needs: [changes, checks, balance, browser, build, verified]
     if: failure() && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -186,13 +186,26 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
-      # Sixty seeded bot descents at two skill levels, held to loose bands in
-      # scripts/balance/bands.json. Nothing else notices a change that quietly
-      # makes the keep lethal or trivial: every other gate asserts rules, not
-      # outcomes. About a minute. When it fails on a change that meant to move
-      # the balance, re-measure and update bands.json in the same pull request,
-      # so the new numbers are reviewed with the change; do not loosen a band to
-      # get past a drift nobody intended.
+
+  # Seeded bot descents for every policy, held to loose bands in
+  # scripts/balance/bands.json. Nothing else notices a change that quietly
+  # makes the keep lethal or trivial: every other gate asserts rules, not
+  # outcomes. When it fails on a change that meant to move the balance,
+  # re-measure and update bands.json in the same pull request, so the new
+  # numbers are reviewed with the change; do not loosen a band to get past a
+  # drift nobody intended. A job of its own since 2026-10-09: about six minutes
+  # on CI, it ran after `npm test` in `checks` and would have been the longest
+  # pole once the browser shards were cut down.
+  balance:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: game
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup
       - run: npm run balance:check
 
   # Where the whole wall clock of this pipeline lives: the browser suite is
@@ -297,7 +310,7 @@ jobs:
   deploy:
     # Every gate, then the deployment. This is the line that keeps a red suite
     # off the live site.
-    needs: [changes, checks, browser, build]
+    needs: [changes, checks, balance, browser, build]
     # A pull request must never be able to publish to Pages, whatever it changed.
     # And a docs-only push has no artifact to publish: the gates and the build
     # were skipped, so the site stays on the last code push's deployment. A

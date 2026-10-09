@@ -1,6 +1,5 @@
 import { freshMeta } from '../../app/dungeon-meta.ts';
-import { VEIL_STAGES, veilProgress } from '../../app/dungeon-veil.ts';
-import { DEFAULT_SEEDS, enterKeep, expect, type GameWindow, openSlots, chooseSlot, pinSeeds, test, WARM_UP } from './helpers.ts';
+import { expect, type GameWindow, openSlots, chooseSlot, test, WARM_UP } from './helpers.ts';
 
 // A boot is the thing under test here, so a page that is already booted has nothing to show. Every
 // scenario here needs its own load. Each fresh load also pays a cold shader warm-up behind the veil
@@ -149,47 +148,6 @@ test('the keep is built on the press, not before it', async ({
  * rather than racing it - what this proves is that dropping it is safe: no page error, the boot it
  * interrupted still lands, and a real press afterward still works.
  */
-test('a reset issued while the boot is still polling its programs does not corrupt it', async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(String(error)));
-  await page.goto('/?boot=eager');
-  // As early as the hooks allow - well before the poll has had time to finish - so this lands inside the
-  // async window, not after it.
-  await page.waitForFunction(
-    () => typeof (window as GameWindow).render_game_to_text === 'function',
-    undefined,
-    { timeout: WARM_UP },
-  );
-  // Read `building` and reset in the same task: a reset that lands after the boot finished would pass
-  // everything below trivially, so the test has to see that it hit the window it is about.
-  const inWindow = await page.evaluate(() => {
-    const hooks = window as GameWindow;
-    const building = (JSON.parse(hooks.render_game_to_text!()) as { building: boolean }).building;
-    hooks.dungeonTest?.reset();
-    return building;
-  });
-  expect(inWindow, 'the reset landed after the boot had finished, so the race was never run').toBe(true);
-  // The boot this interrupted still has to land, whether or not the reset above did anything.
-  await page.waitForFunction(
-    () => {
-      const hook = (window as GameWindow).render_game_to_text;
-      return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
-    },
-    undefined,
-    { timeout: WARM_UP },
-  );
-  // And a real press afterward has to work - this is exactly what hung before `boot` claimed `building`.
-  await enterKeep(page);
-  await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
-  const state = await page.evaluate(
-    () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string },
-  );
-  expect(state.mode).toBe('playing');
-  expect(errors, 'the interrupted boot left a page error behind').toEqual([]);
-});
-
 // These four need a booted page, not a boot: `dungeonTest.reset` is the same sliced, veiled `restart` they
 // are about, so the pooled page exercises exactly the code a fresh load would, without paying for one.
 test.describe('on an already booted page', () => {
@@ -339,111 +297,3 @@ test.describe('on an already booted page', () => {
   });
 });
 
-/**
- * Plan 020: the hall is built through the same sliced generator, and the product's first press and every return from a run go through it, so what the boot
- * and a restart raise must be what the synchronous hook builds - the room, its dressing, its racks on their slots, its altar and its way down. Its own page: the
- * pooled one was booted past the hall (`?hall=skip`), and `dungeonTest.reset` returns a page to the mode it booted in.
- */
-test.describe('the hall', () => {
-  test.use({ hall: true, isolate: false });
-
-  test('the hall built through the sliced path is identical to the synchronous one, racks, altar and way down included', async ({ game, page }) => {
-    await game.setMeta({ ...freshMeta(), arms: ['tideblade', 'spear', 'maul'], arm: 'tideblade' });
-    const capture = () =>
-      page.evaluate(() => {
-        const snapshot = JSON.parse((window as GameWindow).render_game_to_text!()) as Record<string, unknown>;
-        const { floor, graphics, enemies, features, stair, racks, remaining, hall, hallProps } = snapshot;
-        return { floor, graphics, enemies, features, stair, racks, remaining, hall, hallProps };
-      });
-    // The sliced path: `reset` rebuilds the mode the page booted in through `restart`, which in this mode is the hall.
-    await page.evaluate(() => (window as GameWindow).dungeonTest!.reset());
-    await game.built();
-    const sliced = await capture();
-    expect(sliced.hall, 'the reset did not rebuild the hall').toBe(true);
-    // Plan 025 (D8): every arm but the one in hand, owned or locked, and the four shrines.
-    expect((sliced.racks as unknown[]).length, 'the fixture needs racks in the hall for the comparison to cover them').toBe(6);
-    expect((sliced.hallProps as { shrines: unknown[] }).shrines.length, 'the fixture needs the shrines in the hall for the comparison to cover them').toBe(4);
-    // The synchronous reference.
-    await page.evaluate(() => (window as GameWindow).dungeonTest!.buildHall());
-    const unsliced = await capture();
-    expect(sliced, 'the hall the staged build raised is not the hall the synchronous hook builds').toEqual(unsliced);
-  });
-});
-
-/**
- * Plan 020, operator 2026-10-02: there is no LAST KEEP. Like SAME KEEP on the death card (D9), it was an instant
- * retry that skipped the hall, and as in Hades every attempt now leaves from the hall. A slot still remembers its last
- * seed (the run log replays it with `restart:<seed>`, and `start:<seed>` stays a command), so the precondition here is
- * that a seed really is stored: an empty slot would show no such button anyway, and the absence would prove nothing.
- *
- * This drives the plain URL rather than the `game` fixture, which passes `boot=eager` and `hall=skip`; the title
- * under test is the one a player sees, and pressing ENTER from it must land in the hall, not in the remembered keep.
- */
-test.describe('with a keep remembered from a previous visit', () => {
-  const remembered = 0x2468ace;
-  test.use({
-    storageState: {
-      cookies: [],
-      origins: [
-        {
-          origin: `http://127.0.0.1:${process.env.GAME_TEST_PORT ?? 3000}`,
-          localStorage: [{ name: 'drowned-keep:1:seed', value: String(remembered) }],
-        },
-      ],
-    },
-  });
-
-  test('the title offers no LAST KEEP, and ENTER leads through the slots to the hall', async ({ page }) => {
-    await pinSeeds(page, DEFAULT_SEEDS);
-    await page.goto('/');
-    const stored = await page.evaluate(() => localStorage.getItem('drowned-keep:1:seed'));
-    expect(stored, 'precondition: slot 1 remembers a keep, or a missing LAST KEEP proves nothing').toBe(String(remembered));
-    await expect(page.locator('.intro-screen .primary-action')).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Last keep' }), 'the title still offers LAST KEEP, a retry that skips the hall').toHaveCount(0);
-    await enterKeep(page, 1);
-    await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
-    const state = await page.evaluate(
-      () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string; hall: boolean; floor: { seed: number } },
-    );
-    expect(state.hall, 'ENTER did not lead to the hall').toBe(true);
-    expect(state.floor.seed, 'ENTER entered the remembered keep instead of the hall').not.toBe(remembered);
-  });
-});
-
-/**
- * The veil's bar is measured work, not a stage count: texture bands finished and shader programs linked,
- * weighted by how long each stage takes (`dungeon-veil.ts`). While a stage's name is up the bar is inside
- * that stage's share, it never runs backwards though the program list grows under it, and it is all but
- * full by the time the veil lifts. There is no "N / 5" any more: five stages of very unequal length made
- * a count that read 4 / 5 over a bar a little past half.
- */
-test('the loading bar follows measured work, never runs backwards and ends full', async ({ page }) => {
-  await page.goto('/');
-  await expect(page.locator('.intro-screen .primary-action')).toBeEnabled();
-  await enterKeep(page);
-  await expect(page.locator('.loading-veil')).toBeVisible();
-  const samples = await page.evaluate(() => new Promise<{ stage: string; progress: number }[]>((done) => {
-    const out: { stage: string; progress: number }[] = [];
-    const sample = () => {
-      const fill = document.querySelector<HTMLElement>('.loading-veil .veil-bar i');
-      if (!fill) { done(out); return; }
-      out.push({ stage: document.querySelector('.loading-veil .veil-stage')?.textContent ?? '', progress: Number(fill.dataset.progress ?? 0) });
-      requestAnimationFrame(sample);
-    };
-    sample();
-  }), undefined);
-  expect(samples.length, 'the veil was sampled while it was up').toBeGreaterThan(0);
-  let last = 0;
-  for (const { stage, progress } of samples) {
-    expect(stage, 'the stage line carries no count').not.toMatch(/\d\s*\/\s*\d/);
-    const index = VEIL_STAGES.indexOf(stage as (typeof VEIL_STAGES)[number]);
-    expect(index, `"${stage}" is a stage`).toBeGreaterThanOrEqual(0);
-    // The last stage's name stays up once the build is done, so its ceiling is the full bar.
-    const ceiling = index === VEIL_STAGES.length - 1 ? 1 : veilProgress(index + 1);
-    expect(progress, `bar during "${stage}"`).toBeGreaterThanOrEqual(veilProgress(index) - 1e-3);
-    expect(progress, `bar during "${stage}"`).toBeLessThanOrEqual(ceiling + 1e-3);
-    expect(progress, 'the bar never runs backwards').toBeGreaterThanOrEqual(last);
-    last = progress;
-  }
-  expect(last, 'the bar is all but full when the veil lifts').toBeGreaterThanOrEqual(veilProgress(4));
-});

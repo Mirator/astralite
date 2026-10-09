@@ -206,7 +206,7 @@ purchases out of the next.
   the knight standing in that ring, `offered` the arm the swap prompt is naming. `dungeonTest.actorStats()` reports the racks' meshes as `racks` for the teardown
   checks.
 
-The result card's one button, RETURN TO THE ALTAR, and the shop it leads to are driven with real clicks and keys (`tests/browser/meta.spec.ts`, `death.spec.ts`); the Tide Altar's panel
+The result card's one button, RETURN TO THE ALTAR, and the shop it leads to are driven with real clicks and keys (`tests/browser/meta.spec.ts`; `death.spec.ts` was removed on 2026-10-09 to cut CI time); the Tide Altar's panel
 left the title for the hall's shop overlay in plan 020, and in plan 025 became a page of the hall's pause card ("The altar's list") while the hall itself became the shop
 (`tests/browser/hall.spec.ts` holds a shrine and a locked arm bought by holding the real swap key). `tests/browser/armoury.spec.ts` walks into a rack's ring and uses the swap key. The rules live in node:
 `tests/dungeon-meta.test.ts`. The slot picker is driven with real clicks and keys in `tests/browser/slots.spec.ts`; the rules behind it (keys, summary, erase) are in
@@ -255,7 +255,7 @@ Two kinds exist only here - `reaper` and `rattler` - with `firstFloor: Infinity`
 so the floor generator never deals them standing. The other three arena kinds were promoted into the descent by
 plan 018 (`shieldbearer` and `pyre` from floor 2, `bonecaller` from floor 3, shares in `PACK_MIX.middle` and
 `.late`), and `npm run census` prints what the generator deals; plan 025 Stage G added the `bomber` (floor 2, shares in `.middle` and `.late`; its tell marks a ring on the knight and the bomb lands there, `bombMarks` and `bombLands` in `app/dungeon-enemy.ts`), and `npm run balance -- --runs 30 --kinds` prints what the bot is dealt and meets of each kind per floor; `tests/browser/arena-kinds.spec.ts` drives all of
-them, and `tests/browser/dealt-kinds.spec.ts` checks a generated floor reaches the game (a rattler is dealt only
+them (`dealt-kinds.spec.ts`, which checked a generated floor reaches the game, was removed on 2026-10-09 to cut CI time; the deal is held in node by `tests/dungeon-floor.test.ts` and the balance sim; a rattler is dealt only
 as a bonecaller's reserve). A bonecaller arrives, in the arena and on a generated floor alike (`buryReserves`),
 with four rattlers buried under it and raises two per call: `render_game_to_text().enemies` lists them with `buried: true` (and
 `summoner`, the spawn index that raises them) while underground. One cut down while its caller stands goes

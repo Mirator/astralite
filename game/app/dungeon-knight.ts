@@ -6,7 +6,7 @@
 // gold-rimmed breastplate with a diamond, a mail skirt behind a gold-bordered tabard, and longer armoured
 // legs. He stands the same height as before - the helm and plume shrank by what the legs gained - and is
 // drawn in 31 meshes of the 32 allowed: the knees and the free arm lost a material each to pay for the
-// tabard, the mail and the plume's own crimson. The helm stays the palest thing on him on purpose (models.spec.ts holds head over shoulders),
+// tabard, the mail and the plume's own crimson. The helm stays the palest thing on him on purpose (models.spec.ts held head over shoulders until it was removed on 2026-10-09; judge it on the figure bench now),
 // so the shoulders are dark iron and carry their gold only as thin edges.
 //
 // Three things do NOT fit the spec's narrow shape model and stay imperative: the cape (its cloth pattern
@@ -124,7 +124,7 @@ const KNIGHT_SPEC: Node = {
             // Plan 013: a plume, not a mohawk. Three feathers down the ridge, each laid further back than the
             // one before it, and one a side splayed outward so it has width from the front. Nothing trails
             // further back: from behind it would cover the helm's steel, which is what lifts his head off
-            // the cape (models.spec.ts, facings 3 to 5). The front
+            // the cape (measured at facings 3 to 5 by models.spec.ts, removed 2026-10-09). The front
             // feather's tip is the knight's highest point and sits where the old crest's did.
             { name: 'crest-0', shape: { geometry: unitSpike() }, material: 'plume', at: [0, .36, .02], rot: [.7, 0, 0], scale: [.1, .36, .11] },
             { name: 'crest-1', shape: { geometry: unitSpike() }, material: 'plume', at: [0, .36, .12], rot: [.95, 0, 0], scale: [.11, .44, .11] },
