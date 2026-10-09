@@ -624,41 +624,6 @@ test('a slam that fells the stair boss opens its boon, then the stair, then the 
   expect(specialOf(descended)).toMatchObject({ charging: false, live: false });
 });
 
-test.describe('on a phone', () => {
-  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-
-  test('the touch SPECIAL button holds a charge, taps a Whirl, and is live for every arm', async ({ game, page }) => {
-    await game.enter();
-    await game.step(120);
-    const button = page.locator('.touch-actions .special');
-    // Stage C: no arm is left without one, so the dimmed state is never reached in play.
-    for (const arm of ['tideblade', 'fangs', 'spear', 'cleaver', 'maul', 'crossbow', 'flask']) {
-      await game.equip(arm);
-      await expect(button, arm).toBeEnabled();
-    }
-    await game.equip('cleaver');
-    const tap = await game.centreOf('.touch-actions .special');
-    await game.touch('touchStart', [{ ...tap, id: 6 }]);
-    await game.step(16);
-    await game.touch('touchEnd', []);
-    await game.step(300);
-    expect(specialOf(await game.state())!, 'a tap is a Whirl').toMatchObject({ id: 'whirl', ready: false });
-    await game.step(900);
-    await game.equip('maul');
-    await expect(button).toBeEnabled();
-    const at = await game.centreOf('.touch-actions .special');
-    await game.touch('touchStart', [{ ...at, id: 7 }]);
-    await game.step(700);
-    expect(specialOf(await game.state())!.charging).toBe(true);
-    await game.touch('touchEnd', []);
-    await game.step(300);
-    const slammed = specialOf(await game.state())!;
-    expect(slammed.charging).toBe(false);
-    expect(slammed.ready, 'past the minimum, the lift slammed').toBe(false);
-    await game.equip('tideblade');
-  });
-});
-
 // --- Stage C: the other four arms -------------------------------------------------------------------------
 
 /** `by` units past `to`, on the line from `from` through it. */

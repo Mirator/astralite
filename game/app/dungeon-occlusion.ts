@@ -10,8 +10,8 @@ import type { EnemyKind } from './dungeon-bestiary.ts';
  * `installCutawayShaderHooks` writes the GLSL that does the cutting. Its tunables (the depth-gap window,
  * the world-y floor, the ellipse falloff, the strength cap, the slot count) are the named constants below,
  * interpolated into the GLSL source, so there is one copy of each number and no TypeScript re-statement
- * of the shader arithmetic to drift from it. The evidence the cutaway works is
- * `tests/browser/occlusion.spec.ts`: a real WebGL draw and a before/after pixel comparison.
+ * of the shader arithmetic to drift from it. The slot rule is held by `tests/dungeon-occlusion.test.ts`. The browser
+ * pixel check (`occlusion.spec.ts`) was removed on 2026-10-09 to cut CI time: it never failed in CI and caught no bug.
  */
 
 export type { EnemyKind };

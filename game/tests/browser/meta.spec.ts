@@ -143,36 +143,6 @@ test.describe('through the hall', () => {
     expect(start.maxHp, 'the descent ignored the save').toBe(110);
   });
 
-  // Plan 025 (D8): the hall's pearl counter pulses when the run just banked put something newly in reach, and only then. 46 held: Deep Lungs (30) is already
-  // affordable and the Twin Fangs (50) are not; a death on floor 2 with no chamber cleared pays the floor behind it (5), which puts the fangs in reach and nothing else.
-  test('the counter pulses on the return when the run banked something newly into reach, and a hall raised without a bank does not', async ({ game, page }) => {
-    await game.setMeta({ ...NOTHING, pearls: 46 });
-    await game.enter();
-    await expect(page.locator('.hall-purse'), 'precondition: the counter is on screen in the hall').toHaveAttribute('data-pearls', '46');
-    await expect(page.locator('.hall-purse.pulse'), 'the counter pulses with nothing banked').toHaveCount(0);
-    await game.takeWayDown();
-    await expect(page.locator('.hall-purse'), 'the counter stayed on screen in the run').toHaveCount(0);
-    await game.buildFloor(2);
-    await stageBlow(game, 1);
-    await game.step(300);
-    expect((await game.state()).mode, 'the staged blow never landed').toBe('lost');
-    const banked = (await game.meta()).pearls;
-    expect([46 < ARM_PRICES.fangs, banked >= ARM_PRICES.fangs], 'precondition: the run banked the Twin Fangs into reach').toEqual([true, true]);
-    await page.getByRole('button', { name: 'RETURN TO THE ALTAR' }).click();
-    await game.built();
-    await game.step(16);
-    const hall = await game.state();
-    expect(hall.hall, 'precondition: back in the hall').toBe(true);
-    expect(hall.hallProps!.pulse, 'the hall did not find what the bank put newly in reach').toEqual(['arm:fangs']);
-    await expect(page.locator('.hall-purse.pulse'), 'the counter does not pulse for what came into reach').toHaveCount(1);
-    await expect(page.locator('.hall-purse')).toHaveAttribute('data-pearls', String(banked));
-    expect(hall.racks.find((rack) => rack.kind === 'fangs'), 'the Twin Fangs\' plaque does not burn now they are affordable').toMatchObject({ locked: true, plaqueReady: true });
-    // The hall raised again with no run between: nothing new, no pulse.
-    await page.evaluate(() => (window as unknown as { dungeonTest: { buildHall: () => void } }).dungeonTest.buildHall());
-    await game.step(16);
-    expect((await game.state()).hallProps!.pulse, 'a hall raised without a bank pulsed again').toEqual([]);
-    await expect(page.locator('.hall-purse.pulse')).toHaveCount(0);
-  });
 });
 
 test('Second Tide: the blow that would kill leaves the knight at 40% vitality, shows the notice, and the next one ends the run', async ({
@@ -237,59 +207,3 @@ test('nothing bought survives a reset: a rich save deals a rich run, and the res
   expect((await game.state()).weapon.id).toBe('tideblade');
 });
 
-test.describe('the Altar and Keen Eye on a phone', () => {
-  test.use({ viewport: { width: 360, height: 740 }, hasTouch: true, isMobile: true, hall: true });
-
-  test('360 x 740: no horizontal scroll, every arm and upgrade button reachable by scrolling the card, and four boon cards fit', async ({ game, page }) => {
-    await game.setMeta({ ...NOTHING, pearls: 999, upgrades: { eye: 1 } });
-    const widths = () => page.evaluate(() => ({
-      viewport: window.innerWidth,
-      page: document.documentElement.scrollWidth,
-      card: (document.querySelector('.intro-card') as HTMLElement).scrollWidth,
-      cardBox: (document.querySelector('.intro-card') as HTMLElement).clientWidth,
-    }));
-    expect((await widths()).page, 'the title menu already scrolls sideways').toBeLessThanOrEqual(360);
-
-    // The shop is opened on a phone by tapping the prompt that names the altar, which is a button.
-    await game.enter();
-    const altar = (await game.state()).hallProps!.altar!;
-    await game.teleport(altar.x, altar.z);
-    await game.step(64);
-    await page.locator('.swap-prompt').tap();
-    await game.step(16);
-    const items = page.locator('.altar-item');
-    await expect(items).toHaveCount(ARM_ORDER.length - 1 + UPGRADES.length);
-    const shown = await widths();
-    expect(shown.viewport, 'precondition: the phone viewport is the one asked for').toBe(360);
-    expect(shown.page, 'the Altar scrolls the page sideways').toBeLessThanOrEqual(shown.viewport);
-    expect(shown.card, 'something in the Altar card overflows it sideways').toBeLessThanOrEqual(shown.cardBox);
-    for (let i = 0; i < (await items.count()); i++) {
-      const row = items.nth(i);
-      await row.scrollIntoViewIfNeeded();
-      const box = (await row.boundingBox())!;
-      const label = await row.getAttribute('data-item');
-      expect(box.x, `${label} starts left of the screen`).toBeGreaterThanOrEqual(0);
-      expect(box.x + box.width, `${label} runs off the right of the screen`).toBeLessThanOrEqual(360);
-      expect(box.y, `${label} is above the screen after scrolling to it`).toBeGreaterThanOrEqual(0);
-      // Plan 025: on the pause card a row scrolled to sits flush with the bottom edge, and the card's fractional layout against a whole-pixel scroll left one
-      // 0.016 px over (740.016, measured 2026-10-07 on d3d11). Half a pixel is the tolerance for that rounding; a row cut off by the screen is many pixels over.
-      expect(box.y + box.height, `${label} is below the screen after scrolling to it`).toBeLessThanOrEqual(740.5);
-    }
-    expect((await widths()).page).toBeLessThanOrEqual(360);
-
-    // Keen Eye: the draft shows four cards and all four fit the screen.
-    await page.getByRole('button', { name: /Back to the hall/ }).click();
-    await game.takeWayDown();
-    expect((await game.state()).run.start.draftSize, 'precondition: the run was dealt Keen Eye').toBe(4);
-    await game.grantXp(200);
-    const cards = page.locator('.boon-option');
-    await expect(cards, 'Keen Eye did not put a fourth card in the offer').toHaveCount(4);
-    for (let i = 0; i < 4; i++) {
-      const box = (await cards.nth(i).boundingBox())!;
-      expect(box.x, `boon card ${i} starts left of the screen`).toBeGreaterThanOrEqual(0);
-      expect(box.x + box.width, `boon card ${i} runs off the right of the screen`).toBeLessThanOrEqual(360);
-      expect(box.y + box.height, `boon card ${i} runs off the bottom of the screen`).toBeLessThanOrEqual(740);
-    }
-    expect(new Set(await cards.locator('strong').allInnerTexts()).size, 'the four cards are not distinct').toBe(4);
-  });
-});

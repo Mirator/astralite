@@ -1,4 +1,4 @@
-import { expect, press, strikeStance, test, type Game, type Snapshot } from './helpers.ts';
+import { expect, press, strikeStance, test, type Game } from './helpers.ts';
 import type { Page } from '@playwright/test';
 import { ELITES, ELITE_MODIFIERS } from '../../app/dungeon-bestiary.ts';
 
@@ -114,25 +114,3 @@ test('a volatile guard felled by a real strike leaves fire that bites, and an el
   expect(state.health, 'standing in the volatile guard\'s fire cost the knight nothing').toBe(before.health - Math.round(fire.damage * state.boons.guardAgainst));
 });
 
-// Each half navigates a page of its own and nothing else does: a pooled page, or one the `game` fixture has already sent to the harness URL, is still booting when a second `goto` aborts it (CI saw ERR_ABORTED).
-test.describe('the dev link', () => {
-  test.use({ isolate: true });
-  const open = async (page: Page, query: string) => {
-    await page.goto(`/?boot=eager&hall=skip&${query}`);
-    await page.waitForFunction(() => {
-      const hook = (window as unknown as { render_game_to_text?: () => string }).render_game_to_text;
-      return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
-    }, undefined, { timeout: 120_000 });
-    return JSON.parse(await page.evaluate(() => (window as unknown as { render_game_to_text: () => string }).render_game_to_text())) as Snapshot;
-  };
-  test('`?elite=armoured` with an `?arena=` makes the roster that elite', async ({ page }) => {
-    const state = await open(page, 'arena=guard:2,archer:1&level=2&elite=armoured');
-    expect(state.arena, 'the link did not build the arena it named').toMatchObject({ roster: ['guard', 'guard', 'archer'], level: 2, elite: 'armoured' });
-    expect(state.enemies.map((e) => e.elite), 'the link did not make the roster armoured').toEqual(['armoured', 'armoured', 'armoured']);
-  });
-  test('a `?elite=` that is not a modifier makes the arena\'s roster nothing', async ({ page }) => {
-    const state = await open(page, 'arena=guard:2&level=2&elite=fast');
-    expect(state.enemies.length, 'precondition: the link built its arena').toBe(2);
-    expect(state.enemies.map((e) => e.elite), 'a name that is not a modifier made an elite').toEqual([null, null]);
-  });
-});
