@@ -625,7 +625,6 @@ test('gateRacks is the same for the same floor and draws nothing: not from the g
 
 // --- Plan 020 Stage A: the Tide Altar's hall ---------------------------------------------------------------------------
 
-const HALL_SWEEP = Array.from({ length: 300 }, (_, i) => i + 1);
 
 /** Every tile of `floor` the knight can walk to from `from` (tiles), four ways, across floor cells only. */
 const walkable = (floor: Floor, from: { x: number; z: number }) => {
