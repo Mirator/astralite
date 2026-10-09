@@ -27,7 +27,13 @@ export default defineConfig({
   // A retry would hide the flake this suite exists to catch.
   retries: 0,
   forbidOnly: !!process.env.CI,
-  timeout: 120_000,
+  // Was 120 s. Plan 026 (D4) took the point-light pool from 8 to 24, which three.js compiles into every lit shader, and a cold page
+  // boot under SwiftShader compiles about half as long again (measured 2026-10-08 locally, chain.spec's first scenario on a fresh
+  // page: 24.6 s at 8 lights, 37.0 s at 24; later scenarios on the booted page unchanged). On CI's 2-worker shards the pooled page
+  // a worker boots after `elites.spec.ts`'s isolated dev-link pages took ~46 s at 8 lights and went past 120 s at 24, failing the next
+  // scenario in fixture setup twice in a row (PR #98, `footsteps.spec.ts`). The operator accepted the lights' cost; no scenario's
+  // own body got slower, so this is headroom for the boot, not for a hang.
+  timeout: 180_000,
   // Was 15s. A scenario that needs its own browser context (any isolated/mobile/touch
   // spec - see `needsOwnPage` in tests/browser/helpers.ts) pays a full fresh page boot:
   // module load, a WebGL context, a first floor, all under CI's 2-worker, CPU-bound

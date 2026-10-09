@@ -6644,3 +6644,7 @@ The operator's requests of 2026-10-08, planned in `plans/026-hall-lights-boons-b
 ### Open
 
 - The operator plays the hall, a wave chamber, a boss and a boon draft on a real GPU. The 24-light pool's frame rate on integrated graphics is unmeasured.
+
+### PR #98 CI: the per-test timeout (2026-10-09)
+
+CI shard 2 failed twice in a row in fixture setup ("trace recording" timeout of 120000ms, page closed) on the first `footsteps.spec.ts` scenario after `elites.spec.ts`'s isolated dev-link pages: the worker's pooled page boot ran past 120 s. Cause: the 24-light pool makes every lit shader larger, and a cold boot under SwiftShader compiles about 50% longer (chain.spec's first scenario on a fresh page, local, 24.6 s at 8 lights and 37.0 s at 24; the same scenarios once booted were unchanged, e.g. dash 3.4 / 2.8 s, sprint 3.5 / 3.5 s). The same boot gap on the base branch's CI was ~46 s, and CI's runners ran this PR's shards about twice as slowly per scenario. Not reproduced locally (no local run came near 120 s). `playwright.config.ts` timeout 120 s -> 180 s, with the measurement beside it. Steady-state frame time on SwiftShader did not move with the light count (2.3-2.7 s a drawn frame at both 8 and 24).
