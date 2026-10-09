@@ -48,9 +48,10 @@ test('a cleared chamber lights and names its doors and glances at them, and its 
   const sourcesIn = (id: number) => opening.lights.sources.filter((source) => source.room === id);
   const rewardsBehind = (room: Floor['rooms'][number]) => new Set(floor.doors.filter((door) => door.from === room.id).map((door) => floor.rooms[door.to].reward).filter(Boolean));
   const fights = floor.rooms.filter((room) => room.role === 'path' && room.encounter === 'watch' && bodies(room) >= 1 && bodies(room) <= 3 && floor.doors.some((door) => door.from === room.id));
-  // A chamber that offers both rewards and carries more sources than the pool, so a light chosen by distance would move.
-  const room = fights.find((r) => rewardsBehind(r).size === 2 && sourcesIn(r.id).length > LIGHT_POOL && sourcesIn(r.id).some((s) => s.kind === 'brazier') && sourcesIn(r.id).some((s) => s.kind === 'sconce'));
-  expect(room, 'the pinned floor has no watch chamber of one to three bodies offering both rewards with more sources than the pool: pick another seed').toBeDefined();
+  // A chamber that offers both rewards and carries more sources than the old pool of eight, so a light chosen by distance would move and plan 026 D4 (every source lit) is tested where it was not true before.
+  const room = fights.find((r) => rewardsBehind(r).size === 2 && sourcesIn(r.id).length > 8 && sourcesIn(r.id).some((s) => s.kind === 'brazier') && sourcesIn(r.id).some((s) => s.kind === 'sconce'));
+  expect(room, 'the pinned floor has no watch chamber of one to three bodies offering both rewards with more than eight sources: pick another seed').toBeDefined();
+  expect(sourcesIn(room!.id).length + floor.doors.filter((door) => door.from === room!.id).length, 'precondition: the chamber fits the pool, as every chamber Stage B counted does').toBeLessThanOrEqual(LIGHT_POOL);
   const second = fights.find((r) => r.id !== room!.id);
   expect(second, 'precondition: a second chamber to clear under reduced motion').toBeDefined();
 
@@ -108,6 +109,8 @@ test('a cleared chamber lights and names its doors and glances at them, and its 
     expect(assignment(state), `the lights moved as the knight walked (at ${state.player.x.toFixed(1)}, ${state.player.z.toFixed(1)})`).toBe(assignment(start));
     expect(state.lights.pool.filter((light) => light !== null && light.room !== room!.id), 'a pool light went to another chamber').toEqual([]);
     for (const b of braziers) expect(state.lights.pool.some((l) => l?.on && Math.hypot(l.x - b.x, l.y - b.y, l.z - b.z) < 1e-3), `the brazier at (${b.x.toFixed(1)}, ${b.z.toFixed(1)}) has no light`).toBe(true);
+    // Plan 026 D4: every sconce of the chamber burns a real light too, not only the first eight sources.
+    for (const s of sconces) expect(state.lights.pool.some((l) => l?.on && Math.hypot(l.x - s.x, l.y - s.y, l.z - s.z) < 1e-3), `the sconce at (${s.x.toFixed(1)}, ${s.z.toFixed(1)}) has no light`).toBe(true);
     for (const s of sconces) expect(state.lights.glow!.discs.some((d) => d.drawn && d.room === room!.id && Math.hypot(d.x - s.x, d.z - s.z) < 1e-3), `the sconce at (${s.x.toFixed(1)}, ${s.z.toFixed(1)}) paints no pool`).toBe(true);
     expect(state.lights.glow!.discs.filter((d) => d.drawn && d.room !== room!.id), 'another chamber\'s painted pools are drawn').toEqual([]);
     return Math.hypot(state.player.x - to.x, state.player.z - to.z) < 1;

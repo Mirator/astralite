@@ -235,7 +235,8 @@ test('a run report says what banking it would pay', () => {
   // plan 024 Stage A (the weak knight steps out of the embers, and draws its cards) moved them from 2 and 85; Stage B (pressure) moved the second from 2 (now lost on floor 1) to 3.
   // Plan 025 (the sim knight's step-tie goes to the step nearer his quarry) moved the second from 3 (now lost on floor 2) to 4, the first seed lost on floor 3.
   // Plan 025 Stage F (furniture and the new doors) moved it from 4 (now lost on floor 2) to 8, the first seed lost on floor 3. A run's found pearls (Stage F) are banked on top.
-  for (const [seed, floor] of [[10, 2], [8, 3]] as const) {
+  // Plan 026 (D1, the shorter gap between waves) moved it from 8 (now lost on floor 2) to 29, the first seed lost on floor 3.
+  for (const [seed, floor] of [[10, 2], [29, 3]] as const) {
     const lost = simulateRun(seed, policy({ dodge: 0, reaction: 0.6 }));
     assert.deepEqual([lost.outcome, lost.floor], ['died', floor], `precondition: seed ${seed} is lost on floor ${floor}`);
     assert.equal(felled(lost), floor - 1, `precondition: a run lost on floor ${floor} felled the ${floor - 1} bosses behind it`);

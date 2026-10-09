@@ -419,8 +419,10 @@ export const HEART_CLEAR = 1.9;
  * fit - which `tests/dungeon-floor.test.ts` holds to never happening across its sweep, because the spacing is
  * not something to loosen.
  */
-export function gateRacks(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors'>): GateRack[] {
+export function gateRacks(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'hall'>): GateRack[] {
   const gate = floor.rooms[0], heart = { x: gate.x * TILE, z: gate.z * TILE };
+  // Plan 026 (D5): the authored hall's slots are fixed (`HALL_RACKS`), down the west arm.
+  if (floor.hall) return HALL_RACKS.map((slot, i) => ({ arm: GATE_ARMS[i], x: (gate.x + slot.x) * TILE, z: (gate.z + slot.z) * TILE }));
   const own = (x: number, z: number) => Math.abs(x - gate.x) <= gate.halfX && Math.abs(z - gate.z) <= gate.halfZ && carves(gate, x - gate.x, z - gate.z);
   const mouth = (door: Door) => { let at = { x: door.x, z: door.z }; for (let back = 0; back < 4 && !own(at.x, at.z); back++) at = { x: at.x - door.face.x, z: at.z - door.face.z }; return at; };
   const shut = [gate.entry, ...floor.doors.filter(door => door.from === gate.id).flatMap(door => [door, mouth(door)])];
@@ -460,8 +462,10 @@ export const HALL_SHRINES = 4;
  * takes the free tile nearest it, ties to the one farther from the heart. It draws nothing; a gate too crowded seats fewer, which the node test holds the
  * hall (`HALL_SEED`) to never doing.
  */
-export function hallShrines(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'props'>): { x: number; z: number }[] {
+export function hallShrines(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'props' | 'hall'>): { x: number; z: number }[] {
   const gate = floor.rooms[0], heart = { x: gate.x * TILE, z: gate.z * TILE };
+  // Plan 026 (D5): the authored hall's shrines are fixed (`HALL_SHRINE_SPOTS`), down the east arm.
+  if (floor.hall) return HALL_SHRINE_SPOTS.map(spot => ({ x: (gate.x + spot.x) * TILE, z: (gate.z + spot.z) * TILE }));
   const own = (x: number, z: number) => Math.abs(x - gate.x) <= gate.halfX && Math.abs(z - gate.z) <= gate.halfZ && carves(gate, x - gate.x, z - gate.z);
   const mouth = (door: Door) => { let at = { x: door.x, z: door.z }; for (let back = 0; back < 4 && !own(at.x, at.z); back++) at = { x: at.x - door.face.x, z: at.z - door.face.z }; return at; };
   const shut = [gate.entry, ...floor.doors.filter(door => door.from === gate.id).flatMap(door => [door, mouth(door)])];
@@ -479,30 +483,41 @@ export function hallShrines(floor: Pick<Floor, 'rooms' | 'tiles' | 'doors' | 'pr
   return picked;
 }
 
-/** The seed of the hall's room, fixed for good: the hall is this room on every visit. */
+/** The seed the hall's floor carries, fixed for good. Plan 026 (D5): the hall is authored now and draws nothing from it; it stays the floor's `seed` so a build of the hall is still told from floor one's. */
 export const HALL_SEED = 2063;
 
 /**
- * The Tide Altar's hall (plan 020, D4): the Tide Gate of `generateFloor(HALL_SEED, 1)` and nothing else. Room 0 with its
- * floor and props, the first door the generator cut from it (in `doors` order) and not the alcove of any other, no
- * spawns, no edges; `goal` is the room itself, so the floor is well formed, but the game builds no stair there. It carries
- * `hall: true`, and its one door keeps the generator's `to` (1), which names no room of a one-room floor: whatever draws or
- * reads a door must go through `doorSignOf` (dungeon-floor-scene.ts), which signs the hall's door "the way down", and never
- * look the room up. It
- * makes no draw of its own and the seed is a constant, so it is the same room on every call and in every process, and it
- * leaves the stream of every other seed alone. `seed` exists for the test sweep; the game never passes it.
+ * Plan 026 (D5): the sanctuary's plan, in tiles from its heart (the altar). A cruciform chapel, `HALL_ARM` tiles from the crossing to each arm's end and
+ * `HALL_AISLE` either side of the arm's line: the way in is the south arm's end (nearest the camera, so the knight walks towards the altar), the north arm is the
+ * apse behind the altar with columns at its mouth and a brazier on each side of its end, the west arm holds the armoury and the east arm the upgrade shrines. Every rack and shrine slot is fixed here, so the shop reads left (arms) and right (upgrades) and never moves.
+ */
+export const HALL_ARM = 7, HALL_AISLE = 2;
+/** The rack slots, in `GATE_ARMS` order: three down each side of the west arm's middle aisle and one closing its end. */
+export const HALL_RACKS: readonly { x: number; z: number }[] = [{ x: -3, z: -2 }, { x: -3, z: 2 }, { x: -5, z: -2 }, { x: -5, z: 2 }, { x: -7, z: -2 }, { x: -7, z: 2 }, { x: -7, z: 0 }];
+/** The upgrade shrines, in dungeon-meta's `UPGRADES` order: a pair either side of the east arm's middle aisle. */
+export const HALL_SHRINE_SPOTS: readonly { x: number; z: number }[] = [{ x: 3, z: -2 }, { x: 3, z: 2 }, { x: 6, z: -2 }, { x: 6, z: 2 }];
+/** The hall's props: a column either side of the apse's mouth behind the altar and a brazier either side of its far end. All on the far side from the
+ * camera, so none stands between it and the knight. */
+const HALL_PROPS: readonly FloorProp[] = [{ x: -2, z: -6, kind: 'brazier', room: 0 }, { x: 2, z: -6, kind: 'brazier', room: 0 }, { x: -2, z: -4, kind: 'pillar', room: 0 }, { x: 2, z: -4, kind: 'pillar', room: 0 }];
+
+/**
+ * The Tide Altar's hall (plan 020, D4; authored by plan 026, D5). It was the Tide Gate of `generateFloor(HALL_SEED, 1)` with all but one door walled up: floor
+ * one's first room again, which the operator found did not read as an altar's room at all. It is now a fixed chapel (`HALL_ARM`, `HALL_AISLE`), a cross
+ * of chamber `cross` with the altar at the crossing, one door at the south arm's end, and columns and braziers in the apse. It draws nothing (no
+ * generator, no Math.random), so it is the same room on every call. Its one door names room 1, which a one-room floor does not hold: whatever draws or reads
+ * a door must go through `doorSignOf` (dungeon-floor-scene.ts), which signs the hall's door "the way down", and never look the room up. `seed` is only the
+ * floor's `seed`, which the art's own hashes (paving, decor) read; it moves nothing of the plan. It exists for the tests' sweeps; the game never passes it.
  */
 export function altarHall(seed = HALL_SEED): Floor {
-  const floor = generateFloor(seed, 1), gate = floor.rooms[0];
-  const own = (x: number, z: number) => Math.abs(x - gate.x) <= gate.halfX && Math.abs(z - gate.z) <= gate.halfZ && carves(gate, x - gate.x, z - gate.z);
-  const doors = floor.doors.filter(door => door.from === gate.id), kept = doors[0];
-  // A door was cut back into the wall, a tile at a time, until masonry stood on both sides: those tiles are the ones going back from the door that the gate's own floor does not hold.
-  const alcoves = new Set<string>();
-  for (const door of doors.slice(1)) for (let at = { x: door.x, z: door.z }, back = 0; back < 4 && !own(at.x, at.z); back++, at = { x: at.x - door.face.x, z: at.z - door.face.z }) alcoves.add(cellKey(at.x, at.z));
-  const tiles = floor.tiles.filter(t => t.room === gate.id && !alcoves.has(cellKey(t.x, t.z)));
+  const half = HALL_ARM, door: Door = { id: 0, from: 0, to: 1, x: 0, z: half + 1, face: { x: 0, z: 1 } };
+  const gate: Room = { encounter: 'sanctuary', id: 0, x: 0, z: 0, halfX: half, halfZ: half, shape: 'cross', theme: 'flooded', name: 'The Tide Altar', role: 'start', depth: 0, heading: 0, layer: 0, reward: null, entry: { x: 0, z: half - 1 } };
+  const props = HALL_PROPS.map(p => ({ ...p })), held = new Set(props.map(p => cellKey(p.x, p.z)));
+  const tiles: { x: number; z: number; room: number }[] = [];
+  for (let z = -half; z <= half; z++) for (let x = -half; x <= half; x++) if ((Math.abs(x) <= HALL_AISLE || Math.abs(z) <= HALL_AISLE) && !held.has(cellKey(x, z))) tiles.push({ x, z, room: 0 });
+  tiles.push({ x: door.x, z: door.z, room: 0 });
   const cells = new Set(tiles.map(t => cellKey(t.x, t.z)));
-  const bounds = { minX: Math.min(...tiles.map(t => t.x)), maxX: Math.max(...tiles.map(t => t.x)), minZ: Math.min(...tiles.map(t => t.z)), maxZ: Math.max(...tiles.map(t => t.z)) };
-  return { seed, level: 1, rooms: [gate], edges: [], doors: [kept], cells, tiles, roomByCell: new Map(tiles.map(t => [cellKey(t.x, t.z), t.room])), bounds, props: floor.props.filter(p => p.room === gate.id), spawns: [], weaponDrop: floor.weaponDrop, start: 0, goal: gate.id, spine: [gate.id], guardCount: 0, hall: true };
+  const bounds = { minX: -half, maxX: half, minZ: -half, maxZ: half + 1 };
+  return { seed, level: 1, rooms: [gate], edges: [], doors: [door], cells, tiles, roomByCell: new Map(tiles.map(t => [cellKey(t.x, t.z), t.room])), bounds, props, spawns: [], weaponDrop: { x: 0, z: (half - 2) * TILE, kind: STARTING_WEAPON, room: 0 }, start: 0, goal: 0, spine: [0], guardCount: 0, hall: true };
 }
 
 /** The footprint of a body at scale 1, the knight's. Plan 025 D4: a bigger body's grows with its `look.scale` (`bodyRadius`). */

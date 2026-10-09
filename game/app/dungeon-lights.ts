@@ -7,11 +7,15 @@
 // more than eight (up to 23), so no assignment can light every flame. Every sconce therefore paints its own
 // pool on the floor for free (`litDisc`, built by the atmosphere), and the eight real lights go to the
 // chamber the knight is in, by a fixed priority, and stay put until he leaves it.
+// Plan 026 (D4, 2026-10-08): the operator wants every light of a chamber on, not its first eight, and accepted the cost (every lit fragment
+// pays for every light in the pool, lit or not). The pool is the most crowded chamber Stage B counted, 23 braziers, sconces and doors, plus
+// one, so every source of the chamber the knight is in gets a real light; the priority order still decides should a chamber ever hold more
+// (only a water bounce, of which a chamber holds up to six, can be left over). The painted pools stay: they carry the light past `distance`.
 //
 // Pure: no three.js, so node runs it directly.
 
-/** The real point lights the keep lends out. Not the knight's fill, which follows him everywhere. */
-export const LIGHT_POOL = 8;
+/** The real point lights the keep lends out. Not the knight's fill, which follows him everywhere. Plan 026 (D4): 8 -> 24, every source of a chamber. */
+export const LIGHT_POOL = 24;
 /** A swap on entering a chamber: the old light fades out and the new one in, this long in all. */
 export const LIGHT_FADE = .3;
 

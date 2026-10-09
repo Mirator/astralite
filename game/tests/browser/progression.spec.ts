@@ -284,3 +284,33 @@ test('a rank-up on the stair boss opens its boon before the floor results, and q
   expect(descended.mode).toBe('playing');
   expect(descended.floor.level).toBe(2);
 });
+
+// Plan 026 (D2): the operator, spamming the strike button, took a boon by surprise when the draft opened under the cursor. The rule is
+// dungeon-draft.ts's (node-tested); this checks the card is wired to it with a real pointer: clicks inside the arming delay and repeated
+// clicks on a card never take it, and TAKE does.
+test('a boon is never taken by clicking its card, however often; only TAKE takes it', async ({ game, page }) => {
+  await game.enter();
+  const before = await game.state();
+  await game.grantXp(rankCost(1));
+  const cards = page.locator('.boon-option');
+  await expect(cards.first()).toBeVisible();
+  // Straight away, as a spamming player would: the card is not live yet, so a click lands on nothing.
+  const box = (await cards.first().boundingBox())!;
+  const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  await expect(cards.first(), 'precondition: the card is live the moment it opens, so the arming delay is not what is tested').toHaveAttribute('aria-disabled', 'true');
+  await page.mouse.click(centre.x, centre.y);
+  await expect(cards.first(), 'a click inside the arming delay selected the card').toHaveAttribute('aria-pressed', 'false');
+  await expect(cards.first()).toHaveAttribute('aria-disabled', 'false');
+  // Now ten clicks on the same spot: selected, never taken.
+  for (let i = 0; i < 10; i++) await page.mouse.click(centre.x, centre.y);
+  await expect(cards.first(), 'the clicked card is not selected').toHaveAttribute('aria-pressed', 'true');
+  const held = await game.state();
+  expect(held.boonOffer, 'repeated clicks on a card took it').toBe(true);
+  expect(held.boons, 'a boon took effect without TAKE').toEqual(before.boons);
+  // TAKE takes the selected card, and only it.
+  const name = await cards.first().locator('strong').innerText();
+  await expect(page.locator('.boon-take')).toHaveText(`TAKE ${name}`);
+  await page.locator('.boon-take').click();
+  await expect(page.locator('.boon-screen'), 'TAKE did not close the draft').toBeHidden();
+  expect((await game.state()).boonOffer).toBe(false);
+});

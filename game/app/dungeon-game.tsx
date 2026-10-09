@@ -20,7 +20,7 @@ import { animateCloth } from './dungeon-motion';
 import { altarHall, bodyRadius, canStand, dealBosses, dealRewards, gateRacks, generateFloor, hallShrines, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
 import { FINAL_BOSS } from './dungeon-bestiary';
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
-import { allElite, corpseSink, corpsesDue, idleClock, parseElite, roomTiles, springing, waveDue, waveSpots, wavedFloor, WAVE_CAP, WAVE_MARK, type WaveClock } from './dungeon-waves';
+import { allElite, corpseSink, corpsesDue, idleClock, parseElite, roomTiles, springing, waveDue, waveSpots, wavedFloor, WAVE_CAP, WAVE_MARK, WAVE_OPENING, type WaveClock } from './dungeon-waves';
 import ArenaPanel, { type ArenaChoice } from './dungeon-arena-panel';
 import SlotPicker from './dungeon-slot-picker';
 import AltarPanel, { HallPurse, RackCard, type AltarKind, type ShopCard } from './dungeon-altar-panel';
@@ -55,6 +55,7 @@ import { driveSliced as driveSlicedSteps, linkedPrograms, pollProgramsReady as p
 // What the veil says is happening, one label per stage of `stagedBuild`, and how far its bar has run.
 import { creep, programsShare, SHADER_POST, SHADER_SCENE, VEIL_STAGES, veilProgress } from './dungeon-veil';
 import { applyCombatFixture } from './dungeon-fixture';
+import { DRAFT_ARM, openDraft, pressCard, pressTake, type Draft } from './dungeon-draft';
 import { actorStat, countDisposals, drainGpu, lightDiagnostics, pointLightCount, textureHash, type GameToolContext, type HookedWindow, type TestHooks } from './dungeon-test-hooks';
 
 const FLOORS = 3;
@@ -111,6 +112,10 @@ export default function DungeonGame() {
   const [maxHealth, setMaxHealth] = useState(100);
   const [rank, setRank] = useState(1), [rankXp, setRankXp] = useState(0), [rankNeed, setRankNeed] = useState(rankCost(1));
   const [boonChoice, setBoonChoice] = useState<Boon[]>([]), [taken, setTaken] = useState<string[]>([]);
+  // Plan 026 (D2): a card is selected by a click and taken only by TAKE, and no press counts for DRAFT_ARM after a draft opens (dungeon-draft.ts). `draftArmed`
+  // only redraws the cards as live; every press is judged against the clock again. The clock is the page's, not the world's: the world is held while a draft shows.
+  // The world closure opens a draft (`offerBoon`) and arms it.
+  const [draft, setDraft] = useState<Draft>(() => openDraft(0)), [draftLive, setDraftLive] = useState(false);
   const [heldWeapon, setHeldWeapon] = useState(TIDEBLADE.name);
   // Plan 016: the held arm's special, or null for an arm that has none (its HUD slot and touch button sit
   // empty), and whether the cursor owns the aim, which is what decides the keycaps' device.
@@ -417,10 +422,13 @@ export default function DungeonGame() {
       burst(stage.stairSpot, 0xfbc956, 24);
       setNotice('The stair opens'); noticeTime = 4;
     };
+    let draftTimer = 0;
     const offerBoon = () => {
       // A charge the draft interrupts is let go at no cost, never slammed on the frame the card closes.
       run.choosing = true; keys.clear(); cancelCharge(); specialBuffer = 0;
       setBoonChoice(draftBoons(run, Math.random, run.draftSize));
+      // Plan 026 (D2): a fresh draft, nothing selected and not live for DRAFT_ARM; a queued draft re-arms, and an older timer never arms a newer one.
+      setDraft(openDraft(performance.now() / 1000)); setDraftLive(false); window.clearTimeout(draftTimer); draftTimer = window.setTimeout(() => setDraftLive(true), DRAFT_ARM * 1000);
       audio.play('clear');
     };
     // Every reward the sim hands back funnels through here, so the HUD, the XP ticker and the boon draft
@@ -2321,7 +2329,7 @@ export default function DungeonGame() {
             waveSpots(roomTiles(floor, activeRoom).map(t => ({ x: t.x * TILE, z: t.z * TILE })), waveMarks.map(mark => mark.at), { x: player.position.x, z: player.position.z }).forEach((at, i) => { waveMarks[i].at = at; });
             for (const mark of waveMarks) {
               const body = mark.enemy;
-              body.awake = true; body.group.visible = true; body.group.position.set(mark.at.x, .03, mark.at.z); body.anchor = { x: mark.at.x, z: mark.at.z }; body.cooldown = Math.max(body.cooldown, .9);
+              body.awake = true; body.group.visible = true; body.group.position.set(mark.at.x, .03, mark.at.z); body.anchor = { x: mark.at.x, z: mark.at.z }; body.cooldown = Math.max(body.cooldown, WAVE_OPENING);
               burst(body.group.position, 0xb9a4ff, 14);
             }
             clearWaveMarks();
@@ -2918,7 +2926,7 @@ export default function DungeonGame() {
     // a press; kept out of production the same way `configureCombatFixture` is, and passed on every
     // harness `goto` (`tests/browser/helpers.ts`). Scenarios that test the boot itself load the plain URL.
     if (process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('boot') === 'eager') scheduleBoot();
-    return () => { stopped = true; dropArenaListener?.(); cancelAnimationFrame(raf); cancelAnimationFrame(bootFrame); clearTimeout(bootTimer); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('pointerenter', pointerBack); window.removeEventListener('pointerdown', pausedDown); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); stage.atmosphere?.dispose(); texture.dispose(); telegraphTex.dispose(); laneTex.dispose(); alertTex.dispose(); alertMaterial.dispose(); environment.dispose(); impacts.dispose(); blood.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); post.dispose(); renderer.dispose(); mount.removeChild(renderer.domElement); };
+    return () => { stopped = true; window.clearTimeout(draftTimer); dropArenaListener?.(); cancelAnimationFrame(raf); cancelAnimationFrame(bootFrame); clearTimeout(bootTimer); window.removeEventListener('keydown', keyDown); window.removeEventListener('keyup', keyUp); window.removeEventListener('resize', resize); canvas.removeEventListener('pointermove', pointerMove); canvas.removeEventListener('pointerdown', pointerDown); window.removeEventListener('pointerup', pointerUp); canvas.removeEventListener('pointerleave', pointerGone); canvas.removeEventListener('pointerenter', pointerBack); window.removeEventListener('pointerdown', pausedDown); canvas.removeEventListener('contextmenu', noMenu); window.removeEventListener('dungeon-action', trigger); window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange',visibility); renderer.domElement.removeEventListener('webglcontextlost', contextLost); renderer.domElement.removeEventListener('webglcontextrestored', contextRestored); audio.dispose(); cutaway.dispose(); stage.atmosphere?.dispose(); texture.dispose(); telegraphTex.dispose(); laneTex.dispose(); alertTex.dispose(); alertMaterial.dispose(); environment.dispose(); impacts.dispose(); blood.dispose(); footsteps.dispose(); applyRef.current = null; delete hooks.advanceTime; delete hooks.render_game_to_text; delete hooks.dungeonTest; scene.traverse((o) => { if (o instanceof THREE.Mesh) { if(o instanceof THREE.InstancedMesh)o.dispose(); if (!o.geometry.userData.shared) o.geometry.dispose(); const materials = Array.isArray(o.material) ? o.material : [o.material]; materials.forEach(m => m.dispose()); } }); post.dispose(); renderer.dispose(); mount.removeChild(renderer.domElement); };
   }, []);
 
   const roomCount = floorMap?.rooms.length ?? 0;
@@ -2985,7 +2993,7 @@ export default function DungeonGame() {
       <header className="game-title"><span className="sigil" aria-hidden="true" /><div className="title-text"><b>{hallOn ? roomName : `${floorLevel} / ${FLOORS} · ${roomName}`}</b><i>{hallOn ? 'Spend, choose an arm, take the way down' : roomName === goalName ? 'Take the stair down' : `Reach ${goalName}`}</i></div></header>
       {/* Plan 021 (D8): present only while a boss is awake and alive. Its name, its vitality and a tick at each phase threshold; a hand-set role for the same reason the vitality track has one. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-      {bossBar && <div className="boss-bar" role="progressbar" aria-label={bossBar.name} aria-valuemin={0} aria-valuemax={bossBar.maxHp} aria-valuenow={bossBar.hp} data-phase={bossBar.phase}><b>{bossBar.name}</b><span className="boss-track"><i style={{ width: `${Math.max(0, bossBar.hp / bossBar.maxHp * 100)}%` }} />{bossBar.phases.map(share => <u key={share} style={{ left: `${share * 100}%` }} />)}</span></div>}
+      {bossBar && <div className="boss-bar" role="progressbar" aria-label={bossBar.name} aria-valuemin={0} aria-valuemax={bossBar.maxHp} aria-valuenow={bossBar.hp} data-phase={bossBar.phase}><b>{bossBar.name}</b><span className="boss-track"><i style={{ width: `${Math.max(0, bossBar.hp / bossBar.maxHp * 100)}%` }} />{bossBar.phases.map(share => <u key={share} style={{ left: `${share * 100}%` }} />)}<small aria-hidden="true">{bossBar.hp} / {bossBar.maxHp}</small></span></div>}
       <nav className="game-options" aria-label="Game options"><button onClick={() => action('pause')} disabled={!started || paused || status !== 'playing' || boonChoice.length > 0} aria-label="Pause game">☰</button></nav>
       {/* A hand-set role: the cards and the vitality track are positioned overlays with their own chrome, and a native
           element here would bring user-agent layout and a modal API this loop does not use. */}
@@ -3093,7 +3101,9 @@ export default function DungeonGame() {
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
       {boonChoice.length > 0 && status === 'playing' && <div className="end-screen boon-screen"><div className="end-card boon-card" role="dialog" aria-modal="true" aria-labelledby="boon-title" tabIndex={-1} ref={focusCard}>
         <span className="end-kicker">RANK {rank} · CHOOSE A BOON</span><h1 id="boon-title">The tide gives back.</h1>
-        <div className="boon-options">{boonChoice.map(boon => <button key={boon.id} className="boon-option" onClick={() => action(`boon:${boon.id}`)}><strong>{boon.name}</strong><span>{boon.detail}</span></button>)}</div>
+        <div className="boon-options">{boonChoice.map(boon => <button key={boon.id} className="boon-option" aria-pressed={draft.selected === boon.id} aria-disabled={!draftLive} onClick={() => setDraft(now => pressCard(now, boon.id, performance.now() / 1000))}><strong>{boon.name}</strong><span>{boon.detail}</span></button>)}</div>
+        {/* Plan 026 (D2): the only way to take a card, below them, so a click repeated on the same spot never reaches it. */}
+        <button className="boon-take" aria-disabled={!draftLive || !draft.selected} onClick={() => { const id = pressTake(draft, performance.now() / 1000); if (id) action(`boon:${id}`); }}>{draft.selected ? `TAKE ${boonChoice.find(boon => boon.id === draft.selected)?.name ?? ''}` : 'CHOOSE A CARD'}</button>
       </div></div>}
       {started && (status === 'won' || status === 'lost') && <div className="end-screen result-screen"><div className="end-card result-card" role="alertdialog" aria-modal="true" aria-labelledby="result-title" tabIndex={-1} ref={focusCard}><span className="end-kicker">{status === 'won' ? 'THE KEEP IS BEHIND YOU' : `FLOOR ${floorLevel} · FAILED`}</span><h1 id="result-title">{status === 'won' ? 'You climb into the dawn.' : 'The dark takes you.'}</h1><p>{status === 'won' ? 'Three floors of the drowned watch lie still behind you.' : 'The tide carries you back to the altar.'}</p><div className="xp-summary"><strong>{experience} XP earned</strong><span>Floor {floorLevel} of {FLOORS} · rank {rank} · {defeated} guards felled · XP resets on a new run</span>{ended && (() => { const sum = summariseRunEnd(ended); return <>{sum.cause && <span className="run-cause">{sum.cause}</span>}<span className="run-detail">{sum.time} · {sum.boons}</span>{!arenaOn && <span className="run-pearls">+{ended.pearls} {ended.pearls === 1 ? 'pearl' : 'pearls'} · {meta.pearls} held</span>}</>; })()}{best && <small>Deepest descent · floor {best.floor} of {FLOORS} · {best.xp} XP</small>}</div>{/* Plan 020 (D9): one way off the card, won or lost. A seed is retried by the `restart:<seed>` command, never from here. */}<button className="return-altar" onClick={() => action('altar')}>RETURN TO THE ALTAR</button></div></div>}
       {/* Plain markup on purpose: the canvas was never mounted, so this is the only thing left to look at. */}

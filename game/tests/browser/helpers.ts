@@ -1267,7 +1267,10 @@ export class Game {
     ).toBeGreaterThanOrEqual(0);
     const chosen = names[index];
     const before = await this.effects();
+    // Plan 026 (D2): a click selects a card and TAKE takes it. Both wait out the draft's arming delay, since a control that is not live yet is aria-disabled.
     await options.nth(index).click();
+    await expect(options.nth(index), `the card "${chosen}" was clicked but not selected`).toHaveAttribute('aria-pressed', 'true');
+    await this.page.locator('.boon-take').click();
     await expect
       .poll(() => this.effects(), {
         message: `the boon "${chosen}" never took effect`,

@@ -24,7 +24,10 @@ const lungs = UPGRADES.find((upgrade) => upgrade.id === 'lungs')!;
 // the ceiling is the figure measured, 253 under the 508 the frame budget holds the worst chamber to.
 // Merged with Stage B (2026-10-08): 256 on both d3d11 (local) and SwiftShader (CI run 37735911805). The one call is Stage B's sconce floor pools,
 // the +1 it measured on every scene (frame-budget.spec.ts); Stage C's 255 was taken before the two met.
-const CALLS_FLOOR = 212, CALLS_CEILING = 256;
+// Plan 026 (D5) replaced the room: the authored chapel, framed from the arrival in its nave, draws 191 calls (120,461 triangles, 72 shadow calls), measured
+// 2026-10-08 on SwiftShader. There is no bare chapel to difference against, so the floor is 95% of the figure; that the shop is drawn is held by the racks'
+// and shrines' `inScene` below and by frame-budget.spec.ts's armoury scene (owned racks draw more than locked ones).
+const CALLS_FLOOR = 181, CALLS_CEILING = 191;
 
 test('ENTER lands in the hall behind the veil: the altar, the racks it owns and the way down are on the scene, nobody is in it, and it drew no random number', async ({ page }) => {
   test.setTimeout(120_000 + WARM_UP);
@@ -80,7 +83,7 @@ test('ENTER lands in the hall behind the veil: the altar, the racks it owns and 
   await expect(page.locator('.hall-purse.pulse')).toHaveCount(0);
   // Plan 025: the shop's meshes are drawn, and stay at the measured cost (CALLS_FLOOR and CALLS_CEILING above).
   test.info().annotations.push({ type: 'hall render', description: JSON.stringify({ calls: state.render.calls, triangles: state.render.triangles, shadow: state.render.shadow }) });
-  expect(state.render.calls, 'the hall drew no more calls than before the shop, so the shop is not drawn').toBeGreaterThan(CALLS_FLOOR);
+  expect(state.render.calls, 'the hall draws far fewer calls than it was measured at').toBeGreaterThanOrEqual(CALLS_FLOOR);
   expect(state.render.calls, 'the hall costs more draw calls than measured').toBeLessThanOrEqual(CALLS_CEILING);
   for (const rack of state.racks) {
     const slot = slots.find((s) => s.arm === rack.kind)!;
@@ -285,7 +288,8 @@ test('the hall is the shop: a shrine bought by holding the swap key, once; a loc
   await page.keyboard.press(key);
   await game.step(32);
   expect((await game.state()).weapon.id, 'precondition: the maul, owned, is in hand').toBe('maul');
-  await game.teleport(fangs.x, fangs.z + 1.6);
+  // Plan 026: from the west arm's middle aisle, since the Twin Fangs stand against the arm's south wall.
+  await game.teleport(fangs.x, fangs.z - 1.6);
   await game.step(32);
   expect(await walkUntil(game, page, fangs, (state) => state.racks.find((rack) => rack.kind === 'fangs')!.over), 'the walk never reached the Twin Fangs').toBe(true);
   await expect(page.locator('.swap-prompt'), 'a locked rack does not offer its arm to try').toContainText('try the Twin Fangs');

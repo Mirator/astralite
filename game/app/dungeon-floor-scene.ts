@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { pavingGeometry, pavingKind, ROOM_MOOD, tileHash } from './dungeon-art';
 import { addAtmosphere } from './dungeon-atmosphere';
 import { spawnEnemy, type Enemy, type EnemyArt } from './dungeon-enemy-view';
@@ -378,6 +379,18 @@ export function* raiseFloor(floor: Floor, level: number, floorGroup: THREE.Group
       if (shrine) {
         const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(.5), new THREE.MeshStandardMaterial({color:0xa8f7d8,emissive:0x48cba0,emissiveIntensity:2,metalness:.3,roughness:.2}));
         crystal.position.set(room.x*TILE,1.2,room.z*TILE); floorGroup.add(crystal); mesh.userData.crystal = crystal;
+      }
+      // Plan 026 (D5): the altar is dressed as one - an octagonal stone kerb round its pool, four candle posts on the diagonals, each with a flame that glows
+      // and throws no light (the pool's real lights are the apse's braziers). Three draw calls: the kerb, the posts merged, the flames merged.
+      if (altar) {
+        const at = (g: THREE.BufferGeometry, x: number, y: number, z: number) => g.translate(room.x * TILE + x, y, room.z * TILE + z);
+        const kerb = new THREE.Mesh(new THREE.TorusGeometry(2.05, .14, 4, 8).rotateX(Math.PI / 2).rotateY(Math.PI / 8), new THREE.MeshStandardMaterial({ color: 0x55666a, roughness: .9, metalness: .05 }));
+        kerb.position.set(room.x * TILE, .07, room.z * TILE); kerb.receiveShadow = true; floorGroup.add(kerb);
+        const corners = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map(([sx, sz]) => [sx * 1.85, sz * 1.85]);
+        const posts = new THREE.Mesh(mergeGeometries(corners.flatMap(([x, z]) => [at(new THREE.CylinderGeometry(.13, .18, .9, 6), x, .45, z), at(new THREE.CylinderGeometry(.2, .2, .08, 6), x, .92, z)])), new THREE.MeshStandardMaterial({ color: 0x8c7a5a, roughness: .55, metalness: .5 }));
+        posts.castShadow = true; floorGroup.add(posts);
+        const flames = new THREE.Mesh(mergeGeometries(corners.map(([x, z]) => at(new THREE.ConeGeometry(.08, .26, 6), x, 1.09, z))), new THREE.MeshBasicMaterial({ color: 0xffd38a, toneMapped: false }));
+        floorGroup.add(flames); mesh.userData.dressing = [kerb, posts, flames];
       }
     }
   }

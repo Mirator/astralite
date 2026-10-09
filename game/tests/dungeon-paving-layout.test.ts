@@ -111,12 +111,16 @@ test('no paving patch lands within a rack\'s reservation of any slot of the Tide
     for (const slot of slots) for (const [x, z] of cells) if (Math.max(Math.abs(x * TILE - slot.x), Math.abs(z * TILE - slot.z)) <= 1.5) found.push(`a paving patch at ${x},${z} sits on the ${slot.arm} rack's slot`);
     return found;
   };
-  let control = 0;
+  // Plan 026 (D5): the hall's arms are five tiles wide, too narrow for the planner's pairs, so the old control (the same room without its marker gets patches
+  // on its slots) no longer stages: it got none. What keeps a patch off a slot is the slot's reservation, which tests/dungeon-decor-layout.test.ts holds for
+  // every slot of every hall, and the planner's `isEligible`, which never plans a cell inside a reservation. Here: the hall is paved at all, and never on a slot.
+  let patches = 0;
   for (const hall of halls) {
     const slots = gateRacks(hall);
     assert.equal(slots.length, 7);
-    control += onSlots({ ...hall, hall: undefined }, slots).length;
+    const plan = planPavingPatches(hall);
+    patches += plan.pairs.length + plan.settled.length;
     assert.deepEqual(onSlots(hall, slots), [], `hall ${hall.seed}`);
   }
-  assert.ok(control > 0, 'no patch landed on a slot even in a hall that reserves nothing, so the hall passing proves nothing');
+  assert.ok(patches > 0, 'no hall in the sweep was paved at all, so "never on a slot" proves nothing');
 });
