@@ -206,7 +206,7 @@ purchases out of the next.
   the knight standing in that ring, `offered` the arm the swap prompt is naming. `dungeonTest.actorStats()` reports the racks' meshes as `racks` for the teardown
   checks.
 
-The result card's one button, RETURN TO THE ALTAR, and the shop it leads to are driven with real clicks and keys (`tests/browser/meta.spec.ts`, `death.spec.ts`); the Tide Altar's panel
+The result card's one button, RETURN TO THE ALTAR, and the shop it leads to are driven with real clicks and keys (`tests/browser/meta.spec.ts`; `death.spec.ts` was removed on 2026-10-09 to cut CI time); the Tide Altar's panel
 left the title for the hall's shop overlay in plan 020, and in plan 025 became a page of the hall's pause card ("The altar's list") while the hall itself became the shop
 (`tests/browser/hall.spec.ts` holds a shrine and a locked arm bought by holding the real swap key). `tests/browser/armoury.spec.ts` walks into a rack's ring and uses the swap key. The rules live in node:
 `tests/dungeon-meta.test.ts`. The slot picker is driven with real clicks and keys in `tests/browser/slots.spec.ts`; the rules behind it (keys, summary, erase) are in

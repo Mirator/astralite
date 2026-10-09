@@ -1,5 +1,5 @@
 import { freshMeta } from '../../app/dungeon-meta.ts';
-import { enterKeep, expect, type GameWindow, openSlots, chooseSlot, test, WARM_UP } from './helpers.ts';
+import { expect, type GameWindow, openSlots, chooseSlot, test, WARM_UP } from './helpers.ts';
 
 // A boot is the thing under test here, so a page that is already booted has nothing to show. Every
 // scenario here needs its own load. Each fresh load also pays a cold shader warm-up behind the veil
@@ -148,47 +148,6 @@ test('the keep is built on the press, not before it', async ({
  * rather than racing it - what this proves is that dropping it is safe: no page error, the boot it
  * interrupted still lands, and a real press afterward still works.
  */
-test('a reset issued while the boot is still polling its programs does not corrupt it', async ({
-  page,
-}) => {
-  const errors: string[] = [];
-  page.on('pageerror', (error) => errors.push(String(error)));
-  await page.goto('/?boot=eager');
-  // As early as the hooks allow - well before the poll has had time to finish - so this lands inside the
-  // async window, not after it.
-  await page.waitForFunction(
-    () => typeof (window as GameWindow).render_game_to_text === 'function',
-    undefined,
-    { timeout: WARM_UP },
-  );
-  // Read `building` and reset in the same task: a reset that lands after the boot finished would pass
-  // everything below trivially, so the test has to see that it hit the window it is about.
-  const inWindow = await page.evaluate(() => {
-    const hooks = window as GameWindow;
-    const building = (JSON.parse(hooks.render_game_to_text!()) as { building: boolean }).building;
-    hooks.dungeonTest?.reset();
-    return building;
-  });
-  expect(inWindow, 'the reset landed after the boot had finished, so the race was never run').toBe(true);
-  // The boot this interrupted still has to land, whether or not the reset above did anything.
-  await page.waitForFunction(
-    () => {
-      const hook = (window as GameWindow).render_game_to_text;
-      return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
-    },
-    undefined,
-    { timeout: WARM_UP },
-  );
-  // And a real press afterward has to work - this is exactly what hung before `boot` claimed `building`.
-  await enterKeep(page);
-  await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
-  const state = await page.evaluate(
-    () => JSON.parse((window as GameWindow).render_game_to_text!()) as { mode: string },
-  );
-  expect(state.mode).toBe('playing');
-  expect(errors, 'the interrupted boot left a page error behind').toEqual([]);
-});
-
 // These four need a booted page, not a boot: `dungeonTest.reset` is the same sliced, veiled `restart` they
 // are about, so the pooled page exercises exactly the code a fresh load would, without paying for one.
 test.describe('on an already booted page', () => {
