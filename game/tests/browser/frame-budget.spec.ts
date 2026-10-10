@@ -230,18 +230,45 @@ test.describe('the light budget', () => {
 // The full post chain is where GTAO runs its own render of the scene, which is what used to draw the
 // moon's shadow map a second time every frame. Software GL gets the reduced chain with GTAO off, so this
 // scenario asks for full quality explicitly and needs a page of its own to do it.
+//
+// That page is a fresh boot that ends up under a driver's clock, which is exactly what three checks that
+// lost their own pages in PR #99 (robustness.spec.ts, and loading.spec.ts's boot race) need, so they ride
+// on it rather than paying for two more boots: a reset landing while the boot is still polling its
+// programs (the 2026-09-25 wedge, fixed by `boot` claiming `building`); a GPU context lost and handed back
+// (the world pauses, and the restored context draws the keep rather than a black frame); and, last because
+// it ends the page, a throw under the driver clock (one report, the fault screen, no further steps).
+// Not restored: the throw under real animation frames and the throw out of a floor build (robustness.spec.ts
+// at baacc07); both share `fail` with the driver-clock path checked here.
 test.describe('the full post chain', () => {
   test.use({ isolate: true });
-  test.describe.configure({ timeout: 240_000 });
-  test('draws the shadow map once a frame and never multisamples a canvas it only copies to', async ({ page }) => {
+  test.describe.configure({ timeout: 300_000 });
+  test('draws the shadow map once a frame, never multisamples a canvas it only copies to, and survives a mid-boot reset, a lost GPU context and a fault', async ({ page }) => {
+    const pageErrors: string[] = [], consoleErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(String(error)));
+    page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
     await page.goto('/?quality=full&boot=eager');
+    // As early as the hooks allow - they go up as soon as the floor exists, well before its programs are
+    // linked - so the reset lands inside the boot's async window. That is read in the same task as the
+    // reset: one that landed after the boot finished would pass everything below without running the race.
+    // It is read off `world-ready` (set once the boot's programs are warm), not off `building`, which is the
+    // very flag the fix sets: with the fix gone, `building` reads false mid-boot and would blame the timing.
+    await page.waitForFunction(() => typeof (window as GameWindow).render_game_to_text === 'function', undefined, { timeout: WARM_UP });
+    const inWindow = await page.evaluate(() => {
+      const booting = !document.querySelector('.game-shell.world-ready');
+      (window as GameWindow).dungeonTest!.reset();
+      return booting;
+    });
+    expect(inWindow, 'the reset landed after the boot had finished, so the race was never run').toBe(true);
+    // The interrupted boot still has to land, and the real press below has to be answered: before `boot`
+    // claimed `building`, the reset started a second build that superseded the boot's, and every press
+    // after it waited on `enterWhenBuilt` for good.
     await page.waitForFunction(() => {
       const hook = (window as GameWindow).render_game_to_text;
       return typeof hook === 'function' && !(JSON.parse(hook()) as { building: boolean }).building;
     }, undefined, { timeout: WARM_UP });
     await page.evaluate(() => (window as GameWindow).advanceTime!(0, false));
     await enterKeep(page);
-    await expect(page.locator('.intro-screen')).toBeHidden({ timeout: WARM_UP });
+    await expect(page.locator('.intro-screen'), 'the press after a mid-boot reset was never answered').toBeHidden({ timeout: WARM_UP });
     const frame = await page.evaluate(() => {
       (window as GameWindow).advanceTime!(16, true);
       const canvas = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
@@ -257,6 +284,51 @@ test.describe('the full post chain', () => {
     // The scene is drawn into the composer's own targets, so the canvas only ever receives the last
     // full-screen pass: a multisampled one bought a resolve per frame and not one smoothed edge.
     expect(frame.antialias).toBe(false);
+
+    // A lost GPU context: three.js restores the context, but only the game can stop the world, or the
+    // knight fights on behind a frozen picture.
+    const brightness = () => page.evaluate(() => {
+      (window as GameWindow).advanceTime!(0, true);
+      const gl = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
+      const copy = document.createElement('canvas');
+      copy.width = gl.width; copy.height = gl.height;
+      const ctx = copy.getContext('2d', { willReadFrequently: true })!;
+      ctx.drawImage(gl, 0, 0);
+      const pixels = ctx.getImageData(0, 0, copy.width, copy.height).data;
+      let sum = 0; for (let i = 0; i < pixels.length; i += 4) sum += pixels[i] + pixels[i + 1] + pixels[i + 2];
+      return sum / (pixels.length / 4);
+    });
+    const mode = async () => (JSON.parse(await page.evaluate(() => (window as GameWindow).render_game_to_text!())) as { mode: string; fault: boolean });
+    const before = await brightness();
+    expect(before, 'the keep was on screen to begin with').toBeGreaterThan(10);
+    await page.evaluate(() => {
+      const gl = (document.querySelector('.game-canvas canvas') as HTMLCanvasElement).getContext('webgl2')!;
+      const lose = gl.getExtension('WEBGL_lose_context')!;
+      (window as Window & { __lose?: WEBGL_lose_context }).__lose = lose;
+      lose.loseContext();
+    });
+    await expect(page.locator('.display-notice'), 'the loss is said on screen').toBeVisible();
+    expect((await mode()).mode, 'and the world is held rather than fought behind a frozen image').toBe('paused');
+    await page.evaluate(() => (window as Window & { __lose?: WEBGL_lose_context }).__lose!.restoreContext());
+    await expect(page.locator('.display-notice'), 'the notice lifts when the display comes back').toBeHidden();
+    expect((await mode()).mode, 'and the player chooses when to step back in').toBe('paused');
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => (window as GameWindow).advanceTime!(200, false));
+    expect((await mode()).mode).toBe('playing');
+    // Every texture, target and program is rebuilt on the new context, or the frame comes back black.
+    expect(await brightness(), 'the restored context draws the keep, not a black frame').toBeGreaterThan(before * 0.6);
+
+    // Last, because it ends the page: a throw from the first line of the world's tick (`update` polls the
+    // pads before any other input). The driver that stepped into it is told, the screen says so, the fault is
+    // reported once and never escapes, and a stopped world refuses to be stepped again.
+    await page.evaluate(() => Object.defineProperty(navigator, 'getGamepads', { configurable: true, value: () => { throw new Error('planted fault'); } }));
+    await expect(page.evaluate(() => (window as GameWindow).advanceTime!(16, false)), 'the driver fails where the throw happened').rejects.toThrow(/planted fault/);
+    await expect(page.locator('.fault-screen')).toBeVisible();
+    await expect(page.locator('.fault-screen').getByRole('button', { name: 'RELOAD' })).toBeVisible();
+    await expect(page.evaluate(() => (window as GameWindow).advanceTime!(16, false))).rejects.toThrow(/the keep has stopped/);
+    expect((await mode()).fault).toBe(true);
+    expect(consoleErrors.filter((line) => line.includes('The keep stopped')), 'the fault is reported once').toHaveLength(1);
+    expect(pageErrors, 'and nothing on this page escaped as an uncaught error').toEqual([]);
   });
 });
 
