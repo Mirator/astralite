@@ -40,7 +40,7 @@ shards at two workers each, and its Chromium restored from cache.
 A worker boots one page and resets it between scenarios rather than loading one
 per test, which is where most of the suite's time used to go. A few scenarios
 opt out with `test.use({ isolate: true })` because they assert on what a boot
-does or break the page on purpose (loading, frame-clock, robustness), and a
+does or break the page on purpose (loading, frame-clock, frame-budget's post chain), and a
 scenario that changes context options - a phone viewport, touch, a stored
 settings blob - gets its own page automatically. Every pooled scenario ends by
 resetting back to the booted state and holding the whole snapshot against it, so

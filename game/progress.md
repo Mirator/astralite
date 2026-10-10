@@ -6648,3 +6648,35 @@ The operator's requests of 2026-10-08, planned in `plans/026-hall-lights-boons-b
 ### PR #98 CI: the per-test timeout (2026-10-09)
 
 CI shard 2 failed twice in a row in fixture setup ("trace recording" timeout of 120000ms, page closed) on the first `footsteps.spec.ts` scenario after `elites.spec.ts`'s isolated dev-link pages: the worker's pooled page boot ran past 120 s. Cause: the 24-light pool makes every lit shader larger, and a cold boot under SwiftShader compiles about 50% longer (chain.spec's first scenario on a fresh page, local, 24.6 s at 8 lights and 37.0 s at 24; the same scenarios once booted were unchanged, e.g. dash 3.4 / 2.8 s, sprint 3.5 / 3.5 s). The same boot gap on the base branch's CI was ~46 s, and CI's runners ran this PR's shards about twice as slowly per scenario. Not reproduced locally (no local run came near 120 s). `playwright.config.ts` timeout 120 s -> 180 s, with the measurement beside it. Steady-state frame time on SwiftShader did not move with the light count (2.3-2.7 s a drawn frame at both 8 and 24).
+
+## 2026-10-09 - PR #99: the PR gate under ten minutes
+
+The operator's ask: the PR gate (21m34s on run #303) under ten minutes without adding shards. Merged as 2280567; the last PR run took 9m33s, the merge's own run 9m42s.
+
+- **Browser tests deleted (operator decision, no nightly).** Kept were those that had caught real bugs or guard something nothing else does. CI history (304 runs since 2026-09-08) had about 76 browser failures, 5 of them real product bugs; lint, typecheck and `npm test` had never failed in CI. Deleted whole: `quality`, `run-export`, `occlusion`, `dealt-kinds`, `pressure`, `chain`, `character-life`, `robustness`, `death`, `models`. Cut down: `boss` to the Captain (fight, phase, stair seal); `footsteps` to one scenario; `frame-clock` to the cold press; `loading` minus the hall sliced path, the remembered keep, the loading bar and the mid-boot reset; the phone repeats in `slots`, `meta`, `special` and `polish`; `meta`'s counter pulse; `armoury`'s hall scenario; `elites`' dev links; `special` to Lunge, Harpoon, Vault and Whirl; `frame-budget` to the busiest fight, the wave chamber, the light budget and the post chain.
+- **Coverage given up, knowingly:** cutaway pixels (`occlusion`), the quality governor, the run-log clipboard, non-Captain boss wiring, most specials by real input, phone layouts, the hall built through the sliced path. The mid-boot reset race and the GPU context-loss and fault handling came back the next day (below).
+- **`balance` is its own job, on worker threads** (`scripts/balance/check.ts`, `BALANCE_THREADS=1` for the old sequential path). 9.9 min -> about 6 min on CI; locally on 4 cores 272 s against 776 s, with the `--summary` JSON byte-identical between the two.
+- **Shards.** `scripts/shards/durations.json` is the mean of two CI runs (37971430374, 37977771035). One run's table is unreliable: each pooled worker's ~70 s cold boot is billed to whichever spec runs first, so a single run moves it onto specs that will not run first next time.
+
+### Open
+
+- Shard 2 was the slowest on the last two runs (9.3 and 10.5 min against about 7 for the others), and run-to-run runner speed varies by about 25%, so some runs will land over ten minutes. The remaining lever is the ~70 s worker boot (the 24-light shaders compiling on SwiftShader).
+
+## 2026-10-10 - The mid-boot reset race and the GPU fault paths, back on a page already paid for
+
+Two things PR #99 deleted guarded behaviour nothing else covers: `loading`'s reset landing while the boot is still polling its programs (the 2026-09-25 wedge, fixed by `boot` claiming `building`) and `robustness`' lost-and-restored GPU context and fault screen. They are wiring, not rules: the fixes are a flag claimed in `boot`, a `blur()` in the context-loss listener and `fail`'s latch, all inside the world closure, so a node test of an extracted helper would pass with each of those plants in place. They are back in the browser suite instead, on `frame-budget`'s "full post chain" scenario, which already boots a page of its own under a driver's clock: the reset is issued as soon as the hooks are up (and held to have landed before `world-ready`), then the original post-chain checks, then a lost context (notice shown, world paused), a restored one (notice gone, still paused until the player resumes, the frame at least 60% as bright as before), and last a throw under the driver clock (the driver sees it, the fault screen and RELOAD, one report, a second step refused, no uncaught error).
+
+Cost: the scenario went from 38.7 s to about 72 s locally (SwiftShader, this container); on CI it took about 20 s before, so roughly +17 s there, against a fresh boot (~70 s+) for each scenario that used to cover this.
+
+Not restored: the throw under real animation frames and the throw out of a floor build (`robustness.spec.ts` at baacc07); both reach the same `fail` as the driver-clock throw checked here.
+
+### Planted bugs (each restored; each failed with its own message)
+
+- `boot` not claiming `building`: "the press after a mid-boot reset was never answered". The first version read the race's precondition off `building` and so failed on "the reset landed after the boot had finished" instead, blaming the timing for the bug; it reads `world-ready` now.
+- The context-loss listener not pausing: "and the world is held rather than fought behind a frozen image" (received "playing").
+- `fail` not raising the fault screen: `.fault-screen` toBeVisible timed out.
+- Not planted: a restore that comes back black. three.js rebuilds the context's resources itself, and there is no line in the game to remove that would break it.
+
+### Runs
+
+- Typecheck and lint clean; the scenario alone green on SwiftShader (Playwright's headless shell pointed at the container's Chromium 1194 build). The full browser suite was not run locally; CI runs it.
