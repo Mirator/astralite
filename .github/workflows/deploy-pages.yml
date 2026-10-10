@@ -50,6 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      playwright: ${{ steps.playwright.outputs.version }}
     steps:
       # Full history so both ends of the range are present locally; the whole
       # repository is tens of megabytes, which is cheaper than being clever.
@@ -94,6 +95,16 @@ jobs:
           fi
           echo "code changed: $code"
           echo "code=$code" >> "$GITHUB_OUTPUT"
+
+      # The browser jobs run in Playwright's own image, whose tag has to be the exact
+      # version the lockfile installs (the image carries that version's Chromium).
+      # Read here, so bumping @playwright/test moves the image with it.
+      - id: playwright
+        shell: bash
+        run: |
+          version=$(jq -r '.packages["node_modules/@playwright/test"].version' game/package-lock.json)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::no @playwright/test version in game/package-lock.json (read '$version')"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
   # The one check branch protection should require, and the only one it can:
   # the gates above skip on a docs-only change, and a skipped matrix job reports
@@ -234,6 +245,15 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    # Playwright's image carries Chromium and every library it needs, at the version
+    # the lockfile pins (read by `changes`). Installing them on the bare runner cost
+    # 35 s to 2 min a shard - apt fetched the libraries on every run even when the
+    # browser itself came from cache - and was most of the spread between shards that
+    # ran the same tests. `--user 1001` is the runner's own uid, so the workspace it
+    # mounts stays writable.
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.changes.outputs.playwright }}-noble
+      options: --user 1001 --ipc=host
     strategy:
       fail-fast: false
       matrix:
@@ -250,8 +270,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
-        with:
-          browser: 'true'
       # `@capture` scenarios only stage frames for a human, and `@nightly` ones pin
       # art tuning or repeat a check the gate already makes; neither guards a PR.
       # A capture run (the `captures` input) draws everything, both tags included.
