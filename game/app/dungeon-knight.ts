@@ -1,18 +1,20 @@
-// The knight, as a part list (plan 012 Stage B). Every plate, joint and strap is a named entry here,
-// findable and editable without reading a builder function.
+// The player figure, as a part list (plan 012 Stage B). Every cloth panel, joint and strap is a named
+// entry here, findable and editable without reading a builder function. The file and `makeKnight` keep
+// the knight's name because the game, the bench and the tests all call him that.
 //
-// Plan 013 redrew him from the eight-facing turnaround sheet (blackened plate, gold edging, crimson cloth):
-// a bucket great helm with a gold slit frame under a swept-back plume, domed pauldrons over two lames, a
-// gold-rimmed breastplate with a diamond, a mail skirt behind a gold-bordered tabard, and longer armoured
-// legs. He stands the same height as before - the helm and plume shrank by what the legs gained - and is
-// drawn in 31 meshes of the 32 allowed: the knees and the free arm lost a material each to pay for the
-// tabard, the mail and the plume's own crimson. The helm stays the palest thing on him on purpose (models.spec.ts held head over shoulders until it was removed on 2026-10-09; judge it on the figure bench now),
-// so the shoulders are dark iron and carry their gold only as thin edges.
+// Redrawn from the Relic Seeker turnaround (plans/relic-seeker-design.md): an unarmoured explorer, so any
+// arm the armoury hands him reads as his rather than as a class. In order of what has to read from the
+// game camera: an ochre poncho with a raised cowl (the broad shoulder triangle), a bare head with short
+// dark hair, one dark strap crossing the front to a satchel on his right hip, and a turquoise relic on the
+// sash at his left. Under the poncho, a pale tunic, a red-brown sash, charcoal trousers, pale calf wraps
+// and brown boots. He stands the height the knight stood. Tassels, stitching and the trim's zigzag are
+// left off: none of them survives the camera distance.
 //
-// Three things do NOT fit the spec's narrow shape model and stay imperative: the cape (its cloth pattern
-// is per-vertex colour, not a material), the sword pivot's weapon (built by makeWeapon() from the equipped
-// WeaponId, not fixed data) and the tabard's swing joint, which is spec data but has to be spliced in as a
-// kept subtree so it can turn with the legs. All three are spliced into the tree after buildSpec runs.
+// Three things do NOT fit the spec's narrow shape model and stay imperative: the cape (here the poncho's
+// back point; its trim is per-vertex colour, not a material), the sword pivot's weapon (built by
+// makeWeapon() from the equipped WeaponId, not fixed data) and the tabard (here the tunic's front flap and
+// the sash's tail), which is spec data but has to be spliced in as a kept subtree so it can turn with the
+// legs. All three are spliced into the tree after buildSpec runs.
 //
 // Ordering note for anyone editing this file: bakeStatic merges every plain, opaque, visible mesh under a
 // bake root into one mesh per material, in the order that material is FIRST met walking the tree
@@ -29,23 +31,97 @@ import { makeWeapon, type ArmoryPalette, type Plate } from './dungeon-armory.ts'
 import { STARTING_WEAPON } from './dungeon-weapon.ts';
 import { buildSpec, type Node } from './dungeon-figure-spec.ts';
 
-// Unit primitives the trim is built from, each scaled per instance via the part's own `scale`. A plain
-// THREE.BoxGeometry bevels to nothing under about a pixel and costs nine times the triangles of the box it
-// rounds (plan 010/011), so the thinnest trim stays plain and the broad plates keep the rounded edge.
 const roundedUnitBox = () => new RoundedBoxGeometry(1, 1, 1, 1, .08);
-const plainUnitBox = () => new THREE.BoxGeometry(1, 1, 1);
-const unitJoint = () => new THREE.IcosahedronGeometry(1, 0);
 const unitSpike = () => new THREE.ConeGeometry(1, 1, 4);
-// A pauldron is a dome, not a gem: eight facets round and three down read as one rounded shell from the
-// isometric camera, where the old dodecahedron read as a boulder. Open underneath - nothing sees it there.
-const unitDome = () => new THREE.SphereGeometry(1, 8, 3, 0, Math.PI * 2, 0, Math.PI / 2);
-// The ring that edges a dome, lying flat in the dome's own base plane.
-const unitRim = () => new THREE.TorusGeometry(1, .08, 3, 8).rotateX(Math.PI / 2);
-// Diamonds (the chest gem, the buckle, the tabard's point) share one outline, scaled per use.
-const diamond = (w: number, h: number): [number, number][] => [[0, h], [w, 0], [0, -h], [-w, 0]];
+// Eight by five: the head's features are secondary at the game camera (the brief), and four balls at ten by
+// seven were a third of his triangles.
+const unitBall = () => new THREE.SphereGeometry(1, 8, 5);
+
+/** The poncho is a lathe: one profile turned eight times, so it stays as faceted as the sheet draws it.
+ *  `profile` runs hem to collar as [radius, height]. The hem is then cut uneven by `drops`, one per corner
+ *  (see HEM), and each drop fades out up the cloth over HEM_FADE, so a corner pulls the panel above it
+ *  down (or up) with it instead of folding the hem over the next ring. That is the pointed hem without a
+ *  single extra vertex. The trim is a lathe of its own through the same fade, so it follows the hem. */
+const HEM_FADE = .2, HEM_TOP = .26;
+const hemDrop = (column: number, y: number, drops: number[]) => drops[column % 8]! * THREE.MathUtils.clamp(1 - (y - HEM_TOP) / HEM_FADE, 0, 1);
+// The cowl's rings get drops of their own, faded in from the neck (.55) up, so a strap ending there is untouched:
+// higher at the back and lower at the front, so it reads as a loose fallen hood and not a turtleneck ring.
+const COWL = [-.05, -.03, 0, .015, .03, .015, 0, -.03];
+const cowlDrop = (column: number, y: number) => COWL[column % 8]! * THREE.MathUtils.clamp((y - .55) / .06, 0, 1);
+function ponchoLathe(profile: [number, number][], drops: number[]) {
+  const geometry = new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)), 8), positions = geometry.getAttribute('position');
+  for (let i = 0; i < positions.count; i++) { const column = Math.floor(i / profile.length), y = positions.getY(i); positions.setY(i, y - hemDrop(column, y, drops) - cowlDrop(column, y)); }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+// Column i of the lathe stands at i * 45 degrees from his back towards +x, which is his right (the satchel
+// and the sword): back, back-right, right, front-right, front, front-left, left, back-left. The front point
+// reaches the sash, as the sheet draws it. The sides ride up over the arms, so the sword hand and the free
+// arm come out under the hem rather than through it. The back corner stays short: the cape is the back's
+// point, and a long corner there would come through it.
+const HEM = [.04, .02, -.1, .02, .26, .02, -.1, .02];
+// The poncho's profile, hem to the top of the cowl: a broad hem, a break at the shoulder, straight slopes
+// up to the neck and a cowl standing up round it, its top a hair under the chin so the head stays clear.
+// A shade narrower front to back than across, as cloth over shoulders falls.
+const PONCHO: [number, number][] = [[.46, .26], [.44, .34], [.38, .44], [.3, .5], [.22, .55], [.23, .6], [.24, .645], [.17, .625]];
+const PONCHO_DEPTH = .86;
+
+/** A point on the poncho's outside at [x, height], on its front (`side` -1) or its back (1), and the outward
+ *  direction there. It reads the lathe as built - the profile, the faded hem drops either side, and the
+ *  flat facet between two columns - so a strap laid through these points lies on the cloth. Below the
+ *  cowl only: the profile is searched while it still climbs. Approximate where it is cheap to be: the facet
+ *  correction is applied to a radius lerped between two columns, and `out` ignores PONCHO_DEPTH (up to 4
+ *  degrees off the true normal); both are under .01 at a .02 lift. */
+function ponchoSurface(x: number, y: number, side: 1 | -1) {
+  const facet = Math.PI / 4, climb = PONCHO.findIndex(([, h], i) => i > 0 && h < PONCHO[i - 1]![1]);
+  const rings = climb < 0 ? PONCHO : PONCHO.slice(0, climb);
+  const radiusOn = (column: number) => {
+    const ys = rings.map(([, h]) => h - hemDrop(column, h, HEM));
+    for (let i = 1; i < rings.length; i++) if (y <= ys[i]! || i === rings.length - 1) return rings[i - 1]![0] + (rings[i]![0] - rings[i - 1]![0]) * THREE.MathUtils.clamp((y - ys[i - 1]!) / (ys[i]! - ys[i - 1]!), 0, 1);
+    return rings[0]![0];
+  };
+  let around = side < 0 ? Math.PI : 0;
+  for (let pass = 0; pass < 3; pass++) {
+    const column = Math.floor(around / facet + 8) % 8, t = around / facet - Math.floor(around / facet);
+    const r = THREE.MathUtils.lerp(radiusOn(column), radiusOn(column + 1), t) * Math.cos(facet / 2) / Math.cos((t - .5) * facet);
+    const s = Math.asin(THREE.MathUtils.clamp(x / r, -1, 1));
+    around = side < 0 ? Math.PI - s : s;
+    if (pass === 2) return { point: new THREE.Vector3(Math.sin(around) * r, y, Math.cos(around) * r * PONCHO_DEPTH), out: new THREE.Vector3(Math.sin(around), 0, Math.cos(around)) };
+  }
+  throw new Error('unreachable');
+}
+
+/** A flat strap through `points`, `width` across and lifted `lift` along each point's `out`. Leather is
+ *  double-sided for it, so one face is enough. */
+function ribbon(points: THREE.Vector3[], outs: THREE.Vector3[], width = .1, lift = .02) {
+  const positions: number[] = [], index: number[] = [], last = points.length - 1;
+  points.forEach((p, k) => {
+    const along = points[Math.min(k + 1, last)]!.clone().sub(points[Math.max(k - 1, 0)]!).normalize();
+    const across = along.clone().cross(outs[k]!).normalize().multiplyScalar(width / 2), lifted = p.clone().addScaledVector(outs[k]!, lift);
+    positions.push(...lifted.clone().add(across).toArray(), ...lifted.clone().sub(across).toArray());
+    if (k) { const a = 2 * k - 2; index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); geometry.setIndex(index); geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** The satchel's strap, one ribbon: up from the back hem, over his left shoulder's ridge (where the front
+ *  and back samples meet, since STRAP_FROM's x is past the lathe's radius there and both clamp to the side),
+ *  down across the front to the hem at his right, through sampled surface points - a straight box over a
+ *  faceted cone either stands off it at the ends or sinks into it in the middle - and off the hem straight
+ *  on to the bag's top. The back run stops at the back hem. */
+const STRAP_FROM: [number, number] = [-.26, .54], STRAP_TO: [number, number] = [.26, .22], STRAP_BAG = new THREE.Vector3(.36, .06, -.12);
+function strap() {
+  const steps = 16, run = (side: 1 | -1) => Array.from({ length: steps + 1 }, (_, k) => ponchoSurface(THREE.MathUtils.lerp(STRAP_FROM[0], STRAP_TO[0], k / steps), THREE.MathUtils.lerp(STRAP_FROM[1], STRAP_TO[1], k / steps), side));
+  const samples = [...run(1).reverse(), ...run(-1).slice(1)], points = samples.map(s => s.point), outs = samples.map(s => s.out);
+  const end = points[points.length - 1]!, drop = new THREE.Vector3().subVectors(STRAP_BAG, end), out = outs[outs.length - 1]!;
+  for (let k = 1; k <= 4; k++) { points.push(end.clone().addScaledVector(drop, k / 4)); outs.push(out.clone()); }
+  return ribbon(points, outs);
+}
 
 /**
- * The knight's part tree. `cape`, `tabard`, `sword-pivot` and `arm` are deliberately NOT here: they are
+ * The explorer's part tree. `cape`, `tabard`, `sword-pivot` and `arm` are deliberately NOT here: they are
  * spliced onto `torso` after buildSpec runs (see makeKnight below), because bakeStatic always skips a kept
  * subtree regardless of where it sits among its siblings, so their position among the parts below cannot
  * affect the merge - only their position relative to EACH OTHER and to `head` (after) does.
@@ -54,143 +130,84 @@ const KNIGHT_SPEC: Node = {
   name: 'knight',
   parts: [
     {
-      // Plan 013: up .06 on the longer legs (the hips below rise with it), so the sword pivot, cape anchor
-      // and arm, all torso-local, keep the numbers the game and the rest-pose test read.
+      // The torso's height, the sword pivot, the cape anchor and the arm are the knight's numbers, unchanged:
+      // the game sets the pivot back every frame and the run pose is tuned against them.
       name: 'torso', at: [0, .76, 0], parts: [
+        // The tunic, loose and pale, and its skirt below the sash to mid-thigh. Narrower than the poncho
+        // at every height, so the poncho stays the broad shape.
+        { name: 'body', shape: { cylinder: [.23, .28, .62, 8] }, material: 'pale', at: [0, .1, 0] },
+        { name: 'tunic-skirt', shape: { cylinder: [.29, .33, .22, 8] }, material: 'pale', at: [0, -.17, 0], rot: [0, Math.PI / 8, 0] },
+        // The poncho, its shape set by PONCHO and HEM above; the back's point carries on below as the cape.
+        // The trim is a band a hair outside the hem, in its own paler cream, so it reads as an edge and not
+        // as more tunic.
+        { name: 'poncho', shape: { geometry: ponchoLathe(PONCHO, HEM) }, material: 'ochre', at: [0, 0, 0], scale: [1, 1, PONCHO_DEPTH] },
+        { name: 'poncho-trim', shape: { geometry: ponchoLathe([[.47, .245], [.458, .28]], HEM) }, material: 'trim', at: [0, 0, 0], scale: [1, 1, PONCHO_DEPTH] },
         {
-          name: 'breastplate', shape: { plate: { outline: [[-.27, .22], [.27, .22], [.3, .08], [.22, -.22], [0, -.27], [-.22, -.22], [-.3, .08]], depth: .13 } }, material: 'iron', at: [0, .22, -.25],
-          parts: [{ name: 'chest-ridge', shape: { plate: { outline: [[-.025, .18], [.025, .18], [.035, -.19], [0, -.23], [-.035, -.19]], depth: .02 } }, material: 'steel', at: [0, 0, -.085] }],
-        },
-        // The same outline a size up in brass, set just behind the iron: it shows only as a gold edge
-        // around the plate, which is how the sheet draws every plate on him.
-        { name: 'breastplate-trim', shape: { plate: { outline: [[-.3, .245], [.3, .245], [.335, .085], [.245, -.245], [0, -.3], [-.245, -.245], [-.335, .085]], depth: .09 } }, material: 'brass', at: [0, .22, -.235] },
-        { name: 'chest-gem', shape: { plate: { outline: diamond(.06, .085), depth: .03 } }, material: 'brass', at: [0, .27, -.345] },
-        // Hidden on purpose since plan 010 (the old pale shoulders): bakeStatic removes them, and the bake
-        // tests lean on the knight carrying an invisible part. The domes below are what he wears.
-        {
-          name: 'pauldron-l', shape: { dodeca: [.23] }, material: 'iron', at: [-.37, .4, 0], scale: [1, .66, 1.12], hidden: true,
-          parts: [{ name: 'pauldron-rim-l', shape: { dodeca: [.23] }, material: 'steel', at: [0, -.06, 0], scale: [1.08, .3, 1.04] }],
-        },
-        {
-          name: 'pauldron-r', shape: { dodeca: [.23] }, material: 'iron', at: [.37, .4, 0], scale: [1, .66, 1.12], hidden: true,
-          parts: [{ name: 'pauldron-rim-r', shape: { dodeca: [.23] }, material: 'steel', at: [0, -.06, 0], scale: [1.08, .3, 1.04] }],
-        },
-        { name: 'body', shape: { cylinder: [.32, .28, .63, 8] }, material: 'dark', at: [0, .11, 0] },
-        {
-          // Plan 013: a smaller helm (1.15 to 1.05) is what pays for the longer legs.
-          name: 'head', at: [0, .67, 0], scale: 1.05, parts: [
-            // Plan 014 round 8 (lever 1): a real taper (.26 at the collar to .205 at the crown, up from
-            // a barely-there .26/.24) and twelve sides rather than eight - this is the one shape on him
-            // that stood for "a great helm" on its own, and eight near-vertical panels at almost no
-            // taper is what read as a flat cylinder no matter how the light hit it. Smooth shading
-            // (removed above, from the material) is what turns those extra sides into a gradient
-            // instead of just more facets.
-            { name: 'helmet', shape: { cylinder: [.205, .26, .4, 12] }, material: 'steel', at: [0, .04, 0], rot: [0, Math.PI / 8, 0] },
-            { name: 'crown', shape: { geometry: unitDome() }, material: 'steel', at: [0, .225, 0], rot: [0, Math.PI / 8, 0], scale: [.212, .11, .212] },
-            {
-              // The whole face tips back about the mask's own origin (plan 010); trim below is mask-local.
-              name: 'mask', at: [0, 0, -.215], rot: [.2, 0, 0], parts: [
-                { name: 'face', shape: { plate: { outline: [[-.24, .14], [.24, .14], [.22, -.16], [.09, -.23], [-.09, -.23], [-.22, -.16]], depth: .065 } }, material: 'steel', at: [0, 0, 0] },
-                {
-                  name: 'visor', at: [0, 0, -.049], parts: [
-                    { name: 'slit-l', shape: { box: [.175, .052, .018] }, material: 'shadow', at: [-.116, .02, 0], rot: [0, 0, -.08] },
-                    { name: 'slit-r', shape: { box: [.175, .052, .018] }, material: 'shadow', at: [.116, .02, 0], rot: [0, 0, .08] },
-                    // Plan 014 round 8 (lever 1): a dark slit alone reads as an empty gap; a hairline of
-                    // the same steel the rest of the helm wears, set a shade forward of the slit's own
-                    // dark box and a fraction of its height, is what a real visor's lower rim catches as
-                    // a cold glint. Reuses 'steel' rather than a new material - the spec's own header
-                    // notes the figure sits one mesh under its 32-material ceiling.
-                    { name: 'slit-glint-l', shape: { box: [.15, .01, .012] }, material: 'steel', at: [-.116, -.002, -.006], rot: [0, 0, -.08] },
-                    { name: 'slit-glint-r', shape: { box: [.15, .01, .012] }, material: 'steel', at: [.116, -.002, -.006], rot: [0, 0, .08] },
-                  ],
-                },
-                // Gold above and below the slit, and down the middle: the cross the sheet puts on the face.
-                { name: 'slit-brow', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, .07, -.05], scale: [.43, .028, .02] },
-                { name: 'slit-cheek', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, -.026, -.05], scale: [.4, .022, .02] },
-                { name: 'nose', shape: { plate: { outline: [[-.025, .11], [.025, .11], [.035, -.18], [0, -.215], [-.035, -.18]], depth: .045 } }, material: 'brass', at: [0, 0, -.06] },
-                { name: 'mouth', shape: { box: [.035, .1, .018] }, material: 'shadow', at: [0, -.13, -.042] },
-                { name: 'mask-hinge-l', shape: { geometry: plainUnitBox() }, material: 'brass', at: [-.22, -.025, -.048], rot: [0, 0, .16], scale: [.023, .19, .027] },
-                { name: 'mask-rivet-l0', shape: { geometry: unitJoint() }, material: 'shadow', at: [-.085, -.095, -.042], scale: [.017, .022, .012] },
-                { name: 'mask-rivet-l1', shape: { geometry: unitJoint() }, material: 'shadow', at: [-.131, -.095, -.042], scale: [.017, .022, .012] },
-                { name: 'mask-rivet-l2', shape: { geometry: unitJoint() }, material: 'shadow', at: [-.177, -.095, -.042], scale: [.017, .022, .012] },
-                { name: 'mask-hinge-r', shape: { geometry: plainUnitBox() }, material: 'brass', at: [.22, -.025, -.048], rot: [0, 0, -.16], scale: [.023, .19, .027] },
-                { name: 'mask-rivet-r0', shape: { geometry: unitJoint() }, material: 'shadow', at: [.085, -.095, -.042], scale: [.017, .022, .012] },
-                { name: 'mask-rivet-r1', shape: { geometry: unitJoint() }, material: 'shadow', at: [.131, -.095, -.042], scale: [.017, .022, .012] },
-                { name: 'mask-rivet-r2', shape: { geometry: unitJoint() }, material: 'shadow', at: [.177, -.095, -.042], scale: [.017, .022, .012] },
-              ],
-            },
-            // The plume's socket: a brass ridge over the crown, front to back.
-            { name: 'browband', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, .3, .03], scale: [.05, .1, .36] },
-            // Plan 013: a plume, not a mohawk. Three feathers down the ridge, each laid further back than the
-            // one before it, and one a side splayed outward so it has width from the front. Nothing trails
-            // further back: from behind it would cover the helm's steel, which is what lifts his head off
-            // the cape (measured at facings 3 to 5 by models.spec.ts, removed 2026-10-09). The front
-            // feather's tip is the knight's highest point and sits where the old crest's did.
-            { name: 'crest-0', shape: { geometry: unitSpike() }, material: 'plume', at: [0, .36, .02], rot: [.7, 0, 0], scale: [.1, .36, .11] },
-            { name: 'crest-1', shape: { geometry: unitSpike() }, material: 'plume', at: [0, .36, .12], rot: [.95, 0, 0], scale: [.11, .44, .11] },
-            { name: 'crest-2', shape: { geometry: unitSpike() }, material: 'plume', at: [0, .34, .21], rot: [1.1, 0, 0], scale: [.1, .44, .1] },
-            { name: 'crest-side-l0', shape: { geometry: unitSpike() }, material: 'plume', at: [-.07, .33, .12], rot: [.95, 0, .55], scale: [.08, .38, .09] },
-            { name: 'crest-side-r0', shape: { geometry: unitSpike() }, material: 'plume', at: [.07, .33, .12], rot: [.95, 0, -.55], scale: [.08, .38, .09] },
+          // Bare: a warm face under short, tousled dark hair. The hair sits back on the skull so the face
+          // shows from the front facings, and the tufts are short - no spikes standing up off the crown.
+          name: 'head', at: [0, .74, 0], parts: [
+            { name: 'neck', shape: { cylinder: [.085, .1, .16, 6] }, material: 'skin', at: [0, -.08, 0] },
+            { name: 'face', shape: { geometry: unitBall() }, material: 'skin', at: [0, .12, -.01], scale: [.165, .2, .18] },
+            { name: 'nose', shape: { geometry: unitSpike() }, material: 'skin', at: [0, .1, -.19], rot: [-1.35, 0, 0], scale: [.03, .06, .03] },
+            { name: 'ear-l', shape: { geometry: unitBall() }, material: 'skin', at: [-.165, .1, .02], scale: [.03, .05, .04] },
+            { name: 'ear-r', shape: { geometry: unitBall() }, material: 'skin', at: [.165, .1, .02], scale: [.03, .05, .04] },
+            { name: 'eye-l', shape: { box: [.04, .024, .02] }, material: 'hair', at: [-.065, .13, -.17] },
+            { name: 'eye-r', shape: { box: [.04, .024, .02] }, material: 'hair', at: [.065, .13, -.17] },
+            { name: 'hair', shape: { geometry: unitBall() }, material: 'hair', at: [0, .19, .025], scale: [.185, .16, .2] },
+            { name: 'hair-back', shape: { geometry: unitBall() }, material: 'hair', at: [0, .1, .07], scale: [.17, .14, .15] },
+            { name: 'fringe-l', shape: { geometry: unitSpike() }, material: 'hair', at: [-.07, .24, -.14], rot: [-2.3, 0, .35], scale: [.07, .14, .05] },
+            { name: 'fringe-r', shape: { geometry: unitSpike() }, material: 'hair', at: [.06, .25, -.14], rot: [-2.2, 0, -.25], scale: [.07, .15, .05] },
+            { name: 'tuft-0', shape: { geometry: unitSpike() }, material: 'hair', at: [0, .33, -.02], rot: [-.5, 0, .1], scale: [.07, .12, .07] },
+            { name: 'tuft-1', shape: { geometry: unitSpike() }, material: 'hair', at: [-.09, .3, .06], rot: [.6, 0, .7], scale: [.06, .12, .06] },
+            { name: 'tuft-2', shape: { geometry: unitSpike() }, material: 'hair', at: [.09, .31, .05], rot: [.5, 0, -.7], scale: [.06, .12, .06] },
+            { name: 'tuft-3', shape: { geometry: unitSpike() }, material: 'hair', at: [0, .26, .17], rot: [1.5, 0, 0], scale: [.07, .12, .06] },
           ],
         },
-        { name: 'belt', shape: { torus: [.285, .047, 4, 8] }, material: 'leather', at: [0, -.04, 0], rot: [Math.PI / 2, 0, 0] },
-        // Blackened, not red: the sheet's gorget is dark, and a dark ring is what lifts the helm off the
-        // shoulders from above.
-        { name: 'collar', shape: { torus: [.24, .075, 4, 8] }, material: 'iron', at: [0, .51, 0], rot: [Math.PI / 2, 0, 0] },
-        // In front of the tabard's hanging edge, so the belt reads as holding it up.
-        { name: 'buckle', shape: { plate: { outline: diamond(.075, .065), depth: .04 } }, material: 'brass', at: [0, -.04, -.37] },
-        // Mail from the belt to mid-thigh, flat face forward so the tabard hangs clear of it.
-        { name: 'mail', shape: { cylinder: [.3, .34, .22, 8] }, material: 'mail', at: [0, -.17, 0], rot: [0, Math.PI / 8, 0] },
-        { name: 'skirt-l', shape: { plate: { outline: [[-.12, .12], [.12, .12], [.14, -.17], [-.1, -.2]], depth: .055 } }, material: 'iron', at: [-.24, -.17, -.08], rot: [0, .45, -.13] },
-        { name: 'clasp-l', shape: { dodeca: [.048] }, material: 'brass', at: [-.2, .44, -.23] },
-        { name: 'skirt-r', shape: { plate: { outline: [[-.12, .12], [.12, .12], [.14, -.17], [-.1, -.2]], depth: .055 } }, material: 'iron', at: [.24, -.17, -.08], rot: [0, -.45, .13] },
-        { name: 'clasp-r', shape: { dodeca: [.048] }, material: 'brass', at: [.2, .44, -.23] },
-        { name: 'pouch', shape: { box: [.17, .2, .13] }, material: 'leather', at: [.3, -.09, .1] },
-        // Shoulders, per side (side=-1 then side=1): an iron dome tipped outward, its gold rim and front
-        // boss, and two plain iron lames stepping down over the upper arm. Gold
-        // edges on the lames were tried and cost head-over-shoulders from the side (facing 6).
-        { name: 'dome-l', shape: { geometry: unitDome() }, material: 'iron', at: [-.4, .44, 0], rot: [0, 0, .3], scale: [.195, .13, .215] },
-        { name: 'dome-rim-l', shape: { geometry: unitRim() }, material: 'brass', at: [-.4, .44, 0], rot: [0, 0, .3], scale: [.2, .16, .22] },
-        { name: 'boss-l', shape: { geometry: unitJoint() }, material: 'brass', at: [-.44, .51, -.14], scale: [.042, .042, .03] },
-        { name: 'lame-l0', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [-.45, .38, -.01], rot: [0, 0, .32], scale: [.34, .08, .42] },
-        { name: 'lame-l1', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [-.49, .3, -.01], rot: [0, 0, .38], scale: [.3, .08, .4] },
-        { name: 'dome-r', shape: { geometry: unitDome() }, material: 'iron', at: [.4, .44, 0], rot: [0, 0, -.3], scale: [.195, .13, .215] },
-        { name: 'dome-rim-r', shape: { geometry: unitRim() }, material: 'brass', at: [.4, .44, 0], rot: [0, 0, -.3], scale: [.2, .16, .22] },
-        { name: 'boss-r', shape: { geometry: unitJoint() }, material: 'brass', at: [.44, .51, -.14], scale: [.042, .042, .03] },
-        { name: 'lame-r0', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [.45, .38, -.01], rot: [0, 0, -.32], scale: [.34, .08, .42] },
-        { name: 'lame-r1', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [.49, .3, -.01], rot: [0, 0, -.38], scale: [.3, .08, .4] },
+        // The sash, wound twice round the waist, and its knot on his left where the relic hangs from it.
+        { name: 'sash', shape: { torus: [.285, .055, 4, 8] }, material: 'red', at: [0, -.04, 0], rot: [Math.PI / 2, 0, 0] },
+        { name: 'sash-knot', shape: { dodeca: [.065] }, material: 'red', at: [-.24, -.04, -.18] },
+        // The relic, the one cool and the one bright thing on him: a turquoise bead on a short leather
+        // cord, hanging off the knot at his left front, away from the bag - and outside the tunic flap's
+        // edge (x .21), which would cover it from the front and swing over it with every stride.
+        { name: 'relic-cord', shape: { box: [.016, .07, .016] }, material: 'leather', at: [-.28, -.09, -.2] },
+        { name: 'relic', shape: { dodeca: [.08] }, material: 'relic', at: [-.29, -.17, -.21] },
+        // The satchel's strap (see `strap` above), and the satchel on his right hip: a big bag at the side of
+        // the hip rather than under the sword hand, which the camera sees as often as his front. Flap and
+        // buckle in the bag's own frame.
+        { name: 'strap', shape: { geometry: strap() }, material: 'leather' },
+        {
+          name: 'satchel', at: [.36, -.1, -.05], rot: [0, -.2, .06], parts: [
+            { name: 'satchel-bag', shape: { geometry: roundedUnitBox() }, material: 'leather', at: [0, 0, 0], scale: [.2, .3, .34] },
+            { name: 'satchel-flap', shape: { geometry: roundedUnitBox() }, material: 'leather', at: [.012, .09, 0], scale: [.22, .14, .36] },
+            { name: 'satchel-buckle', shape: { box: [.03, .08, .07] }, material: 'brass', at: [.115, .03, 0] },
+          ],
+        },
       ],
     },
-    // Plan 013: the legs are .06 longer (thigh .03, shin .03) and armoured to the toe - iron shin and
-    // sabaton, steel knee and toe caps, gold bands - which also drops the knee from five materials to three.
+    // Charcoal trousers bloused over pale wraps from shin to ankle, and broad brown boots with a turned-down
+    // cuff. Three materials a knee, as the knight's were.
     {
       name: 'hip-l', at: [-.2, .54, 0], parts: [
-        { name: 'leg-l', shape: { box: [.19, .27, .2] }, material: 'dark', at: [0, -.12, 0] },
+        { name: 'leg-l', shape: { box: [.2, .27, .21] }, material: 'trousers', at: [0, -.12, 0] },
         {
           name: 'knee-l', at: [0, -.25, 0], parts: [
-            { name: 'shin-l', shape: { box: [.17, .2, .18] }, material: 'iron', at: [0, -.08, 0] },
-            { name: 'boot-shape-l', shape: { box: [.22, .16, .34] }, material: 'iron', at: [0, -.15, -.06] },
-            { name: 'greave-l', shape: { plate: { outline: [[-.095, .08], [.095, .08], [.08, -.13], [0, -.16], [-.08, -.13]], depth: .05 } }, material: 'iron', at: [0, -.04, -.105] },
-            { name: 'kneecap-l', shape: { dodeca: [.115] }, material: 'steel', at: [0, 0, -.11], scale: [.95, .8, .6] },
-            { name: 'knee-plate-l', shape: { geometry: roundedUnitBox() }, material: 'steel', at: [0, -.14, -.16], scale: [.2, .075, .18] },
-            { name: 'knee-rivet-l', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, .012, -.14], scale: [.13, .024, .025] },
-            { name: 'toe-trim-l', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, -.1, -.24], scale: [.2, .024, .02] },
+            { name: 'shin-l', shape: { box: [.21, .11, .22] }, material: 'trousers', at: [0, -.01, 0] },
+            { name: 'wrap-l', shape: { box: [.15, .1, .16] }, material: 'pale', at: [0, -.09, 0] },
+            { name: 'boot-shape-l', shape: { box: [.21, .13, .33] }, material: 'boot', at: [0, -.165, -.06] },
+            { name: 'boot-cuff-l', shape: { box: [.2, .07, .2] }, material: 'boot', at: [0, -.1, 0] },
           ],
         },
       ],
     },
     {
       name: 'hip-r', at: [.2, .54, 0], parts: [
-        { name: 'leg-r', shape: { box: [.19, .27, .2] }, material: 'dark', at: [0, -.12, 0] },
+        { name: 'leg-r', shape: { box: [.2, .27, .21] }, material: 'trousers', at: [0, -.12, 0] },
         {
           name: 'knee-r', at: [0, -.25, 0], parts: [
-            { name: 'shin-r', shape: { box: [.17, .2, .18] }, material: 'iron', at: [0, -.08, 0] },
-            { name: 'boot-shape-r', shape: { box: [.22, .16, .34] }, material: 'iron', at: [0, -.15, -.06] },
-            { name: 'greave-r', shape: { plate: { outline: [[-.095, .08], [.095, .08], [.08, -.13], [0, -.16], [-.08, -.13]], depth: .05 } }, material: 'iron', at: [0, -.04, -.105] },
-            { name: 'kneecap-r', shape: { dodeca: [.115] }, material: 'steel', at: [0, 0, -.11], scale: [.95, .8, .6] },
-            { name: 'knee-plate-r', shape: { geometry: roundedUnitBox() }, material: 'steel', at: [0, -.14, -.16], scale: [.2, .075, .18] },
-            { name: 'knee-rivet-r', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, .012, -.14], scale: [.13, .024, .025] },
-            { name: 'toe-trim-r', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, -.1, -.24], scale: [.2, .024, .02] },
+            { name: 'shin-r', shape: { box: [.21, .11, .22] }, material: 'trousers', at: [0, -.01, 0] },
+            { name: 'wrap-r', shape: { box: [.15, .1, .16] }, material: 'pale', at: [0, -.09, 0] },
+            { name: 'boot-shape-r', shape: { box: [.21, .13, .33] }, material: 'boot', at: [0, -.165, -.06] },
+            { name: 'boot-cuff-r', shape: { box: [.2, .07, .2] }, material: 'boot', at: [0, -.1, 0] },
           ],
         },
       ],
@@ -198,15 +215,13 @@ const KNIGHT_SPEC: Node = {
   ],
 };
 
-/** The free arm, kept as its own spec so `arm`'s bakeStatic call (below) sees the same part order. Plan
- *  013: an iron gauntlet where the leather fist was - four materials, not five. */
+/** The free arm, kept as its own spec so `arm`'s bakeStatic call (below) sees the same part order: the
+ *  tunic's sleeve, a leather bracer and a bare hand. */
 const ARM_SPEC: Node = {
   name: 'arm', at: [-.4, .34, 0], parts: [
-    { name: 'sleeve', shape: { box: [.17, .28, .18] }, material: 'dark', at: [0, -.14, 0] },
-    { name: 'forearm', shape: { box: [.16, .17, .28] }, material: 'steel', at: [0, -.28, -.09] },
-    { name: 'fist', shape: { dodeca: [.12] }, material: 'iron', at: [0, -.28, -.24] },
-    { name: 'arm-plate', shape: { geometry: roundedUnitBox() }, material: 'iron', at: [0, -.26, -.12], rot: [.12, 0, 0], scale: [.23, .2, .28] },
-    { name: 'arm-rivet', shape: { geometry: plainUnitBox() }, material: 'brass', at: [0, -.19, -.22], scale: [.235, .025, .025] },
+    { name: 'sleeve', shape: { box: [.16, .28, .17] }, material: 'pale', at: [0, -.14, 0] },
+    { name: 'forearm', shape: { box: [.14, .15, .26] }, material: 'leather', at: [0, -.28, -.09] },
+    { name: 'fist', shape: { dodeca: [.1] }, material: 'skin', at: [0, -.28, -.24] },
   ],
 };
 
@@ -214,96 +229,90 @@ const ARM_SPEC: Node = {
  *  dungeon-game.tsx sets this position back every frame (`sword.position.set(.44,.3,...)`): keep the two in step. */
 const SWORD_PIVOT_SPEC: Node = {
   name: 'sword-pivot', at: [.44, .3, -.02], parts: [
-    { name: 'glove', shape: { dodeca: [.14] }, material: 'leather', at: [0, -.02, .03] },
-    { name: 'sword-sleeve', shape: { cylinder: [.12, .09, .26, 6] }, material: 'dark', at: [-.035, -.03, .13], rot: [-.85, 0, 0] },
+    { name: 'glove', shape: { dodeca: [.12] }, material: 'skin', at: [0, -.02, .03] },
+    { name: 'sword-sleeve', shape: { cylinder: [.1, .08, .26, 6] }, material: 'leather', at: [-.035, -.03, .13], rot: [-.85, 0, 0] },
   ],
 };
 
-/** Plan 013: the tabard, hung from the belt on its own joint. It is rigid plate, not cloth - gold behind,
- *  crimson in front, a gold diamond at the point - and the game swings it forward with whichever leg leads,
- *  which is what keeps a running thigh from coming through it. */
+/** The tunic's front flap and the sash's hanging tail, on the knight's old tabard joint at the belt: the
+ *  game swings it forward with whichever leg leads, which is what keeps a running thigh from coming
+ *  through it. The tail hangs on his left, on the relic's side, as the sheet ties it. */
 const TABARD_SPEC: Node = {
-  name: 'tabard', at: [0, -.075, -.345], parts: [
-    { name: 'tabard-trim', shape: { plate: { outline: [[-.185, .02], [.185, .02], [.195, -.33], [0, -.46], [-.195, -.33]], depth: .018 } }, material: 'brass', at: [0, 0, .004] },
-    { name: 'tabard-cloth', shape: { plate: { outline: [[-.16, 0], [.16, 0], [.17, -.31], [0, -.43], [-.17, -.31]], depth: .018 } }, material: 'red', at: [0, 0, -.01] },
-    { name: 'tabard-gem', shape: { plate: { outline: diamond(.04, .05), depth: .012 } }, material: 'brass', at: [0, -.28, -.024] },
+  name: 'tabard', at: [0, -.075, -.315], parts: [
+    { name: 'tunic-flap', shape: { plate: { outline: [[-.2, .02], [.2, .02], [.21, -.26], [.06, -.3], [-.08, -.28], [-.21, -.25]], depth: .018 } }, material: 'pale', at: [0, 0, 0] },
+    { name: 'sash-tail', shape: { plate: { outline: [[-.04, .02], [.04, .02], [.05, -.3], [0, -.26], [-.05, -.32]], depth: .016 } }, material: 'red', at: [-.1, 0, -.02] },
   ],
 };
 
-/** The cape's cloth pattern is per-vertex colour (a gold border), not a
- *  material choice, so it stays outside the spec format. */
+/** The poncho's back point. Its trim is per-vertex colour (a pale edge), not a material choice, so it
+ *  stays outside the spec format; animateCloth sways it and the game pitches it with the run. */
 function buildCape() {
-  // Ten by twelve, folded towards the hem (plan 009). Plan 013: a little longer, and cut ragged - every other hem vertex is pulled up, so the bottom edge zigzags.
+  // Ten by twelve, as the knight's cape was, but cut to one broad point: as wide where it is pinned as the
+  // poncho's back allows (the seam's corners stay just inside it, r about .4 there), tapering to the hem,
+  // where the middle hangs lowest. Below the poncho's hem it is pushed out to the hem's line, so it hangs
+  // from the hem rather than from inside it. Faceted like the poncho, so it reads as the
+  // same cloth coming out below the hem rather than a smoother flap hung off it.
   const geometry = new THREE.PlaneGeometry(1, 1, 10, 12), positions = geometry.getAttribute('position');
-  const width = (free: number) => .37 + free * .15;
+  const width = (free: number) => .3 * (1 - free * .85);
   for (let i = 0; i < positions.count; i++) {
-    const u = positions.getX(i) * 2, free = .5 - positions.getY(i), hem = free > .99;
-    const rag = hem && Math.round(u * 5) % 2 !== 0 ? .07 : 0;
-    positions.setXYZ(i, u * width(free), -free * 1.02 + rag + (hem ? .035 * Math.abs(u) : 0),
-      .07 * (1 - u * u) + free * .15 + Math.sin(u * 9) * .046 * free * (1 - free * .3));
+    const u = positions.getX(i) * 2, free = .5 - positions.getY(i);
+    positions.setXYZ(i, u * width(free), -free * .5 - (free > .99 ? .12 * (1 - Math.abs(u)) : 0),
+      .02 * (1 - u * u) + free * .15 + (free > .36 ? (free - .36) * .2 : 0) + Math.sin(u * 9) * .02 * free);
   }
   geometry.computeVertexNormals(); geometry.computeBoundingBox();
   const colours: number[] = [];
-  // By grid index rather than position: the hem's rag has moved rows off their even spacing.
   for (let i = 0; i < positions.count; i++) {
     const u = (i % 11) / 5 - 1, row = Math.floor(i / 11);
-    const border = Math.abs(u) > .9 || row === 12;
-    const color = new THREE.Color(border ? 0xf3c46d : 0xcb2130); colours.push(color.r, color.g, color.b);
+    const border = (Math.abs(u) > .9 && row > 5) || row === 12;
+    const color = new THREE.Color(border ? 0xf0e6d2 : 0xc88b39); colours.push(color.r, color.g, color.b);
   }
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
-  const cape = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .95, emissive: 0x220805, side: THREE.DoubleSide }));
+  const cape = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: .95, emissive: 0x1a0f04, side: THREE.DoubleSide, flatShading: true }));
   // Torso-local, like every part above: the torso group's own height is added by the tree.
-  cape.position.set(0, .5, .22); cape.rotation.x = -.1;
+  cape.position.set(0, .4, .22); cape.rotation.x = -.1;
   return cape;
 }
 
 export function makeKnight() {
+  // Cloth, skin and leather are all rough and matte; only the relic and the buckle catch a highlight.
+  // Colours start from the sheet's swatches and were judged on the figure bench under the game's light.
+  const pale = new THREE.MeshStandardMaterial({ color: 0xe5d5be, roughness: .92, side: THREE.DoubleSide });
+  const ochre = new THREE.MeshStandardMaterial({ color: 0xc88b39, roughness: .9, emissive: 0x1a0f04, side: THREE.DoubleSide, flatShading: true });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xc98e6a, roughness: .8, emissive: 0x1c0d06 });
+  const hair = new THREE.MeshStandardMaterial({ color: 0x5a3f30, roughness: .9 });
+  const red = new THREE.MeshStandardMaterial({ color: 0x963f32, roughness: .88, emissive: 0x1a0604, side: THREE.DoubleSide });
+  // Lighter than the swatch's #624335 would suggest is needed: under the game's key it is what keeps the strap
+  // and the bag apart from the hair, the trousers and the sword hand, which all went to one dark mass.
+  const leather = new THREE.MeshStandardMaterial({ color: 0x6a4a38, roughness: .95, emissive: 0x120a06, side: THREE.DoubleSide });
+  const trim = new THREE.MeshStandardMaterial({ color: 0xf0e6d2, roughness: .9, emissive: 0x16130e, side: THREE.DoubleSide });
+  const trousers = new THREE.MeshStandardMaterial({ color: 0x45474a, roughness: .95 });
+  const boot = new THREE.MeshStandardMaterial({ color: 0x7a4e32, roughness: .9 });
+  const relic = new THREE.MeshStandardMaterial({ color: 0x2f929b, roughness: .3, metalness: .2, emissive: 0x1f7a84 });
+  // The armoury's materials. He wears none of them now except the buckle's brass, but every arm he can be
+  // handed is built from them (dungeon-armory.ts), so they stay exactly as the knight's plate had them.
+  // Plan 014 rounds 4, 5 and 8 tuned the metals: a metalness real steel still reads as metal at under a
+  // dim environment, `envMapIntensity` raised on these alone, and no flatShading.
   const dark = new THREE.MeshStandardMaterial({ color: 0x0a0e15, roughness: 0.82 });
-  // Plan 014 round 4 (lever C8): the helmet and plate read as a flat purple cylinder at
-  // metalness .5/roughness .4 - close enough to a dielectric that the now-useful env map
-  // (`vaultEnvironment`, round 3) never got a sharp enough lobe to throw a real torch-lit specular,
-  // and 0x64668c was pale and violet enough to read as painted plastic rather than darkened steel.
-  // Plan 014 round 5 (lever A2): round 4 overcorrected - metalness .82 on a base that dark, lit
-  // mostly by a dim environment, rendered as a near-black silhouette (a metal's own diffuse term
-  // drops out almost entirely as metalness rises, so *all* of its brightness has to come from
-  // specular/env reflection, and there was not enough of either). Backed off to a metalness a real
-  // steel plate still reads as metal at without needing a blazing environment to be visible, a
-  // lighter base, and `envMapIntensity` raised on these materials alone (not the whole scene) so the
-  // knight's own metals catch a real highlight without relighting every stone in the room.
-  // Plan 014 round 8 (lever 1): `flatShading` overrides a geometry's own per-vertex normals with a
-  // face normal derived in the fragment shader, which is what turned every curved steel shape here -
-  // the helmet, the pauldron domes, the greaves - into a set of hard, visible facets no matter how
-  // many segments the geometry underneath actually had. `CylinderGeometry`/`SphereGeometry`/the
-  // lathes below all already carry real smooth vertex normals; removing the override is most of what
-  // "torchlight gives gradients, not facets" asks for, before a single shape below even changes.
-  const steel = new THREE.MeshStandardMaterial({ color: 0x777c90, roughness: 0.35, metalness: 0.6, envMapIntensity: 1.6 });
   const iron = new THREE.MeshStandardMaterial({ color: 0x3c4056, roughness: .38, metalness: 0.62, envMapIntensity: 1.6 });
   const brass = new THREE.MeshStandardMaterial({ color: 0xffc86a, roughness: .38, metalness: .55, emissive: 0x4a2c07 });
   const shadow = new THREE.MeshStandardMaterial({ color: 0x05090c, roughness: 1 });
-  const red = new THREE.MeshStandardMaterial({ color: 0x9e1f33, roughness: 0.85, emissive: 0x2c0509, side: THREE.DoubleSide });
-  const leather = new THREE.MeshStandardMaterial({ color: 0x2c1a14, roughness: 1 });
-  // Plan 013: the plume in the sheet's own crimson, a step brighter than the cloth. The helm's top third is
-  // half plume from most facings, and the tabard's darker red would pull the head down to the shoulders.
-  const plume = new THREE.MeshStandardMaterial({ color: 0xd42a36, roughness: .8, emissive: 0x5a0a12 });
-  // Plan 013: between the iron and the steel, and rougher than either, so the skirt reads as woven rings
-  // rather than one more plate.
-  const mail = new THREE.MeshStandardMaterial({ color: 0x484c5e, roughness: .55, metalness: .55, envMapIntensity: 1.4 });
-  // The one pale thing left on the knight: a long bright blade, since no skeleton carries one. Bound to
-  // the armoury's "steel" slot so the weapon keeps the old plate value while the body drops away under it.
+  // The armoury's leather is the knight's old near-black grip, darker than his satchel, so no arm changed.
+  const grip = new THREE.MeshStandardMaterial({ color: 0x2c1a14, roughness: 1 });
+  // A long bright blade, the palest thing he holds. Bound to the armoury's "steel" slot.
   const blade = new THREE.MeshStandardMaterial({ color: 0xdcded9, roughness: 0.2, metalness: 0.6, envMapIntensity: 1.5 });
   const plate: Plate = (outline, depth, material) => {
     const shape = new THREE.Shape(); outline.forEach(([x, y], i) => { if (i) shape.lineTo(x, y); else shape.moveTo(x, y); }); shape.closePath();
     const geometry = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelSize: .015, bevelThickness: .012, bevelSegments: 1, steps: 1, curveSegments: 1 });
     geometry.translate(0, 0, -depth / 2); return new THREE.Mesh(geometry, material);
   };
-  const palette = { dark, steel, iron, brass, shadow, red, leather, mail, plume };
+  const palette = { pale, ochre, trim, skin, hair, red, leather, trousers, boot, relic, brass };
 
   const { root: g, byName } = buildSpec(KNIGHT_SPEC, palette);
   const torso = byName['torso'] as THREE.Group;
 
   const cape = buildCape();
   const { root: tabard } = buildSpec(TABARD_SPEC, palette);
-  const armoryPalette: ArmoryPalette = { steel: blade, iron, brass, leather, dark, shadow };
+  const armoryPalette: ArmoryPalette = { steel: blade, iron, brass, leather: grip, dark, shadow };
   const armed = makeWeapon(STARTING_WEAPON, armoryPalette, plate);
   const { root: swordPivot } = buildSpec(SWORD_PIVOT_SPEC, palette);
   swordPivot.add(armed.group);
@@ -321,6 +330,9 @@ export function makeKnight() {
   g.userData.armoury = { palette: armoryPalette, plate }; g.userData.armed = armed;
 
   g.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = true; o.receiveShadow = true; } });
+  // The strap and the trim lie .02 off the poncho, close enough that their own shadow fringes them in black
+  // under the key light. One more batch (the bake splits by castShadow), inside the budget.
+  for (const name of ['strap', 'poncho-trim']) (byName[name] as THREE.Mesh).castShadow = false;
   // Plan 010: nothing between two joints moves, so every joint is folded into one mesh per material -
   // after the hidden pauldrons (which the bake removes) and after the shadow flags, which the batches
   // carry. The animated joints and the swapped arm are kept out. Footsteps read the boot's world matrix,
@@ -335,8 +347,6 @@ export function makeKnight() {
   bakeStatic(swordPivot, { keep: [armed.group], cacheKey: 'knight:pivot' });
   bakeStatic(arm, { cacheKey: 'knight:arm' });
   for (const hip of legs) { bakeStatic(hip, { keep: [hip.userData.knee as THREE.Group], cacheKey: 'knight:hip' }); bakeStatic(hip.userData.knee as THREE.Group, { cacheKey: 'knight:knee' }); }
-  // The body cylinder is in the torso's batches now; nothing reads this, but it names the node that owns it.
-  g.userData.body = torso;
   // After the traverse, and deliberately: the pool must not be fed back into the shadow map it imitates.
   g.add(contactShadow(.62, .74));
   return g;
