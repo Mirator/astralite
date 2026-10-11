@@ -92,6 +92,11 @@ test('ENTER lands in the hall behind the veil: the altar, the racks it owns and 
   }
   const door = hall.doors[0];
   expect(props.wayDown, 'the way down is not on the scene, or is not signed as it').toMatchObject({ x: expect.closeTo(door.x * TILE, 3), z: expect.closeTo(door.z * TILE, 3), inScene: true, sign: 'down', open: true });
+  // Its arch is on the wall nearest the camera, the one door in the keep that is: a buttress and two courses of masonry once stood in it, from the waterline up,
+  // and the way down read only when the knight was on it (2026-10-11). `screened` counts the points of nine across the veil that an opaque mesh hides from the lens.
+  expect(door.face, 'the way down no longer faces the camera, so this no longer checks a near-wall door').toEqual({ x: 0, z: 1 });
+  expect(props.wayDown!.screened, 'stone stands between the camera and the way down').toBe(0);
+  expect(props.wayDown!.walled, 'wall stone is laid across the face of the way down').toBe(0);
   expect(props.stair, 'the hall built a stair').toBe(false);
   // No vitality, no rank bar: the knight is not at risk.
   await expect(page.getByRole('progressbar', { name: 'Vitality' }), 'the hall shows the vitality bar').toHaveCount(0);

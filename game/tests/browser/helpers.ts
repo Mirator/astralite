@@ -225,7 +225,7 @@ export type Snapshot = {
     pearls: number;
     pulse: string[];
     tried: string | null;
-    wayDown: { x: number; z: number; radius: number; open: boolean; over: boolean; inScene: boolean; sign: string } | null;
+    wayDown: { x: number; z: number; radius: number; open: boolean; over: boolean; inScene: boolean; sign: string; screened: number; walled: number } | null;
     stair: boolean;
   } | null;
   boonOffer: boolean;
