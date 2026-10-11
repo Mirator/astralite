@@ -2651,6 +2651,33 @@ export default function DungeonGame() {
       renderer.domElement.style.filter = hurtFlash <= 0 ? '' : easeMotion ? 'sepia(.3) saturate(1.5) hue-rotate(-22deg)' : `sepia(.4) saturate(1.75) hue-rotate(-25deg) brightness(${0.9 + hurtFlash * 0.3})`;
     };
     const hooks = window as HookedWindow;
+    // What stands between the lens and a door's veil, read off the scene: of nine points across the veil (from above the kerb to under the lintel), how many
+    // a ray from the camera meets an opaque mesh on its way to, the door's own sigil (which floats through the arch) aside. The cutaway dithers stone in a
+    // shader and leaves its material opaque, so a wall it is fading still counts, as it should: the knight is not always there.
+    const screening = ({ veil, sigil }: { veil: THREE.Object3D; sigil: THREE.Object3D }) => {
+      const ray = new THREE.Raycaster(), shown = (o: THREE.Object3D | null): boolean => !o || (o.visible && shown(o.parent)); ray.camera = camera;
+      return [-.2, 0, .2].flatMap(u => [-.35, .2, .75].map(v => veil.localToWorld(new THREE.Vector3(u, v, 0)))).filter(at => {
+        const lens = at.clone().project(camera); ray.setFromCamera(new THREE.Vector2(lens.x, lens.y), camera);
+        const reach = ray.ray.origin.distanceTo(at) - .05;
+        return ray.intersectObject(floorGroup, true).some(hit => hit.distance < reach && hit.object !== veil && hit.object !== sigil && shown(hit.object) && ![hit.object as THREE.Mesh].flatMap(m => m.material ?? []).some(m => m.transparent));
+      }).length;
+    };
+    // And what the scene laid on a door's face: the wall stone (every mesh the cutaway may fade) centred within half a tile across the arch, from just inside
+    // its wall line to a buttress's depth out, whose top clears the kerb's tallest merlon (.62). A low course (top .67) hides behind the kerb from every ray
+    // above it, so it is counted where it stands. The counterfort under the sill tops out at .31 and hides nothing; a jamb's course, on the door tile's own
+    // sides, is centred .77 across and a tile in. Neither counts.
+    const walling = ({ door }: { door: Door }) => {
+      const wx = (door.x + door.face.x * .5) * TILE, wz = (door.z + door.face.z * .5) * TILE, m = new THREE.Matrix4(), c = new THREE.Vector3(), k = new THREE.Vector3();
+      const on = (p: THREE.Vector3, top: number) => { if (top <= .62) return false; const out = (p.x - wx) * door.face.x + (p.z - wz) * door.face.z, across = Math.abs((p.x - wx) * door.face.z - (p.z - wz) * door.face.x); return across < .5 && out > -.1 && out < .3; };
+      let count = 0;
+      floorGroup.traverse(o => {
+        if (!o.userData.cameraOccluder || !(o instanceof THREE.Mesh)) return;
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        if (o instanceof THREE.InstancedMesh) { for (let i = 0; i < o.count; i++) { o.getMatrixAt(i, m); m.premultiply(o.matrixWorld); if (on(c.setFromMatrixPosition(m), c.y + k.setFromMatrixScale(m).y * o.geometry.boundingBox!.max.y)) count++; } }
+        else if (on(o.getWorldPosition(c), c.y + o.getWorldScale(k).y * o.geometry.boundingBox!.max.y)) count++;
+      });
+      return count;
+    };
     // Drive the run from the console
     const testHooks: TestHooks = {
       // The mood snaps rather than sliding. Crossing a threshold on foot is worth a third of a second
@@ -2774,7 +2801,7 @@ export default function DungeonGame() {
         shrines: shrines.map(shrine => ({ id: shrine.id, x: shrine.group.position.x, z: shrine.group.position.z, over: shrine === overShrine, inScene: shrine.group.parent === floorGroup, ranks: shrine.notches.length, lit: shrine.notches.filter(n => n.material === kit?.notchLit).length, plaque: shrine.plaque?.parent === floorGroup ? shrine.plaque.userData.price as number : null })),
         buying: { target: hold.target, fill: holdFill(hold) }, pearls: kit?.flight.active ?? 0, pulse: [...pulse],
         tried: armLocked || shopMeta.arms.includes(pc.weapon.id) ? null : pc.weapon.id,
-        wayDown: stage.doors[0] ? { x: stage.doors[0].spot.x, z: stage.doors[0].spot.z, radius: DOOR_RADIUS, open: !stage.doors[0].bars.visible, over: overDoor === stage.doors[0].door, inScene: [stage.doors[0].ring, stage.doors[0].veil, stage.doors[0].sigil].every(part => part.parent === floorGroup), sign: doorSignOf(floor, stage.doors[0].door) } : null,
+        wayDown: stage.doors[0] ? { x: stage.doors[0].spot.x, z: stage.doors[0].spot.z, radius: DOOR_RADIUS, open: !stage.doors[0].bars.visible, over: overDoor === stage.doors[0].door, inScene: [stage.doors[0].ring, stage.doors[0].veil, stage.doors[0].sigil].every(part => part.parent === floorGroup), sign: doorSignOf(floor, stage.doors[0].door), screened: screening(stage.doors[0]), walled: walling(stage.doors[0]) } : null,
         stair: !!stage.stairRing && stage.stairRing.parent === floorGroup,
       } : null,
       // Plan 022: the rings a called wave shows, read off the ring meshes (where each is drawn, whether it is showing, and the body it is for), not off the plan that placed them.

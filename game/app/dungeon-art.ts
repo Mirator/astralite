@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { planFloorMotifs } from './dungeon-decor-layout.ts';
 import { buildFloorMotifs } from './dungeon-floor-motifs.ts';
-import { type Room, TILE, type generateFloor } from './dungeon-floor';
+import { doorFaces, type Room, TILE, type generateFloor } from './dungeon-floor';
 import { weatherStone } from './dungeon-motion';
 import { applyStoneTextures, getMasonryTextures } from './dungeon-textures';
 
@@ -366,6 +366,8 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
   // Props occupy holes in floor.tiles; they are interior floor, never perimeter walls.
   const cells = new Set([...floor.tiles, ...floor.props].map(t => `${t.x},${t.z}`));
   const owner = new Map<string, number>(); for (const t of floor.tiles) owner.set(`${t.x},${t.z}`, t.room);
+  // A door on the camera's side (the Tide Altar's way down) takes no buttress: its arch stands on that face (dungeon-floor-scene.ts), and one stood in the doorway.
+  const doorways = doorFaces(floor);
   const mesh = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number) => {
     const item = new THREE.Mesh(geometry, material); item.position.set(x, y, z); item.receiveShadow = true; world.add(item); return item;
   };
@@ -395,7 +397,7 @@ export function addCarvedArchitecture(world: THREE.Group, floor: ReturnType<type
         if (near !== Infinity) {
           // Close in to the knight there is no room to build upward, and the kerb is already the whole of
           // this edge; a cornice there would be a course of blocks nobody can see over it.
-          if (near < 2.4 || near > OFF_FRAME || (tile.x + tile.z) % 4 !== 0) continue;
+          if (near < 2.4 || near > OFF_FRAME || (tile.x + tile.z) % 4 !== 0 || doorways.has(`${tile.x},${tile.z},${dx},${dz}`)) continue;
           // Buttresses, not posts. At the stride and slenderness the far wall uses, the near edge came out
           // as a row of identical pickets across the bottom of the frame — which is a fence, and reads as
           // one. Wider than they are on the far wall, a course shorter, spaced four tiles instead of

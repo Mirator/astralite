@@ -6700,6 +6700,12 @@ Operator decision. The PR gate filters `@nightly` out and the scheduled workflow
 
 Helpers only those used are gone with them. `tests/README.md` and `AGENTS.md` no longer offer `@nightly` as a tier: a check goes on the gate or is not written. The workflow's `--grep-invert "@capture|@nightly"` is left as it is (harmless with nothing tagged, and leaving `.github` untouched lets this merge exercise the verified-tree skip). Typecheck and lint clean; the three scenarios left in those files pass locally.
 
+## 2026-10-11 - the way down out of the Tide Altar shows
+
+Operator report: the hall's way down was hard to see. The hall's one door is the only door in the keep on a camera-facing face (`altarHall`, face `{0, 1}`; every generated door faces -x or -z), and the near-side wall dressing was laid across it like any other edge: `dungeon-art.ts` stood a buttress on it (the door tile `(0, 8)` passes `(x + z) % 4 === 0`), running from the waterline to above the lintel, and `dungeon-atmosphere.ts` coursed masonry across it. The arch read only when the knight stood on it and the cutaway dithered the stone away. Both near-face loops now skip a door's face (`doorFaces` in `dungeon-floor.ts`), near faces only, so a far-wall door keeps its wall; the masonry skip still draws each block's skip roll, so the hall's waterfall and chips are where they were (a `continue` before the roll moved the waterfall). Floor one's flooded-hall budget scene draws exactly what it did (395 calls, 283,009 triangles, d3d11, before and after).
+
+`hall.spec.ts` holds it with two observed fields on `hallProps.wayDown`: `screened`, how many of nine points over the veil (±.2 across, so the jamb courses at .77 do not touch it) a camera ray reaches only through an opaque mesh, the door's own sigil aside; and `walled`, the occluder stone centred on the door's face whose top clears the kerb (.62). Planted: the buttress skip removed fails `screened` (9); the masonry skip removed fails `walled` (1: in this hall only the bottom course is dealt, top .67, which every ray above the kerb passes over, hence the second field). Clean passes `--repeat-each=3`.
+
 ## 2026-10-11 — camera no longer glances at the doors on a clear
 
 Playtest complaint: on clearing a chamber the camera pulled towards the open doors (plan 025 D2 c), which read as
