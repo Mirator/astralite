@@ -48,8 +48,16 @@ jobs:
   # run only costs time.
   changes:
     runs-on: ubuntu-latest
+    # `actions: read` lets a push to main look up the receipt a pull request's
+    # `verified` job left for the tree it tested (see the `tested` step).
+    permissions:
+      contents: read
+      actions: read
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      tree: ${{ steps.tested.outputs.tree }}
+      tested: ${{ steps.tested.outputs.tested }}
+      playwright: ${{ steps.playwright.outputs.version }}
     steps:
       # Full history so both ends of the range are present locally; the whole
       # repository is tens of megabytes, which is cheaper than being clever.
@@ -95,14 +103,69 @@ jobs:
           echo "code changed: $code"
           echo "code=$code" >> "$GITHUB_OUTPUT"
 
+      # A merge to main used to run every gate again (about ten minutes) on code its
+      # pull request had just passed. Every gate's verdict is a function of the tree it
+      # ran on, so a push whose tree a green pull request run already verified - the
+      # same bytes, this workflow included - goes straight to build and deploy. The
+      # pull request's `verified` job leaves an artifact named after the tree it tested
+      # (its merge ref, which is the tree "Merge" or "Squash" produces as long as main
+      # has not moved since). Anything else runs the gates as before: main moved under
+      # the pull request, a manual run, a lookup error, a change to .github.
+      #
+      # Only same-repository runs count: a fork's pull request runs the workflow from
+      # its own branch and could upload an artifact under any name it likes. And a push
+      # that changes .github never skips, whoever ran what.
+      - id: tested
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          CODE: ${{ steps.diff.outputs.code }}
+          REPO: ${{ github.repository }}
+          REPO_ID: ${{ github.repository_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}')
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+          tested=false
+          if [ "$EVENT" = push ] && [ "$CODE" = true ]; then
+            if ! changed=$(git diff --name-only --no-renames "$BEFORE..$AFTER"); then
+              echo "No usable range for the push: the gates run."
+            elif grep -q '^\.github/' <<< "$changed"; then
+              echo "The push changes .github: the gates run."
+            elif ! runs=$(gh api "repos/$REPO/actions/artifacts?name=verified-tree-$tree&per_page=100" \
+                --jq "[.artifacts[] | select(.expired == false and .workflow_run.head_repository_id == $REPO_ID) | .workflow_run.id] | unique | map(tostring) | join(\" \")"); then
+              echo "The artifact lookup failed: the gates run."
+            elif [ -z "$runs" ]; then
+              echo "No same-repository run verified tree $tree: the gates run."
+            else
+              tested=true
+              echo "Tree $tree was verified by run(s) $runs: the gates are skipped."
+            fi
+          fi
+          echo "tree already verified: $tested"
+          echo "tested=$tested" >> "$GITHUB_OUTPUT"
+
+      # The browser jobs run in Playwright's own image, whose tag has to be the exact
+      # version the lockfile installs (the image carries that version's Chromium).
+      # Read here, so bumping @playwright/test moves the image with it.
+      - id: playwright
+        shell: bash
+        run: |
+          version=$(jq -r '.packages["node_modules/@playwright/test"].version' game/package-lock.json)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::no @playwright/test version in game/package-lock.json (read '$version')"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   # The one check branch protection should require, and the only one it can:
   # the gates above skip on a docs-only change, and a skipped matrix job reports
   # under its unexpanded name `browser`, never as `browser (1)`, so requiring the
   # shards by name would leave every docs-only pull request waiting forever.
   #
-  # Skipped counts as passing only when `changes` said nothing but prose moved.
-  # Once code changed, every gate must actually have succeeded — a gate that
-  # skipped itself then is a bug in its `if`, not a pass.
+  # Skipped counts as passing only when `changes` said nothing but prose moved,
+  # or that a pull request run already passed every gate on this exact tree.
+  # Otherwise, once code changed, every gate must actually have succeeded — a
+  # gate that skipped itself then is a bug in its `if`, not a pass.
   verified:
     needs: [changes, checks, balance, browser, build]
     if: always()
@@ -112,17 +175,42 @@ jobs:
         env:
           CHANGES: ${{ needs.changes.result }}
           CODE: ${{ needs.changes.outputs.code }}
-          GATES: ${{ needs.checks.result }} ${{ needs.balance.result }} ${{ needs.browser.result }} ${{ needs.build.result }}
+          TESTED: ${{ needs.changes.outputs.tested }}
+          GATES: ${{ needs.checks.result }} ${{ needs.balance.result }} ${{ needs.browser.result }}
+          BUILD: ${{ needs.build.result }}
         run: |
-          echo "changes: $CHANGES (code changed: ${CODE:-unknown}); checks, balance, browser, build: $GATES"
+          echo "changes: $CHANGES (code changed: ${CODE:-unknown}; tree already verified: ${TESTED:-unknown}); checks, balance, browser: $GATES; build: $BUILD"
           [ "$CHANGES" = success ] || { echo "::error::the changes job did not succeed"; exit 1; }
+          # A gate may skip on a prose-only change, or on a push whose exact tree a pull
+          # request already verified (`tested`). The build never skips for the latter:
+          # it is what the deploy publishes.
           for result in $GATES; do
             case "$result" in
               success) ;;
-              skipped) [ "$CODE" = false ] || { echo "::error::a gate was skipped although code changed"; exit 1; } ;;
+              skipped) [ "$CODE" = false ] || [ "$TESTED" = true ] || { echo "::error::a gate was skipped although code changed"; exit 1; } ;;
               *) echo "::error::a gate ended $result"; exit 1 ;;
             esac
           done
+          case "$BUILD" in
+            success) ;;
+            skipped) [ "$CODE" = false ] || { echo "::error::the build was skipped although code changed"; exit 1; } ;;
+            *) echo "::error::the build ended $BUILD"; exit 1 ;;
+          esac
+      # The receipt a later push to main looks for (see `changes`): written only when
+      # the step above passed with every gate actually run on this tree - code changed
+      # and nothing skipped on the strength of an earlier run.
+      - if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tested != 'true'
+        shell: bash
+        env:
+          RUN: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: echo "verified by run $RUN at $SHA" > verified.txt
+      - if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tested != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: verified-tree-${{ needs.changes.outputs.tree }}
+          path: verified.txt
+          retention-days: 30
 
   # Something has to notice. The merge of #30 went red on `main` at 08:51 and nobody saw it: the next
   # branch off main inherited a failing suite, and an afternoon went into proving the failure was not
@@ -173,7 +261,7 @@ jobs:
   # The fast gates. Nothing here needs a browser, so nothing here waits for one.
   checks:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tested != 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -198,7 +286,7 @@ jobs:
   # pole once the browser shards were cut down.
   balance:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tested != 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -232,8 +320,17 @@ jobs:
   # scenario ever turns out to mind the company; nothing else needs to change.
   browser:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tested != 'true'
     runs-on: ubuntu-latest
+    # Playwright's image carries Chromium and every library it needs, at the version
+    # the lockfile pins (read by `changes`). Installing them on the bare runner cost
+    # 35 s to 2 min a shard - apt fetched the libraries on every run even when the
+    # browser itself came from cache - and was most of the spread between shards that
+    # ran the same tests. `--user 1001` is the runner's own uid, so the workspace it
+    # mounts stays writable.
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.changes.outputs.playwright }}-noble
+      options: --user 1001 --ipc=host
     strategy:
       fail-fast: false
       matrix:
@@ -250,8 +347,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
-        with:
-          browser: 'true'
       # `@capture` scenarios only stage frames for a human, and `@nightly` ones pin
       # art tuning or repeat a check the gate already makes; neither guards a PR.
       # A capture run (the `captures` input) draws everything, both tags included.
@@ -310,13 +405,18 @@ jobs:
   deploy:
     # Every gate, then the deployment. This is the line that keeps a red suite
     # off the live site.
-    needs: [changes, checks, balance, browser, build]
+    # `verified` is the judge of the gates: it passes only when every gate
+    # succeeded, or skipped because a pull request had already passed them all on
+    # this exact tree (`tested` in `changes`). `build` makes what is published.
+    needs: [changes, build, verified]
     # A pull request must never be able to publish to Pages, whatever it changed.
-    # And a docs-only push has no artifact to publish: the gates and the build
-    # were skipped, so the site stays on the last code push's deployment. A
-    # skipped `needs` would already stop this job; the `code` test says so
-    # outright rather than leaning on that rule.
-    if: github.event_name != 'pull_request' && needs.changes.outputs.code == 'true'
+    # And a docs-only push has no artifact to publish: the build was skipped, so
+    # the site stays on the last code push's deployment. `always()` because an
+    # already-verified tree skips the gates, and a skipped job anywhere upstream
+    # would otherwise skip this one too; the results named below decide it.
+    if: >-
+      always() && github.event_name != 'pull_request' && needs.changes.outputs.code == 'true'
+      && needs.changes.result == 'success' && needs.build.result == 'success' && needs.verified.result == 'success'
     runs-on: ubuntu-latest
     # Write access lives here alone, in the one job no pull request can trigger.
     permissions:

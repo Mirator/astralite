@@ -2689,6 +2689,10 @@ export default function DungeonGame() {
         setAltarNote(''); setMenuStart('main'); bankedFrom = null;
         // Plan 020: the slot and the picker go back to what a boot leaves - the slot last played (the harness has just cleared the store, so slot 1)
         // and the title's main list. (An armed Erase and the picker's note are cleared by opening the picker, so a closed one has nothing to leave.)
+        // The status leaves a finished run in the same render that reloads the save: the record effect re-runs whenever the slot or its
+        // best changes, and seeing a won or lost run against the store the harness just cleared, it wrote that run's floor back into
+        // the empty slot (a won floor-three run left slot 1 reading "deepest floor 3" for the next scenario). `restart` sets it for real.
+        setStatus('playing');
         activeSlot = readSlot() ?? 1; setSlotOn(activeSlot); restoreSave(); setMenuView('main');
         elapsed = 0; runStart = 0; floorStart = 0; activeRoom = 0;
         // A fresh page has never seen the cursor. The veil used to clear this by covering the canvas for a few
