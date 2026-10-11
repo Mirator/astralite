@@ -141,10 +141,15 @@ test('the knight is baked within his budgets and stands where he did', () => {
   // Plan 010's "before", the same numbers models.spec.ts holds the live knight to.
   const BEFORE = { meshes: 53, triangles: 3990, height: 1.8243 };
   const knight = drawCost(makeKnight());
-  // Torso <= 7 batches, cape 1, pivot <= 2, arm <= 4, arm joint <= 5, hips 2, knees <= 10, pool 1.
+  // The Relic Seeker (2026-10-11, node): torso 10 batches (9 materials, the unshadowed strap and trim split off),
+  // cape 1, tabard 2, pivot 2, Tideblade 4, arm 3, hips 2, knees 6, pool 1 = 31 meshes, 1876 triangles. Floors on
+  // both: the triangle floor is what catches a poncho that is not drawn (its 112 triangles take him to 1764); the
+  // mesh floor catches a bake that loses more than two batches.
   assert.ok(knight.meshes <= 32, `the knight is drawn as ${knight.meshes} meshes`);
+  assert.ok(knight.meshes >= 29, `the knight is drawn as only ${knight.meshes} meshes`);
+  assert.ok(knight.triangles >= 1800, `the knight costs only ${knight.triangles} triangles`);
   // Owner decision for the model round: a figure's triangles may rise by at most a quarter.
   assert.ok(knight.triangles <= Math.floor(BEFORE.triangles * 1.25), `the knight costs ${knight.triangles} triangles against ${BEFORE.triangles}`);
-  // The helmet grows; nothing else should, so he stands within 0.08 of where he did.
+  // The explorer stands where the knight did, within 0.08.
   assert.ok(Math.abs(knight.height - BEFORE.height) <= 0.08, `the knight stands ${knight.height.toFixed(4)} tall against ${BEFORE.height}`);
 });

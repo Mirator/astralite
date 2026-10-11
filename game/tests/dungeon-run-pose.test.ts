@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { playerRunPose, strideRate } from '../app/dungeon-run-pose.ts';
+import { DASH_CAPE, playerRunPose, strideRate } from '../app/dungeon-run-pose.ts';
 
 // The knight walks at 8.5 unthreatened (dungeon-weapon.ts), which is the top of the sprint blend: the
 // speed sprint.spec.ts reads the rig at after holding a direction.
@@ -57,4 +57,17 @@ test('stride rate is positive and falls as speed rises, so a faster knight cover
   assert.ok(strideRate(TOP) < strideRate(WALK), 'each running stride covers more ground');
   // Two footfalls a cycle: under three full strides a second at the top keeps the cadence readable.
   assert.ok(TOP * strideRate(TOP) / (2 * Math.PI) < 3, 'full stride cadence stays readable');
+});
+
+test('the poncho\'s back point lifts a little with a sprint and a little more in a dash, never out like a wing', () => {
+  // The long cape lifted to .65 at a sprint and .8 in a dash; the poncho's point is short enough that the
+  // same pitch stood it straight out behind him (judged in a gameplay frame, d3d11, 2026-10-11; .32 still
+  // flared, since the torso's own .27 lean adds to it). Now .15 to .21 at the top of the sprint blend, .1 at
+  // rest, .22 dashing. The dash ceiling is where dungeon-cloak.test.ts's sash check stops passing: the tip's
+  // peak under a dash's cloth sway (strength .32, t 0-3 step .02, node, 2026-10-11) is .696 at .2, .712 at .22,
+  // .738 at .25 and .781 at .3, against the sash at .72.
+  const lifts = cycle(TOP).map(pose => pose.cape);
+  assert.ok(Math.max(...lifts) <= .25, `the point lifts to ${Math.max(...lifts).toFixed(3)} at a sprint`);
+  assert.ok(Math.min(...lifts) > playerRunPose(0, 0).cape + .04, 'a sprint barely moves the point off its rest pitch');
+  assert.ok(DASH_CAPE > Math.max(...lifts) && DASH_CAPE <= .23, `a dash holds the point at ${DASH_CAPE}`);
 });
