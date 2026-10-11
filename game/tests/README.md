@@ -75,20 +75,19 @@ the flare: each ring carries its own `burned` flag, cleared the moment it stops 
 
 ## What the pull-request gate runs
 
-Two tags take scenarios off the PR gate without deleting them. `.github/workflows/deploy-pages.yml` passes
+One tag takes scenarios off the PR gate without deleting them. `.github/workflows/deploy-pages.yml` passes
 `--grep-invert "@capture|@nightly"` unless a capture run was asked for, and a capture run (the `captures`
-input on Verify and Deploy) runs everything. Nothing runs them on a schedule: the nightly isolated workflow
-was removed on 2026-10-01, so `@nightly` now means "run by hand before merging a change that could move it"
-(locally, or with a capture run).
+input on Verify and Deploy) runs everything.
 
 - **`@capture`**: the scenario only stages a frame for review. `game.capture()` writes nothing unless
   `GAME_TEST_CAPTURE=1`, so on a PR it would boot, stage and assert only that the seed still produces the
   scene. All of `shots.spec.ts` and the per-theme and phone captures in `macro-paving`, `floor-motifs` and
   `theme-flames` carry it.
-- **`@nightly`**: a real check that is too expensive for every PR or pins art tuning a look change is
-  expected to move: the theme-colour and two of three telegraph-legibility cases in `art-direction`, the
-  eight-facing and cast checks in `models`, and the keep and ruins footstep pixel checks (flooded, whose
-  room is far from the origin, stays on the gate).
+- **`@nightly`** is retired. Nothing ran it after the scheduled workflow was removed on 2026-10-01, so the
+  last four were deleted on 2026-10-11: `art-direction`'s fire-per-family check and its ruins and flooded
+  telegraph repeats, `footsteps`' phone case, and `dash`'s "a woken body no longer slows the knight". The
+  workflow's filter still names the tag, which is harmless with nothing carrying it. A check worth having
+  goes on the gate; one that is not is deleted, not tagged.
 
 The gate's three CI shards are split by measured duration, not by `--shard`'s equal test counts:
 `scripts/shards/plan.ts <shards> <index>` prints one shard's specs from `scripts/shards/durations.json`.
@@ -227,7 +226,7 @@ never a tried one, then a veiled `restart` into floor 1 on a fresh seed). The ha
 - **`?hall=skip`** (development only, ignored by a production build) keeps the flow that existed before the hall: the boot builds floor 1 and ENTER enters it. **The harness passes it on every `goto` it makes**
   (as it passes `boot=eager`), so the 138 callers of `game.enter()` and the pooled page are unaffected, and a reset returns a page to the mode it booted in. Floor one has no racks under it.
 - **`test.use({ hall: true })`** opts a scenario out: the page boots the way a player's does, into the hall, and (like an isolated or a phone scenario) gets a page of its own. The hall, slot, loading and death
-  scenarios are the only coverage of that default flow, so they are on the PR gate and not `@nightly`. `Game.takeWayDown()` stands the knight at the way down (a teleport) and takes it with the real swap key;
+  scenarios are the only coverage of that default flow, so they are on the PR gate. `Game.takeWayDown()` stands the knight at the way down (a teleport) and takes it with the real swap key;
   `Game.openAltar()` does the same at the altar and expects the pause card open on its list; `walkUntil` walks with real arrow keys.
 - **`dungeonTest.buildHall()`** (`Game.buildHall()`) is the cheap way into the hall for a pooled scenario that is about something else but needs an armoury (the swap itself, a special that must be put away, the actor
   stats of a rack): `game.enter()` as usual, then `await game.buildHall()`. The run in hand carries over, and the reset puts the page back on floor 1, which the leak guard holds.

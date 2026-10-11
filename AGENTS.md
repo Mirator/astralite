@@ -129,8 +129,8 @@ that could not fail. These rules are what it took to fix them; follow them for e
   and remove confounds (the telegraph test hides the enemy's body, which flashes the same red). Log the
   numbers so a failure can be read without re-running it.
 - **One story per page.** A pooled reset costs a floor rebuild; stepping the clock is nearly free. Merge
-  scenarios that share their setup instead of paying for the setup twice. An expensive repeat of a path the
-  gate already covers once (a phone aspect, the other enemy kinds) can be `@nightly`; say why in a comment.
+  scenarios that share their setup instead of paying for the setup twice. There is no nightly tier: nothing
+  runs `@nightly` (retired 2026-10-11), so a check either earns its place on the gate or is not written.
 
 ## Shared and generated files
 
