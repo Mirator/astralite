@@ -113,6 +113,9 @@ export const drawKind = (mix: PackMix, level: number, roll: number): EnemyKind =
 export type FloorProp = { x: number; z: number; kind: 'brazier' | 'pillar' | 'rubble' | 'barrel'; room: number };
 export type WeaponDrop = { x: number; z: number; kind: WeaponId; room: number };
 export const cellKey = (x: number, z: number) => `${x},${z}`;
+/** Every door's opening as a tile face, `${x},${z},${dx},${dz}`: the standing tile and the direction its arch faces. On a face toward the camera (only the
+ * Tide Altar's way down has one) the near-side wall dressing skips it, or it stands between the lens and the arch. A far-wall door keeps its wall behind it. */
+export const doorFaces = (floor: Pick<Floor, 'doors'>) => new Set(floor.doors.map(d => `${d.x},${d.z},${d.face.x},${d.face.z}`));
 /**
  * A floor as `generateFloor` deals it, plus the one marker the Tide Altar's hall (plan 020) carries. `hall` is absent from every generated floor, so the
  * generator's output is untouched; a rule that must tell the hall from floor 1 (both are `level: 1`) reads it instead of guessing from the room count.

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { addCarvedArchitecture, headroom, OFF_FRAME, ROOM_MOOD } from './dungeon-art';
-import { TILE, type generateFloor } from './dungeon-floor';
+import { doorFaces, TILE, type generateFloor } from './dungeon-floor';
 import {
   emberOffset,
   FLAME_HALO_SCALE,
@@ -352,6 +352,9 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
   }
   const packed=(x:number,z:number)=>(x+4096)*8192+(z+4096);
   const solid=new Set<number>();for(const t of floor.tiles)solid.add(packed(t.x,t.z));
+  // No course is laid across a door on the camera's side (the Tide Altar's way down): two stood in its arch. Its blocks still draw their skip roll, so the
+  // courses, sconces, waterfall and chips after it are dealt as before (only the later blocks' jitter, drawn per placed block, moves).
+  const doorways=doorFaces(floor);
   const shore=shorelineMaterial(),shoreEdges=floor.tiles.flatMap(t=>[[1,0],[-1,0],[0,1],[0,-1]].filter(([dx,dz])=>!solid.has(packed(t.x+dx,t.z+dz))).map(([dx,dz])=>({x:t.x,z:t.z,dx,dz,room:t.room})));
   const shoreline=new THREE.InstancedMesh(new THREE.PlaneGeometry(TILE*1.04,.7),shore.material,shoreEdges.length),shoreMatrix=new THREE.Matrix4(),shoreRotation=new THREE.Quaternion();
   shoreEdges.forEach((e,i)=>{shoreRotation.setFromEuler(new THREE.Euler(-Math.PI/2,0,e.dx?Math.PI/2:0));shoreMatrix.compose(new THREE.Vector3((e.x+e.dx*.65)*TILE,-2.71,(e.z+e.dz*.65)*TILE),shoreRotation,new THREE.Vector3(1,1,1));shoreline.setMatrixAt(i,shoreMatrix);});world.add(shoreline);
@@ -411,6 +414,7 @@ export function addAtmosphere(world:THREE.Group,floor:ReturnType<typeof generate
       const halves=near===Infinity&&room?2:1;
       for(let layer=0;layer<layers;layer++)for(let half=0;half<halves;half++){
         if(layer===layers-1&&random()<.2)continue;
+        if(near!==Infinity&&doorways.has(`${tile.x},${tile.z},${dx},${dz}`))continue;
         // Running bond: alternate courses slide a fifth of a block along the run. Every course stayed in
         // step before, which is what made a wall read as a grid of identical cubes rather than as masonry.
         const bond=(layer%2?.15:-.15)*.72,along=halves>1?(half-.5)*.72+bond:bond*.9;
