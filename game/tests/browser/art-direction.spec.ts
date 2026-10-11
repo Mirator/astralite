@@ -3,19 +3,20 @@ import {
   expect,
   type Floor,
   roomCentre,
-  TILE,
   test,
 } from './helpers.ts';
 
 /**
  * The palette, measured rather than described.
  *
- * `docs/art-direction.md` makes two claims a screenshot alone cannot settle, so
- * they are settled here instead: that each family burns its own fire, and that
- * the one mark the player answers on a deadline reads against the stone it is
- * drawn on in every family, including the warm one where it has the least room.
+ * `docs/art-direction.md` makes two claims a screenshot alone cannot settle:
+ * that each family burns its own fire, and that the one mark the player answers
+ * on a deadline reads against the stone it is drawn on in every family. Only the
+ * second is held here now, and only in the keep: the fire check and the ruins and
+ * flooded telegraph repeats were `@nightly`, which nothing ran, and were deleted
+ * on 2026-10-11. Nothing else measures them; a palette change needs a look by eye.
  *
- * Both are measured off the rendered canvas in CIE Lab, not off the constants
+ * It is measured off the rendered canvas in CIE Lab, not off the constants
  * in `ROOM_MOOD` — what a tell is worth on screen is what survives the key
  * light, the fog, the weathering shader and ACES, and none of those are visible
  * from the palette table.
@@ -52,12 +53,6 @@ const hueGap = (p: number, q: number) => {
   const d = Math.abs(p - q) % 360;
   return d > 180 ? 360 - d : d;
 };
-
-const parseHex = (hex: string): [number, number, number] => [
-  parseInt(hex.slice(1, 3), 16),
-  parseInt(hex.slice(3, 5), 16),
-  parseInt(hex.slice(5, 7), 16),
-];
 
 /**
  * Draw the same chamber twice, once with the body at rest and once with it at
@@ -146,145 +141,6 @@ const tellAgainstStone = async (page: Page, index: number, windup: number) =>
     { index, windup },
   );
 
-/**
- * The hue of the most saturated thing in the drawn frame, and how much chroma it has - the loudest hue
- * family among the top half per cent of pixels by chroma, not an average across every family in it.
- *
- * This is the document's second rule stated as a number. A first version of this test read the fire
- * straight out of `ROOM_MOOD` and compared constants, which proves only that three numbers differ —
- * and it passed comfortably through a round in which four fifths of the bright pixels in two of the
- * three chambers were rendering under a quarter saturation, because an additive halo sat over the
- * whole flame and washed it. What a family is lit by is a question about pixels.
- */
-const loudestColour = async (page: Page) =>
-  page.evaluate(() => {
-    const gl = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
-    (window as unknown as { advanceTime: (ms: number, draw: boolean) => void }).advanceTime(0, true);
-    const copy = document.createElement('canvas');
-    copy.width = gl.width; copy.height = gl.height;
-    const ctx = copy.getContext('2d', { willReadFrequently: true })!;
-    ctx.drawImage(gl, 0, 0);
-    const d = ctx.getImageData(0, 0, copy.width, copy.height).data;
-    const lin = (v: number) => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
-    const ab = (r: number, g: number, b: number) => {
-      const R = lin(r), G = lin(g), B = lin(b);
-      const X = (R * .4124 + G * .3576 + B * .1805) / .95047, Y = R * .2126 + G * .7152 + B * .0722;
-      const Z = (R * .0193 + G * .1192 + B * .9505) / 1.08883;
-      const f = (t: number) => (t > .008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
-      return [500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
-    };
-    const n = d.length / 4, chroma = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const [a, bb] = ab(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]);
-      chroma[i] = Math.hypot(a, bb);
-    }
-    // The top half per cent by chroma. Wide enough to be a thing in the world rather than a stray
-    // pixel, narrow enough that only the loudest thing in the frame is in it.
-    const cut = Float32Array.from(chroma).sort()[Math.floor(n * .995)];
-    // Those pixels can hold more than one saturated thing - the chamber's fire and, say, the gold ring of
-    // an arm rack the knight is standing in. Averaging a and b across both reported a hue between them
-    // that no pixel in the frame has: violet fire and a gold ring came out as 356 degrees, a red the frame
-    // did not contain. So the loudest thing is the loudest hue family - the 60-degree span that carries
-    // the most chroma - and its colour is averaged over that family alone.
-    const top: { a: number; b: number; c: number; h: number }[] = [];
-    for (let i = 0; i < n; i++) {
-      if (chroma[i] < cut) continue;
-      const [a, bb] = ab(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]);
-      top.push({ a, b: bb, c: chroma[i], h: ((Math.atan2(bb, a) * 180) / Math.PI + 360) % 360 });
-    }
-    const weight = new Float32Array(24);
-    for (const p of top) weight[Math.floor(p.h / 15) % 24] += p.c;
-    let from = 0, heaviest = -1;
-    for (let start = 0; start < 24; start++) {
-      let w = 0;
-      for (let j = 0; j < 4; j++) w += weight[(start + j) % 24];
-      if (w > heaviest) { heaviest = w; from = start; }
-    }
-    let sa = 0, sb = 0, sc = 0, count = 0;
-    for (const p of top) {
-      if ((Math.floor(p.h / 15) - from + 24) % 24 >= 4) continue;
-      sa += p.a; sb += p.b; sc += p.c; count++;
-    }
-    const k = Math.max(1, count);
-    const light = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const Y = .2126 * lin(d[i * 4]) + .7152 * lin(d[i * 4 + 1]) + .0722 * lin(d[i * 4 + 2]);
-      light[i] = 116 * (Y > .008856 ? Math.cbrt(Y) : 7.787 * Y + 16 / 116) - 16;
-    }
-    light.sort();
-    return {
-      hue: ((Math.atan2(sb / k, sa / k) * 180) / Math.PI + 360) % 360, chroma: sc / k, count,
-      p90: light[Math.floor(n * .9)],
-    };
-  });
-
-/**
- * The fire's colour where the braziers are: the chroma-weighted hue of the saturated pixels inside each
- * brazier's flame footprint, projected to the screen from the camera the game reports.
- *
- * The frame-wide loudest colour (above) answers a different question - what the eye lands on first - and
- * in a chamber ringed with small orange sconces that is the sconces, however violet the braziers burn. The
- * claim here is narrower and is the one the palette makes: the braziers burn their family's colour. So only
- * the pixels over the braziers count. `shift` moves every footprint by that many pixels, for the test that
- * proves the regions are what is measured.
- */
-const fireAtBraziers = async (page: Page, braziers: { x: number; z: number }[], shift = 0) =>
-  page.evaluate(
-    ({ braziers, shift }) => {
-      const w = window as unknown as { advanceTime: (ms: number, draw: boolean) => void; render_game_to_text: () => string };
-      const gl = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
-      w.advanceTime(0, true);
-      const snap = JSON.parse(w.render_game_to_text());
-      const { focusX, focusZ } = snap.camera, { span, aspect } = snap.aim;
-      // The game's camera: orthographic, looking at (focus, 0) from (9.2, 12.5, 11.5) away.
-      const fwd = [-9.2, -12.5, -11.5], fl = Math.hypot(...fwd);
-      const f = fwd.map((v) => v / fl);
-      const rx = -f[2], rz = f[0], rl = Math.hypot(rx, rz);
-      const right = [rx / rl, 0, rz / rl];
-      const up = [right[1] * f[2] - right[2] * f[1], right[2] * f[0] - right[0] * f[2], right[0] * f[1] - right[1] * f[0]];
-      const project = (x: number, y: number, z: number) => {
-        const v = [x - focusX, y, z - focusZ];
-        const sx = (v[0] * right[0] + v[1] * right[1] + v[2] * right[2]) / (span * aspect);
-        const sy = (v[0] * up[0] + v[1] * up[1] + v[2] * up[2]) / span;
-        return [((sx + 1) / 2) * gl.width + shift, ((1 - sy) / 2) * gl.height];
-      };
-      const copy = document.createElement('canvas');
-      copy.width = gl.width; copy.height = gl.height;
-      const ctx = copy.getContext('2d', { willReadFrequently: true })!;
-      ctx.drawImage(gl, 0, 0);
-      const d = ctx.getImageData(0, 0, copy.width, copy.height).data;
-      const lin = (v: number) => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
-      const lab = (r: number, g: number, b: number) => {
-        const R = lin(r), G = lin(g), B = lin(b);
-        const X = (R * .4124 + G * .3576 + B * .1805) / .95047, Y = R * .2126 + G * .7152 + B * .0722;
-        const Z = (R * .0193 + G * .1192 + B * .9505) / 1.08883;
-        const q = (t: number) => (t > .008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
-        return [500 * (q(X) - q(Y)), 200 * (q(Y) - q(Z))];
-      };
-      // Each footprint is the flame's own volume: half a tile either side, from the rim to the tip.
-      const seen = new Set<number>();
-      let sa = 0, sb = 0, count = 0, footprints = 0;
-      for (const p of braziers) {
-        const pts = [-.5, .5].flatMap((dx) => [-.5, .5].flatMap((dz) => [1.0, 2.8].map((y) => project(p.x + dx, y, p.z + dz))));
-        const x0 = Math.max(0, Math.floor(Math.min(...pts.map((q) => q[0])))), x1 = Math.min(gl.width - 1, Math.ceil(Math.max(...pts.map((q) => q[0]))));
-        const y0 = Math.max(0, Math.floor(Math.min(...pts.map((q) => q[1])))), y1 = Math.min(gl.height - 1, Math.ceil(Math.max(...pts.map((q) => q[1]))));
-        if (x1 <= x0 || y1 <= y0) continue;
-        footprints++;
-        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-          const i = y * gl.width + x;
-          if (seen.has(i)) continue;
-          seen.add(i);
-          const [a, b] = lab(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]);
-          const c = Math.hypot(a, b);
-          if (c < 30) continue;
-          sa += a; sb += b; count++;
-        }
-      }
-      return { hue: ((Math.atan2(sb, sa) * 180) / Math.PI + 360) % 360, count, footprints };
-    },
-    { braziers, shift },
-  );
-
 /** A room of this theme that holds a brazier, so the frame shows what burns. */
 const litRoom = (floor: Floor, theme: string) => {
   const braziers = floor.props.filter((prop) => prop.kind === 'brazier');
@@ -297,95 +153,11 @@ const litRoom = (floor: Floor, theme: string) => {
     )[0];
 };
 
-test.describe('each family burns its own fire', { tag: '@nightly' }, () => {
-  test.use({ seeds: [0x1] });
-  test('the three themes light their chambers three different colours', async ({ game }) => {
-    test.slow();
-    await game.enter();
-    const floor = await game.floor();
-    const burning: Record<string, [number, number, number]> = {};
-    const fires: Record<string, { hue: number; count: number; footprints: number }> = {};
-    const loud: Record<string, { hue: number; chroma: number; count: number; p90: number }> = {};
-    for (const theme of ['keep', 'ruins', 'flooded'] as const) {
-      const room = litRoom(floor, theme);
-      expect(room, `seed 0x1 holds no ${theme} chamber`).toBeDefined();
-      const centre = roomCentre(floor, room!.id);
-      await game.teleport(centre.x, centre.z);
-      await game.step(SETTLE);
-      const state = await game.state();
-      expect(
-        state.mood.theme,
-        `standing in a ${theme} chamber and lit as ${state.mood.theme}`,
-      ).toBe(theme);
-      burning[theme] = parseHex(state.mood.fire);
-      loud[theme] = await loudestColour(game.page);
-      const lit = floor.props.filter((prop) => prop.kind === 'brazier' && prop.room === room!.id);
-      fires[theme] = await fireAtBraziers(game.page, lit.map((prop) => ({ x: prop.x * TILE, z: prop.z * TILE })));
-      await game.capture(`theme-${theme}`);
-    }
-    // Two of the three have to be off amber, or the tell has nowhere to go.
-    const hues = Object.fromEntries(
-      Object.entries(burning).map(([k, v]) => [k, hueOf(v)]),
-    );
-    for (const [a, b] of [['keep', 'ruins'], ['ruins', 'flooded'], ['keep', 'flooded']]) {
-      expect(
-        hueGap(hues[a], hues[b]),
-        `${a} and ${b} burn the same fire (${hues[a].toFixed(0)}° vs ${hues[b].toFixed(0)}°)`,
-      ).toBeGreaterThan(40);
-    }
-    // And each family's braziers actually burn that colour on screen, which a palette table cannot answer.
-    // Measured where the braziers are, not as the loudest colour of the frame: plan 017's sealed chambers
-    // put a wall of small orange sconces (plan 014 round 4: warm torchlight against a cool room, on purpose)
-    // in every frame, and the sconces out-scored the keep's violet braziers in a frame-wide top-half-per-cent
-    // count without the braziers having changed at all. Measured 2026-09-30 on SwiftShader, seed 0x1, the
-    // chroma-weighted hue over the pixels above chroma 30 inside the footprints: keep 320 degrees over 3,573 px
-    // (fire 311), ruins 59 over 6,200 (fire 59), flooded 204 over 1,280 (fire 212), two braziers each.
-    const fireHue = (theme: string) => fires[theme].hue;
-    for (const theme of ['keep', 'ruins', 'flooded'] as const) {
-      const at = fires[theme];
-      expect(at.footprints, `${theme}: fewer than two brazier footprints are on screen, so nothing was measured`).toBeGreaterThanOrEqual(2);
-      expect(
-        at.count,
-        `${theme}: only ${at.count} saturated pixels over the braziers - an unlit, hidden or off-screen brazier`,
-      ).toBeGreaterThan(600);
-      expect(
-        hueGap(at.hue, hues[theme]),
-        `${theme}: the braziers burn ${at.hue.toFixed(0)}° over ${at.count} px and the family's fire is ${hues[theme].toFixed(0)}°`,
-      ).toBeLessThan(20);
-    }
-    for (const [a, b] of [['keep', 'ruins'], ['ruins', 'flooded'], ['keep', 'flooded']]) {
-      expect(
-        hueGap(fireHue(a), fireHue(b)),
-        `${a} and ${b} braziers burn the same colour on screen (${fireHue(a).toFixed(0)}° vs ${fireHue(b).toFixed(0)}°)`,
-      ).toBeGreaterThan(60);
-    }
-    // The frame as a whole still has to be lit: saturated, and inside the lightness band.
-    for (const theme of ['keep', 'ruins', 'flooded'] as const) {
-      const seen = loud[theme], want = hues[theme];
-      const note =
-        `${theme}: the loudest colour in the frame is ${seen.hue.toFixed(0)}° at chroma ` +
-        `${seen.chroma.toFixed(0)} over ${seen.count} px, and the fire is ${want.toFixed(0)}°`;
-      expect(seen.chroma, `${note}, which is not saturated`).toBeGreaterThan(26);
-      // A band, not a floor. "Dark field" has no lower bound written into it anywhere, and three
-      // successive rounds of honouring it took the frame's ninetieth percentile from the mid forties
-      // to the low thirties one step at a time with nothing watching. Dark is the point; unlit is a
-      // different game, and the difference between them is worth a number.
-      expect(
-        seen.p90,
-        `${theme} renders at p90 lightness ${seen.p90.toFixed(1)}, which is outside the band a lit keep sits in`,
-      ).toBeGreaterThan(24);
-      expect(
-        seen.p90,
-        `${theme} renders at p90 lightness ${seen.p90.toFixed(1)}, which is brighter than a drowned keep should be`,
-      ).toBeLessThan(48);
-    }
-  });
-});
-
 test.describe('the telegraph reads against its own stone', () => {
   test.use({ seeds: [0x1] });
-  for (const theme of ['keep', 'ruins', 'flooded'] as const) {
-    test(`a warden winding up in the ${theme} is legible against the paving`, { tag: theme === 'keep' ? [] : ['@nightly'] }, async ({ game }) => {
+  // The keep only: the ruins and flooded repeats were @nightly, which nothing ran, and were deleted on 2026-10-11.
+  for (const theme of ['keep'] as const) {
+    test(`a warden winding up in the ${theme} is legible against the paving`, async ({ game }) => {
       test.slow();
       await game.enter();
       const floor = await game.floor();
