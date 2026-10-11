@@ -321,13 +321,12 @@ export type Snapshot = {
   /**
    * Plan 025 D6: every source the atmosphere laid out, by chamber; what each of the eight pool lights is doing (read off the
    * light: where it hangs, its colour, whether it burns; null for an idle slot); the sconces' painted pools (each disc's centre
-   * read off the merged mesh); and the clear's camera glance while it lasts.
+   * read off the merged mesh).
    */
   lights: {
     sources: { kind: 'brazier' | 'sconce' | 'bounce'; room: number; x: number; y: number; z: number; wall?: string }[];
     pool: ({ id: string; kind: 'brazier' | 'door' | 'sconce' | 'bounce'; room: number; level: number; x: number; y: number; z: number; color: number; on: boolean } | null)[];
     glow: { discs: { x: number; z: number; room: number; drawn: boolean }[]; programHolders: number } | null;
-    glance: { age: number; x: number; z: number } | null;
   };
   /**
    * Plan 019: the racks on the floor, read off the scene. The Tide Gate of floor one holds one for every owned arm but the

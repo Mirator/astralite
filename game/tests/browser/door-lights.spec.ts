@@ -7,8 +7,8 @@ import { canStand, expect, stanceNear, swing, test, TILE, walkUntil, type Floor,
 // placed: the eight pool lights where they hang and what colour they burn, the sconces' painted pools off
 // the merged mesh, the doors' labels and sigils off their meshes, the notice off the page and the camera off
 // its own focus. One story on one page: a chamber is cleared with a real swing, its doors light up and are
-// named, the camera glances at them, the knight walks the chamber end to end under lights that do not move;
-// then a second chamber is cleared with reduced motion, where nothing glances and nothing bobs.
+// named, the camera stays on the knight, the knight walks the chamber end to end under lights that do not move;
+// then a second chamber is cleared with reduced motion, where nothing bobs.
 
 /** Plan 017's door tints, which the light over an open door has to wear. */
 const TINT: Record<string, number> = { mend: 0xff8a8a, cache: 0xfbc956, rest: 0x71f4c4, stair: 0xe0a150, fight: 0xb9a4ff };
@@ -39,7 +39,7 @@ const clearWithOneSwing = async (game: Game, page: Page, floor: Floor, opening: 
   return cleared;
 };
 
-test('a cleared chamber lights and names its doors and glances at them, and its lights hold still while the knight walks it end to end', async ({ game, page }) => {
+test('a cleared chamber lights and names its doors without pulling the camera off the knight, and its lights hold still while the knight walks it end to end', async ({ game, page }) => {
   test.slow();
   await game.enter();
   const floor = await game.floor();
@@ -77,19 +77,15 @@ test('a cleared chamber lights and names its doors and glances at them, and its 
     expect(door.label, `door ${door.id} has no floating label`).toBe(true);
   }
 
-  // D2 (c): the camera glanced at the open doors and came back.
+  // D2 (c) retired 2026-10-11: the camera used to glance towards the open doors on a clear, and players found it
+  // steering them. `lit` was read 0.52 s after the blow, where that glance peaked; the knight has not moved since.
   const doorsAt = { x: doors.reduce((sum, d) => sum + d.x, 0) / doors.length, z: doors.reduce((sum, d) => sum + d.z, 0) / doors.length };
-  const towards = (state: Snapshot) => Math.hypot(cameraOf(state).focusX - doorsAt.x, cameraOf(state).focusZ - doorsAt.z);
-  expect(cleared.lights.glance, 'the clear started no glance').not.toBeNull();
-  expect(Math.hypot(cleared.lights.glance!.x - doorsAt.x, cleared.lights.glance!.z - doorsAt.z), 'the glance is not at the open doors').toBeLessThan(.01);
-  // `lit` was read 0.52 s after the blow, near the glance's height; the knight has not moved since.
   const knightToDoors = Math.hypot(lit.player.x - doorsAt.x, lit.player.z - doorsAt.z);
-  console.log(`GLANCE knight->doors ${knightToDoors.toFixed(2)} focus->doors at height ${towards(lit).toFixed(2)}`);
-  expect(towards(lit), 'the camera did not ease towards the open doors').toBeLessThan(knightToDoors - 1.5);
-  await game.step(1200);
-  const back = await game.state();
-  expect(back.lights.glance, 'the glance never ended').toBeNull();
-  expect(Math.hypot(cameraOf(back).focusX - back.player.x, cameraOf(back).focusZ - back.player.z), 'the camera did not come back to the knight').toBeLessThan(.3);
+  expect(knightToDoors, 'precondition: the doors stand far enough off for a glance to show').toBeGreaterThan(3);
+  const offKnight = Math.hypot(cameraOf(lit).focusX - lit.player.x, cameraOf(lit).focusZ - lit.player.z);
+  console.log(`CLEAR knight->doors ${knightToDoors.toFixed(2)} focus->knight ${offKnight.toFixed(2)}`);
+  // Measured 2026-10-11 on SwiftShader with the doors 5.23 off: 0.25 without the glance, 2.60 with it.
+  expect(offKnight, 'the camera left the knight when the chamber cleared').toBeLessThan(1);
 
   // D6: walk the chamber end to end with real keys. The pool's assignment never changes on the way, every brazier
   // keeps a burning light where it stands, and every sconce's painted pool is drawn.
@@ -125,18 +121,14 @@ test('a cleared chamber lights and names its doors and glances at them, and its 
   expect(end.render.programs, 'the clear, the door lights or the labels compiled a shader').toBe(opening.render.programs);
   expect(end.lights.glow!.programHolders, 'the painted pools linked a shader program of their own').toBeGreaterThan(2);
 
-  // Reduced motion: a second chamber's clear neither glances nor bobs its sigils.
+  // Reduced motion: a second chamber's clear does not bob its sigils.
   await page.emulateMedia({ reducedMotion: 'reduce' });
   try {
     await expect.poll(async () => ((await game.state()) as unknown as { settings: { reduceMotion: boolean } }).settings.reduceMotion).toBe(true);
     const still = await clearWithOneSwing(game, page, floor, opening, second!);
     expect(still.chamber.doors.length, 'precondition: the second chamber has a way out').toBeGreaterThan(0);
-    const ways = still.chamber.doors, at = { x: ways.reduce((sum, d) => sum + d.x, 0) / ways.length, z: ways.reduce((sum, d) => sum + d.z, 0) / ways.length };
-    expect(Math.hypot(at.x - still.player.x, at.z - still.player.z), 'precondition: the doors stand far enough off for a glance to show').toBeGreaterThan(3);
-    // Read at the same moment the first chamber's glance was at its height.
     await game.step(400);
     const after = await game.state();
-    expect(Math.hypot(cameraOf(after).focusX - after.player.x, cameraOf(after).focusZ - after.player.z), 'reduced motion still glanced at the doors').toBeLessThan(.3);
     for (const door of after.chamber.doors) {
       expect(door.sigil.y, `door ${door.id}'s sigil bobs under reduced motion`).toBe(1.25);
       expect(door.sigil.spin, `door ${door.id}'s sigil spins under reduced motion`).toBe(0);

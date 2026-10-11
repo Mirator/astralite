@@ -6699,3 +6699,10 @@ Operator decision. The PR gate filters `@nightly` out and the scheduled workflow
 - `dash.spec.ts`: "a woken body nearby no longer slows the knight down". `playerSpeed` takes no threat input, so the tax can only come back through a deliberate change to that signature.
 
 Helpers only those used are gone with them. `tests/README.md` and `AGENTS.md` no longer offer `@nightly` as a tier: a check goes on the gate or is not written. The workflow's `--grep-invert "@capture|@nightly"` is left as it is (harmless with nothing tagged, and leaving `.github` untouched lets this merge exercise the verified-tree skip). Typecheck and lint clean; the three scenarios left in those files pass locally.
+
+## 2026-10-11 — camera no longer glances at the doors on a clear
+
+Playtest complaint: on clearing a chamber the camera pulled towards the open doors (plan 025 D2 c), which read as
+the game steering the player. Removed the glance (`GLANCE_*`/`glanceWeight` in `dungeon-lights.ts`, the camera lerp
+and the `lights.glance` snapshot field). `door-lights.spec.ts` now asserts the camera focus stays on the knight at
+the moment the glance used to peak: 0.25 off without it, 2.60 with it restored (planted, SwiftShader).

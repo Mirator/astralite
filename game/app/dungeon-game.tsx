@@ -49,7 +49,7 @@ import { ACTION_LABELS, bindLabel, isHeld, keycapFor, keyLabel, moveHeading, PAD
 import { armWith, bufferedDashReady, bufferSwing, canSwing, createPlayerControl, dashStep, dropBuffers, faceStart, frameDelta, frameStep, haltControl, normalise, resetControl, startDash, startSwing, steer, swingPose, swingReady, swingStep, tickBuffers, travelHeading, travelSpeed } from './dungeon-player';
 import { beginMove, dropMarks, hideMarks, makeArrow, markEnemy, poseEnemy, THREAT, type Enemy, type EnemyKind } from './dungeon-enemy-view';
 import { createFloorStage, DOOR_LABEL, DOOR_TINT, doorLabelTexture, doorSign, doorSignOf, raiseFloor, REWARD_SIGNS, type DoorSign, type FloorArt } from './dungeon-floor-scene';
-import { assignSlots, chamberLights, GLANCE_PULL, GLANCE_SPAN, glanceWeight, fadeSlot, LIGHT_POOL, type LightSource, type PoolSlot } from './dungeon-lights';
+import { assignSlots, chamberLights, fadeSlot, LIGHT_POOL, type LightSource, type PoolSlot } from './dungeon-lights';
 import { createMood } from './dungeon-mood';
 import { driveSliced as driveSlicedSteps, linkedPrograms, pollProgramsReady as pollPrograms, precompilePost } from './dungeon-warmup';
 // What the veil says is happening, one label per stage of `stagedBuild`, and how far its bar has run.
@@ -496,8 +496,6 @@ export default function DungeonGame() {
         // Plan 025 D2 (d): the notice names what the open doors pay, not merely that they opened.
         const rewards = [...new Set(ways.map(view => doorSignOf(floor, view.door)).filter(sign => REWARD_SIGNS.includes(sign)))].map(sign => DOOR_LABEL[sign]);
         setNotice(`${room.name} · ${rewards.length > 1 ? `Choose your reward: ${rewards.join(' · ')}` : rewards.length ? `Your reward: ${rewards[0]}` : ways.length ? 'the way on opens' : 'cleansed'}`);
-        // Plan 025 D2 (c): and the camera glances towards them, so a door off the frame is seen to open.
-        if (ways.length) { glanceAt.set(0, 0, 0); for (const view of ways) glanceAt.add(view.spot); glanceAt.divideScalar(ways.length); glanceAge = 0; }
         noticeTime = 3.5; rewardTime = 1.4; audio.play('clear'); burst(player.position,0x71f4c4,18);
         for (const view of ways) burst(view.spot, view.color, 14);
         mapFills.set(id, '#a8d5b0'); document.getElementById(`map-room-${id}`)?.setAttribute('fill', '#a8d5b0');
@@ -674,8 +672,6 @@ export default function DungeonGame() {
         ...at.lightAnchors.map((a, i): LightSource => ({ id: `${a.kind}:${i}`, kind: a.kind, room: a.room, x: a.x, y: a.y, z: a.z, color: a.color, intensity: a.intensity, distance: a.distance })),
       ];
     };
-    // Plan 025 D2 (c): on a clear, the camera glances towards the open doors and back.
-    let glanceAge = Infinity; const glanceAt = new THREE.Vector3();
     // No extra light for an effect. The review's complaint was that an effect throws no light,
     // and the honest fix is a real one — but the renderer's light budget is spent
     // and another point light is paid for by every lit fragment in the keep, every frame,
@@ -1302,7 +1298,7 @@ export default function DungeonGame() {
       swingHits.clear();slash.clear();endSpecial();clearShots();blood.clear();posePlayer(0);
       setBossBar(null); bossKey = '';
       visited = new Set([0]); cleared = new Set([0]); spineRooms = new Set(floor.spine); mapFills.clear(); mapAt = 0;
-      reached = 0; activeRoom = 0; pathCell = ''; distances.clear(); overDoor = null; crossing = null; glanceAge = Infinity; ember.clear(); if (crossFade.current) crossFade.current.style.opacity = '0';
+      reached = 0; activeRoom = 0; pathCell = ''; distances.clear(); overDoor = null; crossing = null; ember.clear(); if (crossFade.current) crossFade.current.style.opacity = '0';
       // The floor itself - paving, flood, parapets, atmosphere, the walking-surface index, hazards, shrines,
       // the stair and every skeleton - is raised by dungeon-floor-scene.ts, one timed phase per yield.
       for (const name of raiseFloor(floor, level, floorGroup, pavingPlan, stage, floorArt)) { phase(name); yield; }
@@ -2612,8 +2608,6 @@ export default function DungeonGame() {
       if (dashSweep.current) dashSweep.current.style.setProperty('--ready', String(Math.max(0,Math.min(1,1-pc.dashCooldown/run.dashSpan))));
       if (specialSweep.current) { specialSweep.current.style.setProperty('--ready', String(pc.weapon.special ? harpoon ? 0 : pc.weapon.special.draw ? quiver > 0 ? 1 : Math.min(1, reload / (pc.weapon.ranged?.refill ?? 1)) : Math.max(0, Math.min(1, 1 - run.specialCooldown / pc.weapon.special.cooldown)) : 1)); specialSweep.current.parentElement?.classList.toggle('special-ready', glintTime > 0); }
       const target = focusAhead.copy(player.position).addScaledVector(velocity,0.12);
-      // Plan 025 D2 (c): a clear's glance at the open doors, off under reduced motion like the shake.
-      glanceAge += frameDt; if (!easeMotion && glanceAge < GLANCE_SPAN) target.lerp(glanceAt, GLANCE_PULL * glanceWeight(glanceAge));
       cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
       camera.position.set(cameraFocus.x + 9.2,12.5,cameraFocus.z + 11.5);
       // Reduced motion drops the shake outright: it is ~90 Hz camera translation that carries nothing the
@@ -2806,8 +2800,7 @@ export default function DungeonGame() {
           for (const mesh of meshes) { const at = mesh.geometry.getAttribute('position'); mesh.updateMatrixWorld(); for (let k = 0; k * SCONCE_GLOW_VERTICES < at.count; k++) { v.fromBufferAttribute(at, k * SCONCE_GLOW_VERTICES).applyMatrix4(mesh.matrixWorld); discs.push({ x: v.x, z: v.z, room: mesh.userData.room as number, drawn: mesh.parent === floorGroup && mesh.visible && (stage.atmosphere?.sconcePool.pool.value ?? 0) > 0 }); } }
           // How many holders the pools' linked program has (the post chain pins each program once, plus one a material): above two means another material - the impact ring - linked it first.
           const linked = meshes[0] ? (renderer.properties.get(meshes[0].material) as { currentProgram?: { usedTimes: number } }).currentProgram : undefined;
-          return { discs, programHolders: linked?.usedTimes ?? 0 }; })(),
-        glance: glanceAge < GLANCE_SPAN ? { age: glanceAge, x: glanceAt.x, z: glanceAt.z } : null },
+          return { discs, programHolders: linked?.usedTimes ?? 0 }; })() },
       // Plan 019: read off the scene - where each rack's group really stands and whether it is attached to the floor - not off the layout that placed it.
       racks: racks.map(rack => ({ x: rack.group.position.x, z: rack.group.position.z, kind: rack.kind, radius: PICKUP_RADIUS, over: rack === overRack, inScene: rack.group.parent === floorGroup, offered: rack === overRack && offered && offered !== 'stair' && offered !== 'altar' && offered !== 'down' && offered !== 'buy' && !offered.startsWith('door:') && !offered.startsWith('shrine:') ? offered : null, locked: rack.locked, plaque: rack.plaque?.parent === floorGroup ? rack.plaque.userData.price as number : null, plaqueReady: !!rack.plaque && rack.plaque.material === kit?.ready })),
       experience: { total: run.totalXp, perEnemy: XP_PER_ENEMY, perBoss: XP_PER_BOSS, intoRank: run.rankProgress, rankCost: rankCost(run.rankLevel), resetsOnNewRun: true },

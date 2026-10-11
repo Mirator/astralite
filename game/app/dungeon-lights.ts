@@ -75,10 +75,3 @@ export function fadeSlot(slot: PoolSlot, target: LightSource | null, dt: number)
   }
   return { shown: target, level: target ? Math.min(1, slot.level + dt * rate) : 0 };
 }
-
-/** How long the camera looks towards a cleared chamber's open doors, there and back. */
-export const GLANCE_SPAN = .8;
-/** How far towards the doors' centroid the camera goes at the height of the glance (plan 025 D2 c). */
-export const GLANCE_PULL = .55;
-/** The share of `GLANCE_PULL` the camera is at, `age` seconds into a glance: eased out and back, 0 outside it. */
-export const glanceWeight = (age: number) => age <= 0 || age >= GLANCE_SPAN ? 0 : Math.sin(Math.PI * age / GLANCE_SPAN) ** 2;

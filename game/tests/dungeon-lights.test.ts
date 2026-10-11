@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { generateFloor, TILE } from '../app/dungeon-floor.ts';
-import { assignSlots, chamberLights, fadeSlot, glanceWeight, GLANCE_SPAN, LIGHT_FADE, LIGHT_POOL, type LightSource, type PoolSlot } from '../app/dungeon-lights.ts';
+import { assignSlots, chamberLights, fadeSlot, LIGHT_FADE, LIGHT_POOL, type LightSource, type PoolSlot } from '../app/dungeon-lights.ts';
 
 // Plan 025 D6 (amended): the pool's real lights go to the chamber the knight is in, braziers first, then its open doors, then its sconces
 // nearest its heart, and never to another chamber. Plan 026 D4: the pool is as large as the most crowded chamber, so every source of the chamber the
@@ -86,10 +86,4 @@ test('a swap fades the old light out and the new one in over 0.3 s, and an idle 
   idle = fadeSlot(idle, s('c'), dt); assert.equal(idle.shown?.id, 'c', 'an idle slot waited before taking its light');
   while (idle.level < 1) { idle = fadeSlot(idle, s('c'), dt); t += dt; }
   assert.ok(Math.abs(t - LIGHT_FADE / 2) < 3 * dt, `an idle slot took ${t.toFixed(3)} s to come up`);
-});
-
-test('the camera\'s glance at the doors eases out and back inside its span', () => {
-  assert.equal(glanceWeight(0), 0); assert.equal(glanceWeight(GLANCE_SPAN), 0); assert.equal(glanceWeight(-1), 0); assert.equal(glanceWeight(5), 0);
-  assert.ok(Math.abs(glanceWeight(GLANCE_SPAN / 2) - 1) < 1e-9, 'the glance never reached the doors');
-  assert.ok(glanceWeight(GLANCE_SPAN * .1) < .1 && glanceWeight(GLANCE_SPAN * .9) < .1, 'the glance starts or ends with a jump');
 });
