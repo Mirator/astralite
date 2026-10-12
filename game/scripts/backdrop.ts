@@ -23,6 +23,9 @@ const OUT = join(GAME, 'public', 'keep-backdrop.jpg');
 // floor 1 the rest of the suite already treats as "the" reference seed.
 const SEED = 0x1;
 const QUALITY = 0.8;
+// Plan 028: the figure was small and at the frame's centre, half under the menu (`.keep-backdrop` covers the left
+// half). The frame is drawn ZOOM times larger and cropped so he stands at AT of the width and height of the result.
+const ZOOM = 1.6, AT = { x: .7, y: .56 }, OUT_SIZE = { width: 1280, height: 720 };
 
 const portBusy = (port: number) =>
   new Promise<boolean>((done) => {
@@ -69,7 +72,9 @@ async function main() {
   const args = process.env.GAME_TEST_GL === 'd3d11' ? ['--use-gl=angle', '--use-angle=d3d11', '--enable-gpu'] : ['--use-gl=angle', '--use-angle=swiftshader'];
   const browser = await chromium.launch({ args });
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
+    // Plan 028: drawn at 1.6x and cropped back to 1280x720 round the figure (see the read below), so he stands larger and
+    // in the right half the menu leaves clear, at full sharpness rather than upscaled.
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: ZOOM });
     // The single word buildFloor draws, pinned so the backdrop always shows the same floor 1.
     await page.addInitScript((seed: number) => {
       const original = crypto.getRandomValues.bind(crypto);
@@ -117,7 +122,7 @@ async function main() {
     await page.keyboard.up('ArrowDown');
     await page.evaluate(() => (window as unknown as { advanceTime: (ms: number) => void }).advanceTime(1200));
 
-    const dataUrl = await page.evaluate((quality: number) => {
+    const dataUrl = await page.evaluate(({ quality, zoom, at, size }: { quality: number; zoom: number; at: { x: number; y: number }; size: { width: number; height: number } }) => {
       const w = window as unknown as { advanceTime?: (ms: number, draw?: boolean) => void };
       if (!w.advanceTime) throw new Error('advanceTime is gone');
       // One deterministic draw, and the canvas is read back in the same task: the renderer has no
@@ -126,8 +131,14 @@ async function main() {
       // of the picture - they are DOM/CSS, not pixels three.js put in this element.
       w.advanceTime(0, true);
       const canvas = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
-      return canvas.toDataURL('image/jpeg', quality);
-    }, QUALITY);
+      // The camera keeps him at the canvas's centre, his middle a little above it; crop a window ZOOM times smaller
+      // than the canvas that puts that point at AT, and draw it at the menu's 1280x720.
+      const sw = canvas.width / zoom, sh = canvas.height / zoom, px = canvas.width / 2, py = canvas.height * .47;
+      const sx = Math.min(Math.max(0, px - at.x * sw), canvas.width - sw), sy = Math.min(Math.max(0, py - at.y * sh), canvas.height - sh);
+      const out = document.createElement('canvas'); out.width = size.width; out.height = size.height;
+      const ctx = out.getContext('2d')!; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(canvas, sx, sy, sw, sh, 0, 0, size.width, size.height);
+      return out.toDataURL('image/jpeg', quality);
+    }, { quality: QUALITY, zoom: ZOOM, at: AT, size: OUT_SIZE });
 
     const bytes = Buffer.from(dataUrl.split(',')[1]!, 'base64');
     mkdirSync(join(GAME, 'public'), { recursive: true });
