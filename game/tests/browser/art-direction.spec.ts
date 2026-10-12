@@ -239,12 +239,15 @@ test.describe('the player reads as cloth, face and hair, not one bright shape', 
   // Its own page: the devtools hook that finds the scene has to be installed before the game boots.
   test.use({ isolate: true, seeds: [0x86, 0x86] });
   test('the Relic Seeker is not lit off the top of the range, and his face stands out of the cowl', async ({ game }) => {
+    // A boot of its own plus a full draw per material on SwiftShader: 3.8 minutes on a CI shard reading every material,
+    // against the 3-minute default. Only the five it asserts on are read now, and it gets the slow test's budget.
+    test.slow();
     await probeScenes(game);
     await game.enter();
     await game.step(0);
     const floor = await game.floor();
     await settleFacing(game, openSpot(floor, roomCentre(floor, 0), { radius: 4 }), ['ArrowDown']);
-    const read = await knightRead(game.page, [['skin', 'cowl'], ['skin', 'hair'], ['ochre', 'pale']]);
+    const read = await knightRead(game.page, [['skin', 'cowl'], ['skin', 'hair'], ['ochre', 'pale']], false, ['ochre', 'cowl', 'skin', 'pale', 'hair']);
     const { ochre, cowl, skin, pale, hair } = read.parts;
     const [chin, brow, hem] = read.edges as [KnightRead['edges'][number], KnightRead['edges'][number], KnightRead['edges'][number]];
     const numbers = `body ${read.body.pixels} px, ${(read.body.clipped * 100).toFixed(1)}% clipped; ` +
