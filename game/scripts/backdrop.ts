@@ -93,7 +93,29 @@ async function main() {
     const enter = page.locator('.intro-screen .primary-action');
     await enter.waitFor({ state: 'visible', timeout: 30_000 });
     await enter.click();
-    await page.locator('.intro-screen').waitFor({ state: 'hidden', timeout: 120_000 });
+    // Plan 020 put a slot picker behind ENTER: a slot's card is what enters (tests/browser/helpers.ts `enterKeep`).
+    // Fresh browser storage, so every slot is empty and slot 1 is a new run. Plan 027: the card can take a click
+    // before it answers it, so it is pressed again until the menu lifts.
+    await page.locator('.slot-picker').waitFor({ state: 'visible', timeout: 30_000 });
+    for (let attempt = 0; ; attempt++) {
+      const card = page.locator('.slot-choose[data-slot="1"]');
+      if (await card.isVisible()) await card.click({ timeout: 30_000 }).catch(() => {});
+      try { await page.locator('.intro-screen').waitFor({ state: 'hidden', timeout: 20_000 }); break; } catch (error) { if (attempt === 4) throw error; }
+    }
+
+    // Plan 027: since plan 020 ENTER lands in the Tide Altar's hall, with the explorer standing in the doorway behind
+    // a pier, half dithered away by the cutaway. Before the read he is moved a few steps out onto the hall's open
+    // floor (the dev-only hook; this script only ever runs against a dev server) and turned to face the camera, so
+    // the menu shows the figure, not a pillar. The game's own state is untouched by this; it is a framing choice.
+    await page.evaluate(() => {
+      const w = window as unknown as { advanceTime?: (ms: number, draw?: boolean) => void; dungeonTest?: { teleport?: (x: number, z: number) => void } };
+      if (!w.advanceTime || !w.dungeonTest?.teleport) throw new Error('advanceTime or dungeonTest.teleport is gone');
+      w.advanceTime(0); w.dungeonTest.teleport(1.5, 0);
+    });
+    await page.keyboard.down('ArrowDown');
+    await page.evaluate(() => (window as unknown as { advanceTime: (ms: number) => void }).advanceTime(160));
+    await page.keyboard.up('ArrowDown');
+    await page.evaluate(() => (window as unknown as { advanceTime: (ms: number) => void }).advanceTime(1200));
 
     const dataUrl = await page.evaluate((quality: number) => {
       const w = window as unknown as { advanceTime?: (ms: number, draw?: boolean) => void };
