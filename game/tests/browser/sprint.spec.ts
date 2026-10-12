@@ -3,7 +3,7 @@ import { expect, test, press } from './helpers.ts';
 // Plan 027 Stage B: how far the poncho's back point stands off its rest place 320 ms into a run, read back off the
 // drawn mesh: .0419 (d3d11, 2026-10-12; the hem's lift, .042 back, is most of it). 700 ms after he stops it is
 // .0051 off rest, thrown forward by the stop and settling. Plan 028 (smoothed inertia, the hem no longer slammed to
-// its clamp on the first frame): .0711 at 320 ms and .0028 at 700 ms after the stop (SwiftShader, 2026-10-12). The
+// its clamp on the first frame): .0567 at 320 ms and .0021 at 700 ms after the stop (SwiftShader, 2026-10-12). The
 // bound below stays at half of plan 027's reading: it is a floor for "the drawn cloth moved", not a tuning target.
 const RUN_TIP = 0.0419;
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { HEM_MAX, HEM_REST, INERTIA_REST, PENDULUM_REST, SWING_MAX, hemDrive, smoothInertia, stepHem, stepPendulum, type Hem, type Inertia, type Pendulum } from '../app/dungeon-cloth.ts';
+import { HEM_MAX, HEM_REST, INERTIA_REST, PENDULUM_REST, SWING_MAX, bodyLag, followBody, hemDrive, stepHem, stepPendulum, swingDrive, type Hem, type Inertia, type Pendulum } from '../app/dungeon-cloth.ts';
 
 // Plan 027 Stage B: the poncho's hem state and the satchel's swing (dungeon-cloth.ts), the springs the game
 // steps every update on its simulated dt. dungeon-cloak.test.ts holds what they do to the real cloth.
@@ -58,29 +58,48 @@ test('the satchel swings inside its clamps for any drive and settles within a se
   }
 });
 
-test('a start trails the hem over a quarter second instead of flicking it to the clamp in one frame (plan 028)', () => {
-  // What the game hands the rule: his velocity goes from 0 to a sprint's 8.5 m/s in one 60 Hz frame (it does: plan 027's
-  // hem read .12 on the first frame of every start in SwiftShader frames, 2026-10-12), so the raw acceleration is
-  // 510 m/s² for one tick and nothing after, plus a sprint's lift of .05.
-  let inertia: Inertia = INERTIA_REST, hem: Hem = HEM_REST, peak = 0, peakAt = 0, first = 0;
-  for (let frame = 0; frame < 60; frame++) {
-    const accel = { x: 0, z: frame === 0 ? -510 : 0 }; // forward is -z, his front
-    inertia = smoothInertia(inertia, { accel, yawRate: 0 }, 1 / 60);
-    hem = stepHem(hem, hemDrive({ accel: inertia, yawRate: inertia.yaw, lift: .05 }), 1 / 60);
-    const out = Math.hypot(hem.x, hem.z);
-    if (frame === 0) first = out;
-    if (out > peak) { peak = out; peakAt = frame; }
+// Plan 028: what the game hands the rules. His velocity steps from standing to `speed` (m/s, forward is -z) in one frame
+// and stays there, as the game moves him; the hem and the satchel are driven by the lag of a follower behind it. The
+// game rotates the lag into his frame; standing facing -z, world and torso axes agree. `lift` as the run pose gives it.
+function start(speed: number, hz: number, lift = .05, seconds = 1) {
+  let inertia: Inertia = INERTIA_REST, hem: Hem = HEM_REST, swing: Pendulum = PENDULUM_REST;
+  const out: { hem: number; swing: number }[] = [];
+  for (let frame = 0; frame < Math.round(seconds * hz); frame++) {
+    const velocity = { x: 0, z: frame === 0 ? 0 : -speed };
+    inertia = followBody(inertia, velocity, 0, 1 / hz);
+    const lag = bodyLag(inertia, velocity, 0);
+    hem = stepHem(hem, hemDrive({ accel: lag.accel, yawRate: lag.yawRate, lift: frame === 0 ? 0 : lift }), 1 / hz);
+    swing = stepPendulum(swing, swingDrive(lag.accel, 0), 1 / hz);
+    out.push({ hem: Math.hypot(hem.x, hem.z), swing: Math.hypot(swing.x, swing.z) });
   }
-  // It does trail: the start pulls the hem well past the lift's own .05 (precondition, or the cap below holds by doing nothing).
-  assert.ok(peak > .07, `the start moved the hem only ${peak.toFixed(3)}`);
-  assert.ok(peak < HEM_MAX - .01, `a start throws the hem to ${peak.toFixed(3)}, at the clamp`);
-  assert.ok(first < .03, `the hem is already ${first.toFixed(3)} out on the frame he starts`);
-  assert.ok(peakAt >= 8, `the hem peaks on frame ${peakAt}, a flick rather than a trail`);
+  return out;
+}
+const peakOf = (values: number[]) => values.reduce((best, v, i) => (v > best.value ? { value: v, at: i } : best), { value: -Infinity, at: -1 });
+
+test('a sprint\'s start trails the hem over a quarter second instead of flicking it to the clamp (plan 028)', () => {
+  // Plan 027 differentiated the velocity: 510 m/s² for one tick, and the hem was at .12 on the frame he started.
+  const run = start(8.5, 60), peak = peakOf(run.map(f => f.hem));
+  assert.ok(peak.value > .07, `precondition: the start moved the hem only ${peak.value.toFixed(3)}, no further than the lift`);
+  assert.ok(peak.value < HEM_MAX - .01, `a start throws the hem to ${peak.value.toFixed(3)}, at the clamp`);
+  assert.ok(run[1]!.hem < .03, `the hem is already ${run[1]!.hem.toFixed(3)} out on the frame he starts`);
+  assert.ok(peak.at >= 8, `the hem peaks on frame ${peak.at}, a flick rather than a trail`);
 });
 
-test('the smoothing lands in the same place at 30 and at 144 frames a second (plan 028)', () => {
-  const run = (hz: number) => { let state: Inertia = INERTIA_REST; for (let i = 0; i < Math.round(hz / 3); i++) state = smoothInertia(state, { accel: { x: 40, z: -20 }, yawRate: 3 }, 1 / hz); return state; };
-  const a = run(30), b = run(144);
-  assert.ok(Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.z - b.z) < 1e-6 && Math.abs(a.yaw - b.yaw) < 1e-6, `30 Hz ends at ${a.x.toFixed(4)}, 144 Hz at ${b.x.toFixed(4)}`);
-  assert.ok(a.x > 30, `precondition: the smoothing moved (${a.x.toFixed(2)} of 40 after a third of a second)`);
+test('a start trails the hem the same at 30, 60 and 144 frames a second (plan 028)', () => {
+  // A one-frame step is the case a per-frame derivative gets wrong: its size scales with the frame rate.
+  const peaks = [30, 60, 144].map(hz => peakOf(start(8.5, hz, 0).map(f => f.hem)).value);
+  assert.ok(Math.min(...peaks) > .01, `precondition: the start moved the hem (${peaks.map(p => p.toFixed(4)).join(', ')})`);
+  assert.ok(Math.max(...peaks) / Math.min(...peaks) < 1.1, `a start's trail is ${peaks.map(p => p.toFixed(4)).join(', ')} at 30, 60 and 144 Hz`);
+});
+
+test('a walk\'s start trails the hem less than a sprint\'s, so the gains still mean something (plan 028)', () => {
+  const walk = peakOf(start(3, 60, 0).map(f => f.hem)).value, sprint = peakOf(start(8.5, 60, 0).map(f => f.hem)).value;
+  assert.ok(walk > .005, `precondition: a walk's start moved the hem ${walk.toFixed(4)}`);
+  assert.ok(walk < sprint * .7, `a walk's start trails the hem ${walk.toFixed(4)} against a sprint's ${sprint.toFixed(4)}: both at the cap`);
+});
+
+test('a sprint\'s start swings the satchel without slamming it to its clamp (plan 028)', () => {
+  const swing = peakOf(start(8.5, 60).map(f => f.swing)).value;
+  assert.ok(swing > .05, `precondition: the start swung the bag only ${swing.toFixed(3)} rad`);
+  assert.ok(swing < SWING_MAX.x * .9, `a start swings the bag ${swing.toFixed(3)} rad, at its clamp`);
 });

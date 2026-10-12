@@ -176,9 +176,9 @@ const relic = () => {
 // The lathe's vertices column by column (seventeen columns: the last closes the seam on the first), each
 // column's lowest world y. Grouped by index, not by angle: the baked front-to-back depth moves the angles.
 const COLUMNS = 16;
-function hemByColumn(poncho: THREE.Mesh) {
+function hemByColumn(poncho: THREE.Mesh, leastRings = 3) {
   const positions = poncho.geometry.getAttribute('position'), rings = positions.count / (COLUMNS + 1), low = Array<number>(COLUMNS).fill(Infinity), v = new THREE.Vector3();
-  assert.ok(Number.isInteger(rings) && rings >= 3, `precondition: the poncho is a ${COLUMNS}-column lathe (${positions.count} vertices)`);
+  assert.ok(Number.isInteger(rings) && rings >= leastRings, `precondition: ${poncho.name} is a ${COLUMNS}-column lathe (${positions.count} vertices)`);
   for (let i = 0; i < positions.count; i++) { const column = Math.floor(i / rings) % COLUMNS; low[column] = Math.min(low[column]!, v.fromBufferAttribute(positions, i).applyMatrix4(poncho.matrixWorld).y); }
   return low;
 }
@@ -306,7 +306,7 @@ test('both hands stay outside the poncho at rest, through the run and in a swing
   const poses: [string, number, number][] = [['rest', 0, 0], ['a swing', -.35, -.2]];
   for (let i = 0; i < 64; i++) { const pose = playerRunPose(i * Math.PI / 32, 8.5); poses.push([`the run at phase ${i}/64`, pose.arm, pose.elbow]); }
   assert.ok(poses.some(([, a]) => a > .5) && poses.some(([, a]) => a < -.3) && poses.some(([, , e]) => e < -.6), 'precondition: the run swings the arm both ways and opens the elbow');
-  let closest = Infinity;
+  let closest = Infinity, elbows = 0;
   for (const [name, armX, elbowX] of poses) {
     arm.rotation.x = armX; elbow.rotation.x = elbowX; knight.updateWorldMatrix(true, true);
     // The elbow joint stands in the arm slit, which is what lets the sleeve out of the cloth. Plan 027 held it at
@@ -316,9 +316,83 @@ test('both hands stay outside the poncho at rest, through the run and in a swing
     for (const [part, point, room] of points) {
       const local = torso.worldToLocal(point.clone()), cloth = ponchoRadiusAt(poncho, local);
       if (cloth === null) continue;
+      if (part === 'free elbow') elbows++;
       const margin = Math.hypot(local.x, local.z) - cloth; closest = Math.min(closest, margin);
       assert.ok(margin >= room, `in ${name} the ${part} is ${margin.toFixed(3)} outside the poncho`);
     }
   }
   assert.ok(Number.isFinite(closest), 'precondition: some hand stood where the poncho hangs, or nothing was checked');
+  // The elbow is only checked where cloth hangs at its height; measured 2026-10-12 (node): 30 of the 66 poses.
+  assert.ok(elbows >= 20, `precondition: the free elbow stood where the poncho hangs in only ${elbows} poses`);
+});
+
+test('the trim lies on the cloth, from the hem to the arm slits, and leaves the points where they hung (plan 028)', () => {
+  const { poncho, trim } = relic();
+  assert.ok(poncho && trim, 'precondition: the poncho and the trim are found');
+  // The cloth's radius on the trim vertex's own column at its height (both lathes run column by column round the same
+  // angles), or null where that column's cloth does not reach: blending two columns, as ponchoRadiusAt does for a point
+  // at any angle, would read an arm slit's neighbour.
+  const cloth = poncho.geometry.getAttribute('position'), ponchoRings = cloth.count / (COLUMNS + 1);
+  const onColumn = (column: number, y: number) => {
+    for (let k = 1; k < ponchoRings; k++) {
+      const i = column * ponchoRings + k, y0 = cloth.getY(i - 1), y1 = cloth.getY(i), r0 = Math.hypot(cloth.getX(i - 1), cloth.getZ(i - 1)), r1 = Math.hypot(cloth.getX(i), cloth.getZ(i));
+      if (y >= Math.min(y0, y1) && y <= Math.max(y0, y1)) return y1 === y0 ? Math.max(r0, r1) : r0 + (r1 - r0) * (y - y0) / (y1 - y0);
+    }
+    return null;
+  };
+  const positions = trim.geometry.getAttribute('position'), trimRings = positions.count / (COLUMNS + 1);
+  assert.ok(Number.isInteger(trimRings) && Number.isInteger(ponchoRings), 'precondition: the trim and the poncho are both lathes of the same columns');
+  let checked = 0;
+  for (let i = 0; i < positions.count; i++) {
+    const local = new THREE.Vector3().fromBufferAttribute(positions, i), radius = onColumn(Math.floor(i / trimRings), local.y);
+    if (radius === null) continue;
+    checked++;
+    // Plan 027's rigid ring stood .073 proud of the yoke at each arm slit; a band tucked under the cloth is not seen.
+    const out = Math.hypot(local.x, local.z) - radius;
+    assert.ok(out >= 0 && out <= .03, `trim vertex ${i} stands ${out.toFixed(3)} off the cloth at height ${local.y.toFixed(3)}`);
+  }
+  assert.ok(checked >= 16, `precondition: only ${checked} trim vertices sit where the cloth hangs`);
+  // Its foot hangs a little under the hem: the points the camera sees are the trim's, within .03 of the cloth's.
+  const hem = hemByColumn(poncho), band = hemByColumn(trim, 2);
+  for (const column of [0, 8]) assert.ok(band[column]! >= hem[column]! - .03, `column ${column}'s trim hangs to ${band[column]!.toFixed(3)}, ${(hem[column]! - band[column]!).toFixed(3)} under its point`);
+});
+
+test('the strap ends on the cloth and drops to the bag rather than running level round his waist (plan 028)', () => {
+  const { strap, poncho, torso } = relic();
+  assert.ok(strap && poncho, 'precondition: the strap and the poncho are found');
+  const positions = strap.geometry.getAttribute('position'), at = (pair: number) => new THREE.Vector3().fromBufferAttribute(positions, 2 * pair).add(new THREE.Vector3().fromBufferAttribute(positions, 2 * pair + 1)).multiplyScalar(.5);
+  // Its last four point pairs are the drop onto the bag (strap() in dungeon-knight.ts); the pair before them is where it leaves the cloth.
+  const pairs = positions.count / 2, leaves = at(pairs - 5), bag = at(pairs - 1);
+  const off = torso.worldToLocal(leaves.clone().applyMatrix4(strap.matrixWorld)), cloth = ponchoRadiusAt(poncho, off);
+  assert.ok(cloth !== null, `the strap leaves the poncho at height ${off.y.toFixed(3)}, below its hem`);
+  // Measured 2026-10-12 (node): plan 028's first cut ran the tail at 3 degrees, level round the waist beside the sash.
+  const drop = Math.atan2(leaves.y - bag.y, Math.hypot(bag.x - leaves.x, bag.z - leaves.z)) * 180 / Math.PI;
+  assert.ok(drop >= 20, `the strap's tail falls only ${drop.toFixed(1)} degrees from the hem to the bag`);
+});
+
+test('the satchel hangs clear of the right thigh, standing and through a run (plan 028)', () => {
+  const { knight } = relic();
+  const satchel = knight.userData.satchel as THREE.Group, hip = (knight.userData.legs as THREE.Group[])[1]!;
+  const named = (group: THREE.Object3D, material: string) => group.children.find(c => c instanceof THREE.Mesh && (c.material as THREE.Material).name === material) as THREE.Mesh | undefined;
+  const bag = named(satchel, 'leather'), thigh = named(hip, 'trousers');
+  assert.ok(bag && thigh, 'precondition: the satchel\'s leather and the right thigh are found');
+  bag.geometry.computeBoundingBox(); thigh.geometry.computeBoundingBox();
+  const bagBox = bag.geometry.boundingBox!, thighBox = thigh.geometry.boundingBox!, p = new THREE.Vector3(), toBag = new THREE.Matrix4();
+  const poses: [string, number][] = [['standing', 0]];
+  for (let i = 0; i < 64; i++) poses.push([`the run at phase ${i}/64`, playerRunPose(i * Math.PI / 32, 8.5).legs[1]!.hip]);
+  let nearest = Infinity;
+  for (const [name, swing] of poses) {
+    hip.rotation.x = swing; knight.updateWorldMatrix(true, true); toBag.copy(bag.matrixWorld).invert();
+    let inside = 0;
+    // The thigh's own batch, sampled through its volume on a 9 x 9 x 9 grid, in the bag's frame.
+    for (let a = 0; a < 9; a++) for (let b = 0; b < 9; b++) for (let c = 0; c < 9; c++) {
+      p.set(THREE.MathUtils.lerp(thighBox.min.x, thighBox.max.x, a / 8), THREE.MathUtils.lerp(thighBox.min.y, thighBox.max.y, b / 8), THREE.MathUtils.lerp(thighBox.min.z, thighBox.max.z, c / 8)).applyMatrix4(thigh.matrixWorld).applyMatrix4(toBag);
+      if (bagBox.containsPoint(p)) inside++;
+      nearest = Math.min(nearest, bagBox.distanceToPoint(p));
+    }
+    // Measured 2026-10-12 (node): plan 028's first cut put 225 of the 729 samples inside the bag (main: 81).
+    assert.equal(inside, 0, `${name}: ${inside} of 729 points of the right thigh are inside the satchel`);
+  }
+  hip.rotation.x = 0;
+  assert.ok(nearest < .08, `precondition: the satchel no longer hangs at his hip (it comes within ${nearest.toFixed(3)} of the thigh)`);
 });

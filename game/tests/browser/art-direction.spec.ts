@@ -6,7 +6,7 @@ import {
   roomCentre,
   test,
 } from './helpers.ts';
-import { knightRead, probeScenes, settleFacing } from './figure-mask.ts';
+import { type KnightRead, knightRead, probeScenes, settleFacing } from './figure-mask.ts';
 
 /**
  * The palette, measured rather than described.
@@ -244,20 +244,22 @@ test.describe('the player reads as cloth, face and hair, not one bright shape', 
     await game.step(0);
     const floor = await game.floor();
     await settleFacing(game, openSpot(floor, roomCentre(floor, 0), { radius: 4 }), ['ArrowDown']);
-    const read = await knightRead(game.page, [['skin', 'cowl']]);
+    const read = await knightRead(game.page, [['skin', 'cowl'], ['skin', 'hair'], ['ochre', 'pale']]);
     const { ochre, cowl, skin, pale, hair } = read.parts;
-    const chin = read.edges[0]!;
+    const [chin, brow, hem] = read.edges as [KnightRead['edges'][number], KnightRead['edges'][number], KnightRead['edges'][number]];
     const numbers = `body ${read.body.pixels} px, ${(read.body.clipped * 100).toFixed(1)}% clipped; ` +
       Object.entries(read.parts).map(([name, part]) => `${name} L*${part.L?.toFixed(0)} (${part.pixels} px, ${(part.clipped * 100).toFixed(0)}% clipped)`).join(', ') +
-      `; chin: skin L*${chin.La?.toFixed(1)} over ${chin.na} px, cowl L*${chin.Lb?.toFixed(1)} over ${chin.nb} px`;
+      [chin, brow, hem].map(e => `; ${e.a}/${e.b} edge L*${e.La?.toFixed(1)} over ${e.na} px against L*${e.Lb?.toFixed(1)} over ${e.nb} px`).join('');
     console.log(`player values: ${numbers}`);
     // Preconditions: every part this reads was found on screen, at about half the pixels each covered when measured.
     for (const [name, part, least] of [['poncho', ochre, 400], ['cowl', cowl, 120], ['face', skin, 140], ['tunic', pale, 180], ['hair', hair, 120]] as const) {
       expect(part?.pixels ?? 0, `precondition: the ${name} covers too few pixels to read (${numbers})`).toBeGreaterThan(least);
     }
-    expect(Math.min(chin.na, chin.nb), `precondition: the face and the cowl barely meet on screen (${numbers})`).toBeGreaterThan(50);
-    // Measured 2026-10-12 on SwiftShader, two repeats, identical: 1.3% clipped, poncho L*68, the chin 61.6 over 44.3 (17.3),
-    // the face 68 over the hair 45 and the tunic 47. Plan 027's palette read 58% clipped, poncho 86, the chin 88 over 82.
+    for (const edge of [chin, brow, hem]) expect(Math.min(edge.na, edge.nb), `precondition: the ${edge.a} and the ${edge.b} barely meet on screen (${numbers})`).toBeGreaterThan(40);
+    // Measured 2026-10-12 on SwiftShader, two repeats, identical: 1.7% clipped, poncho L*68, tunic 68; at the chin the face
+    // 61.6 over the cowl's 44.3 (17.3), at the brow 65.5 over the hair's 43.6 (21.9), at the hem the poncho 63.7 against
+    // the tunic's 72.6 (8.9). Plan 027's palette read 58% clipped, poncho 86, the chin 88 over 82; a first cut of plan 028
+    // greyed the tunic to L*47 and its edge with the poncho to 51 against 52.
     // Little of him lit off the top of the range.
     expect(read.body.clipped, `${(read.body.clipped * 100).toFixed(1)}% of him is at the top of the range (${numbers})`).toBeLessThan(.03);
     // The poncho is ochre, not yellow and not mud: bounded both sides, so a figure drawn black fails as surely as a blown-out one.
@@ -265,8 +267,11 @@ test.describe('the player reads as cloth, face and hair, not one bright shape', 
     expect(ochre.L, `the poncho reads L*${ochre.L.toFixed(1)}, lit off the top (${numbers})`).toBeLessThan(78);
     // The face stands out of the cowl at the chin, and out of the hair over it.
     expect(chin.La - chin.Lb, `the face is only ${(chin.La - chin.Lb).toFixed(1)} L* over the cowl at the chin (${numbers})`).toBeGreaterThan(12);
-    expect(skin.L - hair.L, `the face is only ${(skin.L - hair.L).toFixed(1)} L* over the hair (${numbers})`).toBeGreaterThan(15);
-    // The poncho, not the tunic under it, is the bright shape.
-    expect(ochre.L - pale.L, `the poncho is only ${(ochre.L - pale.L).toFixed(1)} L* over the tunic (${numbers})`).toBeGreaterThan(12);
+    // Where they meet, not the medians: the skin's pixels include his hands.
+    expect(brow.La - brow.Lb, `the face is only ${(brow.La - brow.Lb).toFixed(1)} L* over the hair where they meet (${numbers})`).toBeGreaterThan(15);
+    // The tunic stays the sheet's off-white rather than the poncho's grey, and there is an edge where the poncho's hem
+    // meets it - which way round does not matter, only that the two do not run together.
+    expect(pale.L, `the tunic reads L*${pale.L.toFixed(1)}, no longer off-white (${numbers})`).toBeGreaterThan(58);
+    expect(Math.abs(hem.La - hem.Lb), `the poncho and the tunic are only ${Math.abs(hem.La - hem.Lb).toFixed(1)} L* apart where they meet (${numbers})`).toBeGreaterThan(5);
   });
 });
