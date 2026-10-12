@@ -120,7 +120,9 @@ for (const [name, build] of Object.entries(FIGURES)) {
 // What `dungeonTest.actorStats()` reads off the live knight (dungeon-test-hooks.ts, which node cannot
 // import): visible meshes walking visible nodes, triangles per draw range, and the height of everything
 // but the multiply-blended contact pool, which lies on the floor. Restated so the budget holds without a
-// browser; models.spec.ts still reads the same numbers off the running game.
+// browser. models.spec.ts, which held the same numbers off the running game, was deleted in 73ba0ad: this test
+// is now the only place the knight's draw cost is held, and `dungeonTest.actorStats()` still reports the same
+// numbers off the live knight for anyone checking by hand.
 function drawCost(root: THREE.Object3D) {
   let meshes = 0, triangles = 0;
   const box = new THREE.Box3(), part = new THREE.Box3();
@@ -138,18 +140,21 @@ function drawCost(root: THREE.Object3D) {
 }
 
 test('the knight is baked within his budgets and stands where he did', () => {
-  // Plan 010's "before", the same numbers models.spec.ts holds the live knight to.
+  // Plan 010's "before" (once also held by models.spec.ts, deleted in 73ba0ad).
   const BEFORE = { meshes: 53, triangles: 3990, height: 1.8243 };
   const knight = drawCost(makeKnight());
   // The Relic Seeker (2026-10-11, node): torso 10 batches (9 materials, the unshadowed strap and trim split off),
   // cape 1, tabard 2, pivot 2, Tideblade 4, arm 3, hips 2, knees 6, pool 1 = 31 meshes, 1876 triangles. Floors on
   // both: the triangle floor is what catches a poncho that is not drawn (its 112 triangles take him to 1764); the
   // mesh floor catches a bake that loses more than two batches.
-  assert.ok(knight.meshes <= 32, `the knight is drawn as ${knight.meshes} meshes`);
+  // Owner decision 2026-10-12: the player's budget doubled, 2 x 4,987 triangles and 2 x 32 meshes. A ceiling, not
+  // a target: plan 027 spends it on motion (a kept poncho, head, satchel and elbow) and shape, not on added parts.
+  assert.ok(knight.meshes <= 64, `the knight is drawn as ${knight.meshes} meshes`);
   assert.ok(knight.meshes >= 29, `the knight is drawn as only ${knight.meshes} meshes`);
   assert.ok(knight.triangles >= 1800, `the knight costs only ${knight.triangles} triangles`);
-  // Owner decision for the model round: a figure's triangles may rise by at most a quarter.
-  assert.ok(knight.triangles <= Math.floor(BEFORE.triangles * 1.25), `the knight costs ${knight.triangles} triangles against ${BEFORE.triangles}`);
+  // Owner decision for the model round: a figure's triangles may rise by at most a quarter (4,987); doubled for the
+  // player alone on 2026-10-12 (plan 027).
+  assert.ok(knight.triangles <= 2 * Math.floor(BEFORE.triangles * 1.25), `the knight costs ${knight.triangles} triangles against ${BEFORE.triangles}`);
   // The explorer stands where the knight did, within 0.08.
   assert.ok(Math.abs(knight.height - BEFORE.height) <= 0.08, `the knight stands ${knight.height.toFixed(4)} tall against ${BEFORE.height}`);
 });
