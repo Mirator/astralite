@@ -239,12 +239,15 @@ test.describe('the player reads as cloth, face and hair, not one bright shape', 
   // Its own page: the devtools hook that finds the scene has to be installed before the game boots.
   test.use({ isolate: true, seeds: [0x86, 0x86] });
   test('the Relic Seeker is not lit off the top of the range, and his face stands out of the cowl', async ({ game }) => {
+    // A boot of its own plus a full draw per material on SwiftShader: 3.8 minutes on a CI shard reading every material,
+    // against the 3-minute default. Only the five it asserts on are read now, and it gets the slow test's budget.
+    test.slow();
     await probeScenes(game);
     await game.enter();
     await game.step(0);
     const floor = await game.floor();
     await settleFacing(game, openSpot(floor, roomCentre(floor, 0), { radius: 4 }), ['ArrowDown']);
-    const read = await knightRead(game.page, [['skin', 'cowl'], ['skin', 'hair'], ['ochre', 'pale']]);
+    const read = await knightRead(game.page, [['skin', 'cowl'], ['skin', 'hair'], ['ochre', 'pale']], false, ['ochre', 'cowl', 'skin', 'pale', 'hair']);
     const { ochre, cowl, skin, pale, hair } = read.parts;
     const [chin, brow, hem] = read.edges as [KnightRead['edges'][number], KnightRead['edges'][number], KnightRead['edges'][number]];
     const numbers = `body ${read.body.pixels} px, ${(read.body.clipped * 100).toFixed(1)}% clipped; ` +
@@ -255,11 +258,13 @@ test.describe('the player reads as cloth, face and hair, not one bright shape', 
     for (const [name, part, least] of [['poncho', ochre, 400], ['cowl', cowl, 120], ['face', skin, 140], ['tunic', pale, 180], ['hair', hair, 120]] as const) {
       expect(part?.pixels ?? 0, `precondition: the ${name} covers too few pixels to read (${numbers})`).toBeGreaterThan(least);
     }
-    for (const edge of [chin, brow, hem]) expect(Math.min(edge.na, edge.nb), `precondition: the ${edge.a} and the ${edge.b} barely meet on screen (${numbers})`).toBeGreaterThan(40);
+    // The poncho meets the tunic over the fewest pixels: 30 and 33 since the plan 028 follow-up slimmed him (88 and 60 before).
+    for (const edge of [chin, brow, hem]) expect(Math.min(edge.na, edge.nb), `precondition: the ${edge.a} and the ${edge.b} barely meet on screen (${numbers})`).toBeGreaterThan(20);
     // Measured 2026-10-12 on SwiftShader, two repeats, identical: 1.7% clipped, poncho L*68, tunic 68; at the chin the face
     // 61.6 over the cowl's 44.3 (17.3), at the brow 65.5 over the hair's 43.6 (21.9), at the hem the poncho 63.7 against
     // the tunic's 72.6 (8.9). Plan 027's palette read 58% clipped, poncho 86, the chin 88 over 82; a first cut of plan 028
-    // greyed the tunic to L*47 and its edge with the poncho to 51 against 52.
+    // greyed the tunic to L*47 and its edge with the poncho to 51 against 52. The plan 028 follow-up that slimmed him (same palette): 1.9% clipped,
+    // poncho 67, tunic 68, the chin 61.5 over 46.2, the hem edge 47.1 against 70.9.
     // Little of him lit off the top of the range.
     expect(read.body.clipped, `${(read.body.clipped * 100).toFixed(1)}% of him is at the top of the range (${numbers})`).toBeLessThan(.03);
     // The poncho is ochre, not yellow and not mud: bounded both sides, so a figure drawn black fails as surely as a blown-out one.

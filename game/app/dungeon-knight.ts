@@ -76,7 +76,9 @@ const HEM = [.17, .04, 0, -.07, -.3, -.07, 0, .04, .19, .04, 0, -.07, -.3, -.07,
 // out from vertical (straight down read as a barrel on the bench), then a flat yoke rising 24 degrees to the
 // neck ring the cowl sits on. The sheet's shape: a shoulder line and a drape, not the old 40-degree lampshade.
 // Plan 028: one more ring .06 over the hem, on the drape's line, so a point's drop folds there and its V has an edge.
-const PONCHO: [number, number][] = [[.385, .04], [.378, .1], [.36, .2], [.33, .37], [.25, .405], [.17, .44]];
+// Plan 028 follow-up: every ring but the neck's at .86 of plan 028's, so he stops reading as a barrel (the body under the head was
+// .55 of his height wide; the operator: "the main player looks chonky").
+const PONCHO: [number, number][] = [[.331, .04], [.325, .1], [.31, .2], [.284, .37], [.215, .405], [.17, .44]];
 /** The shoulder break's ring in PONCHO: where the drape meets the yoke, and where the cloth deform's sway fades to nothing. */
 const BREAK = PONCHO.length - 3;
 // The cowl, a lathe of its own: a loose roll resting on the yoke, wider than the neck by a tenth, low all
@@ -84,7 +86,7 @@ const BREAK = PONCHO.length - 3;
 // at the back as the hood's fold. Its rings above the foot take COWL's drop (positive is down), a third of it
 // on the first so that ring stays above the foot.
 // The first ring lies in against the neck, closing the gap down to the tunic between the neck and the yoke.
-const COWL_PROFILE: [number, number][] = [[.1, .425], [.2, .435], [.27, .46], [.265, .5], [.21, .51]];
+const COWL_PROFILE: [number, number][] = [[.1, .425], [.18, .435], [.24, .46], [.235, .5], [.19, .51]];
 const COWL = Array.from({ length: COLUMNS }, (_, i) => .05 - .08 * Math.max(0, Math.cos(i * FACET)));
 const cowl = () => ponchoLathe(COWL_PROFILE, COWL, (column, ring) => COWL[column % COLUMNS]! * (ring < 2 ? 0 : ring === 2 ? .3 : 1));
 
@@ -158,7 +160,7 @@ function ribbon(points: THREE.Vector3[], outs: THREE.Vector3[], width = .1, lift
 // about 50 degrees, as the sheet draws it (at 24 the camera's pitch flattened it into a belt). The bag's joint went
 // lower and out with it, so the tail drops at least 20 degrees from the hem to the bag rather than running level round
 // the waist, and the bag hangs clear of the right thigh (it sat .11 into it), outside the thigh's swing.
-const STRAP_FROM: [number, number] = [-.32, .375], STRAP_TO: [number, number] = [.06, -.08], STRAP_BAG = new THREE.Vector3(.42, -.22, -.2);
+const STRAP_FROM: [number, number] = [-.32, .375], STRAP_TO: [number, number] = [.06, -.08], STRAP_BAG = new THREE.Vector3(.32, -.22, -.18);
 function strap() {
   const steps = 16, run = (side: 1 | -1) => Array.from({ length: steps + 1 }, (_, k) => ponchoSurface(THREE.MathUtils.lerp(STRAP_FROM[0], STRAP_TO[0], k / steps), THREE.MathUtils.lerp(STRAP_FROM[1], STRAP_TO[1], k / steps), side));
   const samples = [...run(1).reverse(), ...run(-1).slice(1)], points = samples.map(s => s.point), outs = samples.map(s => s.out);
@@ -180,7 +182,7 @@ function strap() {
  */
 // The tunic the cloth deform keeps the poncho outside of (dungeon-cloth.ts), [height, radius] up the torso:
 // the skirt (.32 to .29) under the body (.28 to .20), circumradii of the eight-sided cylinders below.
-const TUNIC: Tunic = [[-.3, .32], [-.06, .29], [-.06, .28], [.4, .2]];
+const TUNIC: Tunic = [[-.26, .26], [-.06, .24], [-.06, .24], [.4, .18]];
 const KNIGHT_SPEC: Node = {
   name: 'knight',
   parts: [
@@ -191,14 +193,14 @@ const KNIGHT_SPEC: Node = {
         // The tunic, loose and pale, from the sash to the shoulders, and its skirt below the sash over the
         // hip joints to mid-thigh. Narrower than the poncho at every height, so the poncho stays the broad
         // shape and the cloth has room to swing.
-        { name: 'body', shape: { cylinder: [.2, .28, .46, 8] }, material: 'pale', at: [0, .17, 0] },
-        { name: 'tunic-skirt', shape: { cylinder: [.29, .32, .24, 8] }, material: 'pale', at: [0, -.18, 0], rot: [0, Math.PI / 8, 0] },
+        { name: 'body', shape: { cylinder: [.18, .24, .46, 8] }, material: 'pale', at: [0, .17, 0] },
+        { name: 'tunic-skirt', shape: { cylinder: [.24, .26, .2, 8] }, material: 'pale', at: [0, -.16, 0], rot: [0, Math.PI / 8, 0] },
         // The sword arm's upper sleeve, hanging at his right side under the arm slit: the sword pivot carries
         // only the glove and the forearm, and the slit would otherwise show the tunic between his shoulder
         // and his fist.
         // Plan 028: rounded and slimmer (was a .15 x .27 x .16 box), so it reads as a sleeve in the slit's shadow and
-        // not as a pale block standing out of the poncho's side; at x .35, level with the free arm's shoulder at -.36.
-        { name: 'sleeve-r', shape: { geometry: roundedUnitBox() }, material: 'pale', at: [.35, .16, .02], scale: [.11, .22, .12] },
+        // not as a pale block standing out of the poncho's side; at x .29, near the free arm's shoulder at -.31.
+        { name: 'sleeve-r', shape: { geometry: roundedUnitBox() }, material: 'pale', at: [.29, .16, .02], scale: [.1, .22, .11] },
         {
           // Everything the cloth deform moves (plan 027 Stage B), kept out of the torso's bake so each mesh
           // keeps its own vertices: the poncho (its shape set by PONCHO and HEM above, the back's point now
@@ -235,22 +237,22 @@ const KNIGHT_SPEC: Node = {
           ],
         },
         // The sash, wound twice round the waist, and its knot on his left where the relic hangs from it.
-        { name: 'sash', shape: { torus: [.285, .055, 4, 8] }, material: 'red', at: [0, -.04, 0], rot: [Math.PI / 2, 0, 0] },
-        { name: 'sash-knot', shape: { dodeca: [.065] }, material: 'red', at: [-.24, -.04, -.18] },
+        { name: 'sash', shape: { torus: [.24, .05, 4, 8] }, material: 'red', at: [0, -.04, 0], rot: [Math.PI / 2, 0, 0] },
+        { name: 'sash-knot', shape: { dodeca: [.06] }, material: 'red', at: [-.2, -.04, -.15] },
         // The relic, the one cool and the one bright thing on him: a turquoise bead on a short leather
         // cord, hanging off the knot at his left front, away from the bag - and outside the tunic flap's
         // edge (x .21), which would cover it from the front and swing over it with every stride.
-        { name: 'relic-cord', shape: { box: [.016, .07, .016] }, material: 'leather', at: [-.28, -.09, -.2] },
-        { name: 'relic', shape: { dodeca: [.08] }, material: 'relic', at: [-.29, -.17, -.21] },
+        { name: 'relic-cord', shape: { box: [.016, .07, .016] }, material: 'leather', at: [-.24, -.09, -.17] },
+        { name: 'relic', shape: { dodeca: [.075] }, material: 'relic', at: [-.25, -.17, -.18] },
         // The satchel on his right hip: a big bag at the side of the hip rather than under the sword hand,
         // which the camera sees as often as his front. It hangs from the strap's end (STRAP_BAG), the joint the
         // game swings it on (plan 027), so the strap and the bag never part; flap and buckle in the bag's frame.
         {
           name: 'satchel', at: [STRAP_BAG.x, STRAP_BAG.y, STRAP_BAG.z], parts: [{
-            name: 'satchel-body', at: [0, -.12, .07], rot: [0, -.2, .06], parts: [
-              { name: 'satchel-bag', shape: { geometry: roundedUnitBox() }, material: 'leather', at: [0, 0, 0], scale: [.2, .3, .34] },
-              { name: 'satchel-flap', shape: { geometry: roundedUnitBox() }, material: 'leather', at: [.012, .09, 0], scale: [.22, .14, .36] },
-              { name: 'satchel-buckle', shape: { box: [.03, .08, .07] }, material: 'brass', at: [.115, .03, 0] },
+            name: 'satchel-body', at: [0, -.12, .07], rot: [0, 0, .06], parts: [
+              { name: 'satchel-bag', shape: { geometry: roundedUnitBox() }, material: 'leather', at: [0, 0, 0], scale: [.17, .28, .3] },
+              { name: 'satchel-flap', shape: { geometry: roundedUnitBox() }, material: 'leather', at: [.012, .085, 0], scale: [.19, .13, .32] },
+              { name: 'satchel-buckle', shape: { box: [.03, .08, .07] }, material: 'brass', at: [.1, .03, 0] },
             ],
           }],
         },
@@ -258,29 +260,31 @@ const KNIGHT_SPEC: Node = {
     },
     // Charcoal trousers bloused over pale wraps from shin to ankle, and broad brown boots with a turned-down
     // cuff. Three materials a knee, as the knight's were. A long thigh (.36 to the knee) and a long shin (.33
-    // to the sole), set a little closer than the knight's stance, which read squat.
+    // to the sole), set a little closer than the knight's stance, which read squat. The plan 028 follow-up thinned every
+    // leg box by about a fifth and brought the hips in from .18 to .13: with the poncho, tunic, arms and hands slimmed with
+    // them, the body under the head is .42-.47 of his height wide rather than .52-.55 ("chonky", the operator).
     {
-      name: 'hip-l', at: [-.18, .75, 0], parts: [
-        { name: 'leg-l', shape: { box: [.19, .38, .2] }, material: 'trousers', at: [0, -.19, 0] },
+      name: 'hip-l', at: [-.13, .75, 0], parts: [
+        { name: 'leg-l', shape: { box: [.15, .38, .16] }, material: 'trousers', at: [0, -.19, 0] },
         {
           name: 'knee-l', at: [0, -.36, 0], parts: [
-            { name: 'shin-l', shape: { box: [.2, .14, .21] }, material: 'trousers', at: [0, -.03, 0] },
-            { name: 'wrap-l', shape: { box: [.14, .16, .15] }, material: 'pale', at: [0, -.16, 0] },
-            { name: 'boot-shape-l', shape: { box: [.21, .13, .33] }, material: 'boot', at: [0, -.265, -.06] },
-            { name: 'boot-cuff-l', shape: { box: [.2, .07, .2] }, material: 'boot', at: [0, -.2, 0] },
+            { name: 'shin-l', shape: { box: [.16, .14, .17] }, material: 'trousers', at: [0, -.03, 0] },
+            { name: 'wrap-l', shape: { box: [.12, .16, .13] }, material: 'pale', at: [0, -.16, 0] },
+            { name: 'boot-shape-l', shape: { box: [.16, .12, .27] }, material: 'boot', at: [0, -.265, -.05] },
+            { name: 'boot-cuff-l', shape: { box: [.17, .07, .17] }, material: 'boot', at: [0, -.2, 0] },
           ],
         },
       ],
     },
     {
-      name: 'hip-r', at: [.18, .75, 0], parts: [
-        { name: 'leg-r', shape: { box: [.19, .38, .2] }, material: 'trousers', at: [0, -.19, 0] },
+      name: 'hip-r', at: [.13, .75, 0], parts: [
+        { name: 'leg-r', shape: { box: [.15, .38, .16] }, material: 'trousers', at: [0, -.19, 0] },
         {
           name: 'knee-r', at: [0, -.36, 0], parts: [
-            { name: 'shin-r', shape: { box: [.2, .14, .21] }, material: 'trousers', at: [0, -.03, 0] },
-            { name: 'wrap-r', shape: { box: [.14, .16, .15] }, material: 'pale', at: [0, -.16, 0] },
-            { name: 'boot-shape-r', shape: { box: [.21, .13, .33] }, material: 'boot', at: [0, -.265, -.06] },
-            { name: 'boot-cuff-r', shape: { box: [.2, .07, .2] }, material: 'boot', at: [0, -.2, 0] },
+            { name: 'shin-r', shape: { box: [.16, .14, .17] }, material: 'trousers', at: [0, -.03, 0] },
+            { name: 'wrap-r', shape: { box: [.12, .16, .13] }, material: 'pale', at: [0, -.16, 0] },
+            { name: 'boot-shape-r', shape: { box: [.16, .12, .27] }, material: 'boot', at: [0, -.265, -.05] },
+            { name: 'boot-cuff-r', shape: { box: [.17, .07, .17] }, material: 'boot', at: [0, -.2, 0] },
           ],
         },
       ],
@@ -291,15 +295,15 @@ const KNIGHT_SPEC: Node = {
 /** The free arm, kept as its own spec so `arm`'s bakeStatic call (below) sees the same part order: the
  *  tunic's sleeve, then (plan 027) an elbow joint carrying a leather bracer and a bare hand, so the forearm
  *  can open and swing on its own. Its pivot is the left shoulder, under the yoke's break and inside the arm
- *  slit. Plan 028: .02 further out (was x -.34), so the elbow joint swinging back through a run clears the back-left
- *  diagonal's edge by .02 instead of grazing it (.008, phase 12/64); the sleeve rounded and slimmed to the right's. */
+ *  slit. At x -.31 since the poncho was narrowed (plan 028 follow-up), where the elbow joint swinging back through a run
+ *  still clears the back-left diagonal's edge by .02 (dungeon-figures.test.ts); the sleeve rounded and slim like the right's. */
 const ARM_SPEC: Node = {
-  name: 'arm', at: [-.36, .33, 0], parts: [
-    { name: 'sleeve', shape: { geometry: roundedUnitBox() }, material: 'pale', at: [0, -.14, 0], scale: [.12, .28, .13] },
+  name: 'arm', at: [-.31, .33, 0], parts: [
+    { name: 'sleeve', shape: { geometry: roundedUnitBox() }, material: 'pale', at: [0, -.14, 0], scale: [.1, .28, .11] },
     {
       name: 'elbow', at: [0, -.28, 0], parts: [
-        { name: 'forearm', shape: { box: [.14, .15, .26] }, material: 'leather', at: [0, 0, -.09] },
-        { name: 'fist', shape: { dodeca: [.1] }, material: 'skin', at: [0, 0, -.24] },
+        { name: 'forearm', shape: { box: [.12, .13, .24] }, material: 'leather', at: [0, 0, -.09] },
+        { name: 'fist', shape: { dodeca: [.08] }, material: 'skin', at: [0, 0, -.22] },
       ],
     },
   ],
@@ -308,12 +312,12 @@ const ARM_SPEC: Node = {
 /** Where the sword hand rests, torso-local: one constant, read here and by dungeon-game.tsx's posePlayer,
  *  which sets the pivot back to it (less the swing's reach) every frame. World 1.06 standing: every arm's
  *  screen read is tuned against the hand at 1.02-1.10, so the shoulders rose round it rather than it with them. */
-export const SWORD_PIVOT = { x: .44, y: .13, z: -.02 } as const;
+export const SWORD_PIVOT = { x: .38, y: .13, z: -.02 } as const;
 /** The sword pivot's own trim; `armed.group` (the equipped weapon) is spliced in by makeKnight() below. */
 const SWORD_PIVOT_SPEC: Node = {
   name: 'sword-pivot', at: [SWORD_PIVOT.x, SWORD_PIVOT.y, SWORD_PIVOT.z], parts: [
-    { name: 'glove', shape: { dodeca: [.12] }, material: 'skin', at: [0, -.02, .03] },
-    { name: 'sword-sleeve', shape: { cylinder: [.1, .08, .26, 6] }, material: 'leather', at: [-.035, -.03, .13], rot: [-.85, 0, 0] },
+    { name: 'glove', shape: { dodeca: [.09] }, material: 'skin', at: [0, -.02, .03] },
+    { name: 'sword-sleeve', shape: { cylinder: [.085, .07, .24, 6] }, material: 'leather', at: [-.03, -.03, .12], rot: [-.85, 0, 0] },
   ],
 };
 
@@ -321,7 +325,7 @@ const SWORD_PIVOT_SPEC: Node = {
  *  game swings it forward with whichever leg leads, which is what keeps a running thigh from coming
  *  through it. The tail hangs on his left, on the relic's side, as the sheet ties it. */
 const TABARD_SPEC: Node = {
-  name: 'tabard', at: [0, -.075, -.315], parts: [
+  name: 'tabard', at: [0, -.075, -.265], scale: [.82, 1, 1], parts: [
     { name: 'tunic-flap', shape: { plate: { outline: [[-.2, .02], [.2, .02], [.21, -.26], [.06, -.3], [-.08, -.28], [-.21, -.25]], depth: .018 } }, material: 'pale', at: [0, 0, 0] },
     { name: 'sash-tail', shape: { plate: { outline: [[-.04, .02], [.04, .02], [.05, -.3], [0, -.26], [-.05, -.32]], depth: .016 } }, material: 'red', at: [-.1, 0, -.02] },
   ],

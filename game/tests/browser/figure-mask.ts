@@ -220,11 +220,11 @@ export type KnightRead = {
  * The knight's own rendered values, per material (plan 028). Same technique as `knightLightness`: each
  * mask is what changed when a set of his meshes was drawn with a material that writes neither colour nor
  * depth, so occlusion, the shadow map and the floor behind him are all the game's own. One draw for the
- * frame, one for the body, one per material: about a dozen draws in one task. The page must have been
+ * frame, one for the body, one per material (only those named in `only`, if given). The page must have been
  * through `probeScenes`.
  */
-export const knightRead = (page: Page, pairs: [string, string][] = [], dump = false) =>
-  page.evaluate(({ pairs, dump }): KnightRead => {
+export const knightRead = (page: Page, pairs: [string, string][] = [], dump = false, only?: string[]) =>
+  page.evaluate(({ pairs, dump, only }): KnightRead => {
     type Material = { name: string; blending: number; clone: () => Material; colorWrite: boolean; depthWrite: boolean };
     type Node = { isMesh?: boolean; userData: Record<string, unknown>; material: Material; traverse: (visit: (node: Node) => void) => void };
     const win = window as unknown as Probe & { advanceTime: (ms: number, draw: boolean) => void };
@@ -260,7 +260,8 @@ export const knightRead = (page: Page, pairs: [string, string][] = [], dump = fa
     const top = (i: number) => seen[i] >= 254 || seen[i + 1] >= 254 || seen[i + 2] >= 254;
     const median = (values: number[]) => { if (!values.length) return NaN; values.sort((a, b) => a - b); return values[Math.floor(values.length / 2)]; };
     const body = maskOf(frame((part) => held.has(part)));
-    const names = [...new Set(own.map((m, i) => (held.has(parts[i]) ? '' : m.name)).filter(Boolean))];
+    // `only` limits the per-material draws (one each, the slow part) to the materials a caller reads.
+    const names = [...new Set(own.map((m, i) => (held.has(parts[i]) ? '' : m.name)).filter(Boolean))].filter((name) => !only || only.includes(name));
     const masks: Record<string, Uint8Array> = {};
     for (const name of names) masks[name] = maskOf(frame((part, i) => held.has(part) || own[i].name !== name));
     win.advanceTime(0, true);
@@ -293,4 +294,4 @@ export const knightRead = (page: Page, pairs: [string, string][] = [], dump = fa
       ctx.putImageData(paint, 0, 0); out.image = copy.toDataURL();
     }
     return out;
-  }, { pairs, dump });
+  }, { pairs, dump, only });
