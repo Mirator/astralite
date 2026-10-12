@@ -38,6 +38,12 @@ const FACING_YAWS = FACING_KEYS.map(([sx, sz]) => {
 });
 
 const CELL_W = 200, CELL_H = 240, LABEL_H = 22;
+// `?view=sheet`: the turnaround sheet's own framing (plans/relic-seeker-turnaround.png), for judging a figure against
+// it - an eye-level camera, four big cells (three-quarter front, profile, back, the other three-quarter), a grey
+// studio ground, and the warm fill the game hangs off the player (dungeon-game.tsx `fill`), since the player's
+// colours are set for that light. Yaw is the figure's, with the camera on +z: PI faces it at the lens.
+const SHEET_YAWS = [Math.PI - .35, Math.PI / 2 + .1, 0, Math.PI + .5];
+const SHEET_W = 360, SHEET_H = 560;
 
 /** The knight's own equip step (dungeon-game.tsx's `equip`), standalone: swap the arm in his hand without
  *  touching anything else about him. */
@@ -83,6 +89,8 @@ export default function DungeonBench() {
     const zoom = parseZoom(params.get('zoom'));
     const bg = parseBg(params.get('bg'));
     const elite: EliteModifier | null = parseElite(params.get('tint'));
+    const sheet = params.get('view') === 'sheet', bare = params.get('bare') === '1';
+    const yaws = sheet ? SHEET_YAWS : FACING_YAWS, cellW = sheet ? SHEET_W : CELL_W, cellH = sheet ? SHEET_H : CELL_H;
 
     const rows: Row[] = [];
     for (const kind of figures) {
@@ -91,6 +99,7 @@ export default function DungeonBench() {
         for (const id of ids) {
           const knight = makeKnight();
           if (id !== STARTING_WEAPON) equipArm(knight, id);
+          if (bare) (knight.userData.armed as ArmedWeapon).group.visible = false;
           rows.push({ label: weaponParam === 'all' ? `knight ${id}` : 'knight', group: knight });
         }
       } else {
@@ -106,8 +115,8 @@ export default function DungeonBench() {
       }
     }
 
-    const cols = FACING_YAWS.length;
-    const width = cols * CELL_W, height = rows.length * CELL_H;
+    const cols = yaws.length;
+    const width = cols * cellW, height = rows.length * cellH;
 
     // preserveDrawingBuffer: the game's own renderer skips this for performance, but the bench draws once
     // and stops, and bench.spec.ts and `npm run figures` both need the framebuffer to still be there
@@ -125,7 +134,7 @@ export default function DungeonBench() {
     mount.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a1b24);
+    scene.background = new THREE.Color(sheet ? 0x8a919c : 0x0a1b24);
 
     // The game's hemisphere and moon values (dungeon-game.tsx, ~384-403), minus the per-room mood that
     // retargets the moon every frame - there is no room here for it to be lit by.
@@ -142,7 +151,7 @@ export default function DungeonBench() {
     // A flat square of the paving colour to stand on - an approximation of contrast, not the paving
     // geometry or its texture (dungeon-art.ts). "grey" is a neutral alternative for judging a figure's
     // own values without the paving's own hue in the frame.
-    const groundColor = bg === 'grey' ? 0x808080 : 0x607574;
+    const groundColor = sheet ? 0x8a919c : bg === 'grey' ? 0x808080 : 0x607574;
     // Big enough that its far edge never enters an orthographic frame at any zoom the bench supports.
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: groundColor, roughness: 1 }));
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
@@ -158,10 +167,17 @@ export default function DungeonBench() {
     const TALLEST = 2.4;
     const focusHeight = TALLEST * 0.42;
     const span = (TALLEST / 0.95 / 2) / zoom;
-    const aspect = CELL_W / CELL_H;
+    const aspect = cellW / cellH;
     camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span;
-    camera.position.copy(away).multiplyScalar(16);
-    camera.lookAt(0, focusHeight, 0);
+    if (sheet) {
+      // A little above his waist, level: the sheet's painter stood at his chest, looking straight at him.
+      camera.position.set(0, 1.1, 16); camera.lookAt(0, .95, 0);
+      const s = 1.05 / zoom; camera.left = -s * aspect; camera.right = s * aspect; camera.top = s; camera.bottom = -s;
+      const fill = new THREE.PointLight(0xffdfbe, 46, 0, 2); fill.position.set(1.4, 3.2, 2.2); scene.add(fill);
+    } else {
+      camera.position.copy(away).multiplyScalar(16);
+      camera.lookAt(0, focusHeight, 0);
+    }
     camera.updateProjectionMatrix();
     moon.target.position.set(0, focusHeight, 0);
 
@@ -175,8 +191,8 @@ export default function DungeonBench() {
         const div = document.createElement('div');
         div.textContent = cols === 1 ? row.label : `${row.label} ${c}`;
         Object.assign(div.style, {
-          position: 'absolute', left: `${c * CELL_W}px`, top: `${r * CELL_H + CELL_H - LABEL_H}px`,
-          width: `${CELL_W}px`, height: `${LABEL_H}px`, lineHeight: `${LABEL_H}px`,
+          position: 'absolute', left: `${c * cellW}px`, top: `${r * cellH + cellH - LABEL_H}px`,
+          width: `${cellW}px`, height: `${LABEL_H}px`, lineHeight: `${LABEL_H}px`,
           font: '11px ui-monospace, monospace', color: '#dce8e6', background: 'rgba(4,10,12,.72)',
           textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', pointerEvents: 'none',
         });
@@ -192,11 +208,11 @@ export default function DungeonBench() {
     for (const [r, row] of rows.entries()) {
       row.group.visible = true;
       for (let c = 0; c < cols; c++) {
-        row.group.rotation.y = FACING_YAWS[c]!;
+        row.group.rotation.y = yaws[c]!;
         row.group.updateMatrixWorld(true);
-        const x = c * CELL_W, y = height - (r + 1) * CELL_H;
-        renderer.setViewport(x, y, CELL_W, CELL_H);
-        renderer.setScissor(x, y, CELL_W, CELL_H);
+        const x = c * cellW, y = height - (r + 1) * cellH;
+        renderer.setViewport(x, y, cellW, cellH);
+        renderer.setScissor(x, y, cellW, cellH);
         renderer.render(scene, camera);
       }
       row.group.visible = false;
