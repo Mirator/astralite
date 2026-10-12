@@ -6984,3 +6984,37 @@ Hem per segment from those traces, `main` → Stage C:
 
 The critic's round retuned the rule after these recordings and none was re-recorded. sprint.spec.ts and the node tests
 hold the result.
+
+## 2026-10-12 — the Relic Seeker, slimmed (plan 028 follow-up)
+
+The operator, after the plan 028 deploy: "the main player looks chonky". Measured off the built figure (node, the weapon
+left out), width over height by band:
+
+| Band | Before | After |
+| --- | --- | --- |
+| Boots | .32 | .24 |
+| Shins and knees | .47 | .36 |
+| Thighs and skirt | .52 | .42 |
+| Poncho hem | .54 | .46 |
+| Poncho | .55 | .47 |
+| Shoulders | .45 | .39 |
+
+The widest parts were the hands: the sword glove was a .24-wide ball and the free fist .2. Next came the satchel, set
+diagonally at x .42, then the arm blocks and the poncho, a near-vertical drum of radius .385.
+
+Changes:
+- poncho rings x.86 (the neck ring is kept) and the cowl to match;
+- tunic, skirt, sash, the relic's knot and the tabard narrowed to suit; the skirt is .04 shorter, so more leg shows;
+- legs, wraps and boots about a fifth thinner, with the hips at ±.13 instead of ±.18 and the boots .03 shorter;
+- the free arm at x -.31 (was -.36), the sword hand at .38 (was .44), and the sleeves narrower;
+- glove .09 and fist .08;
+- the satchel at x .32, a little smaller and squared to the body.
+
+The head is unchanged. Its height is held (1.785; the test's band is 1.8243 ± .08).
+
+Checks:
+- node suite 641/641; every figure, cloak and cloth test passes as it stood, including the satchel-thigh and elbow
+  tests;
+- frame budgets unchanged (397 / 442 calls, the same triangles);
+- the values gate's poncho/tunic edge now meets over 30-33 px (was 60-88), so its precondition floor went from 40 to
+  20. The step at that edge is clearer, 47.1 against 70.9.
