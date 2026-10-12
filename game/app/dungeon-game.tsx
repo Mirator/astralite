@@ -2912,7 +2912,9 @@ export default function DungeonGame() {
     // Plan 014: zoomed in close to the reference's framing - the knight fills much more of the
     // frame than the old 7.2/6.3 span left him. Ratio kept the same between the two breakpoints.
     // Then eased back out a fifth twice (4.3/3.76 -> 5.16/4.51 -> 6.19/5.41): the tight frame hid too much of the room.
-    const resize = () => { canvasRect = null; const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 5.41 : 6.19; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); dirty = true; };
+    // `?camzoom=` (development only): a closer camera for reviewing the player's animation at a size a critic can read; the game never sets it.
+    const camZoom = process.env.NODE_ENV !== 'production' ? Math.max(1, Number(new URLSearchParams(window.location.search).get('camzoom')) || 1) : 1;
+    const resize = () => { canvasRect = null; const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = (w < 600 ? 5.41 : 6.19) / camZoom; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); dirty = true; };
     window.addEventListener('resize', resize); resize();
     // Plan 015: the keep is raised on the press that asks for it (`enterWhenBuilt`/`bootSeed` below),
     // never at mount, so the hydrated menu's button is live from the first frame and a press before the
