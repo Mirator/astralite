@@ -27,7 +27,9 @@ const lungs = UPGRADES.find((upgrade) => upgrade.id === 'lungs')!;
 // Plan 026 (D5) replaced the room: the authored chapel, framed from the arrival in its nave, draws 191 calls (120,461 triangles, 72 shadow calls), measured
 // 2026-10-08 on SwiftShader. There is no bare chapel to difference against, so the floor is 95% of the figure; that the shop is drawn is held by the racks'
 // and shrines' `inScene` below and by frame-budget.spec.ts's armoury scene (owned racks draw more than locked ones).
-const CALLS_FLOOR = 181, CALLS_CEILING = 191;
+// Plan 027 (2026-10-12): 193 on d3d11, the Relic Seeker's +2 (one more shadow-casting mesh: his torso's batches split across
+// kept groups), the same +2 frame-budget.spec.ts measured on both renderers, which read those scenes identically. The floor stays 95%.
+const CALLS_FLOOR = 183, CALLS_CEILING = 193;
 
 test('ENTER lands in the hall behind the veil: the altar, the racks it owns and the way down are on the scene, nobody is in it, and it drew no random number', async ({ page }) => {
   test.setTimeout(120_000 + WARM_UP);

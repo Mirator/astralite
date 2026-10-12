@@ -462,7 +462,9 @@ export type Snapshot = {
     };
     swordAngle: number;
     legs: number[];
-    locomotion: { speed:number; phase:number; sprint:number; pitch:number; height:number; arm:number; tabard:number; knees:number[] };
+    locomotion: { speed:number; phase:number; sprint:number; pitch:number; height:number; arm:number; tabard:number; elbow:number; head:number; satchel:number; knees:number[] };
+    /** Plan 027: the poncho's hem state, and its back point's lowest vertex read back off the drawn mesh after the cloth deform, torso-local. */
+    cloak: { hem:[number, number]; tip:[number, number, number] };
   };
   enemies: {
     x: number;

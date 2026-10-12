@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DASH_CAPE, playerRunPose, strideRate } from '../app/dungeon-run-pose.ts';
+import { BREATH_PERIOD, DASH_CAPE, headLook, idleBreath, playerRunPose, strideRate } from '../app/dungeon-run-pose.ts';
+import { playerAttackPose, playerSpecialPose } from '../app/dungeon-attack-pose.ts';
+import { WEAPONS } from '../app/dungeon-weapon.ts';
+import { HEM_MAX } from '../app/dungeon-cloth.ts';
 
 // The knight walks at 8.5 unthreatened (dungeon-weapon.ts), which is the top of the sprint blend: the
 // speed sprint.spec.ts reads the rig at after holding a direction.
@@ -41,7 +44,7 @@ test('the running cycle alternates legs, loops continuously and settles to neutr
     assert.ok(Math.abs(pose.legs[0].knee - loop.legs[0].knee) < 1e-12);
     // Standing still is the idle pose sprint.spec.ts waits for: no lean, no fold, no swing, whatever the phase.
     const rest = playerRunPose(phase, 0);
-    assert.deepEqual([rest.sprint, rest.height, rest.pitch, rest.twist, rest.arm, rest.swordPitch].map(Math.abs), [0, 0, 0, 0, 0, 0]);
+    assert.deepEqual([rest.sprint, rest.height, rest.pitch, rest.twist, rest.arm, rest.elbow, rest.swordPitch, rest.cape].map(Math.abs), [0, 0, 0, 0, 0, 0, 0, 0]);
     assert.ok(rest.legs.every(leg => Math.abs(leg.hip) + Math.abs(leg.knee) === 0));
   }
 });
@@ -59,15 +62,46 @@ test('stride rate is positive and falls as speed rises, so a faster knight cover
   assert.ok(TOP * strideRate(TOP) / (2 * Math.PI) < 3, 'full stride cadence stays readable');
 });
 
-test('the poncho\'s back point lifts a little with a sprint and a little more in a dash, never out like a wing', () => {
-  // The long cape lifted to .65 at a sprint and .8 in a dash; the poncho's point is short enough that the
-  // same pitch stood it straight out behind him (judged in a gameplay frame, d3d11, 2026-10-11; .32 still
-  // flared, since the torso's own .27 lean adds to it). Now .15 to .21 at the top of the sprint blend, .1 at
-  // rest, .22 dashing. The dash ceiling is where dungeon-cloak.test.ts's sash check stops passing: the tip's
-  // peak under a dash's cloth sway (strength .32, t 0-3 step .02, node, 2026-10-11) is .696 at .2, .712 at .22,
-  // .738 at .25 and .781 at .3, against the sash at .72.
+test('the poncho\'s hem is lifted back a few centimetres by a sprint and more by a dash, inside the cloth\'s clamp', () => {
+  // Plan 027: `cape` and DASH_CAPE are metres of trail fed to the hem state (dungeon-cloth.ts), no longer the old
+  // back flap's pitch. The wing ceiling that used to live here is dungeon-cloak.test.ts's: the back point stays
+  // under the sash with the hem anywhere inside HEM_MAX.
   const lifts = cycle(TOP).map(pose => pose.cape);
-  assert.ok(Math.max(...lifts) <= .25, `the point lifts to ${Math.max(...lifts).toFixed(3)} at a sprint`);
-  assert.ok(Math.min(...lifts) > playerRunPose(0, 0).cape + .04, 'a sprint barely moves the point off its rest pitch');
-  assert.ok(DASH_CAPE > Math.max(...lifts) && DASH_CAPE <= .23, `a dash holds the point at ${DASH_CAPE}`);
+  assert.ok(Math.min(...lifts) >= .04 && Math.max(...lifts) <= .06, `a sprint lifts the hem ${Math.min(...lifts).toFixed(3)}-${Math.max(...lifts).toFixed(3)}`);
+  assert.ok(DASH_CAPE > Math.max(...lifts) && DASH_CAPE < HEM_MAX, `a dash lifts the hem ${DASH_CAPE}`);
+});
+
+test('the free elbow opens through the run and is square at rest (plan 027)', () => {
+  for (const [i, pose] of cycle(TOP).entries()) assert.ok(pose.elbow <= -.4, `at phase ${i}/64 the elbow is only ${pose.elbow.toFixed(3)}`);
+});
+
+test('the head keeps looking along the aim while every arm\'s strike and special wind the body round (plan 027)', () => {
+  // Sampled from the real swing poses, both beats of a chain. The whirl is left out on purpose: it turns him
+  // a full circle, and the head goes round with it.
+  let wound = 0;
+  for (const weapon of Object.values(WEAPONS)) {
+    const samples: { name: string; yaw: number }[] = [];
+    for (let i = 0; i <= 60; i++) {
+      const age = weapon.duration * i / 60;
+      for (const beat of [0, 1]) samples.push({ name: `${weapon.id} strike beat ${beat} at ${age.toFixed(3)} s`, yaw: playerAttackPose(age, weapon, beat).bodyYaw });
+      if (weapon.special && weapon.special.kind !== 'whirl') samples.push({ name: `${weapon.id} special at ${age.toFixed(3)} s`, yaw: playerSpecialPose(age, weapon, weapon.special.kind).bodyYaw });
+    }
+    for (const { name, yaw } of samples) {
+      wound = Math.max(wound, Math.abs(yaw));
+      const look = headLook(yaw, 0);
+      assert.ok(Math.abs(yaw + look.yaw) <= .25, `${name}: the torso turns ${yaw.toFixed(2)} and the head looks ${(yaw + look.yaw).toFixed(2)} off the aim`);
+    }
+  }
+  assert.ok(wound > .3, `precondition: some swing winds the torso past .3 (the most was ${wound.toFixed(2)}), or the head had nothing to hold`);
+  assert.deepEqual([headLook(0, 0).yaw, headLook(0, 0).pitch].map(Math.abs), [0, 0], 'the head turns at rest');
+});
+
+test('the idle breath is a small, slow cycle that averages to nothing and stops while he moves (plan 027)', () => {
+  const samples = Array.from({ length: 400 }, (_, i) => idleBreath(i * BREATH_PERIOD / 400, 1));
+  const mean = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
+  assert.ok(Math.max(...samples.map(s => Math.abs(s.lift))) > .005, 'precondition: a still knight breathes at all');
+  assert.ok(Math.max(...samples.map(s => Math.abs(s.lift))) <= .006, 'the breath lifts more than .006');
+  assert.ok(Math.max(...samples.map(s => Math.abs(s.nod))) <= .03, 'the breath nods more than .03');
+  assert.ok(Math.abs(mean(samples.map(s => s.lift))) < 1e-6 && Math.abs(mean(samples.map(s => s.nod))) < 1e-6, 'the breath drifts over a cycle');
+  for (let i = 0; i < 40; i++) { const moving = idleBreath(i * .37, 0); assert.ok(moving.lift === 0 && moving.nod === 0, `the breath runs at ${(i * .37).toFixed(2)} s while he moves`); }
 });
