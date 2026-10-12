@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import * as THREE from 'three';
 import { alertTexture, laneTelegraphTexture, telegraphTexture, vaultEnvironment } from './dungeon-art';
 import { planPavingPatches } from './dungeon-paving-layout';
-import { makeKnight } from './dungeon-knight';
+import { makeKnight, SWORD_PIVOT } from './dungeon-knight';
 import { impactEffects } from './dungeon-impact';
 import { footstepEffects } from './dungeon-footsteps';
 import { footfalls, footSupport, type FootstepKind } from './dungeon-footstep-rules';
@@ -16,7 +16,6 @@ import { bloodDecals } from './dungeon-blood';
 import { getFlagstoneTexturesSteps, getMasonryTexturesSteps } from './dungeon-textures';
 import { createDungeonAudio } from './dungeon-audio';
 import { createCutawayController, CUTAWAY_ENEMY_RANGE, type CutawayEnemyCandidate } from './dungeon-occlusion';
-import { animateCloth } from './dungeon-motion';
 import { altarHall, bodyRadius, canStand, dealBosses, dealRewards, gateRacks, generateFloor, hallShrines, hasClearPath, moveOnFloor, parseBoss, cellKey, TILE, type Door, type Floor } from './dungeon-floor';
 import { FINAL_BOSS } from './dungeon-bestiary';
 import { arenaFloor, parseArena, type Arena } from './dungeon-arena';
@@ -36,7 +35,7 @@ import { chainLength, chargeLevel, chargeReleases, devStartingArm, drawDamage, d
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
 import { ARROW_POOL, deathPool, fanHeadings, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, laneLength, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, type Mark, type Pool, type Shot } from './dungeon-projectile';
 import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
-import { DASH_CAPE, playerRunPose, strideRate } from './dungeon-run-pose';
+import { playerRunPose, strideRate } from './dungeon-run-pose';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { createSparks } from './dungeon-sparks';
 import { serialiseRunExport } from './dungeon-run-export';
@@ -1020,7 +1019,7 @@ export default function DungeonGame() {
     const posePlayer=(age:number)=>{
       const pose=poseAt(age),sword=player.userData.sword as THREE.Group;
       sword.rotation.set(pose.swordPitch,pose.swordYaw,pose.swordRoll);
-      sword.position.set(.44,.3,-.02-pose.armReach);
+      sword.position.set(SWORD_PIVOT.x,SWORD_PIVOT.y,SWORD_PIVOT.z-pose.armReach);
       sword.scale.z=1+run.reach*.5;
       player.userData.torso.rotation.set(0,pose.bodyYaw,pose.bodyRoll);
       if(age===0&&charging===null){player.userData.torso.rotation.x=locomotion.pitch;player.userData.torso.rotation.y+=locomotion.twist;sword.rotation.x+=locomotion.swordPitch;}
@@ -1911,7 +1910,6 @@ export default function DungeonGame() {
       const torchFlicker = (i: number) => 34 + Math.sin(t * 9 + i * 2.2) * 2.6 + Math.sin(t * 17) * 0.9;
       if (stage.water) stage.water.position.y = -2.8 + Math.sin(t * 0.9) * 0.05;
       if (stage.tide) stage.tide.time.value=t;
-      animateCloth(player.userData.cape,t,pc.dashTime>0?.32:velocity.lengthSq()>0?.16:.045);
       trailClock-=dt;
       // The Vault leaves the dash's streaks along its hop, so the frame it lands on still shows the way it came.
       const hopping=pc.swingKind==='special'&&pc.attackTime>0&&!!vault&&!vault.landed&&vault.distance>0&&pc.swing.duration-pc.attackTime>pc.swing.anticipation;
@@ -2132,8 +2130,6 @@ export default function DungeonGame() {
         player.userData.tabard.rotation.x=Math.max(0,...player.userData.legs.map((leg:THREE.Group)=>leg.rotation.x))*.85;
         player.position.y = 0.03 + locomotion.height + Math.sin(t*2.4)*.012*Math.max(0,1-gaitSpeed) + (pc.swingKind === 'special' && pc.attackTime > 0 && vault && pc.weapon.special ? vaultHeight(pc.weapon.special, pc.swing.anticipation, pc.swing.duration - pc.attackTime) : 0);
         player.rotation.x = THREE.MathUtils.damp(player.rotation.x, pc.dashTime > 0 ? -0.3 : 0, 24, dt);
-        // The poncho's back point: half the long cape's damp (16), so a change of pace reaches it a beat late.
-        player.userData.cape.rotation.x = THREE.MathUtils.damp(player.userData.cape.rotation.x, pc.dashTime > 0 ? -DASH_CAPE : -locomotion.cape, 8, dt);
         // Plan 008: the SAME crossing the step sound plays on, resolved only now that the legs and the
         // body carry this update's pose, so the sole's world point is not last frame's. The boot's own
         // x/z, the support's sampled top for y; no support or a veil pending means no effect.

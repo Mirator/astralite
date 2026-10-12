@@ -158,3 +158,62 @@ test('the knight is baked within his budgets and stands where he did', () => {
   // The explorer stands where the knight did, within 0.08.
   assert.ok(Math.abs(knight.height - BEFORE.height) <= 0.08, `the knight stands ${knight.height.toFixed(4)} tall against ${BEFORE.height}`);
 });
+
+// Plan 027 Stage A: the Relic Seeker's proportions and his poncho, measured off the built tree. Everything
+// these read is what the scene draws: the cloak's meshes are kept out of the bake by name, the head is its
+// own baked group, the chin is a bare node at the face's lowest point, and the sash is the torso's red batch.
+const relic = () => {
+  const knight = makeKnight(); knight.position.y = .03; knight.updateWorldMatrix(true, true);
+  const cloak = knight.userData.cloak as THREE.Group, torso = knight.userData.torso as THREE.Group;
+  const named = (name: string) => cloak.children.find(child => child.name === name) as THREE.Mesh | undefined;
+  const sash = torso.children.find(child => child instanceof THREE.Mesh && ((child.material as THREE.MeshStandardMaterial).color?.getHex() === 0x963f32)) as THREE.Mesh | undefined;
+  return { knight, cloak, torso, poncho: named('poncho'), trim: named('poncho-trim'), cowl: named('cowl'), sash };
+};
+// The lathe's vertices column by column (seventeen columns: the last closes the seam on the first), each
+// column's lowest world y. Grouped by index, not by angle: the baked front-to-back depth moves the angles.
+const COLUMNS = 16;
+function hemByColumn(poncho: THREE.Mesh) {
+  const positions = poncho.geometry.getAttribute('position'), rings = positions.count / (COLUMNS + 1), low = Array<number>(COLUMNS).fill(Infinity), v = new THREE.Vector3();
+  assert.ok(Number.isInteger(rings) && rings >= 3, `precondition: the poncho is a ${COLUMNS}-column lathe (${positions.count} vertices)`);
+  for (let i = 0; i < positions.count; i++) { const column = Math.floor(i / rings) % COLUMNS; low[column] = Math.min(low[column]!, v.fromBufferAttribute(positions, i).applyMatrix4(poncho.matrixWorld).y); }
+  return low;
+}
+
+test('the Relic Seeker stands on long legs under a poncho narrow enough for his head to lead (plan 027)', () => {
+  const { knight, poncho, trim } = relic();
+  assert.ok(poncho && trim, 'precondition: the poncho and its trim are found by name under userData.cloak');
+  assert.ok(poncho.geometry.getAttribute('position').count >= 16 * 5, `precondition: the poncho has ${poncho.geometry.getAttribute('position').count} vertices, too few for a 16-column lathe`);
+  const box = new THREE.Box3();
+  knight.traverse((o) => { if (o instanceof THREE.Mesh && o.visible && (o.material as THREE.Material).blending !== THREE.MultiplyBlending) box.union(new THREE.Box3().setFromObject(o, true)); });
+  const height = box.max.y - box.min.y, hip = (knight.userData.legs[0] as THREE.Object3D).getWorldPosition(new THREE.Vector3()).y;
+  // Measured 2026-10-12 (node): hip pivot .78, sole .09, height 1.822, leg share .379; before plan 027 .263.
+  assert.ok((hip - box.min.y) / height >= .36, `the legs are only ${((hip - box.min.y) / height).toFixed(3)} of his height`);
+  // Poncho and trim reach x .392 (before: .47). The head's width (ears in) over the hem's: .494 (before: .412).
+  const half = Math.max(...[poncho, trim].map(m => { const b = new THREE.Box3().setFromObject(m, true); return Math.max(b.max.x, -b.min.x); }));
+  assert.ok(half <= .4, `the poncho spreads ${half.toFixed(3)} either side`);
+  const head = new THREE.Box3().setFromObject(knight.userData.head as THREE.Object3D, true), ratio = (head.max.x - head.min.x) / (2 * half);
+  assert.ok(ratio >= .47, `the head is only ${ratio.toFixed(3)} of the poncho's width`);
+});
+
+test('the poncho hangs one long point at the front and one at the back below the sash, its corners at the elbow (plan 027)', () => {
+  const { poncho, sash } = relic();
+  assert.ok(poncho && sash, 'precondition: the poncho and the sash batch are found');
+  const low = hemByColumn(poncho), sashBottom = new THREE.Box3().setFromObject(sash, true).min.y;
+  // Measured 2026-10-12 (node, standing at .03): front .78, back .80, diagonals .97, the sash's batch from .825.
+  const within = (column: number, name: string, from: number, to: number) => assert.ok(low[column]! >= from && low[column]! <= to, `the ${name} (column ${column}) hangs to ${low[column]!.toFixed(3)}, outside ${from}-${to}`);
+  within(8, 'front point', .74, .82); within(0, 'back point', .74, .84);
+  for (const column of [2, 6, 10, 14]) within(column, 'diagonal corner', .92, 1);
+  for (const column of [0, 8]) assert.ok(low[column]! < sashBottom, `column ${column}'s point ends at ${low[column]!.toFixed(3)}, not below the sash (${sashBottom.toFixed(3)})`);
+});
+
+test('the cowl sits low enough at the front for the chin and the throat to show (plan 027)', () => {
+  const { knight, cowl } = relic(), chin = knight.userData.chin as THREE.Object3D | undefined;
+  assert.ok(cowl && chin, 'precondition: the cowl mesh and the chin node are found');
+  const positions = cowl.geometry.getAttribute('position'), v = new THREE.Vector3();
+  let top = -Infinity, front = 0;
+  for (let i = 0; i < positions.count; i++) { v.fromBufferAttribute(positions, i); if (v.z < 0) { front++; top = Math.max(top, v.applyMatrix4(cowl.matrixWorld).y); } }
+  assert.ok(front > 0, 'precondition: the cowl has vertices in front of the neck');
+  // Measured 2026-10-12: the cowl's front top 1.390 against the chin at 1.450 (before: .015 under).
+  const gap = chin.getWorldPosition(new THREE.Vector3()).y - top;
+  assert.ok(gap >= .05, `the cowl's front rises to ${gap.toFixed(3)} under the chin`);
+});
