@@ -255,7 +255,10 @@ test.describe('the player reads as cloth, face and hair, not one bright shape', 
       [chin, brow, hem].map(e => `; ${e.a}/${e.b} edge L*${e.La?.toFixed(1)} over ${e.na} px against L*${e.Lb?.toFixed(1)} over ${e.nb} px`).join('');
     console.log(`player values: ${numbers}`);
     // Preconditions: every part this reads was found on screen, at about half the pixels each covered when measured.
-    for (const [name, part, least] of [['poncho', ochre, 400], ['cowl', cowl, 120], ['face', skin, 140], ['tunic', pale, 180], ['hair', hair, 120]] as const) {
+    // Plan 030 drew him to the sheet's seven heads, and from the game camera his head covers a third of the pixels it did:
+    // the face 41 px and the hair 82 (SwiftShader, 2026-10-12; about 280 and 240 before, by these floors' own rule), so
+    // their floors are half the new readings.
+    for (const [name, part, least] of [['poncho', ochre, 400], ['cowl', cowl, 120], ['face', skin, 20], ['tunic', pale, 180], ['hair', hair, 40]] as const) {
       expect(part?.pixels ?? 0, `precondition: the ${name} covers too few pixels to read (${numbers})`).toBeGreaterThan(least);
     }
     // The poncho meets the tunic over the fewest pixels: 30 and 33 since the plan 028 follow-up slimmed him (88 and 60 before).
@@ -265,6 +268,8 @@ test.describe('the player reads as cloth, face and hair, not one bright shape', 
     // the tunic's 72.6 (8.9). Plan 027's palette read 58% clipped, poncho 86, the chin 88 over 82; a first cut of plan 028
     // greyed the tunic to L*47 and its edge with the poncho to 51 against 52. The plan 028 follow-up that slimmed him (same palette): 1.9% clipped,
     // poncho 67, tunic 68, the chin 61.5 over 46.2, the hem edge 47.1 against 70.9.
+    // Plan 030 (the sheet's proportions, flat-shaded cloth and skin, a redder ochre, SwiftShader, 2026-10-12): 1.5% clipped,
+    // poncho 64, tunic 63, the chin 61.4 over the cowl's 40.6, the brow 61.5 over the hair's 40.5, the hem edge 58.2 against 79.6.
     // Little of him lit off the top of the range.
     expect(read.body.clipped, `${(read.body.clipped * 100).toFixed(1)}% of him is at the top of the range (${numbers})`).toBeLessThan(.03);
     // The poncho is ochre, not yellow and not mud: bounded both sides, so a figure drawn black fails as surely as a blown-out one.

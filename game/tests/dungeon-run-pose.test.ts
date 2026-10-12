@@ -44,7 +44,7 @@ test('the running cycle alternates legs, loops continuously and settles to neutr
     assert.ok(Math.abs(pose.legs[0].knee - loop.legs[0].knee) < 1e-12);
     // Standing still is the idle pose sprint.spec.ts waits for: no lean, no fold, no swing, whatever the phase.
     const rest = playerRunPose(phase, 0);
-    assert.deepEqual([rest.sprint, rest.height, rest.pitch, rest.twist, rest.arm, rest.elbow, rest.swordPitch, rest.cape].map(Math.abs), [0, 0, 0, 0, 0, 0, 0, 0]);
+    assert.deepEqual([rest.sprint, rest.height, rest.pitch, rest.twist, rest.arm, rest.elbow, rest.swordPitch, rest.cape, rest.nod, rest.sway].map(Math.abs), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     assert.ok(rest.legs.every(leg => Math.abs(leg.hip) + Math.abs(leg.knee) === 0));
   }
 });
@@ -71,8 +71,27 @@ test('the poncho\'s hem is lifted back a few centimetres by a sprint and more by
   assert.ok(DASH_CAPE > Math.max(...lifts) && DASH_CAPE < HEM_MAX, `a dash lifts the hem ${DASH_CAPE}`);
 });
 
-test('the free elbow opens through the run and is square at rest (plan 027)', () => {
-  for (const [i, pose] of cycle(TOP).entries()) assert.ok(pose.elbow <= -.4, `at phase ${i}/64 the elbow is only ${pose.elbow.toFixed(3)}`);
+test('the free elbow bends through the run and hangs straight at rest (plan 030)', () => {
+  // Plan 030: the elbow flexes forward from a straight arm (positive), as the sheet's arms hang; plan 027's opened down
+  // from a square bend (negative). A runner's bend, over half a radian at every phase of a sprint.
+  for (const [i, pose] of cycle(TOP).entries()) assert.ok(pose.elbow >= .7 && pose.elbow <= 1.3, `at phase ${i}/64 the elbow bends ${pose.elbow.toFixed(3)}`);
+  assert.equal(playerRunPose(1, 0).elbow, 0, 'the elbow bends at rest');
+});
+
+test('the shoulders counter-rotate against the legs, about 15 degrees each way at a sprint (plan 030)', () => {
+  // The critic read plan 027's 5 degrees as a torso carried rigid on the legs. The sword shoulder comes forward (positive
+  // yaw) with the left leg (legs[0], forward at a positive hip).
+  const poses = cycle(TOP), peak = Math.max(...poses.map(p => Math.abs(p.twist)));
+  assert.ok(peak >= .22 && peak <= .3, `the shoulders turn ${peak.toFixed(3)} at most`);
+  for (const pose of poses) if (Math.abs(pose.legs[0].hip - pose.legs[1].hip) > .5) assert.ok(Math.sign(pose.twist) === Math.sign(pose.legs[0].hip - pose.legs[1].hip), `the shoulders turn ${pose.twist.toFixed(3)} with the left leg at ${pose.legs[0].hip.toFixed(3)}`);
+});
+
+test('the stride sways the poncho across him, both ways, and not at all standing (plan 030)', () => {
+  const sways = cycle(TOP).map(p => p.sway);
+  // A drive, not where the hem gets to: the spring takes it down to under half and a quarter cycle late, and
+  // dungeon-cloth.test.ts holds what reaches the hem.
+  assert.ok(Math.max(...sways) >= .15 && Math.min(...sways) <= -.15, `a sprint drives the hem ${Math.min(...sways).toFixed(3)} to ${Math.max(...sways).toFixed(3)} across`);
+  assert.equal(playerRunPose(1, 0).sway, 0, 'the hem sways standing');
 });
 
 test('the head keeps looking along the aim while every arm\'s strike and special wind the body round (plan 027)', () => {

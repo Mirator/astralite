@@ -133,12 +133,12 @@ const sample = (keys: readonly Key[], t: number): Omit<PlayerAttackPose, 'trail'
  */
 const RECOVERY: readonly Key[] = [
   // The follow-through, exactly as the cut left it.
-  [0, FINISH, 0.16, -0.14, 0.34, -0.085, 0.24],
+  [0, FINISH, 0.16, -0.14, 0.4, -0.085, 0.24],
   // Carried past the finish by its own weight, arm still extended, tip already
   // coming up. The lift has to start here rather than on the next key: at this
   // yaw the blade is on the far side of whatever was struck, and flat it simply
   // vanishes behind it for three frames.
-  [0.14, FINISH + 0.14, 0.52, -0.24, 0.3, -0.05, 0.34],
+  [0.14, FINISH + 0.14, 0.52, -0.24, 0.36, -0.05, 0.34],
   // Up across the chest, and deliberately *not* drawn back inside the shoulder:
   // the hand sits off the knight's right, so an arm pulled in puts the blade
   // behind him, away from the camera, where a lifted tip is four pixels. Held
@@ -260,7 +260,8 @@ function swingPose(ageSeconds: number, weapon: Weapon): PlayerAttackPose {
       swordYaw: back * t,
       swordPitch: -0.1 * t,
       swordRoll: 0.07 * t,
-      bodyYaw: -0.2 * t,
+      // Plan 030: the torso winds 25 degrees back against the cut (plan 027's 11 read as an arm swung on a still body).
+      bodyYaw: -0.44 * t,
       bodyRoll: 0.045 * t,
       armReach: -0.05 * t,
       trail: false,
@@ -276,7 +277,8 @@ function swingPose(ageSeconds: number, weapon: Weapon): PlayerAttackPose {
       swordYaw: back + (FINISH - back) * t,
       swordPitch: -0.1 + 0.26 * t,
       swordRoll: 0.07 - 0.21 * t,
-      bodyYaw: -0.2 + 0.54 * t,
+      // ...and whips through to 23 degrees past the aim, fastest as the cut commits.
+      bodyYaw: -0.44 + 0.84 * t,
       bodyRoll: 0.045 - 0.13 * t,
       armReach: -0.05 + 0.29 * t,
       trail: true,
@@ -398,3 +400,20 @@ const WINDING: readonly Key[] = [[0, 0, 0, 0, 0, 0, 0], [0.6, -0.16, 1.1, 0.08, 
 const DRAWING: readonly Key[] = [[0, 0, 0, 0, 0, 0, 0], [0.5, -0.16, 0.2, -0.1, -0.14, 0.03, 0.1], DRAWN];
 export const chargePose = (level: number, kind: Special['kind'] = 'charge'): PlayerAttackPose =>
   ({ ...sample(kind === 'draw' ? DRAWING : WINDING, Math.min(1, Math.max(0, Number.isFinite(level) ? level : 0))), trail: false, active: false });
+
+/**
+ * Plan 030: how far into a planted stance a strike has him, 0 to 1, for the legs (presentation only, like the rest
+ * of this module): stepping into it through the wind-up, held planted from the launch to the end of the live window -
+ * the blow lands on a set front foot and holds there a few frames - and rising out of it through the first half of the
+ * recovery. A ranged arm aims from where it stands and never plants. STRIKE_STANCE is the stance itself: the left foot
+ * forward (hip, then knee, radians as the run pose gives them), the right back.
+ */
+export const STRIKE_STANCE = { hips: [0.34, -0.24], knees: [-0.12, -0.3] } as const;
+export function strikePlant(ageSeconds: number, weapon: Weapon = TIDEBLADE): number {
+  const age = finiteAge(ageSeconds);
+  if (weapon.ranged || age <= 0 || age >= weapon.duration) return 0;
+  const launch = weapon.anticipation * LAUNCH;
+  if (age < launch) return smoothstep(Math.min(1, age / Math.min(launch, WIND_BACK)));
+  if (age <= weapon.contactEnd) return 1;
+  return 1 - smoothstep(Math.min(1, Math.max(0, (age - weapon.contactEnd) / ((weapon.duration - weapon.contactEnd) * 0.5))));
+}

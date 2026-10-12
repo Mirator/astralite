@@ -24,13 +24,21 @@ export function playerRunPose(phase: number, speed: number) {
     legs,
     height: (.025 + sprint * .075) * Math.pow(Math.sin(phase), 2) * weight,
     pitch: -(.04 + sprint * .23) * weight,
-    twist: Math.sin(phase) * .08 * sprint * weight,
-    // The free arm counter-swings against the left leg, harder at a sprint.
-    arm: (.18 - Math.sin(phase) * (.5 + .2 * sprint)) * weight,
-    // Plan 027: the free arm's elbow, opened down from the rest pose's square bend as he runs (more at a
-    // sprint), with a little swing in phase with the arm. Exactly 0 standing.
-    elbow: (-(.25 + .35 * sprint) - Math.sin(phase) * .1) * weight,
+    // Plan 030: the shoulders counter-rotate against the hips, about 15 degrees each way at a sprint (the critic read
+    // plan 027's 5 as a torso carried rigid on the legs): the sword shoulder comes forward with the left leg.
+    twist: Math.sin(phase) * (.1 + .16 * sprint) * weight,
+    // The free arm counter-swings against the left leg, harder at a sprint. Plan 030: less far forward than plan 027's
+    // .88, which put the upper arm through the poncho's front now the arm hangs under it.
+    arm: (.02 - Math.sin(phase) * (.42 + .12 * sprint)) * weight,
+    // Plan 030: the free elbow flexes forward from straight (positive), a runner's bend that pumps with the arm.
+    // Exactly 0 standing, when the arm hangs straight as the sheet draws it.
+    elbow: ((.5 + .5 * sprint) + Math.sin(phase) * .15) * weight,
     swordPitch: (.48 + Math.sin(phase) * .12) * sprint * weight,
+    // Plan 030: the head nods down a little on each footfall, twice a cycle, so the bob reads on the head as well.
+    nod: Math.pow(Math.sin(phase), 2) * .05 * weight,
+    // Plan 030: metres the poncho's hem is driven to his side and back, with the stride: the hips rock it across and the
+    // spring (dungeon-cloth.ts) swings it a beat behind them.
+    sway: Math.sin(phase) * (.08 + .08 * sprint) * weight,
     cape: (.02 + .03 * sprint + Math.sin(2 * phase) * .005) * weight,
   };
 }

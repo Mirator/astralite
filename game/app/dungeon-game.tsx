@@ -30,7 +30,7 @@ import { ALERT_STAGGER, BESTIARY, bombLands, bombMarks, decideEnemy, fallOf, mov
 import { awayFrom, blastOf, bossPush, burn as burnBody, fuseStep, KEG_CHAIN, KEG_DAMAGE, KEG_FUSE, KEG_HURT, landBlow, SPIKE_DAMAGE, SPIKE_HURT, spikeBites, spikeState, strikeProp, swingProps } from './dungeon-hits';
 import { furnishFloor } from './dungeon-furnish';
 import { raiseProps, type PropsView } from './dungeon-props-view';
-import { chargePose } from './dungeon-attack-pose';
+import { chargePose, STRIKE_STANCE, strikePlant } from './dungeon-attack-pose';
 import { chainLength, chargeLevel, chargeReleases, devStartingArm, drawDamage, drawn, lungeStep, specialSwing, STARTING_WEAPON, TIDEBLADE, vaultHeight, vaultLanded, vaultStep, weaponById, type Special, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
 import { ARROW_POOL, deathPool, fanHeadings, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, laneLength, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, type Mark, type Pool, type Shot } from './dungeon-projectile';
@@ -349,6 +349,8 @@ export default function DungeonGame() {
     let specialBuffer = 0, charging: number | null = null, specialWasReady = true, glintTime = 0;
     const lungeFrom = new THREE.Vector3(), glintAt = new THREE.Vector3();
     let locomotion=playerRunPose(0,0);
+    // Plan 030: how far a strike has planted his feet (dungeon-attack-pose.ts strikePlant), set by posePlayer and read by the legs next update.
+    let planted=0;
     // Plan 027 Stage B: the poncho's hem state and the satchel's swing (dungeon-cloth.ts), how long he has stood still (for the breath), and
     // the follower behind his velocity and heading that drives them (plan 028); all reset with `locomotion`.
     let hem:Hem=HEM_REST,inertia:Inertia=INERTIA_REST,swing:Pendulum=PENDULUM_REST,still=0,breathNod=0;
@@ -1028,7 +1030,8 @@ export default function DungeonGame() {
       player.userData.torso.rotation.set(0,pose.bodyYaw,pose.bodyRoll);
       if(age===0&&charging===null){player.userData.torso.rotation.x=locomotion.pitch;player.userData.torso.rotation.y+=locomotion.twist;sword.rotation.x+=locomotion.swordPitch;}
       // Plan 027: the head turns back against the torso's wind-up so it keeps looking along the aim, and nods with the breath.
-      const look=headLook(player.userData.torso.rotation.y,player.userData.torso.rotation.x);player.userData.head.rotation.set(look.pitch+breathNod,look.yaw,0);
+      const look=headLook(player.userData.torso.rotation.y,player.userData.torso.rotation.x);player.userData.head.rotation.set(look.pitch+breathNod+(age===0&&charging===null?locomotion.nod:0),look.yaw,0);
+      planted=age>0&&pc.swingKind!=='special'?strikePlant(age,pc.swing):0;
       return pose;
     };
     // Plan 027 Stage B: writes the hem state into every cloak mesh the scene draws, from the rest positions the knight kept (swayCloth).
@@ -1393,7 +1396,7 @@ export default function DungeonGame() {
       run = createRun(start); remember(meta); boonsTaken = [];
       endSpecial(); specialWasReady = true;
       resetControl(pc); hurtFlash = 0; shake = 0; clearShots();
-      walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); hem=HEM_REST; inertia=INERTIA_REST; swing=PENDULUM_REST; still=0; breathNod=0; swayCloak(); player.userData.arm.userData.elbow.rotation.x=0; player.userData.satchel.rotation.set(0,0,0); player.userData.cloak.position.y=0; player.userData.head.position.y=headRestY; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
+      walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); hem=HEM_REST; inertia=INERTIA_REST; swing=PENDULUM_REST; still=0; breathNod=0; planted=0; swayCloak(); player.userData.arm.userData.elbow.rotation.x=0; player.userData.satchel.rotation.set(0,0,0); player.userData.cloak.position.y=0; player.userData.head.position.y=headRestY; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
       footsteps.reset(); stepLog = { contacts: 0, skipped: 0, kinds: { keep: 0, ruins: 0, flooded: 0 }, last: null };
       isPaused = false; keys.clear(); velocity.set(0, 0, 0);
       faceStart(pc);
@@ -2133,10 +2136,14 @@ export default function DungeonGame() {
         if(groundSpeed>.05)walkPhase+=travelled*strideRate(gaitSpeed);
         if(Math.floor((previousPhase+Math.PI/2)/Math.PI)!==Math.floor((walkPhase+Math.PI/2)/Math.PI))audio.play('step');
         locomotion=playerRunPose(walkPhase,gaitSpeed);
-        player.userData.legs.forEach((leg: THREE.Group, i: number) => { leg.rotation.x = THREE.MathUtils.damp(leg.rotation.x, locomotion.legs[i].hip, 28, dt);leg.userData.knee.rotation.x=THREE.MathUtils.damp(leg.userData.knee.rotation.x,locomotion.legs[i].knee,28,dt); });
-        player.userData.arm.rotation.x=THREE.MathUtils.damp(player.userData.arm.rotation.x,pc.attackTime>0?-.35:locomotion.arm,20,dt);
+        // Plan 030: a strike steps into a planted stance, standing; at a run the stride keeps the legs.
+        const plant=planted*(1-Math.min(1,gaitSpeed/2));
+        player.userData.legs.forEach((leg: THREE.Group, i: number) => { leg.rotation.x = THREE.MathUtils.damp(leg.rotation.x, THREE.MathUtils.lerp(locomotion.legs[i].hip,STRIKE_STANCE.hips[i]!,plant), 28, dt);leg.userData.knee.rotation.x=THREE.MathUtils.damp(leg.userData.knee.rotation.x,THREE.MathUtils.lerp(locomotion.legs[i].knee,STRIKE_STANCE.knees[i]!,plant),28,dt); });
+        // Plan 030: in a swing the free arm comes forward and bends for balance (it was held back, into the poncho's side point).
+        player.userData.arm.rotation.x=THREE.MathUtils.damp(player.userData.arm.rotation.x,pc.attackTime>0?.2:locomotion.arm,20,dt);
         // Plan 013: the tabard is rigid plate, so it swings out ahead of whichever thigh leads rather than let it through.
-        player.userData.tabard.rotation.x=Math.max(0,...player.userData.legs.map((leg:THREE.Group)=>leg.rotation.x))*.85;
+        // Plan 030: and the sash's tails and the flap trail the hem's state, thrown forward by a stop and across by the stride.
+        player.userData.tabard.rotation.x=Math.max(0,...player.userData.legs.map((leg:THREE.Group)=>leg.rotation.x))*.85+Math.max(0,-hem.z)*2;player.userData.tabard.rotation.z=hem.x*2.5;
         player.position.y = 0.03 + locomotion.height + Math.sin(t*2.4)*.012*Math.max(0,1-gaitSpeed) + (pc.swingKind === 'special' && pc.attackTime > 0 && vault && pc.weapon.special ? vaultHeight(pc.weapon.special, pc.swing.anticipation, pc.swing.duration - pc.attackTime) : 0);
         player.rotation.x = THREE.MathUtils.damp(player.rotation.x, pc.dashTime > 0 ? -0.3 : 0, 24, dt);
         // Plan 027 Stage B: the hem trails the body's acceleration (rotated into his own frame) and his turn, and is lifted back by the run or the dash;
@@ -2144,8 +2151,8 @@ export default function DungeonGame() {
         // Plan 028: driven by the lag of a follower behind his velocity and heading (dungeon-cloth.ts followBody), not by differentiating them: the game changes both
         // within a frame, and the raw derivative flicked the hem and the bag to their clamps on the first frame of every start, turn and stop.
         if(dt>0){const yaw=player.rotation.y,c=Math.cos(yaw),s=Math.sin(yaw),heading=yaw+player.userData.torso.rotation.y;inertia=followBody(inertia,velocity,heading,dt);const lag=bodyLag(inertia,velocity,heading),ax=lag.accel.x,az=lag.accel.z,accel={x:ax*c-az*s,z:ax*s+az*c};
-          hem=stepHem(hem,hemDrive({accel,yawRate:lag.yawRate,lift:pc.dashTime>0?DASH_CAPE:locomotion.cape}),dt);swing=stepPendulum(swing,swingDrive(accel,locomotion.legs[1].hip),dt);swayCloak();}
-        player.userData.arm.userData.elbow.rotation.x=THREE.MathUtils.damp(player.userData.arm.userData.elbow.rotation.x,pc.attackTime>0?-.2:locomotion.elbow,20,dt);
+          hem=stepHem(hem,hemDrive({accel,yawRate:lag.yawRate,lift:pc.dashTime>0?DASH_CAPE:locomotion.cape,sway:locomotion.sway}),dt);swing=stepPendulum(swing,swingDrive(accel,locomotion.legs[1].hip),dt);swayCloak();}
+        player.userData.arm.userData.elbow.rotation.x=THREE.MathUtils.damp(player.userData.arm.userData.elbow.rotation.x,pc.attackTime>0?.6:locomotion.elbow,20,dt);
         player.userData.satchel.rotation.set(swing.x,0,swing.z);
         still=THREE.MathUtils.damp(still,gaitSpeed<.05&&pc.attackTime<=0&&pc.dashTime<=0?1:0,4,dt);
         {const breath=idleBreath(t,still);breathNod=breath.nod;player.userData.cloak.position.y=breath.lift;player.userData.head.position.y=headRestY+breath.lift;}

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { playerRunPose, strideRate } from '../app/dungeon-run-pose.ts';
 import { HEM_MAX, HEM_REST, INERTIA_REST, PENDULUM_REST, SWING_MAX, bodyLag, followBody, hemDrive, stepHem, stepPendulum, swingDrive, type Hem, type Inertia, type Pendulum } from '../app/dungeon-cloth.ts';
 
 // Plan 027 Stage B: the poncho's hem state and the satchel's swing (dungeon-cloth.ts), the springs the game
@@ -12,7 +13,8 @@ const run = (hem: Hem, drive: { x: number; z: number }, seconds: number, dt = 1 
 
 test('the hem lags a step in the drive, overshoots it a little and settles on it', () => {
   const drive = { x: 0, z: .06 }, dt = 1 / 60, { trace } = run(HEM_REST, drive, 1, dt), at = (s: number) => trace[Math.round(s / dt) - 1]!.z;
-  // Measured 2026-10-12 (node, 60 Hz): 8% of the step at .05 s, 106% at .6 s, a peak of 109% at .48 s.
+  // Measured 2026-10-12 (node, 60 Hz): 8% of the step at .05 s, 106% at .6 s, a peak of 109% at .48 s. Plan 030's
+  // stiffer spring (10 rad/s at .5): 12% at .05 s, 100% at .6 s, a peak of 116% at .35 s.
   assert.ok(at(.05) < .5 * drive.z, `the hem has already reached ${(at(.05) / drive.z * 100).toFixed(0)}% of the step at .05 s`);
   assert.ok(at(.6) >= .9 * drive.z, `the hem has reached only ${(at(.6) / drive.z * 100).toFixed(0)}% of the step at .6 s`);
   const peak = Math.max(...trace.map(h => h.z));
@@ -102,4 +104,25 @@ test('a sprint\'s start swings the satchel without slamming it to its clamp (pla
   const swing = peakOf(start(8.5, 60).map(f => f.swing)).value;
   assert.ok(swing > .05, `precondition: the start swung the bag only ${swing.toFixed(3)} rad`);
   assert.ok(swing < SWING_MAX.x * .9, `a start swings the bag ${swing.toFixed(3)} rad, at its clamp`);
+});
+
+test('a sprint swings the hem across him a few frames behind the stride, without reaching the clamp (plan 030)', () => {
+  // The run pose's sway and lift through the spring, at 60 Hz, after two seconds of sprinting. The critic saw plan 028's
+  // poncho stay rigid running: its spring (8 rad/s at .6) and no stride drive moved the hem .005 across.
+  let hem: Hem = HEM_REST, phase = 0, peak = 0;
+  const drive: number[] = [], across: number[] = [], dt = 1 / 60;
+  for (let frame = 0; frame < 240; frame++) {
+    phase += 8.5 * dt * strideRate(8.5);
+    const pose = playerRunPose(phase, 8.5);
+    hem = stepHem(hem, hemDrive({ accel: { x: 0, z: 0 }, yawRate: 0, lift: pose.cape, sway: pose.sway }), dt);
+    if (frame >= 120) { drive.push(pose.sway); across.push(hem.x); peak = Math.max(peak, Math.hypot(hem.x, hem.z)); }
+  }
+  assert.ok(Math.max(...drive) > .1, 'precondition: the stride drives the hem across');
+  // Measured 2026-10-12 (node): .070 either way, .086 at its farthest, 8 frames behind.
+  assert.ok(Math.max(...across) >= .05 && Math.min(...across) <= -.05, `the hem swings only ${Math.min(...across).toFixed(3)} to ${Math.max(...across).toFixed(3)} across`);
+  assert.ok(peak < HEM_MAX - .01, `the swing reaches ${peak.toFixed(3)}, at the clamp`);
+  // How far behind the stride: the shift (in frames) that best lines the hem up with its drive.
+  let lag = 0, best = -Infinity;
+  for (let shift = 0; shift < 20; shift++) { let sum = 0; for (let i = shift; i < across.length; i++) sum += across[i]! * drive[i - shift]!; if (sum > best) { best = sum; lag = shift; } }
+  assert.ok(lag >= 3 && lag <= 10, `the hem follows the stride ${lag} frames behind`);
 });

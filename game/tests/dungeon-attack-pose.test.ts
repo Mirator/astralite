@@ -5,8 +5,9 @@ import {
   PLAYER_ATTACK_CONTACT_END,
   PLAYER_ATTACK_LAUNCH,
   playerAttackPose,
+  strikePlant,
 } from '../app/dungeon-attack-pose.ts';
-import { TIDEBLADE } from '../app/dungeon-weapon.ts';
+import { TIDEBLADE, WEAPONS } from '../app/dungeon-weapon.ts';
 
 // The two windows are no longer the same window. Damage is combat's and still
 // runs from the anticipation to the contact end; the trail is the eye's and
@@ -58,4 +59,28 @@ test('an odd beat is the same cut from the other shoulder', () => {
   assert.equal(third.swordYaw, first.swordYaw);
   // And the default is the unmirrored swing every arm had before strings existed.
   assert.deepEqual(playerAttackPose(age, TIDEBLADE), first);
+});
+
+// Plan 030: the critic read the strike as an arm swung on a still torso. The body winds 25 degrees back against the
+// cut and whips through past the aim, so the torso turns about 48 degrees through the swing (plan 027: 31).
+test('a strike winds the torso back about 25 degrees and whips it through past the aim (plan 030)', () => {
+  const ages = Array.from({ length: 121 }, (_, i) => TIDEBLADE.duration * i / 120), yaws = ages.map(age => playerAttackPose(age).bodyYaw);
+  const wound = Math.min(...yaws), through = Math.max(...yaws);
+  assert.ok(wound <= -.42, `the wind-up turns the torso only ${wound.toFixed(3)}`);
+  assert.ok(through >= .38, `the cut carries the torso only ${through.toFixed(3)} past the aim`);
+  // The deepest wind is before the blade goes live and the furthest turn after it: a whip, not a drift.
+  assert.ok(ages[yaws.indexOf(wound)]! < TIDEBLADE.anticipation && ages[yaws.indexOf(through)]! >= TIDEBLADE.anticipation, 'the torso winds after the blow or whips before it');
+});
+
+test('a strike plants his feet through the live window and lets them go in the recovery; a ranged arm never plants (plan 030)', () => {
+  for (const weapon of Object.values(WEAPONS)) {
+    const live = Array.from({ length: 11 }, (_, i) => weapon.anticipation + (weapon.contactEnd - weapon.anticipation) * i / 10).map(age => strikePlant(age, weapon));
+    if (weapon.ranged) { assert.ok(live.every(p => p === 0), `${weapon.id} plants its feet to shoot`); continue; }
+    // Held through the whole live window: the blow lands on a set front foot and holds there.
+    assert.ok(live.every(p => p === 1), `${weapon.id} is only ${Math.min(...live).toFixed(2)} planted while the blow is live`);
+    assert.ok(strikePlant(weapon.anticipation * .1, weapon) < 1, `${weapon.id} is planted on the first frame of the wind-up`);
+    assert.equal(strikePlant(weapon.duration - .001, weapon), 0, `${weapon.id} is still planted at the end of its recovery`);
+  }
+  assert.ok(Object.values(WEAPONS).some(w => w.ranged) && Object.values(WEAPONS).some(w => !w.ranged), 'precondition: the armoury has ranged and swung arms');
+  assert.deepEqual([strikePlant(0), strikePlant(-1), strikePlant(Number.NaN), strikePlant(TIDEBLADE.duration)], [0, 0, 0, 0], 'the feet plant outside a swing');
 });

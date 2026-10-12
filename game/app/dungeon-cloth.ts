@@ -13,10 +13,12 @@ export type Hem = { x: number; z: number; vx: number; vz: number };
 export const HEM_REST: Hem = Object.freeze({ x: 0, z: 0, vx: 0, vz: 0 });
 /** The furthest the hem is ever displaced: a dash's lift and a hard start both clamp here. */
 export const HEM_MAX = .12;
-// The spring: 8 rad/s at a damping ratio of .6 - it reaches a step in about a quarter second and overshoots it
-// by a tenth, and a hem thrown to the clamp by a hard stop is back within a centimetre of rest in 700 ms
-// (sprint.spec.ts reads it there; .5 left it at .0095).
-const OMEGA = 8, ZETA = .6, SUBSTEP = 1 / 120;
+// The spring: 10 rad/s at a damping ratio of .5 - it reaches a step in about a fifth of a second and overshoots it
+// by a sixth, and a hem thrown to the clamp by a hard stop is back within a centimetre of rest in 700 ms
+// (sprint.spec.ts reads it there). Plan 030 raised it from 8 rad/s at .6 (plan 027): the stride's sway (the run pose's
+// `sway`, about 2.6 cycles a second at a sprint) reached the hem at a quarter of its size through the slower spring and
+// the critic saw no cloth move; at 10 and .5 it arrives at .42 of its size and about a quarter cycle late.
+const OMEGA = 10, ZETA = .5, SUBSTEP = 1 / 120;
 
 /** Advances the hem towards `drive` by `dt` seconds, in substeps of at most 1/120 s so a 30 Hz frame and a
  *  144 Hz one land in the same place, and clamps it to HEM_MAX (a clamped hem stops moving outwards). */
@@ -45,13 +47,14 @@ const ACCEL_GAIN = .0012, TURN_GAIN = .004;
 /** The most the body's acceleration and turn together pull the hem, in metres, before any lift (plan 028). */
 export const INERTIA_MAX = .04;
 /** Where the hem is pulled to, torso-local: away from the body's acceleration (so a start leaves it behind
- *  and a stop throws it forward), out against a turn, and back by `lift` (the run pose's `cape`, or
- *  DASH_CAPE in a dash: metres of trail). The acceleration and turn part is capped at INERTIA_MAX. */
-export function hemDrive(input: { accel: { x: number; z: number }; yawRate: number; lift: number }): { x: number; z: number } {
+ *  and a stop throws it forward), out against a turn, back by `lift` (the run pose's `cape`, or
+ *  DASH_CAPE in a dash: metres of trail) and across by `sway` (the run pose's stride sway, plan 030). The
+ *  acceleration and turn part is capped at INERTIA_MAX. */
+export function hemDrive(input: { accel: { x: number; z: number }; yawRate: number; lift: number; sway?: number }): { x: number; z: number } {
   let x = -input.accel.x * ACCEL_GAIN - input.yawRate * TURN_GAIN, z = -input.accel.z * ACCEL_GAIN;
   const pull = Math.hypot(x, z);
   if (pull > INERTIA_MAX) { x *= INERTIA_MAX / pull; z *= INERTIA_MAX / pull; }
-  return { x, z: z + input.lift };
+  return { x: x + (input.sway ?? 0), z: z + input.lift };
 }
 
 /** The body's velocity (world, m/s) and heading (radians), followed with a lag (plan 028). */

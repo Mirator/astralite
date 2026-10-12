@@ -7018,3 +7018,73 @@ Checks:
 - frame budgets unchanged (397 / 442 calls, the same triangles);
 - the values gate's poncho/tunic edge now meets over 30-33 px (was 60-88), so its precondition floor went from 40 to
   20. The step at that edge is clearer, 47.1 against 70.9.
+
+## 2026-10-12 — the Relic Seeker drawn to the turnaround sheet (plan 030, round 1)
+
+A blind critic scored plan 028's figure 37% against `plans/relic-seeker-turnaround.png` (proportions 30, poncho and cowl
+30, head 35, underlayers 35, palette 55, motion 45). The operator: satchel and strap may be ignored, everything else
+should match. Owner decision 2026-10-12: the player's budget is five times the model-round figure, 320 meshes and 49,875
+triangles. This round rebuilt `dungeon-knight.ts` and retuned the motion.
+
+Shape (node, sole to hair 1.822, the knight's height):
+- proportions off the sheet's front view: hip joints .472 of his height up (sheet .47, plan 027 .38), shoulders .730
+  (.75), the head chin-to-hair .159 (.145, plan 027 about .25). Torso joint at the sash, 1.13;
+- the poncho is a 32-column grid built by hand rather than a turned lathe: four points (front at the sash, back to .83,
+  one at each side behind the arm to .94) and high notches at the elbows where the arms come out; broad shallow
+  shoulders, a flared drape, jittered facets. A cream edge band along the hem and a zigzag band inset above it (one
+  mesh, laid on the drape through the grid as built);
+- a thick cowl, its section swept round the neck (low at the front so the collar shows, up to the jaw at the sides),
+  and a hood gathered behind the neck to the shoulder blades, in one mesh. The cowl no longer casts a shadow: it blacked
+  itself and the yoke out under the key light;
+- the head: a jawed, chinned face, nose, dark eyes, brows, mouth, ears; a hair cap with seventeen chunky shards swept
+  up and back (a third in a lighter tip brown), five fringe locks and two over the ears;
+- tapered sleeves with a rolled, puffed cuff at the elbow; bare forearms, dark wrist wraps with two teal bands, hands;
+  the sword hand moved in and forward (SWORD_PIVOT .31, -.10, -.10; world height 1.03 as before) so the forearm reaches
+  the elbow under the poncho;
+- baggy trousers ballooning at the knee (1.4x the thigh's top), cream wraps with ridged turns, a teal stripe, a boot
+  with a flared folded cuff and a rounded wedge foot; legs splayed .08 rad;
+- sash with a knot, two tails and a braided rope (the tabard), a smaller relic (.045) on a two-piece cord with a gold
+  cap, a brass bead and a red tassel;
+- every cloth and skin material flat-shaded; hues moved toward the sheet (ochre redder, skin less orange, hair darker),
+  new `wrap`, `teal` and `hairtip` materials.
+
+Cost: 40 meshes (32 before), 4,360 triangles (1,808). Scene ceilings re-measured on SwiftShader, two repeats identical:
+flooded hall 397 → 412 calls, wave chamber 442 → 457 calls and 253,526 → 257,888 triangles (its old ceiling, 255,886,
+was under the new reading), hall 193 → 208 (+8 meshes, +7 shadow casters).
+
+Motion:
+- run: shoulders counter-rotate up to .26 rad (was .08), the free arm swings less far forward (.56, was .88: the
+  sleeve came .019 through the poncho's front), the elbow flexes forward from straight (sign flipped; 0 standing), the
+  head nods with each footfall;
+- cloth: the hem spring is 10 rad/s at ζ .5 (was 8 at .6) and the stride drives it across (`sway`): at a sprint it
+  swings ±.070, 8 frames behind the stride, never at the clamp. The tabard (flap, tails, rope) takes the hem's forward
+  throw on a stop and its sideways swing;
+- strike: the torso winds back .44 (was .2) and whips to .40 past the aim; standing, the feet step into a planted stance
+  (left forward) for the wind-up, hold it through the live window and leave it over half the recovery
+  (`strikePlant`, `STRIKE_STANCE`); the free arm comes forward and bends for balance.
+
+Values gate (SwiftShader): 1.5% clipped, poncho L*64, tunic 63, chin 61.4 over the cowl's 40.6, brow 61.5 over the
+hair's 40.5. The head covers a third of the pixels it did, so the face and hair pixel floors are half the new readings
+(20 and 40). sprint.spec.ts: the back point moves .098 at 320 ms (was .057) and is .0045 off rest 700 ms after the stop.
+
+Tests changed to the sheet's targets (owner directive), each with its measurement: proportions (replaces the leg-share
+floor and the head-leads ratio), the four points and notches (replaces front/back points and elbow corners), the
+one-point test at 22.5 degrees (two columns now), the cowl's front read only in front of the chin, the trim (edge band
+on the hem, 2 px on screen where plan 028 held one band at 4, and a zigzag; replaces the flare test), the trim on the
+cloth (raycast), hands and wrist outside the poncho (the elbow is under it now), and the budget. New: the upper arm
+stays under the poncho in the run, the shoulders' counter-rotation, the stride's sway drive, the hem's swing and lag
+through the spring, the strike's wind and whip, the strike's plant.
+
+Planted bugs, each failing with its own message: hips back at .75 ("the hip joints stand 0.429 of his height up"); the
+old face size ("the head is 0.214 of his height"); side points cut to the notch ("the side point (column 6) hangs to
+1.210"); a blunt front point ("hangs only 0.013 below the columns 22.5 degrees either side"); the cowl's front raised
+("rises to -0.011 under the chin"); a .02 edge band ("only 0.007 tall on screen"); a flat zigzag ("only 2 of the
+zigzag's 72 runs"); the zigzag lifted .05 ("trim vertex 258 stands 0.050 off the cloth"); the arm notch closed ("in rest
+the free wrist is -0.153 outside the poncho"); plan 027's arm swing ("the upper arm comes 0.019 through the poncho");
+the old elbow sign ("at phase 0/64 the elbow bends -0.600"); the old twist ("the shoulders turn 0.080 at most") and its
+sign flipped ("turn -0.075 with the left leg at 0.401"); no sway ("drives the hem 0.000 to 0.000 across"); plan 028's
+spring ("the hem swings only -0.041 to 0.041 across"); sway dropped in hemDrive ("0.000 to 0.000"); plan 027's wind-up
+("the wind-up turns the torso only -0.403"); the plant released through the blow ("tideblade is only 0.00 planted"); the
+poncho hidden ("the knight costs only 3848 triangles").
+
+Review pack: `game/outputs/review/r1/`.

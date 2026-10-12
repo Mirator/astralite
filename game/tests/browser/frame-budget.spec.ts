@@ -84,7 +84,12 @@ const BUDGET = {
   // split across kept groups (31 meshes to 32, +1 scene and +1 shadow call) and a 16-column poncho with fewer
   // triangles than the old torso batches it left (-152). The call ceiling is the figure measured; the triangle
   // ceiling stays the owner's model-round headroom, which the scene is far under. d3d11 read the same 397 / 280,649.
-  'flooded-hall': { calls: 397, triangles: 596_454 },
+  // Plan 030, measured 2026-10-12 on SwiftShader (two repeats, identical): 412 / 285,011. The Relic Seeker drawn to the
+  // sheet: 32 meshes to 40 (teal bands, wrist wraps and the lighter hair tips are batches of their own, the tabard carries
+  // the braided rope, the free forearm and the sword forearm each gained a wrap and a band), +8 scene calls and +7 shadow
+  // calls (the cowl no longer casts: it blacked itself and the yoke out under the key light). The triangles are his 4,400
+  // against 1,808, drawn twice with the shadow pass. The call ceiling is the figure measured.
+  'flooded-hall': { calls: 412, triangles: 596_454 },
   // Plan 022 Stage B: the biggest chamber the waves deal (floor three, seed 0x2's hall of ten bodies in waves of 3, 3 and 4), its last wave standing. A dormant wave to come draws nothing (Stage 0: 1, 5 and 9 dormant bodies all drew 201 calls,
   // 209,882 triangles, 56 shadow calls) but a corpse stays drawn and costs a standing body's calls (about 35 a body): with the six dead of the first two waves left in frame this scene read 586 calls / 294,968 triangles, 78 over the 508 above, so the
   // floor takes the dead of the waves before back as the next wave is rung (`corpseSink`: they sink into the paving over the rings' 0.9 s and are no longer drawn), and the frame is the four standing bodies of the last wave with six corpses lying undrawn.
@@ -96,7 +101,10 @@ const BUDGET = {
   // repeats, identical), the same +2 calls and -152 triangles as the flooded hall, for the same reason. The call ceiling
   // is the figure measured; the triangle ceiling is left where plan 022 set it, above both readings. d3d11 read the
   // same 442 / 253,526.
-  'wave-chamber': { calls: 442, triangles: 255_886 },
+  // Plan 030, measured 2026-10-12 on SwiftShader (two repeats, identical): 457 / 257,888, the same +15 calls as the flooded
+  // hall for the same reason. The triangle ceiling plan 022 set (255,886) is under the new reading by the Relic Seeker's
+  // added shape alone, so both ceilings are now the figure measured.
+  'wave-chamber': { calls: 457, triangles: 257_888 },
   // Twelve scene ceilings lost their scenes in 7d093d1 and were removed by plan 027; their history is in git and progress.md.
 } as const;
 
