@@ -6726,3 +6726,109 @@ Operator request: an unarmoured explorer in place of the plate knight, so any ar
 - **Run and dash lift** (`dungeon-run-pose.ts`): the long cape's .65 sprint and .8 dash pitch stood the short point straight out like a wing, and .32 still flared because the torso's own .27 lean adds to it. Now .1 at rest, .15 to .21 at a sprint, `DASH_CAPE` .22, and the damp is 8 (was 16). `dungeon-cloak.test.ts` reads those pitches off the pose and now holds the point's tip below the sash (.72): a bigger lift only made its old "behind the body" check easier, so the tip check is what catches a lift that grows. It caught `DASH_CAPE` .3 (tip .737) after a first gameplay frame had passed it by eye. Tip peak under a dash's sway, dense sweep: .696 at .2, .712 at .22, .738 at .25. Planted: `DASH_CAPE` .25 fails both "the point's tip rose to 0.732" and "a dash holds the point at 0.25"; the old .65 sprint "the point lifts to 0.650"; no lift "a sprint barely moves the point"; a cape with an extra row fails the tip's precondition (137 !== 148).
 - Judged on the figure bench (`npm run figures`, d3d11, every arm) and in Tide Altar gameplay frames: idle, sprinting, mid-dash and facing the camera. Not judged under SwiftShader or against the reference baseline; `output/shots/baseline/` still shows the knight.
 - Gates after both critique rounds: typecheck, lint, `npm test` 617/617, browser gate (`--grep-invert "@capture|@nightly"`, d3d11) 111 passed.
+
+## 2026-10-12 — the Relic Seeker, pass 2 (plan 027)
+
+Operator request: double the player's budget, make him less stiff, fix the poncho and the small-looking head, then the
+shot baseline and the main menu. Branch `art/relic-seeker-pass-2`, cut from `origin/main` at 4269398; not pushed.
+
+**Proportions (Stage A).** The head's geometry and height are unchanged; the body under it was re-cut. Measured off
+`makeKnight()` in node, standing at .03 (`game/outputs/relic-metrics.ts`, ignored):
+
+| Quantity | Before (4269398) | After | Target |
+| --- | --- | --- | --- |
+| Height | 1.822 | 1.822 | 1.80-1.90 |
+| Hip pivot / sole (world) | .570 / .090 | .780 / .090 | |
+| Leg share | .263 | .379 | ≥ .36 |
+| Head width (bbox x, ears in) / chin to top | .387 / .462 (25% of height) | unchanged | unchanged |
+| Poncho half-width incl. trim | .470 | .392 | ≤ .40 |
+| Head width / hem width | .412 | .494 | ≥ .42 |
+| Yoke slope, side silhouette | 32-40° | 24° (25-27° at the back) | 20-25° |
+| Lathe columns | 8 | 16 | 12 or 16 |
+| Front point / back point (world) | .79 / separate plane | .78 / .80 | .74-.82 / .74-.84 |
+| Diagonal hems | 1.03 | .97 | .92-1.00 |
+| Arm columns | 1.15 | 1.27 (slit; break at 1.30) | slit |
+| Cowl front top under chin | .015 | .060 | ≥ .05 |
+| Arm pivot / sword pivot (world) | 1.13 / 1.09 | 1.26 / 1.06 | 1.26-1.32 / 1.02-1.10 |
+| Meshes / triangles | 31 / 1,876 | 32 / 1,808 | ceiling 64 / 9,975 |
+
+The plan's "today" head-to-hem ratio (~.35) was wrong: with its own definition (ears in) it was already .412, so the
+A-test floor is set from the after measurement (.47), not .42. Its expected 2,500-4,500 triangles was wrong too: the
+figure came out at 1,808, fewer than before, because the cloak's lathes replace torso batches rather than add to
+them. The head-scale lever (A6) was not used: in game frames the head reads clearly once the legs are long and the
+cowl is low. Hair 0x6e4a33 with emissive 0x140b06, skin 0xd29a74.
+
+**What is kept out of the bake, and why.** `cloak` (poncho, trim, strap, cowl: unbaked, the cloth deform rewrites
+three of them), `head` (baked alone, skin and hair, so it turns on the neck), `satchel` (baked alone, leather and
+brass, hinged on the strap's end), the arm's new `elbow` (forearm and fist), plus the tabard, sword pivot and arm as
+before. Per batch: torso 4 (pale 76, red 100, cord leather 12, relic 36 triangles), cloak 4 (poncho 128, trim 32,
+strap 72, cowl 128), head 2 (224, 200), satchel 2 (216, 12), tabard 2, pivot 2, Tideblade 4, arm 1, elbow 2, hips 2,
+knees 6, pool 1. A static upper sleeve (`sleeve-r`, pale, in the torso's batch) hangs under the right arm slit, since
+the sword pivot carries only the glove and forearm. The separate cape plane is deleted; `userData.cape` is the poncho.
+
+**Motion (Stage B).** `dungeon-cloth.ts` (pure): one hem state, a spring at 8 rad/s and damping .6 (the plan's ~7/.45
+left the poncho .0095 off rest 700 ms after a stop; now .0051), substepped to 1/120 s, clamped at .12, driven by the
+body's acceleration in his own frame (.02 per m/s²), his turn (.03 per rad/s; the turn is the player's heading plus
+the torso's yaw, not the torso's alone, so a turn of the whole figure counts) and a lift (`cape`, now metres:
+.045-.055 at a sprint; DASH_CAPE .09). `swayCloth` weights 0 at the shoulder break to 1 at the hem, droops a swung hem,
+pushes cloth back out to the tunic + .02, and pins the strap's drop onto the bag. The satchel swings on a two-axis
+pendulum (±.35 / ±.2, damping .3); the elbow opens through the run (`elbow`, -.4 to -.7 at a sprint, 0 standing,
+-.2 in a swing); `headLook` counter-turns the head (wrapped, so a whirl ends where it began); `idleBreath` lifts the
+cloak and head by up to .006 and nods up to .03 while standing (applied to the cloak group's and the head's y rather
+than inside swayCloth's shoulder band; the frame clock stops in a pause, so `sprint.spec.ts`'s pause comparison holds).
+Measured in game (d3d11, sprint.spec.ts): the back point's tip stands .0419 off rest 320 ms into a run (hem .042
+back), the hem clamps at .12 in a dash, and the tip is .0051 off rest 700 ms after the stop. The snapshot's
+`player.cloak` is `{hem, tip}` (tip read back off the drawn poncho) and `locomotion` gains `elbow`, `head`, `satchel`.
+
+**Scene budgets (Stage C).** Only two `BUDGET` scenes are live in frame-budget.spec.ts (the operator asked for "all 11 scenes"): `flooded-hall`
+and `wave-chamber` are the only `spend()` calls; the other twelve lost their scenes in 7d093d1 and were removed rather
+than re-stated. SwiftShader, `--repeat-each=2`, identical; d3d11 read the same:
+
+| Scene | Before (Stage 0) | After | Ceiling now |
+| --- | --- | --- | --- |
+| flooded-hall | 395 calls / 280,801 triangles (read twice) | 397 / 280,649 | 397 / 596,454 (unchanged headroom) |
+| wave-chamber | 440 / 253,678 (read once: the CPU rule limited SwiftShader runs) | 442 / 253,526 | 442 / 255,886 (unchanged) |
+
++2 calls each is the one extra shadow-casting mesh. The triangle ceilings were not lowered to the readings: both
+scenes are under them and the flooded hall's is the owner's model-round headroom.
+
+**Planted bugs and what failed** (each restored):
+- figure mesh cap at 30 → "the knight is drawn as 31 meshes"
+- hip at .54 → "the legs are only 0.340 of his height"
+- the old HEM spread over 16 columns → "the front point (column 8) hangs to 0.710, outside 0.74-0.82"
+- cowl top +.06 → "the cowl's front rises to 0.000 under the chin"
+- a kept PlaneGeometry on the torso → "a flat plane hangs off the torso: the cape is back"; `userData.cape = cloak` → "userData.cape is cloak, not the poncho mesh"
+- stepHem returns the drive → "the hem has already reached 100% of the step at .05 s"
+- damping 0 → "the hem is still 0.0600 out a second after the drive let go"
+- no substeps → "0.167 s at 30 Hz and at 144 Hz end 0.0074 apart" (the plan's version, .005 at one second, passed with this plant at .0004, so the test reads the transient)
+- hemWeight returns 1 → "poncho vertex 4 at rest height 0.440 moved with the hem at -0.12, -0.12"
+- radial push removed → "poncho vertex 0 is -0.059 from the tunic with the hem at -0.12, -0.12"
+- satchel pivot at the bag's centre → "the strap ends 0.181 from the satchel's joint"
+- arm slit closed → "in rest the free elbow is -0.043 outside the poncho" (the hand test also holds the free elbow at rest: the glove and fist are outside the hem's radius either way, so only the elbow notices a closed slit; through the run the elbow passes under the diagonal's edge, .009 outside, which is the arm moving under the cloth)
+- `elbow: 0` → "at phase 0/64 the elbow is only 0.000"; headLook returns 0 → "tideblade special at 0.044 s: the torso turns -0.26 and the head looks -0.26 off the aim"; idleBreath ignores still → "the breath runs at 0.00 s while he moves"; DASH_CAPE .22 → "a dash lifts the hem 0.22"
+- swayCloak write removed (stepHem still running) → sprint.spec.ts "the hem moved in the spring but not on the drawn poncho" (received 0)
+- poncho hidden → "the knight costs only 1680 triangles"; relic, buckle and trim hidden → "the knight is drawn as only 29 meshes"
+- flooded-hall calls 392 → "flooded-hall draws more often than the budget allows; ..." (d3d11)
+
+**Baseline (Stage D).** `npm run shots:compare -- --base HEAD --gl swiftshader` at 2c86d4c: 357 s and 370 s captures,
+89 PNGs copied over the 62 old ones in `output/shots/baseline/` (ignored), `STABILITY.txt` regenerated (committed).
+Re-sheeting the baseline against the capture: every frame identical. Least stable: models-cast 36.95%,
+models-armoury-spear 36.52%, models-knight-strip-06 36.34%, models-knight-strip-05 36.29%, models-armoury-maul 35.47%
+(two SwiftShader captures of one commit differ by 20-37% of pixels at a mean of about 1.7; the old file read up to 75%).
+`models-drop-crossbow` is missing: that @capture scenario fails before drawing on this commit ("no walkable spot within
+3.4 of world (-12.390, 4.584) / cell -8,3 clear of 1 obstacles"), unrelated to the figure. `meta.json` says dirty only
+because of someone else's untracked `output/keep-fire/`.
+
+**Menu (Stage E).** "so the knight can retreat and cut behind him" → "so you can retreat and cut behind you".
+`scripts/backdrop.ts` had not entered the game since plan 020's slot picker; it now picks slot 1, then (ENTER lands in
+the hall with the figure behind a pier) teleports him onto the open floor by the altar and turns him to the camera
+before the read. `public/keep-backdrop.jpg` regenerated on d3d11 (134 KB → 140 KB).
+
+**Frames** (ignored, under `game/outputs/pass2/`): `bench-before.png`, `bench-after.png` (every arm, every facing),
+`frames/` (idle, facing, sprint, dash, stop at 150 and 850 ms on floor 1; `zoom.png` and `stageA-zoom.png`
+enlarged), `baseline-check.png`, `menu-1280x720.png`, `menu-phone.png`, `keep-backdrop.jpg`.
+
+Gates: typecheck, lint, `npm test` 631/631, `npm run build`, browser gate (`--grep-invert "@capture|@nightly"`, d3d11, one worker, run once as the CPU rule asks) 110 passed, 1 failed: `hall.spec.ts`'s
+call ceiling (191) read 193, the same +2. A third live scene budget the plan did not list; its ceiling is now 193 (floor 183,
+95%), planted at 192 ("the hall costs more draw calls than measured", received 193) and `hall.spec.ts` re-run alone: 3 passed. The full
+suite was not re-run after that one-line change.
