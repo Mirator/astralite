@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { makeKnight } from '../app/dungeon-knight.ts';
 import { makeSkeleton } from '../app/dungeon-skeleton.ts';
 import { playerRunPose } from '../app/dungeon-run-pose.ts';
+import { CAMERA_OFFSET } from '../app/dungeon-aim.ts';
 
 // A figure-by-figure fingerprint of the built THREE tree: every node's path, type, transform and mesh
 // content. It is compared build against build rather than against a frozen fixture - the fixture it was
@@ -169,8 +170,8 @@ const relic = () => {
   const knight = makeKnight(); knight.position.y = .03; knight.updateWorldMatrix(true, true);
   const cloak = knight.userData.cloak as THREE.Group, torso = knight.userData.torso as THREE.Group;
   const named = (name: string) => cloak.children.find(child => child.name === name) as THREE.Mesh | undefined;
-  const sash = torso.children.find(child => child instanceof THREE.Mesh && ((child.material as THREE.MeshStandardMaterial).color?.getHex() === 0x963f32)) as THREE.Mesh | undefined;
-  return { knight, cloak, torso, poncho: named('poncho'), trim: named('poncho-trim'), cowl: named('cowl'), sash };
+  const sash = torso.children.find(child => child instanceof THREE.Mesh && (child.material as THREE.Material).name === 'red') as THREE.Mesh | undefined;
+  return { knight, cloak, torso, poncho: named('poncho'), trim: named('poncho-trim'), cowl: named('cowl'), strap: named('strap'), sash };
 };
 // The lathe's vertices column by column (seventeen columns: the last closes the seam on the first), each
 // column's lowest world y. Grouped by index, not by angle: the baked front-to-back depth moves the angles.
@@ -221,6 +222,58 @@ test('the cowl sits low enough at the front for the chin and the throat to show 
   assert.ok(gap >= .05, `the cowl's front rises to ${gap.toFixed(3)} under the chin`);
 });
 
+test('the poncho\'s front and back each end in one point, not a blunt step across three columns (plan 028)', () => {
+  const { poncho } = relic();
+  assert.ok(poncho, 'precondition: the poncho is found');
+  const low = hemByColumn(poncho);
+  // Measured 2026-10-12 (node): plan 027's hem left the front's neighbours .09 above its point and the back's .08,
+  // so each point read as a rounded step three columns wide from the game camera.
+  for (const [point, either, name] of [[8, [7, 9], 'front'], [0, [15, 1], 'back']] as const) {
+    const gap = Math.min(...either.map(c => low[c]!)) - low[point]!;
+    assert.ok(gap >= .1, `the ${name} point (column ${point}) hangs only ${gap.toFixed(3)} below its neighbours`);
+  }
+});
+
+// The game camera looks down CAMERA_OFFSET; screen-up is world up with the view direction taken out of it.
+const VIEW = new THREE.Vector3(CAMERA_OFFSET.x, CAMERA_OFFSET.y, CAMERA_OFFSET.z).normalize();
+const SCREEN_UP = new THREE.Vector3(0, 1, 0).addScaledVector(VIEW, -VIEW.y).normalize();
+
+test('the trim flares out at its foot, so the camera sees it as a band rather than edge-on (plan 028)', () => {
+  const { knight, trim } = relic();
+  assert.ok(trim, 'precondition: the trim is found');
+  const positions = trim.geometry.getAttribute('position'), rings = positions.count / (COLUMNS + 1), v = new THREE.Vector3();
+  assert.ok(Number.isInteger(rings) && rings >= 2, `precondition: the trim is a ${COLUMNS}-column lathe`);
+  let facing = 0, thinnest = Infinity;
+  for (let c = 0; c < COLUMNS; c++) {
+    const ring = Array.from({ length: rings }, (_, k) => v.fromBufferAttribute(positions, c * rings + k).applyMatrix4(trim.matrixWorld).clone());
+    const radius = (p: THREE.Vector3) => Math.hypot(p.x - knight.position.x, p.z - knight.position.z);
+    const foot = ring.reduce((a, b) => (b.y < a.y ? b : a)), head = ring.reduce((a, b) => (b.y > a.y ? b : a));
+    assert.ok(radius(foot) - radius(head) >= .01, `column ${c}'s trim stands ${(radius(foot) - radius(head)).toFixed(3)} out at its foot`);
+    if (new THREE.Vector3(foot.x - knight.position.x, 0, foot.z - knight.position.z).normalize().dot(VIEW) < .3) continue;
+    facing++;
+    const along = ring.map(p => p.dot(SCREEN_UP));
+    thinnest = Math.min(thinnest, Math.max(...along) - Math.min(...along));
+  }
+  assert.ok(facing >= 3, 'precondition: some of the trim faces the camera');
+  // At the game's 720 p framing (12.38 world units tall) .069 is 4 px; plan 027's vertical band read 1.0-2.9 px.
+  assert.ok(thinnest >= .069, `the trim is only ${thinnest.toFixed(3)} tall on screen where it faces the camera`);
+});
+
+test('the strap crosses his front as a steep diagonal, not a belt (plan 028)', () => {
+  const { strap } = relic();
+  assert.ok(strap, 'precondition: the strap is found');
+  // Its front run, torso-local (the strap is not posed, so its geometry is in the torso's metres): every vertex in
+  // front of the chest, less the last eight, which are the drop off the hem onto the satchel.
+  const positions = strap.geometry.getAttribute('position'), xs: number[] = [], ys: number[] = [];
+  for (let i = 0; i < positions.count - 8; i++) if (positions.getZ(i) < -.05) { xs.push(positions.getX(i)); ys.push(positions.getY(i)); }
+  assert.ok(xs.length >= 6, `precondition: the strap has ${xs.length} vertices across his front`);
+  const mx = xs.reduce((a, b) => a + b) / xs.length, my = ys.reduce((a, b) => a + b) / ys.length;
+  let sxy = 0, sxx = 0; xs.forEach((x, i) => { sxy += (x - mx) * (ys[i]! - my); sxx += (x - mx) ** 2; });
+  // Measured 2026-10-12 (node): plan 027's strap ran at 23.7 degrees, which the camera's pitch flattened into a belt.
+  const degrees = Math.atan(Math.abs(sxy / sxx)) * 180 / Math.PI;
+  assert.ok(degrees >= 40, `the strap crosses his front at only ${degrees.toFixed(1)} degrees`);
+});
+
 // Plan 027 Stage B: the poncho's radius at a point's angle and height, read off the built lathe (torso-local,
 // rest): the two columns either side of the angle, each ring to ring at that height. A column whose cloth does
 // not reach that height (an arm slit, or below its hem) has no radius there; with neither, there is no cloth.
@@ -247,7 +300,7 @@ test('both hands stay outside the poncho at rest, through the run and in a swing
   assert.ok(poncho, 'precondition: the poncho is found');
   const arm = knight.userData.arm as THREE.Group, elbow = arm.userData.elbow as THREE.Group, sword = knight.userData.sword as THREE.Group;
   // The hands are the skin batches of the sword pivot (the glove) and of the elbow (the fist): their centres are drawn ones.
-  const skin = (group: THREE.Object3D) => group.children.find(c => c instanceof THREE.Mesh && (c.material as THREE.MeshStandardMaterial).color?.getHex() === 0xd29a74) as THREE.Mesh | undefined;
+  const skin = (group: THREE.Object3D) => group.children.find(c => c instanceof THREE.Mesh && (c.material as THREE.Material).name === 'skin') as THREE.Mesh | undefined;
   const glove = skin(sword), fist = skin(elbow);
   assert.ok(glove && fist && elbow, 'precondition: the glove, the fist and the elbow joint are found');
   const poses: [string, number, number][] = [['rest', 0, 0], ['a swing', -.35, -.2]];
@@ -256,16 +309,15 @@ test('both hands stay outside the poncho at rest, through the run and in a swing
   let closest = Infinity;
   for (const [name, armX, elbowX] of poses) {
     arm.rotation.x = armX; elbow.rotation.x = elbowX; knight.updateWorldMatrix(true, true);
-    // The elbow joint at rest stands in the arm slit, which is what lets the sleeve out of the cloth; swinging
-    // forward through the run it passes under the diagonal's edge (.009 outside at phase 12, node 2026-10-12),
-    // which is the arm moving under the cloth, so it is held at rest only.
-    const points: [string, THREE.Vector3][] = [['sword hand', new THREE.Box3().setFromObject(glove, true).getCenter(new THREE.Vector3())], ['free hand', new THREE.Box3().setFromObject(fist, true).getCenter(new THREE.Vector3())]];
-    if (name === 'rest') points.push(['free elbow', elbow.getWorldPosition(new THREE.Vector3())]);
-    for (const [part, point] of points) {
+    // The elbow joint stands in the arm slit, which is what lets the sleeve out of the cloth. Plan 027 held it at
+    // rest only, and through the run it passed .009 outside the diagonal's edge (phase 12, node 2026-10-12): the
+    // forearm swinging through the cloth. Plan 028 holds it at every phase, with a little less room than a hand.
+    const points: [string, THREE.Vector3, number][] = [['sword hand', new THREE.Box3().setFromObject(glove, true).getCenter(new THREE.Vector3()), .03], ['free hand', new THREE.Box3().setFromObject(fist, true).getCenter(new THREE.Vector3()), .03], ['free elbow', elbow.getWorldPosition(new THREE.Vector3()), .02]];
+    for (const [part, point, room] of points) {
       const local = torso.worldToLocal(point.clone()), cloth = ponchoRadiusAt(poncho, local);
       if (cloth === null) continue;
       const margin = Math.hypot(local.x, local.z) - cloth; closest = Math.min(closest, margin);
-      assert.ok(margin >= .03, `in ${name} the ${part} is ${margin.toFixed(3)} outside the poncho`);
+      assert.ok(margin >= room, `in ${name} the ${part} is ${margin.toFixed(3)} outside the poncho`);
     }
   }
   assert.ok(Number.isFinite(closest), 'precondition: some hand stood where the poncho hangs, or nothing was checked');

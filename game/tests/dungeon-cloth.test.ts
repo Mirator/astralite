@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { HEM_MAX, HEM_REST, PENDULUM_REST, SWING_MAX, stepHem, stepPendulum, type Hem, type Pendulum } from '../app/dungeon-cloth.ts';
+import { HEM_MAX, HEM_REST, INERTIA_REST, PENDULUM_REST, SWING_MAX, hemDrive, smoothInertia, stepHem, stepPendulum, type Hem, type Inertia, type Pendulum } from '../app/dungeon-cloth.ts';
 
 // Plan 027 Stage B: the poncho's hem state and the satchel's swing (dungeon-cloth.ts), the springs the game
 // steps every update on its simulated dt. dungeon-cloak.test.ts holds what they do to the real cloth.
@@ -56,4 +56,31 @@ test('the satchel swings inside its clamps for any drive and settles within a se
     for (let t = 0; t < 1.5; t += 1 / 60) swing = stepPendulum(swing, { x: 0, z: 0 }, 1 / 60);
     assert.ok(Math.abs(swing.x) < .01 && Math.abs(swing.z) < .01, `the bag still hangs ${swing.x.toFixed(3)} / ${swing.z.toFixed(3)} 1.5 s after drive ${JSON.stringify(drive)}`);
   }
+});
+
+test('a start trails the hem over a quarter second instead of flicking it to the clamp in one frame (plan 028)', () => {
+  // What the game hands the rule: his velocity goes from 0 to a sprint's 8.5 m/s in one 60 Hz frame (it does: plan 027's
+  // hem read .12 on the first frame of every start in SwiftShader frames, 2026-10-12), so the raw acceleration is
+  // 510 m/s² for one tick and nothing after, plus a sprint's lift of .05.
+  let inertia: Inertia = INERTIA_REST, hem: Hem = HEM_REST, peak = 0, peakAt = 0, first = 0;
+  for (let frame = 0; frame < 60; frame++) {
+    const accel = { x: 0, z: frame === 0 ? -510 : 0 }; // forward is -z, his front
+    inertia = smoothInertia(inertia, { accel, yawRate: 0 }, 1 / 60);
+    hem = stepHem(hem, hemDrive({ accel: inertia, yawRate: inertia.yaw, lift: .05 }), 1 / 60);
+    const out = Math.hypot(hem.x, hem.z);
+    if (frame === 0) first = out;
+    if (out > peak) { peak = out; peakAt = frame; }
+  }
+  // It does trail: the start pulls the hem well past the lift's own .05 (precondition, or the cap below holds by doing nothing).
+  assert.ok(peak > .07, `the start moved the hem only ${peak.toFixed(3)}`);
+  assert.ok(peak < HEM_MAX - .01, `a start throws the hem to ${peak.toFixed(3)}, at the clamp`);
+  assert.ok(first < .03, `the hem is already ${first.toFixed(3)} out on the frame he starts`);
+  assert.ok(peakAt >= 8, `the hem peaks on frame ${peakAt}, a flick rather than a trail`);
+});
+
+test('the smoothing lands in the same place at 30 and at 144 frames a second (plan 028)', () => {
+  const run = (hz: number) => { let state: Inertia = INERTIA_REST; for (let i = 0; i < Math.round(hz / 3); i++) state = smoothInertia(state, { accel: { x: 40, z: -20 }, yawRate: 3 }, 1 / hz); return state; };
+  const a = run(30), b = run(144);
+  assert.ok(Math.abs(a.x - b.x) < 1e-6 && Math.abs(a.z - b.z) < 1e-6 && Math.abs(a.yaw - b.yaw) < 1e-6, `30 Hz ends at ${a.x.toFixed(4)}, 144 Hz at ${b.x.toFixed(4)}`);
+  assert.ok(a.x > 30, `precondition: the smoothing moved (${a.x.toFixed(2)} of 40 after a third of a second)`);
 });

@@ -40,11 +40,32 @@ export function stepHem(hem: Hem, drive: { x: number; z: number }, dt: number): 
 // Gains from the plan's starting values, judged in gameplay frames: metres of trail per m/s² of the body's
 // acceleration, and per rad/s of its turn.
 const ACCEL_GAIN = .02, TURN_GAIN = .03;
+/** The most the body's acceleration and turn together pull the hem, in metres, before any lift (plan 028). */
+export const INERTIA_MAX = .04;
 /** Where the hem is pulled to, torso-local: away from the body's acceleration (so a start leaves it behind
  *  and a stop throws it forward), out against a turn, and back by `lift` (the run pose's `cape`, or
- *  DASH_CAPE in a dash: metres of trail). */
+ *  DASH_CAPE in a dash: metres of trail). The acceleration and turn part is capped at INERTIA_MAX: the game
+ *  changes his velocity and heading in a frame, so unsmoothed they are hundreds of m/s² for one tick, and plan
+ *  027's hem went to its clamp in one frame on every start, turn and stop (SwiftShader frames, 2026-10-12). */
 export function hemDrive(input: { accel: { x: number; z: number }; yawRate: number; lift: number }): { x: number; z: number } {
-  return { x: -input.accel.x * ACCEL_GAIN - input.yawRate * TURN_GAIN, z: -input.accel.z * ACCEL_GAIN + input.lift };
+  let x = -input.accel.x * ACCEL_GAIN - input.yawRate * TURN_GAIN, z = -input.accel.z * ACCEL_GAIN;
+  const pull = Math.hypot(x, z);
+  if (pull > INERTIA_MAX) { x *= INERTIA_MAX / pull; z *= INERTIA_MAX / pull; }
+  return { x, z: z + input.lift };
+}
+
+/** The body's acceleration (torso-local, m/s²) and turn (rad/s), smoothed (plan 028). */
+export type Inertia = { x: number; z: number; yaw: number };
+export const INERTIA_REST: Inertia = Object.freeze({ x: 0, z: 0, yaw: 0 });
+// Six hundredths of a second (.1 held a stop's push for .37 s and left the hem .011 out 700 ms later, which
+// sprint.spec.ts holds under .01): what turns a one-frame change of velocity into a push that lasts long enough for the
+// spring to follow it, so a start trails the hem over a quarter second rather than flicking it in one frame.
+const INERTIA_TAU = .06;
+/** Moves the smoothed acceleration and turn towards this frame's raw values with a time constant of
+ *  INERTIA_TAU, exactly (not per frame), so 30 Hz and 144 Hz agree. */
+export function smoothInertia(state: Inertia, raw: { accel: { x: number; z: number }; yawRate: number }, dt: number): Inertia {
+  const k = 1 - Math.exp(-Math.max(0, dt) / INERTIA_TAU);
+  return { x: state.x + (raw.accel.x - state.x) * k, z: state.z + (raw.accel.z - state.z) * k, yaw: state.yaw + (raw.yawRate - state.yaw) * k };
 }
 
 /** How much of the hem's offset a point of cloth at height `y` takes: none at or above `top` (the shoulder

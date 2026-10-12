@@ -2,9 +2,11 @@ import type { Page } from '@playwright/test';
 import {
   expect,
   type Floor,
+  openSpot,
   roomCentre,
   test,
 } from './helpers.ts';
+import { knightRead, probeScenes, settleFacing } from './figure-mask.ts';
 
 /**
  * The palette, measured rather than described.
@@ -222,4 +224,49 @@ test.describe('the telegraph reads against its own stone', () => {
       expect(chroma, `the tell is ${note}, which is not hot`).toBeGreaterThan(65);
     });
   }
+});
+
+/**
+ * The player's own values, as the game draws them (plan 028). Plan 014 raised his fill light for a knight in
+ * dark steel; the Relic Seeker who replaced him wears pale, matte cloth, and under that light more than half of
+ * his pixels came out at the top of the range - the poncho, the face and the tunic one flat yellow, the face 6 L*
+ * from the cloth under its chin. Nothing held the figure's values, so nothing noticed. This holds three things
+ * off one frame on floor 1, facing the camera: little of him clips, the face stands out of the cowl, and the
+ * poncho, not the tunic under it, is the bright shape. Each part is found by drawing him without it (the
+ * figure-mask technique), so occlusion, shadows and the post chain are the game's own.
+ */
+test.describe('the player reads as cloth, face and hair, not one bright shape', () => {
+  // Its own page: the devtools hook that finds the scene has to be installed before the game boots.
+  test.use({ isolate: true, seeds: [0x86, 0x86] });
+  test('the Relic Seeker is not lit off the top of the range, and his face stands out of the cowl', async ({ game }) => {
+    await probeScenes(game);
+    await game.enter();
+    await game.step(0);
+    const floor = await game.floor();
+    await settleFacing(game, openSpot(floor, roomCentre(floor, 0), { radius: 4 }), ['ArrowDown']);
+    const read = await knightRead(game.page, [['skin', 'cowl']]);
+    const { ochre, cowl, skin, pale, hair } = read.parts;
+    const chin = read.edges[0]!;
+    const numbers = `body ${read.body.pixels} px, ${(read.body.clipped * 100).toFixed(1)}% clipped; ` +
+      Object.entries(read.parts).map(([name, part]) => `${name} L*${part.L?.toFixed(0)} (${part.pixels} px, ${(part.clipped * 100).toFixed(0)}% clipped)`).join(', ') +
+      `; chin: skin L*${chin.La?.toFixed(1)} over ${chin.na} px, cowl L*${chin.Lb?.toFixed(1)} over ${chin.nb} px`;
+    console.log(`player values: ${numbers}`);
+    // Preconditions: every part this reads was found on screen, at about half the pixels each covered when measured.
+    for (const [name, part, least] of [['poncho', ochre, 400], ['cowl', cowl, 120], ['face', skin, 140], ['tunic', pale, 180], ['hair', hair, 120]] as const) {
+      expect(part?.pixels ?? 0, `precondition: the ${name} covers too few pixels to read (${numbers})`).toBeGreaterThan(least);
+    }
+    expect(Math.min(chin.na, chin.nb), `precondition: the face and the cowl barely meet on screen (${numbers})`).toBeGreaterThan(50);
+    // Measured 2026-10-12 on SwiftShader, two repeats, identical: 1.3% clipped, poncho L*68, the chin 61.6 over 44.3 (17.3),
+    // the face 68 over the hair 45 and the tunic 47. Plan 027's palette read 58% clipped, poncho 86, the chin 88 over 82.
+    // Little of him lit off the top of the range.
+    expect(read.body.clipped, `${(read.body.clipped * 100).toFixed(1)}% of him is at the top of the range (${numbers})`).toBeLessThan(.03);
+    // The poncho is ochre, not yellow and not mud: bounded both sides, so a figure drawn black fails as surely as a blown-out one.
+    expect(ochre.L, `the poncho reads L*${ochre.L.toFixed(1)} (${numbers})`).toBeGreaterThan(58);
+    expect(ochre.L, `the poncho reads L*${ochre.L.toFixed(1)}, lit off the top (${numbers})`).toBeLessThan(78);
+    // The face stands out of the cowl at the chin, and out of the hair over it.
+    expect(chin.La - chin.Lb, `the face is only ${(chin.La - chin.Lb).toFixed(1)} L* over the cowl at the chin (${numbers})`).toBeGreaterThan(12);
+    expect(skin.L - hair.L, `the face is only ${(skin.L - hair.L).toFixed(1)} L* over the hair (${numbers})`).toBeGreaterThan(15);
+    // The poncho, not the tunic under it, is the bright shape.
+    expect(ochre.L - pale.L, `the poncho is only ${(ochre.L - pale.L).toFixed(1)} L* over the tunic (${numbers})`).toBeGreaterThan(12);
+  });
 });
