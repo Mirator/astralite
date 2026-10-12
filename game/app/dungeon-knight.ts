@@ -69,11 +69,16 @@ function ponchoLathe(profile: [number, number][], drops: number[], fade: (column
 // the back, below the sash, as the sheet draws them; the diagonals at the elbow; and at each arm a slit
 // whose hem rises almost to the shoulder break, so the sleeve and the fist come out of a side opening rather
 // than through the cloth. Not quite to the break: a hem on the break would fold the drape's rings flat.
-const HEM = [.17, .09, 0, -.07, -.3, -.07, 0, .1, .19, .1, 0, -.07, -.3, -.07, 0, .09];
+// Plan 028: the points' neighbours hang only .04, not .09-.1, so each point is one column's V and not a blunt step
+// three columns wide - the game camera read plan 027's as a rounded dome. The points themselves are unchanged.
+const HEM = [.17, .04, 0, -.07, -.3, -.07, 0, .04, .19, .04, 0, -.07, -.3, -.07, 0, .04];
 // The poncho's profile, hem to neck: a drape falling from a shoulder break at .37 to the hem, 10 degrees
 // out from vertical (straight down read as a barrel on the bench), then a flat yoke rising 24 degrees to the
 // neck ring the cowl sits on. The sheet's shape: a shoulder line and a drape, not the old 40-degree lampshade.
-const PONCHO: [number, number][] = [[.385, .04], [.36, .2], [.33, .37], [.25, .405], [.17, .44]];
+// Plan 028: one more ring .06 over the hem, on the drape's line, so a point's drop folds there and its V has an edge.
+const PONCHO: [number, number][] = [[.385, .04], [.378, .1], [.36, .2], [.33, .37], [.25, .405], [.17, .44]];
+/** The shoulder break's ring in PONCHO: where the drape meets the yoke, and where the cloth deform's sway fades to nothing. */
+const BREAK = PONCHO.length - 3;
 // The cowl, a lathe of its own: a loose roll resting on the yoke, wider than the neck by a tenth, low all
 // round the front half and at the sides so the chin and the throat show from the front facings, and rising
 // at the back as the hood's fold. Its rings above the foot take COWL's drop (positive is down), a third of it
@@ -83,6 +88,33 @@ const COWL_PROFILE: [number, number][] = [[.1, .425], [.2, .435], [.27, .46], [.
 const COWL = Array.from({ length: COLUMNS }, (_, i) => .05 - .08 * Math.max(0, Math.cos(i * FACET)));
 const cowl = () => ponchoLathe(COWL_PROFILE, COWL, (column, ring) => COWL[column % COLUMNS]! * (ring < 2 ? 0 : ring === 2 ? .3 : 1));
 
+/** The poncho's radius on `column` at height `y` (torso-local, before PONCHO_DEPTH), as the lathe is built: the profile
+ *  with that column's faded hem drop and its jitter. Below the hem it is the hem's own radius. */
+function ponchoRadius(column: number, y: number) {
+  const ys = PONCHO.map(([, h]) => h - hemDrop(column, h, HEM)), rs = PONCHO.map(([r], i) => i < PONCHO.length - 1 ? r + JITTER[column % COLUMNS]! : r);
+  for (let i = 1; i < PONCHO.length; i++) if (y <= ys[i]! || i === PONCHO.length - 1) return ys[i]! - ys[i - 1]! < 1e-6 ? rs[i]! : rs[i - 1]! + (rs[i]! - rs[i - 1]!) * THREE.MathUtils.clamp((y - ys[i - 1]!) / (ys[i]! - ys[i - 1]!), 0, 1);
+  return rs[0]!;
+}
+
+// The trim, foot to top, as [height, how far outside the cloth]. Plan 028: plan 027's band (.048 tall, upright) showed
+// the camera its edge, 1-3 px at 720p, and was gone in game. Now .095 tall, from .025 under the hem to .07 up the drape,
+// lying on the cloth all the way up (.014 out at its foot, .004 at its top), so it leans with the drape towards the
+// camera's pitch and stands about 4.5 px tall from any side, and none of it is tucked out of sight. Each column's band is
+// moved by the hem drop at its foot, as one piece (faded up the cloth like the drape, a slit squashed it to half its
+// height), and takes the cloth's radius at the height it lands at, so at an arm slit it follows the yoke in rather than
+// standing .07 proud of it as a rigid ring did.
+const TRIM: [number, number][] = [[.015, .014], [.11, .004]];
+function trimLathe() {
+  const geometry = new THREE.LatheGeometry(TRIM.map(([y]) => new THREE.Vector2(.4, y)), COLUMNS), positions = geometry.getAttribute('position');
+  for (let i = 0; i < positions.count; i++) {
+    const column = Math.floor(i / TRIM.length), ring = i % TRIM.length, angle = column * FACET;
+    const y = TRIM[ring]![0] - hemDrop(column, TRIM[0]![0], HEM), r = ponchoRadius(column, y) + TRIM[ring]![1];
+    positions.setXYZ(i, Math.sin(angle) * r, y, Math.cos(angle) * r * PONCHO_DEPTH);
+  }
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 /** A point on the poncho's outside at [x, height], on its front (`side` -1) or its back (1), and the outward
  *  direction there. It reads the lathe as built - the profile, the faded hem drops either side, the jitter
  *  and the flat facet between two columns - so a strap laid through these points lies on the cloth. Below
@@ -90,11 +122,7 @@ const cowl = () => ponchoLathe(COWL_PROFILE, COWL, (column, ring) => COWL[column
  *  lerped between two columns, and `out` ignores PONCHO_DEPTH (up to 4 degrees off the true normal); both
  *  are under .01 at a .02 lift. */
 function ponchoSurface(x: number, y: number, side: 1 | -1) {
-  const radiusOn = (column: number) => {
-    const ys = PONCHO.map(([, h]) => h - hemDrop(column, h, HEM)), rs = PONCHO.map(([r], i) => i < PONCHO.length - 1 ? r + JITTER[column % COLUMNS]! : r);
-    for (let i = 1; i < PONCHO.length; i++) if (y <= ys[i]! || i === PONCHO.length - 1) return ys[i]! - ys[i - 1]! < 1e-6 ? rs[i]! : rs[i - 1]! + (rs[i]! - rs[i - 1]!) * THREE.MathUtils.clamp((y - ys[i - 1]!) / (ys[i]! - ys[i - 1]!), 0, 1);
-    return rs[0]!;
-  };
+  const radiusOn = (column: number) => ponchoRadius(column, y);
   let around = side < 0 ? Math.PI : 0;
   for (let pass = 0; pass < 3; pass++) {
     const column = Math.floor(around / FACET + COLUMNS) % COLUMNS, t = around / FACET - Math.floor(around / FACET);
@@ -126,7 +154,11 @@ function ribbon(points: THREE.Vector3[], outs: THREE.Vector3[], width = .1, lift
  *  down across the front to the hem at his right, through sampled surface points - a straight box over a
  *  faceted cone either stands off it at the ends or sinks into it in the middle - and off the hem straight
  *  on to the bag's top. The back run stops at the back hem. */
-const STRAP_FROM: [number, number] = [-.32, .375], STRAP_TO: [number, number] = [.3, .07], STRAP_BAG = new THREE.Vector3(.36, .06, -.12);
+// Plan 028: STRAP_TO moved from [.3, .07] onto the front point's facet, just above its hem, so the front run falls at
+// about 50 degrees, as the sheet draws it (at 24 the camera's pitch flattened it into a belt). The bag's joint went
+// lower and out with it, so the tail drops at least 20 degrees from the hem to the bag rather than running level round
+// the waist, and the bag hangs clear of the right thigh (it sat .11 into it), outside the thigh's swing.
+const STRAP_FROM: [number, number] = [-.32, .375], STRAP_TO: [number, number] = [.06, -.08], STRAP_BAG = new THREE.Vector3(.42, -.22, -.2);
 function strap() {
   const steps = 16, run = (side: 1 | -1) => Array.from({ length: steps + 1 }, (_, k) => ponchoSurface(THREE.MathUtils.lerp(STRAP_FROM[0], STRAP_TO[0], k / steps), THREE.MathUtils.lerp(STRAP_FROM[1], STRAP_TO[1], k / steps), side));
   const samples = [...run(1).reverse(), ...run(-1).slice(1)], points = samples.map(s => s.point), outs = samples.map(s => s.out);
@@ -164,7 +196,9 @@ const KNIGHT_SPEC: Node = {
         // The sword arm's upper sleeve, hanging at his right side under the arm slit: the sword pivot carries
         // only the glove and the forearm, and the slit would otherwise show the tunic between his shoulder
         // and his fist.
-        { name: 'sleeve-r', shape: { box: [.15, .27, .16] }, material: 'pale', at: [.34, .17, .02] },
+        // Plan 028: rounded and slimmer (was a .15 x .27 x .16 box), so it reads as a sleeve in the slit's shadow and
+        // not as a pale block standing out of the poncho's side; at x .35, level with the free arm's shoulder at -.36.
+        { name: 'sleeve-r', shape: { geometry: roundedUnitBox() }, material: 'pale', at: [.35, .16, .02], scale: [.11, .22, .12] },
         {
           // Everything the cloth deform moves (plan 027 Stage B), kept out of the torso's bake so each mesh
           // keeps its own vertices: the poncho (its shape set by PONCHO and HEM above, the back's point now
@@ -172,9 +206,9 @@ const KNIGHT_SPEC: Node = {
           // reads as an edge and not as more tunic, the satchel's strap (see `strap` above) and the cowl.
           name: 'cloak', parts: [
             { name: 'poncho', shape: { geometry: ponchoLathe(PONCHO, HEM) }, material: 'ochre' },
-            { name: 'poncho-trim', shape: { geometry: ponchoLathe([[.392, .022], [.39, .07]], HEM) }, material: 'trim' },
+            { name: 'poncho-trim', shape: { geometry: trimLathe() }, material: 'trim' },
             { name: 'strap', shape: { geometry: strap() }, material: 'leather' },
-            { name: 'cowl', shape: { geometry: cowl() }, material: 'ochre' },
+            { name: 'cowl', shape: { geometry: cowl() }, material: 'cowl' },
           ],
         },
         {
@@ -190,12 +224,14 @@ const KNIGHT_SPEC: Node = {
             { name: 'eye-r', shape: { box: [.04, .024, .02] }, material: 'hair', at: [.065, .13, -.17] },
             { name: 'hair', shape: { geometry: unitBall() }, material: 'hair', at: [0, .19, .025], scale: [.185, .16, .2] },
             { name: 'hair-back', shape: { geometry: unitBall() }, material: 'hair', at: [0, .1, .07], scale: [.17, .14, .15] },
-            { name: 'fringe-l', shape: { geometry: unitSpike() }, material: 'hair', at: [-.07, .24, -.14], rot: [-2.3, 0, .35], scale: [.07, .14, .05] },
-            { name: 'fringe-r', shape: { geometry: unitSpike() }, material: 'hair', at: [.06, .25, -.14], rot: [-2.2, 0, -.25], scale: [.07, .15, .05] },
-            { name: 'tuft-0', shape: { geometry: unitSpike() }, material: 'hair', at: [0, .33, -.02], rot: [-.5, 0, .1], scale: [.07, .12, .07] },
-            { name: 'tuft-1', shape: { geometry: unitSpike() }, material: 'hair', at: [-.09, .3, .06], rot: [.6, 0, .7], scale: [.06, .12, .06] },
-            { name: 'tuft-2', shape: { geometry: unitSpike() }, material: 'hair', at: [.09, .31, .05], rot: [.5, 0, -.7], scale: [.06, .12, .06] },
-            { name: 'tuft-3', shape: { geometry: unitSpike() }, material: 'hair', at: [0, .26, .17], rot: [1.5, 0, 0], scale: [.07, .12, .06] },
+            // Plan 028: every tuft and the fringe 40% shorter and sunk into the skull, so the crown reads as tousled
+            // hair and not as the small horns the bench showed (the brief: no exaggerated spikes).
+            { name: 'fringe-l', shape: { geometry: unitSpike() }, material: 'hair', at: [-.07, .235, -.135], rot: [-2.3, 0, .35], scale: [.07, .085, .05] },
+            { name: 'fringe-r', shape: { geometry: unitSpike() }, material: 'hair', at: [.06, .245, -.135], rot: [-2.2, 0, -.25], scale: [.07, .09, .05] },
+            { name: 'tuft-0', shape: { geometry: unitSpike() }, material: 'hair', at: [0, .31, -.02], rot: [-.5, 0, .1], scale: [.07, .072, .07] },
+            { name: 'tuft-1', shape: { geometry: unitSpike() }, material: 'hair', at: [-.085, .285, .055], rot: [.6, 0, .7], scale: [.06, .072, .06] },
+            { name: 'tuft-2', shape: { geometry: unitSpike() }, material: 'hair', at: [.085, .295, .045], rot: [.5, 0, -.7], scale: [.06, .072, .06] },
+            { name: 'tuft-3', shape: { geometry: unitSpike() }, material: 'hair', at: [0, .26, .155], rot: [1.5, 0, 0], scale: [.07, .072, .06] },
           ],
         },
         // The sash, wound twice round the waist, and its knot on his left where the relic hangs from it.
@@ -211,7 +247,7 @@ const KNIGHT_SPEC: Node = {
         // game swings it on (plan 027), so the strap and the bag never part; flap and buckle in the bag's frame.
         {
           name: 'satchel', at: [STRAP_BAG.x, STRAP_BAG.y, STRAP_BAG.z], parts: [{
-            name: 'satchel-body', at: [0, -.16, .07], rot: [0, -.2, .06], parts: [
+            name: 'satchel-body', at: [0, -.12, .07], rot: [0, -.2, .06], parts: [
               { name: 'satchel-bag', shape: { geometry: roundedUnitBox() }, material: 'leather', at: [0, 0, 0], scale: [.2, .3, .34] },
               { name: 'satchel-flap', shape: { geometry: roundedUnitBox() }, material: 'leather', at: [.012, .09, 0], scale: [.22, .14, .36] },
               { name: 'satchel-buckle', shape: { box: [.03, .08, .07] }, material: 'brass', at: [.115, .03, 0] },
@@ -255,10 +291,11 @@ const KNIGHT_SPEC: Node = {
 /** The free arm, kept as its own spec so `arm`'s bakeStatic call (below) sees the same part order: the
  *  tunic's sleeve, then (plan 027) an elbow joint carrying a leather bracer and a bare hand, so the forearm
  *  can open and swing on its own. Its pivot is the left shoulder, under the yoke's break and inside the arm
- *  slit. */
+ *  slit. Plan 028: .02 further out (was x -.34), so the elbow joint swinging back through a run clears the back-left
+ *  diagonal's edge by .02 instead of grazing it (.008, phase 12/64); the sleeve rounded and slimmed to the right's. */
 const ARM_SPEC: Node = {
-  name: 'arm', at: [-.34, .33, 0], parts: [
-    { name: 'sleeve', shape: { box: [.16, .28, .17] }, material: 'pale', at: [0, -.14, 0] },
+  name: 'arm', at: [-.36, .33, 0], parts: [
+    { name: 'sleeve', shape: { geometry: roundedUnitBox() }, material: 'pale', at: [0, -.14, 0], scale: [.12, .28, .13] },
     {
       name: 'elbow', at: [0, -.28, 0], parts: [
         { name: 'forearm', shape: { box: [.14, .15, .26] }, material: 'leather', at: [0, 0, -.09] },
@@ -292,20 +329,30 @@ const TABARD_SPEC: Node = {
 
 export function makeKnight() {
   // Cloth, skin and leather are all rough and matte; only the relic and the buckle catch a highlight.
-  // Colours start from the sheet's swatches and were judged on the figure bench under the game's light.
-  const pale = new THREE.MeshStandardMaterial({ color: 0xe5d5be, roughness: .92, side: THREE.DoubleSide });
-  const ochre = new THREE.MeshStandardMaterial({ color: 0xc88b39, roughness: .9, emissive: 0x1a0f04, side: THREE.DoubleSide, flatShading: true });
-  // Plan 027: skin a touch lighter and the hair a warmer, lighter brown with a little glow of its own, so the
-  // head stands apart from the dark floors and from the cowl (both went to one dark mass at the game camera).
-  const skin = new THREE.MeshStandardMaterial({ color: 0xd29a74, roughness: .8, emissive: 0x1c0d06 });
-  const hair = new THREE.MeshStandardMaterial({ color: 0x6e4a33, roughness: .9, emissive: 0x140b06 });
+  // Plan 028: the sheet's swatches were too light for the game's light. He stands in his own warm fill and under
+  // the moon, and at the sheet's values more than half of his pixels came out at the top of the range (the poncho
+  // 96%, the face 89%, the tunic 93%: SwiftShader, floors 1-3, 2026-10-12), so the face, the cowl and the cloth all
+  // read as one flat yellow. Each light colour is the sheet's scaled down in linear light - ochre x.36, skin x.33,
+  // tunic x.35, trim x.30, hair x.50 - which brings the clipped share near zero and keeps the order the sheet gives
+  // them: trim brightest, then face, poncho and tunic, then hair and leather. The tunic stays off-white (an earlier
+  // x.16 made it the poncho's grey and lost the edge between them; the wraps and sleeves wear it too). The emissives
+  // were tested and change nothing measurable in the lit chambers; they are left as they were. Judge these in game frames,
+  // not on the bench: the bench is lit far more softly and shows all of them darker than he is drawn.
+  const pale = new THREE.MeshStandardMaterial({ color: 0x8f8576, roughness: .92, side: THREE.DoubleSide });
+  const ochre = new THREE.MeshStandardMaterial({ color: 0x7e5620, roughness: .9, emissive: 0x1a0f04, side: THREE.DoubleSide, flatShading: true });
+  // The cowl a shade under the poncho (ochre x.19), so the face has a darker band under its chin instead of the
+  // same yellow running up to it. It is its own mesh already, so its own material costs no draw call.
+  const cowl = new THREE.MeshStandardMaterial({ color: 0x5d3f16, roughness: .92, emissive: 0x0e0802, side: THREE.DoubleSide, flatShading: true });
+  const skin = new THREE.MeshStandardMaterial({ color: 0x7f5c44, roughness: .8, emissive: 0x1c0d06 });
+  const hair = new THREE.MeshStandardMaterial({ color: 0x4f3423, roughness: .9, emissive: 0x140b06 });
   const red = new THREE.MeshStandardMaterial({ color: 0x963f32, roughness: .88, emissive: 0x1a0604, side: THREE.DoubleSide });
-  // Lighter than the swatch's #624335 would suggest is needed: under the game's key it is what keeps the strap
-  // and the bag apart from the hair, the trousers and the sword hand, which all went to one dark mass.
-  const leather = new THREE.MeshStandardMaterial({ color: 0x6a4a38, roughness: .95, emissive: 0x120a06, side: THREE.DoubleSide });
-  const trim = new THREE.MeshStandardMaterial({ color: 0xf0e6d2, roughness: .9, emissive: 0x16130e, side: THREE.DoubleSide });
+  // The swatch's dark leather (#624335, near enough): plan 028 took the leather down a step and the boots up one,
+  // so the bag and the boots (3 L* apart before) no longer read as one brown, and the strap is darker than the
+  // poncho it crosses by a clear margin now the poncho is no longer clipped.
+  const leather = new THREE.MeshStandardMaterial({ color: 0x5f4232, roughness: .95, emissive: 0x120a06, side: THREE.DoubleSide });
+  const trim = new THREE.MeshStandardMaterial({ color: 0x8c867a, roughness: .9, emissive: 0x16130e, side: THREE.DoubleSide });
   const trousers = new THREE.MeshStandardMaterial({ color: 0x45474a, roughness: .95 });
-  const boot = new THREE.MeshStandardMaterial({ color: 0x7a4e32, roughness: .9 });
+  const boot = new THREE.MeshStandardMaterial({ color: 0x875738, roughness: .9 });
   const relic = new THREE.MeshStandardMaterial({ color: 0x2f929b, roughness: .3, metalness: .2, emissive: 0x1f7a84 });
   // The armoury's materials. He wears none of them now except the buckle's brass, but every arm he can be
   // handed is built from them (dungeon-armory.ts), so they stay exactly as the knight's plate had them.
@@ -324,7 +371,9 @@ export function makeKnight() {
     const geometry = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelSize: .015, bevelThickness: .012, bevelSegments: 1, steps: 1, curveSegments: 1 });
     geometry.translate(0, 0, -depth / 2); return new THREE.Mesh(geometry, material);
   };
-  const palette = { pale, ochre, trim, skin, hair, red, leather, trousers, boot, relic, brass };
+  const palette = { pale, ochre, cowl, trim, skin, hair, red, leather, trousers, boot, relic, brass };
+  // Each material named after its palette key, so a test can tell the rendered cloth from the skin (plan 028).
+  for (const [name, material] of Object.entries(palette)) material.name = name;
 
   const { root: g, byName } = buildSpec(KNIGHT_SPEC, palette);
   const torso = byName['torso'] as THREE.Group;
@@ -358,7 +407,7 @@ export function makeKnight() {
   for (const name of ['strap', 'poncho-trim']) (byName[name] as THREE.Mesh).castShadow = false;
   // Plan 027 Stage B: what the game's cloth deform (dungeon-cloth.ts swayCloth) needs, kept on the cloak group.
   // Each swayed mesh's rest positions, copied once (not the cowl's: it lies above the break, weight 0 throughout);
-  // the band the sway fades over, from the shoulder break (the poncho's third ring) to its lowest vertex;
+  // the band the sway fades over, from the shoulder break (BREAK) to its lowest vertex;
   // the tunic it must stay outside of; the back point's lowest vertex, which the snapshot reads; and, for the strap, the
   // vertex its drop onto the satchel starts at (four points, two vertices each), which stays at rest so the
   // strap's end stays on the satchel's joint. Every swayed geometry's bounding sphere is grown by HEM_MAX once,
@@ -371,7 +420,7 @@ export function makeKnight() {
     const geometry = (mesh as THREE.Mesh).geometry; geometry.computeBoundingSphere(); geometry.boundingSphere!.radius += HEM_MAX;
     return { mesh, rest: new Float32Array(geometry.getAttribute('position').array), pinnedFrom: mesh === strapMesh ? geometry.getAttribute('position').count - 8 : Infinity };
   });
-  cloak.userData.top = PONCHO[2]![1]; cloak.userData.bottom = bottom; cloak.userData.tunic = TUNIC; cloak.userData.tip = tip;
+  cloak.userData.top = PONCHO[BREAK]![1]; cloak.userData.bottom = bottom; cloak.userData.tunic = TUNIC; cloak.userData.tip = tip;
   // Plan 010: nothing between two joints moves, so every joint is folded into one mesh per material -
   // after the hidden pauldrons (which the bake removes) and after the shadow flags, which the batches
   // carry. The animated joints and the swapped arm are kept out. Footsteps read the boot's world matrix,

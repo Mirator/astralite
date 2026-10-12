@@ -6832,3 +6832,155 @@ Gates: typecheck, lint, `npm test` 631/631, `npm run build`, browser gate (`--gr
 call ceiling (191) read 193, the same +2. A third live scene budget the plan did not list; its ceiling is now 193 (floor 183,
 95%), planted at 192 ("the hall costs more draw calls than measured", received 193) and `hall.spec.ts` re-run alone: 3 passed. The full
 suite was not re-run after that one-line change.
+
+## 2026-10-12 — the Relic Seeker, pass 3 (plan 028)
+
+Planned from PR #106's follow-up list and a look at game frames. Branch `claude/zealous-dijkstra-r4nbyg`, from `main` at
+4671572. Everything below is SwiftShader unless it says otherwise; the per-material reads are a scratch spec on the
+pinned 0x86 seed, the gate room of floors 1-3, three facings each.
+
+**What the frames showed (Stage 0).** The figure was lit off the top of the range in game: 55-58% of his pixels had a
+channel at 254 or over (poncho 96%, face 89%, tunic 93%), so face, cowl, poncho and tunic were one yellow. At the chin
+the face read 88 against the cloth's 82. The albedos were fine (hair 35, ochre 62, skin 68, tunic 86 L*); the light
+removed the steps. An albedo and light sweep on floor 1 (front) settled the lever:
+
+| Variant | Clipped | Poncho / face / tunic / hair L* |
+| --- | --- | --- |
+| as shipped | 58% | 86 / 89 / 91 / 61 |
+| no emissives | 58% | 86 / 89 / 91 / 60 |
+| fill light off | 12% | 68 / 70 / 61 / 42 |
+| fill x.5 | 38% | 81 / 84 / 84 / 53 |
+| knight albedo x.5 | 18% | 74 / 78 / 79 / 44 |
+| knight albedo x.35 | 1% | 64 / 69 / 69 / 38 |
+
+The emissives do nothing, so plan 028's first lever was wrong. The fill is not the whole cause either: with it off, the
+poncho still clips 24%. Albedo alone fixes the clipping, so D1 went to the materials and the fill light is untouched.
+The bench is lit far more softly than the game and showed none of this. On the bench the figure now reads darker than
+it did; judge colour in game frames.
+
+**Values (Stage A).** Each light colour is the sheet's, scaled in linear light: ochre x.36, skin x.33, tunic x.16, trim
+x.30, hair x.50. The cowl has its own material (ochre x.19), which costs 0 calls because it is already its own mesh.
+Leather drops a step and boots rise one (albedo L* 31 / 42, was 34 / 38). Floor 1, front, after: 1.3% clipped, poncho
+68, chin 61.6 over the cowl's 44.3, face 68, hair 45, tunic 47 (identical across two repeats).
+
+Across the nine reads:
+- clipped 1.2-4.4% before the trim was taken from x.40 to x.30; nearly all of it was trim;
+- chin step 17-20 L*;
+- face over hair about 22;
+- poncho over tunic 21 from the front and 18 at the quarter, but 6 side-on, where the lit flank of the tunic catches the
+  key. That side-on figure misses the plan's 8.
+
+The gate holds the front frame (art-direction.spec.ts, "the Relic Seeker is not lit off the top of the range"). Planted
+bugs and their messages:
+- the cowl in the poncho's colour → "the face is only 2.0 L* over the cowl at the chin";
+- the fill light doubled → "32.8% of him is at the top of the range";
+- plan 027's palette → "55.5% of him is at the top of the range".
+
+**Shape (Stage B).**
+
+| Row (node, off the built tree) | Before | After |
+| --- | --- | --- |
+| Front / back point, neighbours above the point | .09 / .08 | .15 / .13 |
+| Trim, projected height at 720 p, camera-facing columns | 1.0-2.9 px | 3.9-4.9 px |
+| Strap front run | 23.7° | 41.7° |
+| Free elbow, worst margin outside the cloth over 64 run phases | .008 (phase 12) | ≥ .02 |
+| Meshes / triangles | 32 / 1,808 | 32 / 1,936 |
+
+Changes:
+- the points' neighbours drop .04 instead of .09-.1, and one more lathe ring sits .06 over the hem;
+- the trim is .087 tall, its foot .02 out, and moves rigidly with its column's hem (faded, a slit squashed its band
+  to half);
+- the strap ends at [.1, -.07] and the bag moves with it;
+- the right sleeve is a rounded .11 x .22 x .12;
+- the tufts and fringe are 40% shorter;
+- the free arm's shoulder moves out .02, which clears the elbow from the back-left diagonal. The elbow sat under that
+  diagonal, not the slit: widening the slit changed nothing.
+
+Planted bugs and their messages:
+- plan 027's hem → "the front point (column 8) hangs only 0.090 below its neighbours";
+- the old trim → "column 0's trim stands 0.002 out at its foot";
+- the old strap → "the strap crosses his front at only 23.7 degrees";
+- the arm back at x -.34 → "in the run at phase 12/64 the free elbow is 0.008 outside the poncho".
+
+**Motion (Stage C).** A deterministic 60 fps recording (scratch `outputs/relic-motion.ts`: idle, run, turn, dash, stop,
+strike; `advanceTime(1000/60, true)` per frame) showed the hem going to its .12 clamp on the first frame of every start,
+turn and stop. `main` does the same. The game changes his velocity within a frame, so the raw acceleration is hundreds
+of m/s² for one tick. Plan 027's ".042 at 320 ms" was the tail of that slam.
+
+`dungeon-cloth.ts` now smooths the acceleration and the turn (`smoothInertia`, tau .06) and caps their pull at .04
+(`INERTIA_MAX`) before the lift. The satchel's pendulum reads the same smoothed acceleration. Planted bugs:
+- no cap → "a start throws the hem to 0.120, at the clamp";
+- no smoothing → "the start moved the hem only 0.054".
+
+Tau .1 held a stop's push for .37 s and failed sprint.spec.ts's settle (.0123 > .01). At .06, sprint.spec.ts reads the
+tip .0711 off rest 320 ms into a run and .0028 at 700 ms after the stop (was .0051).
+
+**Budgets.** No new mesh. Frame-budget: flooded-hall 397/397 calls, 280,905 triangles; wave-chamber 442/442, 253,782
+(ceiling 255,886); the hall spec passes.
+
+**A critic's round, and a fifth stage.** An independent reviewer read Stages 0-D (code, numbers, frames). Accepted:
+
+- **The tunic had gone grey.** At x.16 it read L*47, the poncho's value, and the two read 51 against 52 at their edge.
+  It is back at x.35 (L*68 in game). The gate now asserts the step at that edge (63.7 against 72.6) and that the tunic
+  stays above L*58, rather than a difference of medians. Face over hair is likewise read at their edge (65.5 over
+  43.6), since skin includes the hands. Planted: the x.16 tunic fails "the tunic reads L*46.6, no longer off-white".
+- **The satchel sat in the right thigh** (225 of 729 thigh samples inside it). The bag's joint is now at
+  [.42, -.22, -.2] and the bag body .12 under it. New node test: no thigh sample inside the bag standing or at any of
+  64 run phases, with a precondition that the bag still hangs within .08 of the thigh. Planted: plan 028's first-cut
+  bag fails.
+- **The strap's tail ran level round the waist** (3°). It now leaves the cloth on the front point's facet ([.06, -.08];
+  front run 44.5°) and falls at least 20° to the bag. Planted: a level tail fails "falls only 0.0 degrees".
+- **The trim stood .073 proud of the yoke at the arm slits and hung .045 under the hem.** It now takes the cloth's
+  radius at the height it lands on, from .025 under the hem to .07 up. New test: every trim vertex lies 0 to .03 off
+  its own column's cloth, and the points it draws are within .03 of the cloth's. Planted: a rigid ring fails "trim
+  vertex 9 stands 0.150 off the cloth at height 0.410"; a lowered foot fails "column 0's trim hangs to 0.720, 0.080
+  under its point".
+- **The inertia cap made the gains meaningless,** and the satchel still slammed. The pure rule now follows his velocity
+  and heading with a lag (`followBody`/`bodyLag`, tau .12) instead of differentiating them. That makes the push the same
+  curve at any frame rate, a one-frame step included. Gains are now .0012 / .004, so only a sprint start nears the .04
+  cap. The satchel's drive (`swingDrive`, .0015 rad per m/s²) moved into the pure module.
+  - Tests: a sprint's start peaks between .07 and .11 after frame 8; 30, 60 and 144 Hz agree within 10%; a walk's
+    start trails less than .7 of a sprint's; a sprint start swings the bag under 90% of its clamp.
+  - Planted: gains .02/.03 fail "a walk's start trails the hem 0.0402 against a sprint's 0.0432: both at the cap"; no
+    follower fails the preconditions; per-frame smoothing fails "0.0203, 0.0227, 0.0239 at 30, 60 and 144 Hz"; satchel
+    gain .015 fails "a start swings the bag 0.350 rad, at its clamp". Removing the cap is only caught by the frame-rate
+    test: the cap now rarely engages.
+  - sprint.spec.ts: the tip .0567 off rest 320 ms into a run, and .0021 off rest 700 ms after the stop.
+- **Smaller items.**
+  - The left sleeve is rounded like the right (.12 x .28 x .13), and the right sleeve sits at x .35, level with the
+    left shoulder.
+  - The elbow test requires that the elbow was checked in at least 20 poses (30 of 66 today).
+  - The ARM_SPEC comment claims the joint clears the cloth, not the forearm.
+  - The scratch specs left `tests/` (they had broken lint).
+
+Not taken:
+- **The fill light.** The reviewer read the muddy bench as plan 028's stop condition and proposed fill 46 → ~20 with
+  albedo x.6-.7. The game frames, not the bench, are the reference, and the fill is a scene-wide light (floor pool,
+  enemies, the telegraph test). It is put to the operator in the PR instead.
+- **"The baseline was not regenerated."** It was mid-capture; it is regenerated below, after this round.
+
+Meshes 32, triangles 2,032 (+96 for the rounded sleeves). Frame budgets unchanged: flooded-hall 397/397 calls, 281,097
+triangles; wave-chamber 442/442, 253,974 (ceiling 255,886); the hall passes.
+
+**Baseline (Stage D).** `npm run shots:compare -- --base HEAD --gl swiftshader` at a5883c4 (after the critic's round):
+captures took 634 s and 620 s. 89 PNGs were copied over `output/shots/baseline/` (ignored), and `STABILITY.txt` was
+regenerated (committed). The least stable frames are models-armoury-profile-crossbow (36.8%), models-armoury-flask
+(36.7%) and models-knight-strip-05 (36.4%), the same SwiftShader noise floor plan 027 recorded. `models-drop-crossbow`
+still fails to stage, as it does on `main`.
+
+The backdrop was redrawn on SwiftShader after the round. Scratch tools, all ignored, under `game/outputs/`:
+`relic-metrics.ts`, `relic-motion.ts` (frames and `relic-pass3/{before,after}.mp4`, `before-after-slow.mp4`, and
+`hem.json` traces), and `pass3/` (frames and reads). The motion recorder does not pin a seed, so its before and after
+runs are on different floors; the hem traces compare, the backgrounds do not.
+
+Hem per segment from those traces, `main` → Stage C:
+
+| Segment | `main` | Stage C |
+| --- | --- | --- |
+| Run start | .120 on its first frame | .078 at frame 23 |
+| Turn | .119 | .034 |
+| Dash | .120 | .101 |
+| Stop | .120 | .077, settling to .002 |
+
+The critic's round retuned the rule after these recordings and none was re-recorded. sprint.spec.ts and the node tests
+hold the result.

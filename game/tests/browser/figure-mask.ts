@@ -193,3 +193,104 @@ export const knightLightness = (page: Page, dump = false) =>
       surround: pick(ring, 0.5), top: pick(top, 0.5), middle: pick(middle, 0.5), image,
     };
   }, dump);
+
+export type PartRead = {
+  /** Pixels where this material is the front-most thing on him: what changed when it alone went. */
+  pixels: number;
+  /** Median CIE L* over those pixels, in the frame with him in it. */
+  L: number;
+  /** Share of those pixels with any channel at 254 or over: lit to the top of the range. */
+  clipped: number;
+};
+export type KnightRead = {
+  /** The body (everything but the arm in his hand): pixel count and the share at the top of the range. */
+  body: { pixels: number; clipped: number };
+  /** One entry per material name on the knight (`makeKnight` names each after its palette key). */
+  parts: Record<string, PartRead>;
+  /**
+   * Where two materials meet: for each requested pair [a, b], the median L* of a's pixels within 3 px of
+   * one of b's, and of b's within 3 px of one of a's, and how many pixels each side has. This is the chin
+   * when the pair is skin and cowl - what decides whether the face stands out of the cloth round it.
+   */
+  edges: { a: string; b: string; La: number; Lb: number; na: number; nb: number }[];
+  image?: string;
+};
+
+/**
+ * The knight's own rendered values, per material (plan 028). Same technique as `knightLightness`: each
+ * mask is what changed when a set of his meshes was drawn with a material that writes neither colour nor
+ * depth, so occlusion, the shadow map and the floor behind him are all the game's own. One draw for the
+ * frame, one for the body, one per material: about a dozen draws in one task. The page must have been
+ * through `probeScenes`.
+ */
+export const knightRead = (page: Page, pairs: [string, string][] = [], dump = false) =>
+  page.evaluate(({ pairs, dump }): KnightRead => {
+    type Material = { name: string; blending: number; clone: () => Material; colorWrite: boolean; depthWrite: boolean };
+    type Node = { isMesh?: boolean; userData: Record<string, unknown>; material: Material; traverse: (visit: (node: Node) => void) => void };
+    const win = window as unknown as Probe & { advanceTime: (ms: number, draw: boolean) => void };
+    let knight: Node | undefined;
+    for (const scene of (win.__figureScenes ?? []) as Node[]) scene.traverse((node) => { if (!knight && node.userData.armed && node.userData.sword) knight = node; });
+    if (!knight) throw new Error('no knight in any scene three announced');
+    const held = new Set<Node>();
+    (knight.userData.armed as { group: Node }).group.traverse((node) => { if (node.isMesh) held.add(node); });
+    const parts: Node[] = [];
+    knight.traverse((node) => { if (node.isMesh && node.material.blending !== 4) parts.push(node); });
+    const own = parts.map((part) => part.material);
+    const blind = new Map<Material, Material>();
+    const ghost = (material: Material) => {
+      let clone = blind.get(material);
+      if (!clone) { clone = material.clone(); clone.colorWrite = false; clone.depthWrite = false; blind.set(material, clone); }
+      return clone;
+    };
+    const gl = document.querySelector('.game-canvas canvas') as HTMLCanvasElement;
+    const copy = document.createElement('canvas');
+    copy.width = gl.width; copy.height = gl.height;
+    const ctx = copy.getContext('2d', { willReadFrequently: true })!;
+    const frame = (drawn: (part: Node, i: number) => boolean) => {
+      parts.forEach((part, i) => { part.material = drawn(part, i) ? own[i] : ghost(own[i]); });
+      try { win.advanceTime(0, true); ctx.clearRect(0, 0, copy.width, copy.height); ctx.drawImage(gl, 0, 0); return ctx.getImageData(0, 0, copy.width, copy.height).data; }
+      finally { parts.forEach((part, i) => { part.material = own[i]; }); }
+    };
+    const w = copy.width, h = copy.height;
+    const seen = frame(() => true);
+    const differs = (b: Uint8ClampedArray, i: number) => Math.abs(seen[i] - b[i]) + Math.abs(seen[i + 1] - b[i + 1]) + Math.abs(seen[i + 2] - b[i + 2]) >= 8;
+    const maskOf = (without: Uint8ClampedArray) => { const mask = new Uint8Array(w * h); for (let p = 0; p < w * h; p++) if (differs(without, p * 4)) mask[p] = 1; return mask; };
+    const lin = (v: number) => { const c = v / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+    const lightness = (i: number) => { const Y = 0.2126 * lin(seen[i]) + 0.7152 * lin(seen[i + 1]) + 0.0722 * lin(seen[i + 2]); return 116 * (Y > 0.008856 ? Math.cbrt(Y) : 7.787 * Y + 16 / 116) - 16; };
+    const top = (i: number) => seen[i] >= 254 || seen[i + 1] >= 254 || seen[i + 2] >= 254;
+    const median = (values: number[]) => { if (!values.length) return NaN; values.sort((a, b) => a - b); return values[Math.floor(values.length / 2)]; };
+    const body = maskOf(frame((part) => held.has(part)));
+    const names = [...new Set(own.map((m, i) => (held.has(parts[i]) ? '' : m.name)).filter(Boolean))];
+    const masks: Record<string, Uint8Array> = {};
+    for (const name of names) masks[name] = maskOf(frame((part, i) => held.has(part) || own[i].name !== name));
+    win.advanceTime(0, true);
+    const read = (mask: Uint8Array): PartRead => {
+      const values: number[] = []; let clipped = 0;
+      for (let p = 0; p < w * h; p++) if (mask[p]) { values.push(lightness(p * 4)); if (top(p * 4)) clipped++; }
+      return { pixels: values.length, L: median(values), clipped: values.length ? clipped / values.length : 0 };
+    };
+    const near = (from: Uint8Array, to: Uint8Array) => {
+      const values: number[] = [];
+      for (let p = 0; p < w * h; p++) {
+        if (!from[p]) continue;
+        const x = p % w, y = (p / w) | 0; let hit = false;
+        for (let dy = -3; dy <= 3 && !hit; dy++) for (let dx = -3; dx <= 3 && !hit; dx++) { const q = (y + dy) * w + x + dx; if (y + dy >= 0 && y + dy < h && x + dx >= 0 && x + dx < w && to[q]) hit = true; }
+        if (hit) values.push(lightness(p * 4));
+      }
+      return values;
+    };
+    const whole = read(body);
+    const out: KnightRead = { body: { pixels: whole.pixels, clipped: whole.clipped }, parts: {}, edges: [] };
+    for (const name of names) out.parts[name] = read(masks[name]);
+    for (const [a, b] of pairs) {
+      if (!masks[a] || !masks[b]) throw new Error(`no material named ${!masks[a] ? a : b} on the knight`);
+      const sa = near(masks[a], masks[b]), sb = near(masks[b], masks[a]);
+      out.edges.push({ a, b, na: sa.length, nb: sb.length, La: median(sa), Lb: median(sb) });
+    }
+    if (dump) {
+      const paint = ctx.createImageData(w, h);
+      for (let p = 0; p < w * h; p++) { const i = p * 4; paint.data[i] = seen[i]; paint.data[i + 1] = seen[i + 1]; paint.data[i + 2] = seen[i + 2]; paint.data[i + 3] = 255; }
+      ctx.putImageData(paint, 0, 0); out.image = copy.toDataURL();
+    }
+    return out;
+  }, { pairs, dump });

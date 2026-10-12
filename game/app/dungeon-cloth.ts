@@ -37,14 +37,47 @@ export function stepHem(hem: Hem, drive: { x: number; z: number }, dt: number): 
   return { x, z, vx, vz };
 }
 
-// Gains from the plan's starting values, judged in gameplay frames: metres of trail per m/s² of the body's
-// acceleration, and per rad/s of its turn.
-const ACCEL_GAIN = .02, TURN_GAIN = .03;
+// Metres of trail per m/s² of the body's acceleration and per rad/s of its turn, as the lag below reports them.
+// Plan 028: small enough that only a sprint from a standstill or a reversal reaches INERTIA_MAX, so a walk's start, a
+// slight turn and a full sprint's start each trail the hem by their own amount (at .02 and .03 every start and turn
+// hit the cap and the gains did nothing).
+const ACCEL_GAIN = .0012, TURN_GAIN = .004;
+/** The most the body's acceleration and turn together pull the hem, in metres, before any lift (plan 028). */
+export const INERTIA_MAX = .04;
 /** Where the hem is pulled to, torso-local: away from the body's acceleration (so a start leaves it behind
  *  and a stop throws it forward), out against a turn, and back by `lift` (the run pose's `cape`, or
- *  DASH_CAPE in a dash: metres of trail). */
+ *  DASH_CAPE in a dash: metres of trail). The acceleration and turn part is capped at INERTIA_MAX. */
 export function hemDrive(input: { accel: { x: number; z: number }; yawRate: number; lift: number }): { x: number; z: number } {
-  return { x: -input.accel.x * ACCEL_GAIN - input.yawRate * TURN_GAIN, z: -input.accel.z * ACCEL_GAIN + input.lift };
+  let x = -input.accel.x * ACCEL_GAIN - input.yawRate * TURN_GAIN, z = -input.accel.z * ACCEL_GAIN;
+  const pull = Math.hypot(x, z);
+  if (pull > INERTIA_MAX) { x *= INERTIA_MAX / pull; z *= INERTIA_MAX / pull; }
+  return { x, z: z + input.lift };
+}
+
+/** The body's velocity (world, m/s) and heading (radians), followed with a lag (plan 028). */
+export type Inertia = { x: number; z: number; heading: number };
+/** No history: the first `followBody` call starts the follower on the body itself. */
+export const INERTIA_REST: Inertia = Object.freeze({ x: 0, z: 0, heading: Number.NaN });
+// An eighth of a second: long enough for the spring (period about .8 s) to follow the push, short enough that a stop's
+// push is gone and the hem within .001 of rest 700 ms later (sprint.spec.ts holds it under .01). .06 was too short to
+// move the hem at gains low enough to keep a walk's start apart from a sprint's; .2 left it .0026 out.
+const INERTIA_TAU = .12;
+const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+/** Follows the body's velocity and heading with a time constant of INERTIA_TAU, exactly rather than per frame.
+ *  The game changes his velocity and heading within one frame, so differentiating them gives hundreds of m/s² for
+ *  one tick and nothing after: plan 027's hem went to its clamp on the first frame of every start, turn and stop
+ *  (SwiftShader frames, 2026-10-12), and how hard depended on the frame rate. The follower's lag behind the body
+ *  is the same curve at any frame rate, a step included. */
+export function followBody(state: Inertia, velocity: { x: number; z: number }, heading: number, dt: number): Inertia {
+  if (Number.isNaN(state.heading)) return { x: velocity.x, z: velocity.z, heading };
+  const k = 1 - Math.exp(-Math.max(0, dt) / INERTIA_TAU);
+  return { x: state.x + (velocity.x - state.x) * k, z: state.z + (velocity.z - state.z) * k, heading: state.heading + wrap(heading - state.heading) * k };
+}
+/** The follower's own acceleration and turn rate, which is its lag over INERTIA_TAU (world axes, m/s²; rad/s): what
+ *  `hemDrive` and the satchel's swing are driven by. */
+export function bodyLag(state: Inertia, velocity: { x: number; z: number }, heading: number): { accel: { x: number; z: number }; yawRate: number } {
+  if (Number.isNaN(state.heading)) return { accel: { x: 0, z: 0 }, yawRate: 0 };
+  return { accel: { x: (velocity.x - state.x) / INERTIA_TAU, z: (velocity.z - state.z) / INERTIA_TAU }, yawRate: wrap(heading - state.heading) / INERTIA_TAU };
 }
 
 /** How much of the hem's offset a point of cloth at height `y` takes: none at or above `top` (the shoulder
@@ -93,6 +126,14 @@ export type Pendulum = { x: number; z: number; vx: number; vz: number };
 export const PENDULUM_REST: Pendulum = Object.freeze({ x: 0, z: 0, vx: 0, vz: 0 });
 export const SWING_MAX = { x: .35, z: .2 } as const;
 const SWING_OMEGA = 9, SWING_ZETA = .3;
+/** What swings the satchel on its strap (plan 028, moved here from the game): the body's lag acceleration from
+ *  `bodyLag` (torso-local, m/s²) swings it fore and aft and side to side, and the right thigh's swing (`hip`, radians)
+ *  knocks it forward. .0015 rad per m/s²: a sprint's start swings it about .25 rad, inside its clamp, where plan 027's
+ *  .015 on the raw derivative slammed it to SWING_MAX on every start. */
+export function swingDrive(accel: { x: number; z: number }, hip: number): { x: number; z: number } {
+  return { x: accel.z * SWING_GAIN + hip * .3, z: -accel.x * SWING_GAIN };
+}
+const SWING_GAIN = .0015;
 export function stepPendulum(state: Pendulum, drive: { x: number; z: number }, dt: number): Pendulum {
   let { x, z, vx, vz } = state;
   const steps = Math.max(1, Math.ceil(Math.max(0, dt) / SUBSTEP)), h = Math.max(0, dt) / steps;

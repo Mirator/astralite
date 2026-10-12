@@ -36,7 +36,7 @@ import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, ma
 import { ARROW_POOL, deathPool, fanHeadings, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, laneLength, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, type Mark, type Pool, type Shot } from './dungeon-projectile';
 import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
 import { DASH_CAPE, headLook, idleBreath, playerRunPose, strideRate } from './dungeon-run-pose';
-import { HEM_REST, PENDULUM_REST, hemDrive, stepHem, stepPendulum, swayCloth, type Hem, type Pendulum } from './dungeon-cloth';
+import { HEM_REST, INERTIA_REST, PENDULUM_REST, bodyLag, followBody, hemDrive, stepHem, stepPendulum, swayCloth, swingDrive, type Hem, type Inertia, type Pendulum } from './dungeon-cloth';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { createSparks } from './dungeon-sparks';
 import { serialiseRunExport } from './dungeon-run-export';
@@ -350,8 +350,8 @@ export default function DungeonGame() {
     const lungeFrom = new THREE.Vector3(), glintAt = new THREE.Vector3();
     let locomotion=playerRunPose(0,0);
     // Plan 027 Stage B: the poncho's hem state and the satchel's swing (dungeon-cloth.ts), how long he has stood still (for the breath), and
-    // the velocity and heading the hem's drive differentiates; all reset with `locomotion`.
-    let hem:Hem=HEM_REST,swing:Pendulum=PENDULUM_REST,still=0,breathNod=0,hemYaw=NaN;const hemVel=new THREE.Vector3();
+    // the follower behind his velocity and heading that drives them (plan 028); all reset with `locomotion`.
+    let hem:Hem=HEM_REST,inertia:Inertia=INERTIA_REST,swing:Pendulum=PENDULUM_REST,still=0,breathNod=0;
     let rewardTime = 0, noticeTime = 0;
     let hasStarted = false, isPaused = false, isMuted = false, activeRoom = 0;
     // Plan 020: the save slot every read and write of progress speaks for. The slot last played until the title's picker chooses another (the `slot`
@@ -1393,7 +1393,7 @@ export default function DungeonGame() {
       run = createRun(start); remember(meta); boonsTaken = [];
       endSpecial(); specialWasReady = true;
       resetControl(pc); hurtFlash = 0; shake = 0; clearShots();
-      walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); hem=HEM_REST; swing=PENDULUM_REST; still=0; breathNod=0; hemYaw=NaN; hemVel.set(0,0,0); swayCloak(); player.userData.arm.userData.elbow.rotation.x=0; player.userData.satchel.rotation.set(0,0,0); player.userData.cloak.position.y=0; player.userData.head.position.y=headRestY; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
+      walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); hem=HEM_REST; inertia=INERTIA_REST; swing=PENDULUM_REST; still=0; breathNod=0; swayCloak(); player.userData.arm.userData.elbow.rotation.x=0; player.userData.satchel.rotation.set(0,0,0); player.userData.cloak.position.y=0; player.userData.head.position.y=headRestY; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
       footsteps.reset(); stepLog = { contacts: 0, skipped: 0, kinds: { keep: 0, ruins: 0, flooded: 0 }, last: null };
       isPaused = false; keys.clear(); velocity.set(0, 0, 0);
       faceStart(pc);
@@ -2141,8 +2141,10 @@ export default function DungeonGame() {
         player.rotation.x = THREE.MathUtils.damp(player.rotation.x, pc.dashTime > 0 ? -0.3 : 0, 24, dt);
         // Plan 027 Stage B: the hem trails the body's acceleration (rotated into his own frame) and his turn, and is lifted back by the run or the dash;
         // the satchel swings on the strap's end with the same acceleration and the right thigh. Both on the simulated dt, so a pause or a hit-stop freezes them.
-        if(dt>0){const yaw=player.rotation.y,c=Math.cos(yaw),s=Math.sin(yaw),ax=(velocity.x-hemVel.x)/dt,az=(velocity.z-hemVel.z)/dt,heading=yaw+player.userData.torso.rotation.y,turn=Number.isNaN(hemYaw)?0:Math.atan2(Math.sin(heading-hemYaw),Math.cos(heading-hemYaw))/dt,accel={x:ax*c-az*s,z:ax*s+az*c};
-          hem=stepHem(hem,hemDrive({accel,yawRate:turn,lift:pc.dashTime>0?DASH_CAPE:locomotion.cape}),dt);swing=stepPendulum(swing,{x:accel.z*.015+locomotion.legs[1].hip*.3,z:-accel.x*.015},dt);hemVel.copy(velocity);hemYaw=heading;swayCloak();}
+        // Plan 028: driven by the lag of a follower behind his velocity and heading (dungeon-cloth.ts followBody), not by differentiating them: the game changes both
+        // within a frame, and the raw derivative flicked the hem and the bag to their clamps on the first frame of every start, turn and stop.
+        if(dt>0){const yaw=player.rotation.y,c=Math.cos(yaw),s=Math.sin(yaw),heading=yaw+player.userData.torso.rotation.y;inertia=followBody(inertia,velocity,heading,dt);const lag=bodyLag(inertia,velocity,heading),ax=lag.accel.x,az=lag.accel.z,accel={x:ax*c-az*s,z:ax*s+az*c};
+          hem=stepHem(hem,hemDrive({accel,yawRate:lag.yawRate,lift:pc.dashTime>0?DASH_CAPE:locomotion.cape}),dt);swing=stepPendulum(swing,swingDrive(accel,locomotion.legs[1].hip),dt);swayCloak();}
         player.userData.arm.userData.elbow.rotation.x=THREE.MathUtils.damp(player.userData.arm.userData.elbow.rotation.x,pc.attackTime>0?-.2:locomotion.elbow,20,dt);
         player.userData.satchel.rotation.set(swing.x,0,swing.z);
         still=THREE.MathUtils.damp(still,gaitSpeed<.05&&pc.attackTime<=0&&pc.dashTime<=0?1:0,4,dt);
