@@ -6961,3 +6961,26 @@ Not taken:
 
 Meshes 32, triangles 2,032 (+96 for the rounded sleeves). Frame budgets unchanged: flooded-hall 397/397 calls, 281,097
 triangles; wave-chamber 442/442, 253,974 (ceiling 255,886); the hall passes.
+
+**Baseline (Stage D).** `npm run shots:compare -- --base HEAD --gl swiftshader` at a5883c4 (after the critic's round):
+captures took 634 s and 620 s. 89 PNGs were copied over `output/shots/baseline/` (ignored), and `STABILITY.txt` was
+regenerated (committed). The least stable frames are models-armoury-profile-crossbow (36.8%), models-armoury-flask
+(36.7%) and models-knight-strip-05 (36.4%), the same SwiftShader noise floor plan 027 recorded. `models-drop-crossbow`
+still fails to stage, as it does on `main`.
+
+The backdrop was redrawn on SwiftShader after the round. Scratch tools, all ignored, under `game/outputs/`:
+`relic-metrics.ts`, `relic-motion.ts` (frames and `relic-pass3/{before,after}.mp4`, `before-after-slow.mp4`, and
+`hem.json` traces), and `pass3/` (frames and reads). The motion recorder does not pin a seed, so its before and after
+runs are on different floors; the hem traces compare, the backgrounds do not.
+
+Hem per segment from those traces, `main` → Stage C:
+
+| Segment | `main` | Stage C |
+| --- | --- | --- |
+| Run start | .120 on its first frame | .078 at frame 23 |
+| Turn | .119 | .034 |
+| Dash | .120 | .101 |
+| Stop | .120 | .077, settling to .002 |
+
+The critic's round retuned the rule after these recordings and none was re-recorded. sprint.spec.ts and the node tests
+hold the result.
