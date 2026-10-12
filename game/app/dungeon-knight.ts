@@ -30,6 +30,7 @@ import { bakeStatic } from './dungeon-bake.ts';
 import { makeWeapon, type ArmoryPalette, type Plate } from './dungeon-armory.ts';
 import { STARTING_WEAPON } from './dungeon-weapon.ts';
 import { buildSpec, type Node } from './dungeon-figure-spec.ts';
+import { HEM_MAX, type Tunic } from './dungeon-cloth.ts';
 
 const roundedUnitBox = () => new RoundedBoxGeometry(1, 1, 1, 1, .08);
 const unitSpike = () => new THREE.ConeGeometry(1, 1, 4);
@@ -145,6 +146,9 @@ function strap() {
  * a quarter: the head read small because the body under it was squat, not because it was), a shorter torso
  * between the sash and the shoulders, and a poncho no wider than .40 with its hem at the elbows.
  */
+// The tunic the cloth deform keeps the poncho outside of (dungeon-cloth.ts), [height, radius] up the torso:
+// the skirt (.32 to .29) under the body (.28 to .20), circumradii of the eight-sided cylinders below.
+const TUNIC: Tunic = [[-.3, .32], [-.06, .29], [-.06, .28], [.4, .2]];
 const KNIGHT_SPEC: Node = {
   name: 'knight',
   parts: [
@@ -203,13 +207,16 @@ const KNIGHT_SPEC: Node = {
         { name: 'relic-cord', shape: { box: [.016, .07, .016] }, material: 'leather', at: [-.28, -.09, -.2] },
         { name: 'relic', shape: { dodeca: [.08] }, material: 'relic', at: [-.29, -.17, -.21] },
         // The satchel on his right hip: a big bag at the side of the hip rather than under the sword hand,
-        // which the camera sees as often as his front. Flap and buckle in the bag's own frame.
+        // which the camera sees as often as his front. It hangs from the strap's end (STRAP_BAG), the joint the
+        // game swings it on (plan 027), so the strap and the bag never part; flap and buckle in the bag's frame.
         {
-          name: 'satchel', at: [.36, -.1, -.05], rot: [0, -.2, .06], parts: [
-            { name: 'satchel-bag', shape: { geometry: roundedUnitBox() }, material: 'leather', at: [0, 0, 0], scale: [.2, .3, .34] },
-            { name: 'satchel-flap', shape: { geometry: roundedUnitBox() }, material: 'leather', at: [.012, .09, 0], scale: [.22, .14, .36] },
-            { name: 'satchel-buckle', shape: { box: [.03, .08, .07] }, material: 'brass', at: [.115, .03, 0] },
-          ],
+          name: 'satchel', at: [STRAP_BAG.x, STRAP_BAG.y, STRAP_BAG.z], parts: [{
+            name: 'satchel-body', at: [0, -.16, .07], rot: [0, -.2, .06], parts: [
+              { name: 'satchel-bag', shape: { geometry: roundedUnitBox() }, material: 'leather', at: [0, 0, 0], scale: [.2, .3, .34] },
+              { name: 'satchel-flap', shape: { geometry: roundedUnitBox() }, material: 'leather', at: [.012, .09, 0], scale: [.22, .14, .36] },
+              { name: 'satchel-buckle', shape: { box: [.03, .08, .07] }, material: 'brass', at: [.115, .03, 0] },
+            ],
+          }],
         },
       ],
     },
@@ -246,13 +253,18 @@ const KNIGHT_SPEC: Node = {
 };
 
 /** The free arm, kept as its own spec so `arm`'s bakeStatic call (below) sees the same part order: the
- *  tunic's sleeve, a leather bracer and a bare hand. Its pivot is the left shoulder, under the yoke's break
- *  and inside the arm slit. */
+ *  tunic's sleeve, then (plan 027) an elbow joint carrying a leather bracer and a bare hand, so the forearm
+ *  can open and swing on its own. Its pivot is the left shoulder, under the yoke's break and inside the arm
+ *  slit. */
 const ARM_SPEC: Node = {
   name: 'arm', at: [-.34, .33, 0], parts: [
     { name: 'sleeve', shape: { box: [.16, .28, .17] }, material: 'pale', at: [0, -.14, 0] },
-    { name: 'forearm', shape: { box: [.14, .15, .26] }, material: 'leather', at: [0, -.28, -.09] },
-    { name: 'fist', shape: { dodeca: [.1] }, material: 'skin', at: [0, -.28, -.24] },
+    {
+      name: 'elbow', at: [0, -.28, 0], parts: [
+        { name: 'forearm', shape: { box: [.14, .15, .26] }, material: 'leather', at: [0, 0, -.09] },
+        { name: 'fist', shape: { dodeca: [.1] }, material: 'skin', at: [0, 0, -.24] },
+      ],
+    },
   ],
 };
 
@@ -322,7 +334,8 @@ export function makeKnight() {
   const armed = makeWeapon(STARTING_WEAPON, armoryPalette, plate);
   const { root: swordPivot } = buildSpec(SWORD_PIVOT_SPEC, palette);
   swordPivot.add(armed.group);
-  const { root: arm } = buildSpec(ARM_SPEC, palette);
+  const { root: arm, byName: armParts } = buildSpec(ARM_SPEC, palette);
+  const elbow = armParts['elbow'] as THREE.Group; arm.userData.elbow = elbow;
   // Order matters here only relative to `cloak` and `head` (already built, so already before these) and to
   // each other: bakeStatic always skips a kept subtree wherever it sits among torso's other children, but the
   // kept subtrees themselves end up in the tree in the order they were added, and anything that walks
@@ -343,6 +356,22 @@ export function makeKnight() {
   // The strap and the trim lie .02 off the poncho, close enough that their own shadow fringes them in black
   // under the key light. One more batch (the bake splits by castShadow), inside the budget.
   for (const name of ['strap', 'poncho-trim']) (byName[name] as THREE.Mesh).castShadow = false;
+  // Plan 027 Stage B: what the game's cloth deform (dungeon-cloth.ts swayCloth) needs, kept on the cloak group.
+  // Each swayed mesh's rest positions, copied once (not the cowl's: it lies above the break, weight 0 throughout);
+  // the band the sway fades over, from the shoulder break (the poncho's third ring) to its lowest vertex;
+  // the tunic it must stay outside of; the back point's lowest vertex, which the snapshot reads; and, for the strap, the
+  // vertex its drop onto the satchel starts at (four points, two vertices each), which stays at rest so the
+  // strap's end stays on the satchel's joint. Every swayed geometry's bounding sphere is grown by HEM_MAX once,
+  // so a swayed hem is never culled while part of it is on screen and nothing is recomputed per frame.
+  const ponchoRest = poncho.geometry.getAttribute('position');
+  let bottom = Infinity; for (let i = 0; i < ponchoRest.count; i++) bottom = Math.min(bottom, ponchoRest.getY(i));
+  let tip = 0; for (let i = 0; i < PONCHO.length; i++) if (ponchoRest.getY(i) < ponchoRest.getY(tip)) tip = i;
+  const strapMesh = byName['strap'] as THREE.Mesh;
+  cloak.userData.meshes = cloak.children.filter(mesh => mesh.name !== 'cowl').map((mesh) => {
+    const geometry = (mesh as THREE.Mesh).geometry; geometry.computeBoundingSphere(); geometry.boundingSphere!.radius += HEM_MAX;
+    return { mesh, rest: new Float32Array(geometry.getAttribute('position').array), pinnedFrom: mesh === strapMesh ? geometry.getAttribute('position').count - 8 : Infinity };
+  });
+  cloak.userData.top = PONCHO[2]![1]; cloak.userData.bottom = bottom; cloak.userData.tunic = TUNIC; cloak.userData.tip = tip;
   // Plan 010: nothing between two joints moves, so every joint is folded into one mesh per material -
   // after the hidden pauldrons (which the bake removes) and after the shadow flags, which the batches
   // carry. The animated joints and the swapped arm are kept out. Footsteps read the boot's world matrix,
@@ -355,11 +384,16 @@ export function makeKnight() {
   // Plan 027: the cloak is not baked at all (the cloth deform rewrites each of its meshes' vertices) and the
   // head is baked on its own (skin and hair, two meshes) so it can turn on the neck. Both leave the torso's
   // batches, so its batch order moved: skin and hair no longer land there at all.
-  bakeStatic(torso, { keep: [cloak, head, tabard, swordPivot, arm], cacheKey: 'knight:torso' });
+  // Stage B keeps the satchel out too (it swings on the strap's end), so leather and brass leave the torso's
+  // batches as well and the batch order moved again.
+  const satchel = byName['satchel'] as THREE.Group;
+  bakeStatic(torso, { keep: [cloak, head, satchel, tabard, swordPivot, arm], cacheKey: 'knight:torso' });
+  bakeStatic(satchel, { cacheKey: 'knight:satchel' }); g.userData.satchel = satchel;
   bakeStatic(head, { cacheKey: 'knight:head' });
   bakeStatic(tabard, { cacheKey: 'knight:tabard' });
   bakeStatic(swordPivot, { keep: [armed.group], cacheKey: 'knight:pivot' });
-  bakeStatic(arm, { cacheKey: 'knight:arm' });
+  bakeStatic(arm, { keep: [elbow], cacheKey: 'knight:arm' });
+  bakeStatic(elbow, { cacheKey: 'knight:elbow' });
   for (const hip of legs) { bakeStatic(hip, { keep: [hip.userData.knee as THREE.Group], cacheKey: 'knight:hip' }); bakeStatic(hip.userData.knee as THREE.Group, { cacheKey: 'knight:knee' }); }
   // After the traverse, and deliberately: the pool must not be fed back into the shadow map it imitates.
   g.add(contactShadow(.62, .74));
