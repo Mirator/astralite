@@ -144,15 +144,17 @@ test('the knight is baked within his budgets and stands where he did', () => {
   // Plan 010's "before" (once also held by models.spec.ts, deleted in 73ba0ad).
   const BEFORE = { meshes: 53, triangles: 3990, height: 1.8243 };
   const knight = drawCost(makeKnight());
-  // The Relic Seeker (2026-10-11, node): torso 10 batches (9 materials, the unshadowed strap and trim split off),
-  // cape 1, tabard 2, pivot 2, Tideblade 4, arm 3, hips 2, knees 6, pool 1 = 31 meshes, 1876 triangles. Floors on
-  // both: the triangle floor is what catches a poncho that is not drawn (its 112 triangles take him to 1764); the
-  // mesh floor catches a bake that loses more than two batches.
+  // The Relic Seeker after plan 027 (2026-10-12, node): torso 4 batches (pale 76, red 100, the relic's leather
+  // cord 12, relic 36 triangles), cloak 4 kept unbaked (poncho 128, trim 32, strap 72, cowl 128), head 2 (skin 224,
+  // hair 200), satchel 2 (leather 216, brass 12), tabard 2, pivot 2, Tideblade 4, arm 1 and elbow 2, hips 2, knees 6,
+  // pool 1 = 32 meshes, 1,808 triangles (before plan 027: 31 / 1,876). Floors on both: the triangle floor is what
+  // catches a poncho that is not drawn (its 128 triangles take him to 1,680); the mesh floor catches a bake that
+  // loses more than two batches.
   // Owner decision 2026-10-12: the player's budget doubled, 2 x 4,987 triangles and 2 x 32 meshes. A ceiling, not
   // a target: plan 027 spends it on motion (a kept poncho, head, satchel and elbow) and shape, not on added parts.
   assert.ok(knight.meshes <= 64, `the knight is drawn as ${knight.meshes} meshes`);
-  assert.ok(knight.meshes >= 29, `the knight is drawn as only ${knight.meshes} meshes`);
-  assert.ok(knight.triangles >= 1800, `the knight costs only ${knight.triangles} triangles`);
+  assert.ok(knight.meshes >= 30, `the knight is drawn as only ${knight.meshes} meshes`);
+  assert.ok(knight.triangles >= 1681, `the knight costs only ${knight.triangles} triangles`);
   // Owner decision for the model round: a figure's triangles may rise by at most a quarter (4,987); doubled for the
   // player alone on 2026-10-12 (plan 027).
   assert.ok(knight.triangles <= 2 * Math.floor(BEFORE.triangles * 1.25), `the knight costs ${knight.triangles} triangles against ${BEFORE.triangles}`);

@@ -79,34 +79,12 @@ const BUDGET = {
   // which is what the 375 it read before the doorway alcoves went in rose by. Each call ceiling is the figure
   // measured, so the saving is kept rather than handed back as headroom. The triangle ceilings stay the
   // owner's model-round headroom; the widest chamber takes the junction's.
-  'flooded-hall': { calls: 396, triangles: 596_454 },
-  'widest-chamber': { calls: 274, triangles: 1_031_148 },
-  // Not one of the two heaviest frames, and here for a different reason: it is
-  // the only scene that draws the blade trail, the impact accents and a hit
-  // flash at once. Without it, work on how a blow lands is bounded by two
-  // frames that contain no blow, and a change can spend draw calls freely in
-  // the one place it actually touches.
-  'strike-contact': { calls: 274, triangles: 708_588 },
-  // Plan 018: the heaviest chamber the generator can now deal - a late pack with a caller in it, the shieldbearer, the
-  // pyre and the warden standing, and the caller's four rattlers raised. Staged in the level-3 arena, and compared like
-  // for like with today's heaviest (a floor-three purse, `guard:4,stalker:2,warden:1`: 7 bodies, 486 calls, 286,269
-  // triangles), because four guards in the gate alone already read 398 and that measured body count, not the new kinds.
-  // Measured 2026-09-29 on d3d11 (whose counters equalled SwiftShader's on the three scenes above): 8 bodies, 508 calls,
-  // 286,247 triangles, 184 shadow calls, +4.5% calls on the purse. Each ceiling is the figure measured.
-  'caller-chamber': { calls: 509, triangles: 286_423 },
-  // Plan 021 Stages B and E: the Captain in the tightest goal chamber floors one and two lay (seed 33 floor two, a 45-tile crypt), framed 5.5 from the boss, held quiet. Stage B took it in floor three's crypt (320 / 246,034, 188 under the 508 above), the
-  // only place it stood as the last floor's boss; the Bone King now holds floor three, so the scene moved to the pool bosses' room: 273 calls, 212,078 triangles, 235 under the 508. Measured 2026-10-03 on SwiftShader. Each ceiling is the figure measured.
-  'captain-chamber': { calls: 274, triangles: 212_174 },
-  // Plan 021 Stage E: the Bone King in the tightest goal chamber floor three can lay (seed 0x86, a 45-tile crypt) with his whole reserve standing (reserveSize: four rattlers), the knight framed 5.5 from him: the worst boss chamber, and the one the 508 above is held to.
-  // Measured 2026-10-03 on SwiftShader, twice, identical: 428 calls, 268,012 triangles, 80 calls under the 508 (Stage 0: a reserve of six fits at 491, seven at 520). Each ceiling is the figure measured.
-  'king-chamber': { calls: 428, triangles: 268_096 },
-  // Plan 021 Stages C and D: the pool bosses in the tightest goal chamber floors one and two lay (seed 33 floor two, a 45-tile crypt), each the boss alone, held quiet, framed 5.5 from it. Measured 2026-10-03 on SwiftShader.
-  // The Pyre Mother: 291 calls, 210,062 triangles (the floor-two crypt is cheaper than the floor-three one the Captain's number was taken in), 217 under the 508 above. Each ceiling is the figure measured.
-  'mother-chamber': { calls: 292, triangles: 210_158 },
-  // The Tide Hound: 253 calls, 210,696 triangles (a leaner figure than the Mother's by calls, a hair heavier by triangles), 255 under the 508 above.
-  'hound-chamber': { calls: 254, triangles: 210_792 },
-  // The Bastion: 273 calls, 212,962 triangles, 235 under the 508 above. Every pool boss's chamber is under it, with 191 to 255 to spare (Mother 217, Hound 255, Bastion 235, the Captain 235 in the same crypt; the King with his reserve 80).
-  'bastion-chamber': { calls: 274, triangles: 213_058 },
+  // Plan 027, measured 2026-10-12 on SwiftShader: before 395 / 280,801 (Stage 0, main at 4269398, read twice), after
+  // 397 / 280,649 (two repeats, identical). The delta is the Relic Seeker's kept cloak, head, satchel and elbow: his batches
+  // split across kept groups (31 meshes to 32, +1 scene and +1 shadow call) and a 16-column poncho with fewer
+  // triangles than the old torso batches it left (-152). The call ceiling is the figure measured; the triangle
+  // ceiling stays the owner's model-round headroom, which the scene is far under. d3d11 read the same 397 / 280,649.
+  'flooded-hall': { calls: 397, triangles: 596_454 },
   // Plan 022 Stage B: the biggest chamber the waves deal (floor three, seed 0x2's hall of ten bodies in waves of 3, 3 and 4), its last wave standing. A dormant wave to come draws nothing (Stage 0: 1, 5 and 9 dormant bodies all drew 201 calls,
   // 209,882 triangles, 56 shadow calls) but a corpse stays drawn and costs a standing body's calls (about 35 a body): with the six dead of the first two waves left in frame this scene read 586 calls / 294,968 triangles, 78 over the 508 above, so the
   // floor takes the dead of the waves before back as the next wave is rung (`corpseSink`: they sink into the paving over the rings' 0.9 s and are no longer drawn), and the frame is the four standing bodies of the last wave with six corpses lying undrawn.
@@ -114,27 +92,12 @@ const BUDGET = {
   // The scene used to be drawn 400 ms after the last wave was staged and read 255,930 to 255,958 triangles from run to run (CI saw 255,946 over a ceiling of 255,942): the swings that fell the first two waves are real input, so each run reached
   // the staging on a different frame, and a body still being eased apart (staged 0.7 apart, under the crowd's spacing) or a corpse still sinking sat in a different place and in or out of a culling sphere by a few triangles. It now waits until
   // every body of the chamber and every corpse has stood still for a second, and the counts repeat exactly.
-  'wave-chamber': { calls: 440, triangles: 255_886 },
-  // Plan 025 Stage F: the most furnished fight chamber floor one lays (seed 0x3c, room 14, a rotunda ambush: an urn, a crate, a keg, a spike plate, a chest and cover, so
-  // every prop mesh there is, six instanced draws), its four bodies sprung, framed from its heart; and the same frame with the chambers plain (`?rooms=plain`), so the
-  // difference is what the furniture costs. Measured 2026-10-08 on d3d11 only: furnished 378 calls, 241,267 triangles; plain 371 calls, 240,769 triangles (+7 calls, +498 triangles,
-  // 130 under the 508). CI's SwiftShader (run 37769551752, 2026-10-08) read furnished 377 calls, 241,259 triangles and plain 372 calls, 240,777 triangles: the
-  // renderers disagree by a call and a few triangles either way, so each call ceiling is the higher of the two readings. The triangles are not
-  // fixed from run to run on SwiftShader (three CI runs, 2026-10-08: plain 240,769 / 240,777 / 240,785, furnished 241,259 / 241,263 and
-  // d3d11's 241,267; the calls never moved), so each triangle ceiling sits just over the highest reading.
-  'furnished-chamber': { calls: 378, triangles: 241_300 },
-  'plain-chamber': { calls: 372, triangles: 240_800 },
-  // Plan 025 Stage G (D12 b): two bombers mid-throw beside a pyre and a warden on floor two, and the same stand with the two guards the pack mix would otherwise have dealt in their place, so the difference is
-  // what the bomber costs: its figure, and its rings (the shared fire rings, already in the scene). Measured 2026-10-08 on d3d11 only: two bombers with one ring drawn 401 calls, 252,093 triangles; two guards
-  // 390 calls, 252,753 triangles (+11 calls, about five a bomber and one for the ring; -660 triangles), 107 under the 508. SwiftShader has read the Stage F scenes a call and up to 16 triangles off d3d11 (above), so each ceiling is the d3d11 figure plus that margin until CI reads these.
-  'bomber-pair': { calls: 402, triangles: 252_120 },
-  'guard-pair': { calls: 391, triangles: 252_780 },
-  // Plan 025 Stage B, measured 2026-10-07 on d3d11 against the same scenes on d3d11 at 5045a89, and added to each ceiling above as a
-  // delta (d3d11 and SwiftShader disagree by up to 13 calls on some of these scenes, so a d3d11 figure is not a SwiftShader ceiling):
-  // every scene +1 call for the chamber's painted sconce pools (one merged mesh a chamber, single pass, only the knight's chamber drawn)
-  // and +96 to +192 triangles (16 a disc); the widest chamber +2 and strike contact +3, because they are drawn open and empty, where
-  // each door's floating name is a sprite (plan 025 D2 b; labels hide while bodies stand, which is why no fight scene pays for them).
-  // The caller chamber goes one over the 508 the other scenes are held under: that is the price of every sconce lighting its floor.
+  // Plan 027, measured 2026-10-12 on SwiftShader: before 440 / 253,678 (Stage 0, read once), after 442 / 253,526 (two
+  // repeats, identical), the same +2 calls and -152 triangles as the flooded hall, for the same reason. The call ceiling
+  // is the figure measured; the triangle ceiling is left where plan 022 set it, above both readings. d3d11 read the
+  // same 442 / 253,526.
+  'wave-chamber': { calls: 442, triangles: 255_886 },
+  // Twelve scene ceilings lost their scenes in 7d093d1 and were removed by plan 027; their history is in git and progress.md.
 } as const;
 
 /** Draws the staged frame, then holds its counters against the ceiling. */
