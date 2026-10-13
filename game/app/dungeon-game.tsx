@@ -585,6 +585,10 @@ export default function DungeonGame() {
     // `?adapt=full` starts at full quality with the governor on, whatever the renderer: on a software rasteriser that is a keep too slow
     // to hold, which is how the browser suite watches the governor step down in real time. `?quality=` pins a level and turns it off.
     const search = new URLSearchParams(window.location.search);
+    // `?camzoom=` (development only): a closer camera for reviewing the player's animation at a size a critic can read; the game never sets it.
+    const camZoom = process.env.NODE_ENV !== 'production' ? Math.max(1, Number(new URLSearchParams(window.location.search).get('camzoom')) || 1) : 1;
+    // `?camlow=1` (development only, with camzoom): a camera a few degrees over the floor and nothing drawn but the player, so a review can see the cloth and the gait side-on.
+    const camLow = process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('camlow') === '1';
     const post = createPostChain(renderer, scene, camera, mount.clientWidth || 1, mount.clientHeight || 1, search.get('adapt') === 'full' ? 'full' : postQuality(renderer, window.location.search));
     setPlainVeil(post.quality === 'reduced');
     // Adaptive quality (dungeon-quality.ts): the rule decides from the intervals of drawn frames; this applies the rung it lands on.
@@ -2632,11 +2636,13 @@ export default function DungeonGame() {
       if (specialSweep.current) { specialSweep.current.style.setProperty('--ready', String(pc.weapon.special ? harpoon ? 0 : pc.weapon.special.draw ? quiver > 0 ? 1 : Math.min(1, reload / (pc.weapon.ranged?.refill ?? 1)) : Math.max(0, Math.min(1, 1 - run.specialCooldown / pc.weapon.special.cooldown)) : 1)); specialSweep.current.parentElement?.classList.toggle('special-ready', glintTime > 0); }
       const target = focusAhead.copy(player.position).addScaledVector(velocity,0.12);
       cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
-      camera.position.set(cameraFocus.x + 9.2,12.5,cameraFocus.z + 11.5);
+      // The low review camera sees him alone, under the game's own lights: at this height every wall and pillar would stand in front of him.
+      if (camLow) scene.traverse((o) => { if (!(o instanceof THREE.Mesh) && !(o instanceof THREE.Points) && !(o instanceof THREE.Sprite)) return; let p: THREE.Object3D | null = o; while (p && p !== player) p = p.parent; if (!p) o.visible = false; });
+      camera.position.set(cameraFocus.x + 9.2,camLow ? 3.2 : 12.5,cameraFocus.z + 11.5);
       // Reduced motion drops the shake outright: it is ~90 Hz camera translation that carries nothing the
       // particles, the sound and the health bar do not already say, so nothing is lost by not moving at all.
       if (shake > 0 && !easeMotion) camera.position.add(shakeBy.set(Math.sin(t*95)*shake,0,Math.cos(t*83)*shake));
-      camera.lookAt(cameraFocus.x,0,cameraFocus.z);
+      camera.lookAt(cameraFocus.x,camLow ? .9 : 0,cameraFocus.z);
       // Plan 007: resolve this frame's cutaway targets after the camera has its final position for the
       // frame, so the view-space centres this writes are never a frame stale. Eligibility mirrors the
       // existing threat cue exactly (`enemy.windup>0||(enemy.lunge>0&&enemy.attackAge<.09)`) rather than
@@ -2912,8 +2918,6 @@ export default function DungeonGame() {
     // Plan 014: zoomed in close to the reference's framing - the knight fills much more of the
     // frame than the old 7.2/6.3 span left him. Ratio kept the same between the two breakpoints.
     // Then eased back out a fifth twice (4.3/3.76 -> 5.16/4.51 -> 6.19/5.41): the tight frame hid too much of the room.
-    // `?camzoom=` (development only): a closer camera for reviewing the player's animation at a size a critic can read; the game never sets it.
-    const camZoom = process.env.NODE_ENV !== 'production' ? Math.max(1, Number(new URLSearchParams(window.location.search).get('camzoom')) || 1) : 1;
     const resize = () => { canvasRect = null; const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = (w < 600 ? 5.41 : 6.19) / camZoom; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); dirty = true; };
     window.addEventListener('resize', resize); resize();
     // Plan 015: the keep is raised on the press that asks for it (`enterWhenBuilt`/`bootSeed` below),
