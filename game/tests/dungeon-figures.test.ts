@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
-import { makeKnight } from '../app/dungeon-knight.ts';
+import { makeKnight, SWORD_CARRY } from '../app/dungeon-knight.ts';
+import { makeWeapon } from '../app/dungeon-armory.ts';
+import { WEAPONS, type WeaponId } from '../app/dungeon-weapon.ts';
 import { makeSkeleton } from '../app/dungeon-skeleton.ts';
 import { playerRunPose } from '../app/dungeon-run-pose.ts';
 import { CAMERA_OFFSET } from '../app/dungeon-aim.ts';
@@ -159,7 +161,9 @@ test('the knight is baked within his budgets and stands where he did', () => {
   // meshes near fifty.
   assert.ok(knight.meshes <= 320, `the knight is drawn as ${knight.meshes} meshes`);
   assert.ok(knight.meshes >= 40, `the knight is drawn as only ${knight.meshes} meshes`);
-  assert.ok(knight.triangles >= 4400, `the knight costs only ${knight.triangles} triangles`);
+  // Round 3 (2026-10-13, node): 42 meshes, 5,036 triangles - the same batches; a finer cowl (32 columns), a ragged skirt and
+  // flap, fuller sleeves and diagonal wraps. A hidden poncho takes him to 4,524, so the floor rose from 4,400 to 4,700.
+  assert.ok(knight.triangles >= 4700, `the knight costs only ${knight.triangles} triangles`);
   assert.ok(knight.triangles <= 5 * Math.floor(BEFORE.triangles * 1.25), `the knight costs ${knight.triangles} triangles against ${BEFORE.triangles}`);
   // The explorer stands where the knight did, within 0.08.
   assert.ok(Math.abs(knight.height - BEFORE.height) <= 0.08, `the knight stands ${knight.height.toFixed(4)} tall against ${BEFORE.height}`);
@@ -231,9 +235,13 @@ test('the poncho hangs to four points - front, back and one at each side behind 
   // (the critic's "deep V to the crotch") and the tails at .46. Measured 2026-10-12 (node, standing at .03, height 1.85):
   // front point 1.188, back .997, side points .942, arm notches 1.283, the sash's back edge 1.095.
   const within = (column: number, name: string, from: number, to: number) => assert.ok(low[column]! >= from && low[column]! <= to, `the ${name} (column ${column}) hangs to ${low[column]!.toFixed(3)}, outside ${from}-${to}`);
-  within(FRONT, 'front point', 1.14, 1.24); within(BACK, 'back point', .95, 1.05);
+  // Round 3 (owner directive: match the sheet): the critic read round 2's hem as a flat line at the sash. Read again
+  // against the sheet's front and back views, the poncho is a steep diamond: the sides high over the arms at .68, the
+  // edges falling straight into a front point at .57 and a back point at .52, the tails where round 2 had them. Measured
+  // 2026-10-13 (node, standing at .03, height 1.81): front 1.134, back 1.042, side points .942, arm notches 1.335.
+  within(FRONT, 'front point', 1.1, 1.17); within(BACK, 'back point', .99, 1.08);
   for (const column of SIDES) within(column, 'side point', .9, .99);
-  for (const column of NOTCHES) within(column, 'arm notch', 1.24, 1.32);
+  for (const column of NOTCHES) within(column, 'arm notch', 1.3, 1.37);
   // The back point hangs below the sash; the front ends above it, as the sheet's does.
   assert.ok(low[BACK]! < sashBottom, `the back point ends at ${low[BACK]!.toFixed(3)}, not below the sash (${sashBottom.toFixed(3)})`);
   for (const [notch, side] of [[NOTCHES[0]!, SIDES[0]!], [NOTCHES[1]!, SIDES[1]!]]) assert.ok(low[notch]! - low[side]! >= .25, `the arm notch (column ${notch}) is only ${(low[notch]! - low[side]!).toFixed(3)} over the side point`);
@@ -481,4 +489,65 @@ test('the satchel hangs clear of the right thigh, standing and through a run (pl
   }
   hip.rotation.x = 0;
   assert.ok(nearest < .08, `precondition: the satchel no longer hangs at his hip (it comes within ${nearest.toFixed(3)} of the thigh)`);
+});
+
+// Plan 030 round 3: the drawn figure sliced across at a share of his height, as the sheet was measured (every triangle
+// of every mesh but the weapon, the satchel and its strap, cut by the plane): its extent across (x, the sheet's back view)
+// or front to back (z, its profile), as a share of his height.
+function sliceWidth(knight: THREE.Object3D, share: number, axis: 'x' | 'z') {
+  const skip = new Set<THREE.Object3D>(); (knight.userData.armed.group as THREE.Object3D).traverse(o => skip.add(o)); (knight.userData.satchel as THREE.Object3D).traverse(o => skip.add(o));
+  const tris: THREE.Vector3[][] = [], box = new THREE.Box3();
+  knight.traverse((o) => {
+    if (!(o instanceof THREE.Mesh) || skip.has(o) || o.name === 'strap' || (o.material as THREE.Material).blending === THREE.MultiplyBlending) return;
+    const p = o.geometry.getAttribute('position'), index = o.geometry.index, at = (i: number) => new THREE.Vector3().fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld);
+    for (let i = 0; i < (index ? index.count : p.count); i += 3) { const t = [0, 1, 2].map(k => at(index ? index.getX(i + k) : i + k)); t.forEach(v => box.expandByPoint(v)); tris.push(t); }
+  });
+  const height = box.max.y - box.min.y, y = box.min.y + share * height; let lo = Infinity, hi = -Infinity;
+  for (const t of tris) for (let e = 0; e < 3; e++) {
+    const a = t[e]!, b = t[(e + 1) % 3]!; if ((a.y - y) * (b.y - y) > 0 || a.y === b.y) continue;
+    const v = a[axis] + (b[axis] - a[axis]) * (y - a.y) / (b.y - a.y); lo = Math.min(lo, v); hi = Math.max(hi, v);
+  }
+  return (hi - lo) / height;
+}
+
+test('the Relic Seeker\'s shoulders, cape and profile are cut to the sheet\'s slices (plan 030 round 3)', () => {
+  const { knight } = relic();
+  // Owner directive (plan 030): match the sheet. Its back view sliced the same way (scratch sheetw.py, 2026-10-13): .304
+  // of his height across the shoulders at .75 up, the cape spreading over the arms to .395 at .65; its profile .173 deep
+  // at .70 up. Round 2 measured .353, .375 and .227 (the critic: hunched, boxy, the cape not spreading); round 3 .322,
+  // .382 and .184 (node, 2026-10-13).
+  const shoulders = sliceWidth(knight, .75, 'x'), cape = sliceWidth(knight, .65, 'x'), depth = sliceWidth(knight, .7, 'z');
+  assert.ok(shoulders >= .27 && shoulders <= .34, `the shoulders are ${shoulders.toFixed(3)} of his height across, against the sheet's .304`);
+  assert.ok(cape >= .36 && cape <= .43, `the cape spreads ${cape.toFixed(3)} of his height across, against the sheet's .395`);
+  assert.ok(cape - shoulders >= .04, `the cape spreads only ${(cape - shoulders).toFixed(3)} wider than the shoulders`);
+  assert.ok(depth >= .14 && depth <= .21, `in profile he is ${depth.toFixed(3)} of his height deep at the chest, against the sheet's .173`);
+});
+
+test('the run\'s sword carry hangs the forearm from its elbow and trails every arm behind him, clear of the floor (plan 030 round 3)', () => {
+  const knight = makeKnight(), sword = knight.userData.sword as THREE.Group, torso = knight.userData.torso as THREE.Group;
+  knight.position.y = .03;
+  // The forearm, off the pivot's own skin batch as drawn: its axis, from the grip (the pivot) through the middle of its
+  // far ring (the vertices over .19 from the grip, where it goes up into the sleeve). Standing, the elbow is the point on
+  // that axis where the upper arm's sleeve ends, .175 from the grip; in the carry the forearm's axis must pass through the
+  // same point, or the forearm would come off the static upper arm.
+  const axis = () => { knight.updateWorldMatrix(true, true); const skin = sword.children.find(c => c instanceof THREE.Mesh && (c.material as THREE.Material).name === 'skin') as THREE.Mesh, p = skin.geometry.getAttribute('position'), v = new THREE.Vector3(), far = new THREE.Vector3(); let n = 0;
+    for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i); if (v.length() > .19) { far.add(v); n++; } }
+    assert.ok(n >= 6, `precondition: the forearm has ${n} vertices up into the sleeve`);
+    const grip = torso.worldToLocal(sword.getWorldPosition(new THREE.Vector3())), end = torso.worldToLocal(far.divideScalar(n).applyMatrix4(skin.matrixWorld));
+    return { grip, direction: end.sub(grip).normalize() }; };
+  const ready = axis(), elbow = ready.grip.clone().addScaledVector(ready.direction, .175);
+  sword.position.set(...SWORD_CARRY.at); sword.quaternion.set(...SWORD_CARRY.quaternion);
+  const carried = axis(), along = elbow.clone().sub(carried.grip).dot(carried.direction), off = elbow.clone().sub(carried.grip).addScaledVector(carried.direction, -along).length();
+  assert.ok(off <= .01 && Math.abs(along - .175) <= .01, `in the carry the forearm passes ${off.toFixed(3)} from the elbow, ${along.toFixed(3)} from the grip`);
+  // Every arm the armoury hands him: its tip behind the hand and below it, and above the floor. Measured 2026-10-13 (node):
+  // the Tideblade's blade 25 degrees under the level.
+  const { palette, plate } = knight.userData.armoury;
+  const hand = new THREE.Vector3(...SWORD_CARRY.at), q = new THREE.Quaternion(...SWORD_CARRY.quaternion);
+  for (const id of Object.keys(WEAPONS) as WeaponId[]) {
+    const tip = makeWeapon(id, palette, plate).tip.clone().applyQuaternion(q).add(hand);
+    assert.ok(tip.z > hand.z + .1, `carried, the ${id}'s tip is ${(tip.z - hand.z).toFixed(3)} behind the hand`);
+    assert.ok(tip.y < hand.y, `carried, the ${id}'s tip stands over the hand`);
+    const floor = torso.position.y + .03 + tip.y;
+    assert.ok(floor > .05, `carried, the ${id}'s tip is ${floor.toFixed(3)} over the floor`);
+  }
 });

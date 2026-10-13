@@ -7148,3 +7148,74 @@ the smoothstep weight ("the front point takes only 0.58 of the hem's swing"); pl
 step by only 15%"); a sway that lifts the hem ("the back point's tip rose to 1.166, above the sash (1.095)").
 
 Review pack: `game/outputs/review/r2/`.
+
+## 2026-10-13 — the Relic Seeker, round 3: the diamond hem, a cowl that lies down, a carried sword and a stop that settles
+
+A blind critic scored round 2 at 52% (silhouette 55, poncho and hood 50, head 45, underlayers 60, palette 60, motion 45).
+This round sliced the sheet's views as shares of his height (back view across, profile front to back) and the built
+figure the same way (every triangle cut by the plane; weapon, satchel and strap left out), and cut him to them.
+
+Shape (`dungeon-knight.ts`; node, standing at .03, sole to hair 1.812 after the head came down .025):
+- the hem a steep diamond, as the sheet's front and back views draw it: the sides high over the arms (.68 of his height,
+  arm notches 1.335 world), straight edges falling into the front point (.57, 1.134) and the back point (.52, 1.042), two or
+  three ragged sub-points per edge about .04 under the line between their notches; the tails where round 2 measured them.
+  The zigzag has a tooth to a column (32) and the trim lies .015 off the cloth (the steeper facets put a vertex on it);
+- the shoulders narrower and shallower with a stronger flare (half-widths .27/.155, flare .4/.1; were .305/.195, .2/.09):
+  slices .322 across at .75 up (sheet .304, round 2 .353), .382 at .65 (sheet .395, round 2 .375), .184 deep at .70 (sheet
+  .173, round 2 .227);
+- the cowl lies down: the front .05 lower and hanging further down the chest, a V at the throat (25 to 30 degrees either
+  side, .035 deep), the sides under the jaw (.45, were .50), the roll a third thinner, the back and the hood lower and
+  shallower; folds in pairs of columns at 32 round; the poncho's neck opening drops at the front under it;
+- the face: the jaw no longer juts (.03, was .12 forward at the chin), a small nose, two separate eye marks and short brows
+  angled up (the critic: a snout and a mask bar); the neck a third shorter and thicker, the head .025 lower;
+- the tunic a tenth narrower and an eighth shallower; its skirt an open grid with a ragged hem (points to .40 of his height,
+  notches at .45) and its front flap a curved panel with uneven points instead of a bevelled plate (the critic: an apron);
+- fuller sleeves (.062, 1.4 times the forearm) with a thick rolled band at the elbow, forearms with more mass, the free arm
+  hung 14 degrees out from a shoulder .02 further in;
+- trousers ballooning a quarter wider at the knee and gathered at a quarter of his height, the wraps wound on the
+  diagonal (a `slope` on `loft`) over a longer shin with the teal stripe at their top, under the knee;
+- the satchel smaller and further back on the hip (the operator's leave), so it no longer covers the sword hand and sash;
+- palette: the ochre redder (red over green 1.33, the sheet 1.34), the cowl nearer it, the sash the sheet's brick, the
+  trousers a neutral charcoal.
+
+Cost: 42 meshes (unchanged), 5,036 triangles (4,708). Wave chamber re-measured on SwiftShader, two repeats identical:
+461 calls (unchanged), 258,534 → 259,096 triangles; the flooded hall and the hall unchanged.
+
+Motion (pure rules in `dungeon-run-pose.ts` and `dungeon-cloth.ts`, applied in `dungeon-game.tsx`):
+- the run carries the sword low and trailing (`SWORD_CARRY`, the forearm hanging from the same elbow, the blade 25 degrees
+  under the level behind him), its forearm swinging .35 about the elbow against the free arm; a swing, a charge or a dash
+  drops the carry outright, so no blow, trail or sword angle a test reads is touched; stopping, the sword comes up to the
+  ready over a quarter second;
+- the cloth's own flutter outside the spring (the spring is too slow to carry a 2.6 Hz stride): the drawn hem swings .11
+  either way a quarter cycle behind the stride, back and up and down twice a stride behind the bob (`swayCloth`'s new
+  `rise`), clamped with the spring's state (`clothHem`); the tabard's tails follow the drawn hem; the hem weight eased out
+  harder (a cube), so the raised sides still take .63 of the swing and the front point .96;
+- a stop's settle (`stepSettle`, 12 rad/s at .42): braking leans the upper body .18 forward a sixth of a second after the
+  stop, carries it 3 cm over the hips and dips him 2 cm, then swings back past upright (-.02) and is .004 off 700 ms later;
+  the legs come together over a third of a second rather than in a stride's snap;
+- he banks into turns (`bankInto`, .02 per rad/s of the follower's turn, at most 8 degrees);
+- the free arm's swing centred a little forward (.44 back, .56 forward): the fuller sleeve met the tails .018 deep at the
+  old back swing;
+- a stopped gait lands on 0: its residue (3.7e-5 rad of shoulder twist 280 ms after a tap) failed slash.spec.ts's exact
+  body yaw after a swing, on round 2's commit as well as this one.
+
+Values gate (SwiftShader, 2026-10-13): 2.1% clipped, poncho L*70, cowl 59, tunic 65, the chin 71.5 over the cowl's 47.1, the
+brow 69.2 over the hair's 38.6, the hem edge 65.9 against 80.5. sprint.spec.ts: the back point .1211 off rest at 320 ms,
+.0080 700 ms after the stop.
+
+Tests changed to the sheet's targets (owner directive), each with its measurement: the four points (front 1.10-1.17, back
+.99-1.08, notches 1.30-1.37), the budget's triangle floor (4,700: a hidden poncho takes him to 4,524), the cloak test's sash
+found by its material's name (its colour moved). New: the shoulders, cape and profile against the sheet's slices; the
+sword carry hangs the forearm from its elbow and trails every arm behind and over the floor; the stop's settle; the drawn
+hem's flutter; the bank; the carry's swing against the free arm.
+
+Planted bugs, each failing with its own message: round 2's hem ("the front point (column 16) hangs to 1.188"); round 2's
+shoulders ("the shoulders are 0.363 of his height across"); no braking lean ("a sprint's stop leans him 0.000 forward"); an
+overdamped settle ("leans him 0.112 forward"); no flutter ("the drawn hem swings only -0.076 to 0.075 across"); the drawn
+hem unclamped ("reaches 0.142, past the clamp"); the bank's sign ("banks him only -0.080"); the carry swinging with the free
+arm ("the sword forearm swings -0.165 with the free arm at -0.176"); the carry's hand off the elbow ("passes 0.000 from the
+elbow, 0.122 from the grip"); the blade carried forward ("the tideblade's tip is -1.026 behind the hand"); round 2's hem
+weight ("the hem at the arms takes only 0.49"); round 2's cowl front ("rises to -0.006 under the chin"); the poncho hidden
+("the knight costs only 4524 triangles").
+
+Review pack: `game/outputs/review/r3/`.

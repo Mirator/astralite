@@ -6,6 +6,8 @@ import { expect, test, press } from './helpers.ts';
 // its clamp on the first frame): .0567 at 320 ms and .0021 at 700 ms after the stop (SwiftShader, 2026-10-12). The
 // bound below stays at half of plan 027's reading: it is a floor for "the drawn cloth moved", not a tuning target.
 // Plan 030 round 2 (eased hem weight, a livelier spring, SwiftShader, 2026-10-13): .1093 at 320 ms, .0080 at 700 ms after the stop.
+// Plan 030 round 3 (the stride's flutter on the drawn hem, a cubic hem weight, the stop's settle, SwiftShader, 2026-10-13): .1211 at
+// 320 ms, .0080 at 700 ms after the stop.
 const RUN_TIP = 0.0419;
 
 test('travel uses a running rig, freezes on pause, settles on release and yields to attacks and dodge',async({game,page})=>{

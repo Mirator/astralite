@@ -30,7 +30,9 @@ export function playerRunPose(phase: number, speed: number) {
     // The free arm counter-swings against the left leg, harder at a sprint. Plan 030: less far forward than plan 027's
     // .88, which put the upper arm through the poncho's front now the arm hangs under it. (Round 2 tried more each way:
     // forward it comes through the front, back through the tails behind the arm.)
-    arm: (.02 - Math.sin(phase) * (.42 + .12 * sprint)) * weight,
+    // Round 3: centred a little forward (the fuller sleeve and the tails behind the arm meet it .018 deep at the old
+    // back swing): .44 back and .56 forward at a sprint, 25 and 32 degrees.
+    arm: (.06 - Math.sin(phase) * (.4 + .1 * sprint)) * weight,
     // Plan 030: the free elbow flexes forward from straight (positive), a runner's bend that pumps with the arm.
     // Exactly 0 standing, when the arm hangs straight as the sheet draws it.
     elbow: ((.5 + .5 * sprint) + Math.sin(phase) * .15) * weight,
@@ -41,7 +43,30 @@ export function playerRunPose(phase: number, speed: number) {
     // spring (dungeon-cloth.ts) swings it a beat behind them.
     sway: Math.sin(phase) * (.08 + .08 * sprint) * weight,
     cape: (.02 + .03 * sprint + Math.sin(2 * phase) * .005) * weight,
+    // Plan 030 round 3: how far the sword is carried low and trailing at his side rather than held out across him in the
+    // ready pose (0 to 1; the game blends the pivot towards the knight's SWORD_CARRY), and how far the sword forearm
+    // swings about the elbow with the stride, against the free arm (radians, forward positive). Visual only: a swing
+    // takes the sword straight back to its own pose.
+    carry: weight,
+    carrySwing: Math.sin(phase) * (.25 + .1 * sprint) * weight,
+    // Plan 030 round 3: the cloth's own flutter, metres added to the hem's offset outside the spring (the spring is about
+    // 1.6 cycles a second, too slow to follow a stride of 2.6, so the stride reached the drawn hem at a quarter of its size
+    // and the critic saw it rigid): across with the hips' rock a quarter cycle behind it, back and up and down twice a
+    // stride a quarter cycle behind the body's bob (the bob is sin^2, rising fastest at phase pi / 4).
+    flutter: {
+      x: -Math.cos(phase) * (.02 + .02 * sprint) * weight,
+      z: -Math.cos(2 * phase) * (.012 + .012 * sprint) * weight,
+      y: -Math.sin(2 * phase) * (.01 + .015 * sprint) * weight,
+    },
   };
+}
+
+/** Plan 030 round 3: radians he leans into a turn (his whole figure rolled about its own forward axis, positive towards
+ *  his left), from the body follower's yaw rate (rad/s, positive turning left, dungeon-cloth.ts bodyLag) and his ground
+ *  speed: .02 per rad/s at a run, nothing standing, held to BANK_MAX (8 degrees). */
+export const BANK_MAX = .14;
+export function bankInto(yawRate: number, speed: number) {
+  return clamp(yawRate * .02 * Math.min(1, Math.max(0, speed / 5.8)), BANK_MAX);
 }
 
 /** Plan 027: the head's own turn on the neck, counter to the torso's, so it keeps looking along the aim

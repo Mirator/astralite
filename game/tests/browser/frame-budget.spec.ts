@@ -108,7 +108,9 @@ const BUDGET = {
   // added shape alone, so both ceilings are now the figure measured.
   // Plan 030 round 2, measured 2026-10-13 on SwiftShader (two repeats, identical): 461 / 258,534, the same +4 calls as the
   // flooded hall for the same reason, and his added shape (4,708 triangles against 4,360). Both ceilings the figure measured.
-  'wave-chamber': { calls: 461, triangles: 258_534 },
+  // Plan 030 round 3, measured 2026-10-13 on SwiftShader (two repeats, identical): 461 / 259,096, the same calls (no new
+  // batch) and his added shape (5,036 triangles against 4,708: a finer cowl, a ragged skirt and flap, fuller sleeves).
+  'wave-chamber': { calls: 461, triangles: 259_096 },
   // Twelve scene ceilings lost their scenes in 7d093d1 and were removed by plan 027; their history is in git and progress.md.
 } as const;
 

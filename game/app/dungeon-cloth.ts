@@ -91,10 +91,12 @@ export function bodyLag(state: Inertia, velocity: { x: number; z: number }, head
  *  eased out (t(2 - t)) rather than smoothstepped. The sheet's poncho ends at the elbows at the sides and high at the
  *  front, a third and a half of the way down to the tails, where a smoothstep gave those hems a third and a half of the
  *  swing (.32 and .58) and the critic saw rigid cloth; eased out they take .61 and .80, and the drape still leaves the
- *  shoulder line with no kink (the weight is 0 there and rises from it). */
+ *  shoulder line with no kink (the weight is 0 there and rises from it). Round 3: eased out harder (a cube, 1 - (1 - t)^3):
+ *  the sheet's diamond raised the hem at the arms to .68 of his height, where t(2 - t) gave it .49 of the swing; the cube
+ *  gives it .63 and the front point .96. */
 export function hemWeight(y: number, top: number, bottom: number): number {
   const t = Math.min(1, Math.max(0, (top - y) / Math.max(1e-6, top - bottom)));
-  return t * (2 - t);
+  return 1 - (1 - t) ** 3;
 }
 
 // How far a swung hem drops as it swings out, per square metre of offset, so the cloth does not stretch.
@@ -116,15 +118,16 @@ export const BODY_CLEAR = .02;
  * torso's axis than both its rest radius and the tunic's radius there plus BODY_CLEAR is pushed back out
  * along its own radius. Vertices from `pinnedFrom` on stay at rest (the strap's drop onto the satchel).
  * One rule for the poncho, its trim and the strap: vertices at the same rest height move the same, so the
- * strap stays on the cloth.
+ * strap stays on the cloth. `rise` (plan 030 round 3) lifts the hem by that many metres, weighted the same way: the
+ * stride's flutter, the hem a beat behind the body's bob.
  */
-export function swayCloth(rest: ArrayLike<number>, out: { [index: number]: number; length: number }, hem: Hem, top: number, bottom: number, tunic: Tunic = [], pinnedFrom = Infinity): void {
+export function swayCloth(rest: ArrayLike<number>, out: { [index: number]: number; length: number }, hem: Hem, top: number, bottom: number, tunic: Tunic = [], pinnedFrom = Infinity, rise = 0): void {
   const droop = DROOP * (hem.x * hem.x + hem.z * hem.z);
   for (let i = 0, v = 0; i + 2 < rest.length; i += 3, v++) {
     const rx = rest[i]!, ry = rest[i + 1]!, rz = rest[i + 2]!, w = v >= pinnedFrom ? 0 : hemWeight(ry, top, bottom);
     if (w === 0) { out[i] = rx; out[i + 1] = ry; out[i + 2] = rz; continue; }
     let x = rx + w * hem.x, z = rz + w * hem.z;
-    const y = ry - w * droop, clear = Math.min(Math.hypot(rx, rz), tunicRadius(tunic, y) + BODY_CLEAR), r = Math.hypot(x, z);
+    const y = ry - w * droop + w * rise, clear = Math.min(Math.hypot(rx, rz), tunicRadius(tunic, y) + BODY_CLEAR), r = Math.hypot(x, z);
     if (r < clear) { if (r > 1e-9) { x *= clear / r; z *= clear / r; } else { x = clear; } }
     out[i] = x; out[i + 1] = y; out[i + 2] = z;
   }
@@ -156,3 +159,40 @@ export function stepPendulum(state: Pendulum, drive: { x: number; z: number }, d
   }
   return { x, z, vx, vz };
 }
+
+/** Plan 030 round 3: the hem as the game draws it - the spring's state plus the stride's flutter (dungeon-run-pose.ts),
+ *  which is too quick for the spring to carry - held to HEM_MAX together, so a flutter on top of a dash's lift never
+ *  throws the back point further than the spring alone could. */
+export function clothHem(hem: Hem, flutter: { x: number; z: number }): Hem {
+  let x = hem.x + flutter.x, z = hem.z + flutter.z;
+  const length = Math.hypot(x, z);
+  if (length > HEM_MAX) { x *= HEM_MAX / length; z *= HEM_MAX / length; }
+  return { x, z, vx: hem.vx, vz: hem.vz };
+}
+
+/** Plan 030 round 3: the stop's settle. The critic saw a stop snap from a stride to a stand and hold there (round 2's
+ *  stop sheet: ten identical frames). His upper body carries on over the planted feet and comes back: a forward lean
+ *  (radians, positive forward) driven by the body follower's braking, through a spring at 12 rad/s and a damping ratio of
+ *  .42: a sprint's stop leans him .18 (10 degrees) a sixth of a second after it, swings him back past upright by .02 at
+ *  half a second and leaves him within .005 of upright 700 ms after it (sprint.spec.ts reads the torso's pitch there and
+ *  holds it under .01; at .35 it read .011). */
+export type Settle = { lean: number; v: number };
+export const SETTLE_REST: Settle = Object.freeze({ lean: 0, v: 0 });
+const SETTLE_OMEGA = 12, SETTLE_ZETA = .42;
+/** The most the settle leans him, and the radians per m/s² of braking (the follower's acceleration backwards along his
+ *  facing): a sprint's stop brakes at about 70 m/s² at first, which reaches the clamp; pushing off leans him forward too,
+ *  at a third of the gain. */
+export const SETTLE_MAX = .3;
+const BRAKE_GAIN = .005, PUSH_GAIN = .0016;
+/** `back` is the follower's acceleration along his back (torso-local z, m/s²; positive while he brakes a forward run). */
+export function settleDrive(back: number): number {
+  return Math.min(SETTLE_MAX, Math.max(0, back) * BRAKE_GAIN + Math.max(0, -back) * PUSH_GAIN);
+}
+export function stepSettle(state: Settle, drive: number, dt: number): Settle {
+  let { lean, v } = state;
+  const steps = Math.max(1, Math.ceil(Math.max(0, dt) / SUBSTEP)), h = Math.max(0, dt) / steps;
+  for (let i = 0; i < steps && h > 0; i++) { v += (SETTLE_OMEGA * SETTLE_OMEGA * (drive - lean) - 2 * SETTLE_ZETA * SETTLE_OMEGA * v) * h; lean += v * h; }
+  return { lean: Math.min(SETTLE_MAX, Math.max(-SETTLE_MAX, lean)), v };
+}
+/** Metres the upper body rides forward over the hips per radian of settle lean: a sprint's stop carries it 3 cm. */
+export const SETTLE_SHIFT = .17;

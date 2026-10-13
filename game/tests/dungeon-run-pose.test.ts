@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BREATH_PERIOD, DASH_CAPE, headLook, idleBreath, playerRunPose, strideRate } from '../app/dungeon-run-pose.ts';
+import { BANK_MAX, BREATH_PERIOD, DASH_CAPE, bankInto, headLook, idleBreath, playerRunPose, strideRate } from '../app/dungeon-run-pose.ts';
 import { playerAttackPose, playerSpecialPose } from '../app/dungeon-attack-pose.ts';
 import { WEAPONS } from '../app/dungeon-weapon.ts';
 import { HEM_MAX } from '../app/dungeon-cloth.ts';
@@ -123,4 +123,25 @@ test('the idle breath is a small, slow cycle that averages to nothing and stops 
   assert.ok(Math.max(...samples.map(s => Math.abs(s.nod))) <= .03, 'the breath nods more than .03');
   assert.ok(Math.abs(mean(samples.map(s => s.lift))) < 1e-6 && Math.abs(mean(samples.map(s => s.nod))) < 1e-6, 'the breath drifts over a cycle');
   for (let i = 0; i < 40; i++) { const moving = idleBreath(i * .37, 0); assert.ok(moving.lift === 0 && moving.nod === 0, `the breath runs at ${(i * .37).toFixed(2)} s while he moves`); }
+});
+
+test('he banks into a turn at a run, by up to 8 degrees, and not standing (plan 030 round 3)', () => {
+  // Positive yaw rate is a turn to his left; positive bank leans him to his left, into it.
+  assert.ok(bankInto(4, TOP) > .05, `a run's turn at 4 rad/s banks him only ${bankInto(4, TOP).toFixed(3)}`);
+  assert.ok(bankInto(-4, TOP) < -.05, 'a right turn banks him left');
+  assert.equal(bankInto(40, TOP), BANK_MAX, 'a hard turn banks past the clamp');
+  assert.ok(BANK_MAX <= .15, `the bank's clamp is ${BANK_MAX}`);
+  assert.equal(bankInto(4, 0) + 0, 0, 'he banks standing');
+});
+
+test('running, the sword is carried trailing and its forearm swings against the free arm; standing it is not (plan 030 round 3)', () => {
+  // The critic read round 2's run as both arms locked holding the sword level across him.
+  const poses = cycle(TOP);
+  for (const pose of poses) assert.equal(pose.carry, 1, 'a sprint does not carry the sword trailing');
+  assert.equal(playerRunPose(1, 0).carry, 0, 'standing, the sword is carried trailing');
+  assert.ok(Math.max(...poses.map(p => p.carrySwing)) >= .3 && Math.min(...poses.map(p => p.carrySwing)) <= -.3, 'the sword forearm hardly swings');
+  // Against the free arm: whenever the free arm is well forward, the sword forearm is back, and the other way round.
+  let checked = 0;
+  for (const pose of poses) if (Math.abs(pose.arm - .06) > .2) { checked++; assert.ok(Math.sign(pose.carrySwing) === -Math.sign(pose.arm - .06), `the sword forearm swings ${pose.carrySwing.toFixed(3)} with the free arm at ${pose.arm.toFixed(3)}`); }
+  assert.ok(checked >= 20, `precondition: only ${checked} phases swing the free arm far`);
 });

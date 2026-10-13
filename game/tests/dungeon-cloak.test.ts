@@ -36,7 +36,8 @@ test('a swung hem moves the drape, never the yoke, never into the tunic, and nev
   // The sash's lowest point behind him, off the torso's red batch: the back point must hang below it whatever the hem
   // does. Plan 030 round 2: behind him (torso-local z over .1), since the sheet's back point (.50 of his height) ends
   // above the relic's tassel at his front, which this used to read (the batch's lowest point, .880).
-  const sash = torso.children.find(c => c instanceof THREE.Mesh && (c.material as THREE.MeshStandardMaterial).color?.getHex() === 0x963f32) as THREE.Mesh;
+  // By the material's name (plan 030 round 3 moved the sash's colour, which this used to match).
+  const sash = torso.children.find(c => c instanceof THREE.Mesh && (c.material as THREE.Material).name === 'red') as THREE.Mesh;
   assert.ok(sash, 'precondition: the sash batch is found');
   const sashAt = sash.geometry.getAttribute('position'), world = new THREE.Vector3();
   let sashBottom = Infinity, behind = 0;
