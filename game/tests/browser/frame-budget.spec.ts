@@ -93,6 +93,9 @@ const BUDGET = {
   // leather (an ankle strap and the sole) is a batch of its own on each knee: 40 meshes to 42, two scene and two shadow calls.
   // Plan 030 round 5, measured 2026-10-13 on SwiftShader (two repeats, identical): 418 / 286,681. The face's shaded planes are a batch of their own
   // on the head (a 'shade' material, 42 meshes to 43): one scene and one shadow call.
+  // Plan 030 round 6, measured 2026-10-13 on SwiftShader: 418 / 286,447, the same calls. The eyes' dark batch on the head is
+  // one more mesh (+1 scene, +1 shadow call) and the hair's two batches no longer cast (-2 shadow calls: their shadow lay
+  // across his brow and eyes).
   'flooded-hall': { calls: 418, triangles: 596_454 },
   // Plan 022 Stage B: the biggest chamber the waves deal (floor three, seed 0x2's hall of ten bodies in waves of 3, 3 and 4), its last wave standing. A dormant wave to come draws nothing (Stage 0: 1, 5 and 9 dormant bodies all drew 201 calls,
   // 209,882 triangles, 56 shadow calls) but a corpse stays drawn and costs a standing body's calls (about 35 a body): with the six dead of the first two waves left in frame this scene read 586 calls / 294,968 triangles, 78 over the 508 above, so the
@@ -118,7 +121,10 @@ const BUDGET = {
   // Plan 030 round 5, measured 2026-10-13 on SwiftShader (two repeats, identical): 463 / 259,558, the same +2 calls as the flooded hall (the face's
   // shade batch) and his reshaped figure (5,210 triangles against 5,118: a cowl and hood of nine-point sections, a mop of
   // locks over the brow, turned-over boot cuffs, crumpled nine-sided trousers).
-  'wave-chamber': { calls: 463, triangles: 259_558 },
+  // Plan 030 round 6, measured 2026-10-13 on SwiftShader: 463 / 259,324, the same calls as the flooded hall for the same
+  // reason, and his reshaped figure (5,335 triangles against 5,210: a finer face, a pointed hood, the knees' balloon). The
+  // triangle ceiling the figure measured.
+  'wave-chamber': { calls: 463, triangles: 259_324 },
   // Twelve scene ceilings lost their scenes in 7d093d1 and were removed by plan 027; their history is in git and progress.md.
 } as const;
 

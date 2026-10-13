@@ -19,7 +19,9 @@ export function playerRunPose(phase: number, speed: number) {
     // The heel folds up during recovery, then extends before the next plant.
     knee: -(.06 + Math.pow(Math.max(0, Math.cos(p)), 2) * (.3 + sprint * .95)) * weight,
   }));
-  const lean = (.04 + sprint * .23) * weight, carrySwing = Math.sin(phase) * (.1 + .05 * sprint) * (Math.sin(phase) < 0 ? .5 : 1) * weight;
+  // Round 6 (the critic: the torso upright through the run; he asks for 10 to 12 degrees): 7 degrees at a run (was 2), the
+  // sprint's 15 unchanged.
+  const lean = (.12 + sprint * .15) * weight, carrySwing = Math.sin(phase) * (.1 + .05 * sprint) * (Math.sin(phase) < 0 ? .5 : 1) * weight;
   return {
     sprint,
     legs,
@@ -42,7 +44,10 @@ export function playerRunPose(phase: number, speed: number) {
     // Round 4 (the critic: the free arm barely swings): the bend pumps the other way, deeper as the arm comes forward (a
     // runner's punch) and opening as it goes back, so the forearm and the hand - what shows under the poncho - swing 1.2
     // rad end to end at a sprint, where round 3's bend (deeper going back) cancelled the upper arm's swing to .7.
-    elbow: ((.5 + .5 * sprint) - Math.sin(phase) * .12) * weight,
+    // Round 6 (the critic: the free forearm held bent forward through the run like a T-rex; swing the arm from the shoulder
+    // instead): the bend light as the arm comes forward (.44, 25 degrees; it was 1.12, the forearm thrown up past the level)
+    // and deep as it goes back (.85), where a straighter forearm swings the hand into the poncho's tail behind the arm.
+    elbow: ((.37 + .275 * sprint) + Math.sin(phase) * .205) * weight,
     // Round 4 (the critic: the upper body rigid): the shoulders roll down towards the planted foot, 4 degrees at a sprint.
     roll: Math.sin(phase) * (.03 + .04 * sprint) * weight,
     swordPitch: (.48 + Math.sin(phase) * .12) * sprint * weight,
@@ -113,4 +118,20 @@ export const BREATH_PERIOD = 4;
 export function idleBreath(t: number, still: number) {
   const s = Math.min(1, Math.max(0, still)), a = 2 * Math.PI * t / BREATH_PERIOD;
   return { lift: .006 * Math.sin(a) * s, nod: .03 * Math.sin(a - .6) * s };
+}
+
+/** Round 6 (the critic and the orchestrator: the stop snaps from mid-stride to standing between two frames, then freezes; he
+ *  asks for a knee dip on the stop and a rest over about 300 ms). How fast the legs damp towards their target (per second,
+ *  THREE.MathUtils.damp's lambda): at a run or in a strike's plant they follow the stride (28); once his feet have stopped
+ *  (no ground speed) they come home at 9 - a sixth of the way per frame, 90% of the way in a quarter of a second - even while
+ *  the gait is still winding down, which is when round 5 still snapped them at 28. */
+export function legRate(gaitSpeed: number, groundSpeed: number, plant: number) {
+  return plant > 0 || (gaitSpeed > 1 && groundSpeed > .05) ? 28 : 9;
+}
+/** Round 6: the stop's crouch. The stop's settle (dungeon-cloth.ts stepSettle, `lean` radians, up to .3 at a sprint's stop)
+ *  already dips him 12 cm per radian; the legs now bend into it - the thighs forward and the knees folded - so the dip is
+ *  a knee bend under him rather than the whole figure sinking. Radians added to each hip's and knee's target. */
+export function stopCrouch(lean: number) {
+  const l = Math.max(0, lean);
+  return { hip: .55 * l, knee: -1.1 * l };
 }

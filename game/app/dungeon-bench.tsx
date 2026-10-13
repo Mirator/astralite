@@ -171,7 +171,9 @@ export default function DungeonBench() {
     camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span;
     if (sheet) {
       // A little above his waist, level: the sheet's painter stood at his chest, looking straight at him.
-      camera.position.set(0, 1.1, 16); camera.lookAt(0, .95, 0);
+      // `?look=<height>` centres the sheet's level camera on that height instead (with `zoom`, a close-up of the head or the boots).
+      const look = Number(params.get('look')), at = Number.isFinite(look) && look > 0 ? look : .95;
+      camera.position.set(0, at + .15, 16); camera.lookAt(0, at, 0);
       const s = .97 / zoom; camera.left = -s * aspect; camera.right = s * aspect; camera.top = s; camera.bottom = -s;
       const fill = new THREE.PointLight(0xffdfbe, 46, 0, 2); fill.position.set(1.4, 3.2, 2.2); scene.add(fill);
     } else {

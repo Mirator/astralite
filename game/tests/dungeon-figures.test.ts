@@ -169,6 +169,8 @@ test('the knight is baked within his budgets and stands where he did', () => {
   // Round 5 (2026-10-13, node): 43 meshes (the face's shaded planes, a new 'shade' batch on the head), 5,210 triangles - a
   // cowl and hood of 24 columns by 9, a mop of 34 locks, turned-over boot cuffs. A hidden poncho takes him to 4,698, so the
   // floor rises from 4,700 to 4,900.
+  // Round 6 (2026-10-13, node): 44 meshes (the eyes' near-black 'eye' batch on the head), 5,335 triangles - a finer face
+  // with a nose wedge and almond eyes, a pointed hood, ballooning knees. The floor stays.
   assert.ok(knight.triangles >= 4900, `the knight costs only ${knight.triangles} triangles`);
   assert.ok(knight.triangles <= 5 * Math.floor(BEFORE.triangles * 1.25), `the knight costs ${knight.triangles} triangles against ${BEFORE.triangles}`);
   // The explorer stands where the knight did, within 0.08.
@@ -379,10 +381,11 @@ test('both hands and the free wrist stay clear of the poncho at rest, through th
   hand.divideScalar(count);
   const wrist = new THREE.Box3().setFromBufferAttribute(wrap.geometry.getAttribute('position') as THREE.BufferAttribute).getCenter(new THREE.Vector3());
   // Plan 030: the elbow flexes forward from straight (it was a square bend opened down); in a swing the game brings the
-  // arm forward to .2 and bends the elbow to .6 (dungeon-game.tsx).
+  // arm forward to .2 and bends the elbow to .6 (dungeon-game.tsx). Round 6: the run's bend is at most .56 now (the critic's
+  // T-rex forearm), so the precondition asks for over .5 (it asked for .9).
   const poses: [string, number, number][] = [['rest', 0, 0], ['a swing', .2, .6]];
   for (let i = 0; i < 64; i++) { const pose = playerRunPose(i * Math.PI / 32, 8.5); poses.push([`the run at phase ${i}/64`, pose.arm, pose.elbow]); }
-  assert.ok(poses.some(([, a]) => a > .5) && poses.some(([, a]) => a < -.4) && poses.some(([, , e]) => e > .9), 'precondition: the run swings the arm both ways and bends the elbow');
+  assert.ok(poses.some(([, a]) => a > .5) && poses.some(([, a]) => a < -.4) && poses.some(([, , e]) => e > .5), 'precondition: the run swings the arm both ways and bends the elbow');
   let covered = 0, below = 0;
   const hem = hemByColumn(poncho), hemAt = (local: THREE.Vector3) => { const c = Math.round(((Math.atan2(local.x, local.z) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI / COLUMNS)) % COLUMNS; return torso.worldToLocal(new THREE.Vector3(0, hem[c]!, 0)).y; };
   for (const [name, armX, elbowX] of poses) {
@@ -672,10 +675,121 @@ test('the cowl is smooth cloth, not a lumpy collar: its roll\'s top runs round h
   assert.ok(top[0]! - top[columns / 2]! >= .1, `the roll stands only ${(top[0]! - top[columns / 2]!).toFixed(3)} higher at the back than at the throat`);
 });
 
-test('the trousers fall nearly straight to a gather under the knee, not ballooning (plan 030 round 4)', () => {
-  // The critic read round 3's trousers as pumpkin pants, 1.3 times the hips across with a hard ring at the knee. The
-  // sheet's back view sliced the same way (scratch sheetw.py, 2026-10-13): .285 of his height across at .25 up, .247 at
-  // .30, .253 at .35. Measured 2026-10-13 (node): .284, .284, .263.
+test('the trousers balloon at the knee in an A-stance, as wide as the sheet\'s (plan 030 round 6)', () => {
+  // Round 4: the critic read round 3's trousers as pumpkin pants, 1.3 times the hips across with a hard ring at the knee,
+  // and this test held them to .22-.30 of his height across off a slicing of the sheet's back view (.285, .247, .253 at .25,
+  // .30, .35 up). Round 6 (the critic: straight columns in a narrow stance; owner directive: match the sheet): re-sliced
+  // (scratch slice.py on outputs/review/ref-top.png, 2026-10-13, the sheet's views scaled to 540 px, sole to hair), the
+  // sheet's legs together are .343, .296, .302 across in its back view and .363, .313, .317 in its front view - the knees
+  // balloon and the boots stand apart. Measured 2026-10-13 (node): .327, .288, .274; round 5's .284 at the knee fails.
   const { knight } = relic(), at = [.25, .3, .35].map(share => sliceWidth(knight, share, 'x'));
-  for (const [i, share] of [.25, .3, .35].entries()) assert.ok(at[i]! >= .22 && at[i]! <= .3, `the legs are ${at[i]!.toFixed(3)} of his height across at ${share} up`);
+  for (const [i, share] of [.25, .3, .35].entries()) assert.ok(at[i]! >= .25 && at[i]! <= .37, `the legs are ${at[i]!.toFixed(3)} of his height across at ${share} up`);
+  assert.ok(at[0]! >= .3, `the legs are only ${at[0]!.toFixed(3)} of his height across at the knees, against the sheet's .34`);
+});
+
+// Plan 030 round 6. A baked batch of `group` by its material's name, and its vertices in the group's own frame.
+const batchOf = (group: THREE.Object3D, material: string) => group.children.find(c => c instanceof THREE.Mesh && (c.material as THREE.Material).name === material) as THREE.Mesh | undefined;
+const pointsOf = (mesh: THREE.Mesh) => { const p = mesh.geometry.getAttribute('position'); return Array.from({ length: p.count }, (_, i) => new THREE.Vector3().fromBufferAttribute(p, i)); };
+
+test('the face is clear of the hair: the cap and the fringe stop at the brows, over dark eyes on the skin (plan 030 round 6)', () => {
+  // The critic: round 5's face unreadable, no eyes or brows. The hair's cap, a whole ball, came down in front of the face to
+  // the eyes - a dark band across it. Head-local, off the baked batches: the eyes and brows are the 'eye' batch (its lowest
+  // point the bottom of the eyes; the brows are hair); no hair lies in front of the face (forward of the eyes' plane less 2 cm, within the eyes'
+  // width) lower than 2.5 cm over the eyes' bottom, i.e. under the brows. Measured 2026-10-13 (node): the lowest such hair
+  // .028 over the eyes' bottom (the brows); round 5's cap ball came down to .003, across them.
+  const head = makeKnight().userData.head as THREE.Group, eye = batchOf(head, 'eye'), hair = batchOf(head, 'hair'), tip = batchOf(head, 'hairtip'), skin = batchOf(head, 'skin');
+  assert.ok(eye && hair && tip && skin, 'precondition: the head\'s eye, hair, hairtip and skin batches are found');
+  const eyes = pointsOf(eye), bottom = Math.min(...eyes.map(v => v.y)), front = Math.max(...eyes.map(v => v.z)), half = Math.max(...eyes.map(v => Math.abs(v.x)));
+  // The eyes sit forward on the face (the face looks along -z): within a centimetre of the skin in front of them.
+  const skinFront = Math.min(...pointsOf(skin).filter(v => Math.abs(v.y - bottom) < .02 && Math.abs(v.x) < half).map(v => v.z));
+  assert.ok(Math.abs(Math.min(...eyes.map(v => v.z)) - skinFront) < .012, 'precondition: the eye marks lie on the skin of the face');
+  const before = [...pointsOf(hair), ...pointsOf(tip)].filter(v => v.z < front - .02 + .03 && Math.abs(v.x) < half);
+  assert.ok(before.length >= 10, `precondition: only ${before.length} of the hair's points lie in front of the face (the fringe)`);
+  const lowest = Math.min(...before.map(v => v.y)) - bottom;
+  console.log(`FACE hair over the eyes' bottom ${lowest.toFixed(4)}; eyes ${(Math.max(...eyes.map(v => v.y)) - bottom).toFixed(4)} tall with their lids`);
+  assert.ok(lowest >= .025, `the hair comes down to ${lowest.toFixed(3)} over the eyes' bottom, across them`);
+});
+
+test('the hood lies on his back as a point, not a dome (plan 030 round 6)', () => {
+  // The critic: round 5's hood a smooth dome, a turtle shell; the sheet's back view, a slumped hood whose sides run straight
+  // down from its widest into a point at the middle of his back, about a tenth of his height under the neck. Torso-local,
+  // sliced through the cowl's triangles behind him (z over .15): its widest half-width, and its half-width halfway down from
+  // there to its point - a dome's rounded sides keep three quarters of the width there, straight sides about half. Measured
+  // 2026-10-13 (node): widest .200, .656 of it halfway down, point at .225; round 5's bag .762 of it.
+  const { cowl } = relic();
+  assert.ok(cowl, 'precondition: the cowl is found');
+  const p = cowl.geometry.getAttribute('position'), index = cowl.geometry.index!, at = (i: number) => new THREE.Vector3().fromBufferAttribute(p, index.getX(i));
+  const tris: THREE.Vector3[][] = [];
+  for (let i = 0; i < index.count; i += 3) { const t = [at(i), at(i + 1), at(i + 2)]; if (t.every(v => v.z > .15)) tris.push(t); }
+  const half = (y: number) => { let w = 0; for (const t of tris) for (let e = 0; e < 3; e++) { const a = t[e]!, b = t[(e + 1) % 3]!; if ((a.y - y) * (b.y - y) > 0 || a.y === b.y) continue; w = Math.max(w, Math.abs(a.x + (b.x - a.x) * (y - a.y) / (b.y - a.y))); } return w; };
+  const point = Math.min(...tris.flat().map(v => v.y)), heights = Array.from({ length: 60 }, (_, i) => point + .002 + i * .005), widths = heights.map(half);
+  const widest = Math.max(...widths), at0 = heights[widths.indexOf(widest)]!, middle = half((at0 + point) / 2) / widest;
+  console.log(`HOOD widest ${widest.toFixed(3)} at ${at0.toFixed(3)}, ${middle.toFixed(3)} of it halfway down, point at ${point.toFixed(3)}`);
+  assert.ok(widest >= .15, `precondition: the hood is only ${widest.toFixed(3)} across behind him`);
+  assert.ok(middle <= .7, `the hood keeps ${middle.toFixed(3)} of its width halfway down to its point, a dome`);
+  assert.ok(point <= .24, `the hood ends at ${point.toFixed(3)}, not a tenth of his height under the neck`);
+});
+
+test('the sash\'s tails are thin strips at his hip, not planks (plan 030 round 6)', () => {
+  // The critic: a rigid red plank standing off the thigh; the sheet's are two narrow cloth tails hanging close. Tabard-local:
+  // the tails' depth front to back. Measured 2026-10-13 (node): .362 long and .047 deep; round 5's plates .090 deep.
+  const knight = makeKnight(), tabard = knight.userData.tabard as THREE.Group, tails = tabard.userData.tails as THREE.Group;
+  const red = batchOf(tails, 'red');
+  assert.ok(red, 'precondition: the sash\'s tails are found');
+  const box = new THREE.Box3().setFromPoints(pointsOf(red)), deep = box.max.z - box.min.z, long = box.max.y - box.min.y;
+  console.log(`TAILS ${long.toFixed(3)} long, ${deep.toFixed(3)} deep`);
+  assert.ok(long >= .3, `precondition: the tails hang only ${long.toFixed(3)}`);
+  assert.ok(deep <= .06, `the tails stand ${deep.toFixed(3)} deep, a plank`);
+});
+
+test('the tunic\'s skirt hangs to one clean hem, longest at his back (plan 030 round 6)', () => {
+  // The critic: a saw-toothed tunic hem; the sheet's is tidy and a little longer behind. Torso-local, off the baked pale
+  // batch: the skirt is the pale cloth under the sash (y under -.12) outside the body (radius over .17); its lowest point in
+  // each of 24 bearings round him, then how far any bearing steps off the mean of its two neighbours, and the back's hem
+  // against the sides'. Measured 2026-10-13 (node): .004 at most, the back .04 lower; round 5's ragged hem .035.
+  const torso = makeKnight().userData.torso as THREE.Group, pale = batchOf(torso, 'pale');
+  assert.ok(pale, 'precondition: the torso\'s pale batch is found');
+  // The hem is the lowest point down each line of vertices at one bearing (the skirt's columns), in order round him.
+  const columns = new Map<number, number>();
+  for (const v of pointsOf(pale)) { if (v.y > -.12 || Math.hypot(v.x, v.z) < .17 || v.z < -.05) continue; const a = Math.round(((Math.atan2(v.x, v.z) + 2 * Math.PI) % (2 * Math.PI)) * 50) / 50; columns.set(a, Math.min(columns.get(a) ?? Infinity, v.y)); }
+  const hem = [...columns.entries()].sort(([a], [b]) => a - b);
+  assert.ok(hem.length >= 10, `precondition: the skirt's hem is found at only ${hem.length} bearings`);
+  let step = 0;
+  for (let k = 1; k + 1 < hem.length; k++) step = Math.max(step, Math.abs(hem[k]![1] - (hem[k - 1]![1] + hem[k + 1]![1]) / 2));
+  const near = (bearing: number) => hem.reduce((best, h) => Math.abs(h[0] - bearing) < Math.abs(best[0] - bearing) ? h : best)[1];
+  const back = Math.min(near(.001), near(2 * Math.PI - .001)), sides = Math.max(near(Math.PI / 2), near(3 * Math.PI / 2));
+  console.log(`SKIRT ${hem.length} columns, step ${step.toFixed(4)}, back ${back.toFixed(3)} against the sides' ${sides.toFixed(3)}`);
+  assert.ok(Number.isFinite(back) && Number.isFinite(sides), 'precondition: the skirt hangs at his back and his sides');
+  assert.ok(step <= .02, `the skirt's hem steps ${step.toFixed(3)} off its neighbours, saw-toothed`);
+  assert.ok(back <= sides - .02, `the skirt hangs only to ${back.toFixed(3)} at his back against ${sides.toFixed(3)} at his sides`);
+});
+
+test('the boots are the sheet\'s size: the foot about a sixth of his height long (plan 030 round 6)', () => {
+  // The critic: in profile the foot .23 of his height long, the sheet's .17. Knee-local, off the baked boot batch (the toe box
+  // and shaft; the sole is the leather): its length front to back below the ankle, as a share of his height. Measured
+  // 2026-10-13 (node): .144; round 5's .183.
+  const knight = makeKnight(), height = new THREE.Box3().setFromObject(knight, true), knee = (knight.userData.legs as THREE.Group[])[0]!.userData.knee as THREE.Group, boot = batchOf(knee, 'boot');
+  assert.ok(boot, 'precondition: the knee\'s boot batch is found');
+  const foot = pointsOf(boot).filter(v => v.y < -.45), long = (Math.max(...foot.map(v => v.z)) - Math.min(...foot.map(v => v.z))) / (height.max.y - height.min.y);
+  console.log(`BOOT ${long.toFixed(4)} of his height`);
+  assert.ok(foot.length >= 20, 'precondition: the foot is found under the ankle');
+  assert.ok(long >= .13 && long <= .18, `the foot is ${long.toFixed(3)} of his height long, against the sheet's .17`);
+});
+
+test('his cloth shadows itself in clean steps, not a stipple (plan 030 round 6)', () => {
+  // The critic: the poncho's sides and the tunic stippled in the back view. The cause was three's PCF filter turning its taps
+  // by a per-pixel noise over a figure that stands mostly in its own penumbra, and double-sided cloth drawing its lit face
+  // into the shadow map. Every material of his own casts from its back faces and compiles its shadow lookup without the
+  // noise; the armoury's are untouched (they are not cloth).
+  const knight = makeKnight(), mats = new Set<THREE.MeshStandardMaterial>(), armed = new Set<THREE.Object3D>();
+  (knight.userData.armed.group as THREE.Object3D).traverse(o => armed.add(o));
+  knight.traverse(o => { if (o instanceof THREE.Mesh && !armed.has(o) && o.material instanceof THREE.MeshStandardMaterial && o.material.name) mats.add(o.material); });
+  assert.ok(mats.size >= 12, `precondition: only ${mats.size} of his materials are found`);
+  for (const m of mats) {
+    assert.equal(m.shadowSide, THREE.BackSide, `the ${m.name} casts its lit face into the shadow map`);
+    const shader = { fragmentShader: '#include <shadowmap_pars_fragment>\nvoid main() {}', vertexShader: '', uniforms: {} } as unknown as THREE.WebGLProgramParametersWithUniforms;
+    m.onBeforeCompile(shader, undefined as unknown as THREE.WebGLRenderer);
+    assert.ok(shader.fragmentShader.includes('vogelDiskSample'), `precondition: the ${m.name}'s shadow lookup is compiled in`);
+    assert.ok(!shader.fragmentShader.includes('interleavedGradientNoise( gl_FragCoord.xy )'), `the ${m.name} turns its shadow taps by a per-pixel noise`);
+  }
 });

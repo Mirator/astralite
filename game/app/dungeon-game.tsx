@@ -35,7 +35,7 @@ import { chainLength, chargeLevel, chargeReleases, devStartingArm, drawDamage, d
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
 import { ARROW_POOL, deathPool, fanHeadings, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, laneLength, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, type Mark, type Pool, type Shot } from './dungeon-projectile';
 import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
-import { DASH_CAPE, bankInto, headLook, idleBreath, playerRunPose, strideRate } from './dungeon-run-pose';
+import { DASH_CAPE, bankInto, headLook, idleBreath, legRate, playerRunPose, stopCrouch, strideRate } from './dungeon-run-pose';
 import { HEM_REST, INERTIA_REST, PENDULUM_REST, SETTLE_REST, SETTLE_SHIFT, TAILS_REST, bodyLag, clothHem, followBody, hemDrive, settleDrive, stepHem, stepPendulum, stepSettle, stepTails, swayCloth, swingDrive, tailsTarget, type Hem, type Inertia, type Pendulum, type Settle, type Tails } from './dungeon-cloth';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { createSparks } from './dungeon-sparks';
@@ -2158,8 +2158,9 @@ export default function DungeonGame() {
         // Plan 030: a strike steps into a planted stance, standing; at a run the stride keeps the legs.
         const plant=planted*(1-Math.min(1,gaitSpeed/2));
         // Round 3: when he stops, the legs come together over a third of a second rather than in one stride's snap (a settling step under the stop's lean).
-        const legRate=gaitSpeed>1||plant>0?28:9;
-        player.userData.legs.forEach((leg: THREE.Group, i: number) => { leg.rotation.x = THREE.MathUtils.damp(leg.rotation.x, THREE.MathUtils.lerp(locomotion.legs[i].hip,STRIKE_STANCE.hips[i]!,plant), legRate, dt);leg.userData.knee.rotation.x=THREE.MathUtils.damp(leg.userData.knee.rotation.x,THREE.MathUtils.lerp(locomotion.legs[i].knee,STRIKE_STANCE.knees[i]!,plant),legRate,dt); });
+        // Round 6: and they ease home once the feet stop (legRate), bending into the settle's dip (stopCrouch).
+        const rate=legRate(gaitSpeed,groundSpeed,plant),crouch=stopCrouch(settle.lean*(1-plant));
+        player.userData.legs.forEach((leg: THREE.Group, i: number) => { leg.rotation.x = THREE.MathUtils.damp(leg.rotation.x, THREE.MathUtils.lerp(locomotion.legs[i].hip,STRIKE_STANCE.hips[i]!,plant)+crouch.hip, rate, dt);leg.userData.knee.rotation.x=THREE.MathUtils.damp(leg.userData.knee.rotation.x,THREE.MathUtils.lerp(locomotion.legs[i].knee,STRIKE_STANCE.knees[i]!,plant)+crouch.knee,rate,dt); });
         // Plan 030: in a swing the free arm comes forward and bends for balance (it was held back, into the poncho's side point).
         player.userData.arm.rotation.x=THREE.MathUtils.damp(player.userData.arm.rotation.x,pc.attackTime>0?.2:locomotion.arm,20,dt);
         // Plan 013: the tabard is rigid plate, so it swings out ahead of whichever thigh leads rather than let it through.

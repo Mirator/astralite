@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BANK_MAX, BREATH_PERIOD, DASH_CAPE, bankInto, headLook, idleBreath, playerRunPose, strideRate } from '../app/dungeon-run-pose.ts';
+import { BANK_MAX, BREATH_PERIOD, DASH_CAPE, bankInto, headLook, idleBreath, legRate, playerRunPose, stopCrouch, strideRate } from '../app/dungeon-run-pose.ts';
 import { playerAttackPose, playerSpecialPose } from '../app/dungeon-attack-pose.ts';
 import { WEAPONS } from '../app/dungeon-weapon.ts';
 import { HEM_MAX } from '../app/dungeon-cloth.ts';
@@ -74,7 +74,16 @@ test('the poncho\'s hem is lifted back a few centimetres by a sprint and more by
 test('the free elbow bends through the run and hangs straight at rest (plan 030)', () => {
   // Plan 030: the elbow flexes forward from a straight arm (positive), as the sheet's arms hang; plan 027's opened down
   // from a square bend (negative). A runner's bend, over half a radian at every phase of a sprint.
-  for (const [i, pose] of cycle(TOP).entries()) assert.ok(pose.elbow >= .7 && pose.elbow <= 1.3, `at phase ${i}/64 the elbow bends ${pose.elbow.toFixed(3)}`);
+  // Round 6 (the critic: the free forearm held bent forward through the run, "like a T-rex"; swing it from the shoulder):
+  // a runner's bend, .4 to .9 at every phase of a sprint (sprint.spec.ts reads over .3 on the live rig), light as the arm
+  // comes forward and deep as it goes back, where the hand would otherwise swing into the poncho's tail behind the arm
+  // (dungeon-figures.test.ts). Whenever the upper arm is well forward (over .5) the bend is under .5. Measured 2026-10-13
+  // (node): .44 to .85, .44 to .5 with the arm forward; round 5's .88 to 1.12 fails both.
+  const poses = cycle(TOP);
+  for (const [i, pose] of poses.entries()) assert.ok(pose.elbow >= .4 && pose.elbow <= .9, `at phase ${i}/64 the elbow bends ${pose.elbow.toFixed(3)}`);
+  const forward = poses.filter(p => p.arm > .5);
+  assert.ok(forward.length >= 10, `precondition: only ${forward.length} phases swing the arm well forward`);
+  for (const pose of forward) assert.ok(pose.elbow < .5, `with the arm forward at ${pose.arm.toFixed(3)} the elbow bends ${pose.elbow.toFixed(3)}`);
   assert.equal(playerRunPose(1, 0).elbow, 0, 'the elbow bends at rest');
 });
 
@@ -158,8 +167,13 @@ test('the free forearm and hand swing well over a radian end to end at a sprint,
   // The critic saw the free arm barely swing. The upper arm's swing is held by the poncho's room (dungeon-figures.test.ts),
   // so the elbow pumps with it, deeper forward: the forearm's angle (shoulder plus elbow, forward positive) is what shows
   // under the cloth. Round 3's bend (deeper going back) left the forearm .7 end to end; measured 2026-10-13: 1.2.
+  // Round 6 (the critic: the forearm held up in front like a T-rex; the swing should be the shoulder's): round 5's 1.2 came
+  // from a forearm thrown up 1.74 rad (100 degrees, past the level) at the front. Now the bend is deep only going back (where
+  // it keeps the hand out of the poncho's tail), so the forearm swings less end to end and never comes up past 1.1 rad
+  // forward. Measured 2026-10-13 (node): .71 end to end, 1.06 at the front; round 5's 1.2 and 1.74 fail the ceiling.
   const poses = cycle(TOP), forearm = poses.map(p => p.arm + p.elbow), span = Math.max(...forearm) - Math.min(...forearm);
-  assert.ok(span >= 1.1, `the free forearm swings only ${span.toFixed(3)} end to end`);
+  assert.ok(span >= .65, `the free forearm swings only ${span.toFixed(3)} end to end`);
+  assert.ok(Math.max(...forearm) <= 1.1, `the free forearm comes up ${Math.max(...forearm).toFixed(3)} forward, a T-rex's arm`);
   // Forward with the right leg (legs[1]), back with the left.
   let checked = 0;
   for (const [i, pose] of poses.entries()) if (Math.abs(pose.legs[0].hip - pose.legs[1].hip) > .5) { checked++; assert.ok(Math.sign(forearm[i]! - (Math.max(...forearm) + Math.min(...forearm)) / 2) === Math.sign(pose.legs[1].hip - pose.legs[0].hip), `at phase ${i}/64 the forearm swings with the left leg`); }
@@ -199,4 +213,21 @@ test('the head turns into a turn ahead of the body, and not when he runs straigh
   assert.equal(headLook(0, 0, 0).yaw + 0, 0, 'the head turns running straight');
   // It still keeps looking along the aim against a wound torso, inside the neck's .6.
   assert.ok(Math.abs(headLook(1, 0, 40).yaw) <= .6 + 1e-9, 'the head turns past the neck\'s .6');
+});
+
+test('a stop eases the legs home over a quarter of a second and bends the knees into the dip (plan 030 round 6)', () => {
+  // The critic and the orchestrator: the stop snapped from mid-stride to standing between two sampled frames. The legs damp
+  // at 28 while the stride drives them, but once the feet stop (no ground speed) they come home at 9 even while the gait is
+  // still winding down - round 5 used 28 until the gait fell under 1 m/s, about 140 ms into a sprint's stop. Stepped at
+  // 60 Hz the way THREE.MathUtils.damp does, a thigh 1 rad forward is still over .1 rad out 200 ms after the stop at 9,
+  // and home inside 400 ms; at 28 it was home (.004) in 200 ms.
+  assert.equal(legRate(8.5, 8.5, 0), 28, 'running, the legs follow the stride');
+  assert.equal(legRate(.5, .5, 1), 28, 'a strike\'s plant steps at once');
+  assert.equal(legRate(6, 0, 0), 9, 'his feet have stopped, yet the legs snap home with the gait still winding down');
+  const after = (ms: number, rate: number) => { let x = 1; for (let i = 0; i < ms / (1000 / 60); i++) x += (0 - x) * (1 - Math.exp(-rate / 60)); return x; };
+  assert.ok(after(200, legRate(6, 0, 0)) > .1 && after(400, legRate(6, 0, 0)) < .05, `the legs are ${after(200, 9).toFixed(3)} out at 200 ms and ${after(400, 9).toFixed(3)} at 400 ms`);
+  // The crouch: thighs forward and knees folded with the settle's lean, nothing standing or leaning back.
+  const deep = stopCrouch(.3);
+  assert.ok(deep.hip >= .15 && deep.knee <= -.3, `a sprint's stop crouches only ${deep.hip.toFixed(3)} at the hip and ${deep.knee.toFixed(3)} at the knee`);
+  assert.deepEqual([stopCrouch(0), stopCrouch(-.2)].map(c => [c.hip, c.knee].map(Math.abs)), [[0, 0], [0, 0]], 'he crouches without a stop');
 });
