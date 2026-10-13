@@ -133,12 +133,13 @@ const sample = (keys: readonly Key[], t: number): Omit<PlayerAttackPose, 'trail'
  */
 const RECOVERY: readonly Key[] = [
   // The follow-through, exactly as the cut left it.
-  [0, FINISH, 0.16, -0.14, 0.34, -0.085, 0.24],
+  [0, FINISH, 0.16, -0.14, 0.55, -0.085, 0.24],
   // Carried past the finish by its own weight, arm still extended, tip already
   // coming up. The lift has to start here rather than on the next key: at this
   // yaw the blade is on the far side of whatever was struck, and flat it simply
   // vanishes behind it for three frames.
-  [0.14, FINISH + 0.14, 0.52, -0.24, 0.3, -0.05, 0.34],
+  // Plan 030 round 4: the torso holds its turn through this key (the critic: "returns to idle almost at once").
+  [0.14, FINISH + 0.14, 0.52, -0.24, 0.52, -0.05, 0.34],
   // Up across the chest, and deliberately *not* drawn back inside the shoulder:
   // the hand sits off the knight's right, so an arm pulled in puts the blade
   // behind him, away from the camera, where a lifted tip is four pixels. Held
@@ -260,7 +261,9 @@ function swingPose(ageSeconds: number, weapon: Weapon): PlayerAttackPose {
       swordYaw: back * t,
       swordPitch: -0.1 * t,
       swordRoll: 0.07 * t,
-      bodyYaw: -0.2 * t,
+      // Plan 030: the torso winds 25 degrees back against the cut (plan 027's 11 read as an arm swung on a still body).
+      // Round 4: 30 degrees (the critic: no anticipation).
+      bodyYaw: -0.52 * t,
       bodyRoll: 0.045 * t,
       armReach: -0.05 * t,
       trail: false,
@@ -276,7 +279,8 @@ function swingPose(ageSeconds: number, weapon: Weapon): PlayerAttackPose {
       swordYaw: back + (FINISH - back) * t,
       swordPitch: -0.1 + 0.26 * t,
       swordRoll: 0.07 - 0.21 * t,
-      bodyYaw: -0.2 + 0.54 * t,
+      // ...and whips through to 31 degrees past the aim, fastest as the cut commits (round 4: 61 degrees in all, was 48).
+      bodyYaw: -0.52 + 1.07 * t,
       bodyRoll: 0.045 - 0.13 * t,
       armReach: -0.05 + 0.29 * t,
       trail: true,
@@ -398,3 +402,41 @@ const WINDING: readonly Key[] = [[0, 0, 0, 0, 0, 0, 0], [0.6, -0.16, 1.1, 0.08, 
 const DRAWING: readonly Key[] = [[0, 0, 0, 0, 0, 0, 0], [0.5, -0.16, 0.2, -0.1, -0.14, 0.03, 0.1], DRAWN];
 export const chargePose = (level: number, kind: Special['kind'] = 'charge'): PlayerAttackPose =>
   ({ ...sample(kind === 'draw' ? DRAWING : WINDING, Math.min(1, Math.max(0, Number.isFinite(level) ? level : 0))), trail: false, active: false });
+
+/**
+ * Plan 030: how far into a planted stance a strike has him, 0 to 1, for the legs (presentation only, like the rest
+ * of this module): stepping into it through the wind-up, held planted from the launch to the end of the live window -
+ * the blow lands on a set front foot and holds there a few frames - and rising out of it through the first half of the
+ * recovery. A ranged arm aims from where it stands and never plants. STRIKE_STANCE is the stance itself: the left foot
+ * forward (hip, then knee, radians as the run pose gives them), the right back.
+ */
+// Round 4: the front foot steps further (.42, was .34; about .08 of his height forward of the hip) and both knees bend more.
+export const STRIKE_STANCE = { hips: [0.42, -0.28], knees: [-0.2, -0.36] } as const;
+export function strikePlant(ageSeconds: number, weapon: Weapon = TIDEBLADE): number {
+  const age = finiteAge(ageSeconds);
+  if (weapon.ranged || age <= 0 || age >= weapon.duration) return 0;
+  const launch = weapon.anticipation * LAUNCH;
+  if (age < launch) return smoothstep(Math.min(1, age / Math.min(launch, WIND_BACK)));
+  if (age <= weapon.contactEnd) return 1;
+  // Round 4: held through the first two fifths of the recovery (the follow-through), then let go by nine tenths of it.
+  return 1 - smoothstep(Math.min(1, Math.max(0, ((age - weapon.contactEnd) / (weapon.duration - weapon.contactEnd) - 0.4) / 0.5)));
+}
+
+/**
+ * Plan 030 round 4: the strike's weight, radians the torso pitches forward over the planted feet (positive forward;
+ * presentation only, on the swing's own clock). The critic saw a blade swept by the arms on a body that never moved:
+ * he rocks back a little as he winds up, drives forward over the front foot through the cut, holds there through the
+ * follow-through and comes upright over the rest of the recovery. STRIKE_DIP is how far the plant lowers him on bent
+ * knees (metres at a full plant). A ranged arm stands up to shoot and never leans.
+ */
+export const STRIKE_LEAN = { back: -0.08, forward: 0.17 } as const;
+export const STRIKE_DIP = 0.035;
+export function strikeLean(ageSeconds: number, weapon: Weapon = TIDEBLADE): number {
+  const age = finiteAge(ageSeconds);
+  if (weapon.ranged || age <= 0 || age >= weapon.duration) return 0;
+  const launch = weapon.anticipation * LAUNCH;
+  if (age < launch) return STRIKE_LEAN.back * smoothstep(Math.min(1, age / Math.min(launch, WIND_BACK)));
+  if (age <= weapon.contactEnd) return STRIKE_LEAN.back + (STRIKE_LEAN.forward - STRIKE_LEAN.back) * easeOutCubic((age - launch) / (weapon.contactEnd - launch));
+  const t = (age - weapon.contactEnd) / (weapon.duration - weapon.contactEnd);
+  return STRIKE_LEAN.forward * (1 - smoothstep(Math.min(1, Math.max(0, (t - 0.3) / 0.7))));
+}

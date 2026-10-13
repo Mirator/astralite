@@ -29,7 +29,13 @@ const lungs = UPGRADES.find((upgrade) => upgrade.id === 'lungs')!;
 // and shrines' `inScene` below and by frame-budget.spec.ts's armoury scene (owned racks draw more than locked ones).
 // Plan 027 (2026-10-12): 193 on d3d11, the Relic Seeker's +2 (one more shadow-casting mesh: his torso's batches split across
 // kept groups), the same +2 frame-budget.spec.ts measured on both renderers, which read those scenes identically. The floor stays 95%.
-const CALLS_FLOOR = 183, CALLS_CEILING = 193;
+// Plan 030 (2026-10-12, SwiftShader): 208, the Relic Seeker's +15 that frame-budget.spec.ts measured on its scenes (eight more
+// meshes, seven more shadow casters). The floor stays 95%.
+// Plan 030 round 2 (2026-10-13, SwiftShader, two repeats): 212, the +4 frame-budget.spec.ts measured (the boots' leather batch
+// on each knee, which casts). The floor stays 95%.
+// Plan 030 round 5 (2026-10-13, SwiftShader, two repeats): 214, the +2 frame-budget.spec.ts measured (the face's shade batch on the head,
+// which casts). The floor stays where it was.
+const CALLS_FLOOR = 201, CALLS_CEILING = 214;
 
 test('ENTER lands in the hall behind the veil: the altar, the racks it owns and the way down are on the scene, nobody is in it, and it drew no random number', async ({ page }) => {
   test.setTimeout(120_000 + WARM_UP);

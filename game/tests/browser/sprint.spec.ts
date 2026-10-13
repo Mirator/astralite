@@ -1,10 +1,17 @@
 import { expect, test, press } from './helpers.ts';
+import { strikeLean } from '../../app/dungeon-attack-pose.ts';
+import { STARTING_WEAPON, WEAPONS } from '../../app/dungeon-weapon.ts';
 
 // Plan 027 Stage B: how far the poncho's back point stands off its rest place 320 ms into a run, read back off the
 // drawn mesh: .0419 (d3d11, 2026-10-12; the hem's lift, .042 back, is most of it). 700 ms after he stops it is
 // .0051 off rest, thrown forward by the stop and settling. Plan 028 (smoothed inertia, the hem no longer slammed to
 // its clamp on the first frame): .0567 at 320 ms and .0021 at 700 ms after the stop (SwiftShader, 2026-10-12). The
 // bound below stays at half of plan 027's reading: it is a floor for "the drawn cloth moved", not a tuning target.
+// Plan 030 round 2 (eased hem weight, a livelier spring, SwiftShader, 2026-10-13): .1093 at 320 ms, .0080 at 700 ms after the stop.
+// Plan 030 round 3 (the stride's flutter on the drawn hem, a cubic hem weight, the stop's settle, SwiftShader, 2026-10-13): .1211 at
+// 320 ms, .0080 at 700 ms after the stop.
+// Plan 030 round 4 (a stop's forward throw at 1.4 times the gain, a livelier flutter, SwiftShader, 2026-10-13): .1190 at 320 ms,
+// .0093 at 700 ms after the stop - near the .01 settle bound below, which is held, not loosened.
 const RUN_TIP = 0.0419;
 
 test('travel uses a running rig, freezes on pause, settles on release and yields to attacks and dodge',async({game,page})=>{
@@ -36,7 +43,12 @@ test('travel uses a running rig, freezes on pause, settles on release and yields
   await page.keyboard.down('ArrowLeft');await game.step(240);
   await press(page, 'attack');await game.step(100);
   const attack=await game.state();expect(attack.player.attackTime).toBeGreaterThan(0);
-  expect(attack.player.locomotion.pitch).toBe(0);
+  // Plan 030 round 4: a strike pitches the torso by its own lean over the front foot (dungeon-attack-pose.ts strikeLean,
+  // forward positive, drawn at negative x), not the run's (-.27 at a sprint): the rig shows the swing's pose at its age.
+  const weapon=WEAPONS[STARTING_WEAPON],lean=strikeLean(attack.player.chain.duration-attack.player.attackTime,weapon);
+  expect(attack.player.chain.duration,'precondition: he swings the arm he starts with').toBe(weapon.duration);
+  expect(Math.abs(lean),'precondition: the strike leans him at this age').toBeGreaterThan(.02);
+  expect(attack.player.locomotion.pitch).toBeCloseTo(-lean,4);
   await page.keyboard.up('ArrowLeft');await game.step(400);
   // The dodge has to cut into a stride to show it yields: sampled from a standstill, as this used to be, a
   // stride that ran straight through the dash would pass. Running, dash, and read the gait mid-dash.

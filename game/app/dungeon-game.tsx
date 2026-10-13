@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import * as THREE from 'three';
 import { alertTexture, laneTelegraphTexture, telegraphTexture, vaultEnvironment } from './dungeon-art';
 import { planPavingPatches } from './dungeon-paving-layout';
-import { makeKnight, SWORD_PIVOT } from './dungeon-knight';
+import { makeKnight, SWORD_CARRY, SWORD_PIVOT } from './dungeon-knight';
 import { impactEffects } from './dungeon-impact';
 import { footstepEffects } from './dungeon-footsteps';
 import { footfalls, footSupport, type FootstepKind } from './dungeon-footstep-rules';
@@ -30,13 +30,13 @@ import { ALERT_STAGGER, BESTIARY, bombLands, bombMarks, decideEnemy, fallOf, mov
 import { awayFrom, blastOf, bossPush, burn as burnBody, fuseStep, KEG_CHAIN, KEG_DAMAGE, KEG_FUSE, KEG_HURT, landBlow, SPIKE_DAMAGE, SPIKE_HURT, spikeBites, spikeState, strikeProp, swingProps } from './dungeon-hits';
 import { furnishFloor } from './dungeon-furnish';
 import { raiseProps, type PropsView } from './dungeon-props-view';
-import { chargePose } from './dungeon-attack-pose';
+import { chargePose, STRIKE_DIP, STRIKE_STANCE, strikeLean, strikePlant } from './dungeon-attack-pose';
 import { chainLength, chargeLevel, chargeReleases, devStartingArm, drawDamage, drawn, lungeStep, specialSwing, STARTING_WEAPON, TIDEBLADE, vaultHeight, vaultLanded, vaultStep, weaponById, type Special, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
 import { ARROW_POOL, deathPool, fanHeadings, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, laneLength, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, type Mark, type Pool, type Shot } from './dungeon-projectile';
 import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
-import { DASH_CAPE, headLook, idleBreath, playerRunPose, strideRate } from './dungeon-run-pose';
-import { HEM_REST, INERTIA_REST, PENDULUM_REST, bodyLag, followBody, hemDrive, stepHem, stepPendulum, swayCloth, swingDrive, type Hem, type Inertia, type Pendulum } from './dungeon-cloth';
+import { DASH_CAPE, bankInto, headLook, idleBreath, legRate, playerRunPose, stopCrouch, strideRate } from './dungeon-run-pose';
+import { HEM_REST, INERTIA_REST, PENDULUM_REST, SETTLE_REST, SETTLE_SHIFT, TAILS_REST, bodyLag, clothHem, followBody, hemDrive, settleDrive, stepHem, stepPendulum, stepSettle, stepTails, swayCloth, swingDrive, tailsTarget, type Hem, type Inertia, type Pendulum, type Settle, type Tails } from './dungeon-cloth';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { createSparks } from './dungeon-sparks';
 import { serialiseRunExport } from './dungeon-run-export';
@@ -349,9 +349,18 @@ export default function DungeonGame() {
     let specialBuffer = 0, charging: number | null = null, specialWasReady = true, glintTime = 0;
     const lungeFrom = new THREE.Vector3(), glintAt = new THREE.Vector3();
     let locomotion=playerRunPose(0,0);
+    // Plan 030 round 5: the body follower's turn rate at a run (rad/s, dungeon-cloth.ts bodyLag), which turns the head into a turn ahead of the body (headLook).
+    let turnRate=0;
+    // Plan 030: how far a strike has planted his feet (dungeon-attack-pose.ts strikePlant), set by posePlayer and read by the legs next update.
+    let planted=0;
     // Plan 027 Stage B: the poncho's hem state and the satchel's swing (dungeon-cloth.ts), how long he has stood still (for the breath), and
     // the follower behind his velocity and heading that drives them (plan 028); all reset with `locomotion`.
     let hem:Hem=HEM_REST,inertia:Inertia=INERTIA_REST,swing:Pendulum=PENDULUM_REST,still=0,breathNod=0;
+    // Plan 030 round 3: the stop's settle (dungeon-cloth.ts stepSettle) and how far the run carries the sword trailing (0 to 1, dungeon-run-pose.ts `carry`), reset with the rest.
+    let settle:Settle=SETTLE_REST,carry=0;
+    // Plan 030 round 4: the sash's tails, a beat behind the drawn hem (dungeon-cloth.ts stepTails), reset with the rest.
+    let tails:Tails=TAILS_REST;
+    const carryAt=new THREE.Vector3(...SWORD_CARRY.at),carryQ=new THREE.Quaternion(...SWORD_CARRY.quaternion),carryElbow=new THREE.Vector3(...SWORD_CARRY.elbow),carrySwing=new THREE.Quaternion(),carryAxis=new THREE.Vector3(1,0,0),carryHand=new THREE.Vector3(),carryTurn=new THREE.Quaternion();
     let rewardTime = 0, noticeTime = 0;
     let hasStarted = false, isPaused = false, isMuted = false, activeRoom = 0;
     // Plan 020: the save slot every read and write of progress speaks for. The slot last played until the title's picker chooses another (the `slot`
@@ -583,6 +592,10 @@ export default function DungeonGame() {
     // `?adapt=full` starts at full quality with the governor on, whatever the renderer: on a software rasteriser that is a keep too slow
     // to hold, which is how the browser suite watches the governor step down in real time. `?quality=` pins a level and turns it off.
     const search = new URLSearchParams(window.location.search);
+    // `?camzoom=` (development only): a closer camera for reviewing the player's animation at a size a critic can read; the game never sets it.
+    const camZoom = process.env.NODE_ENV !== 'production' ? Math.max(1, Number(new URLSearchParams(window.location.search).get('camzoom')) || 1) : 1;
+    // `?camlow=1` (development only, with camzoom): a camera a few degrees over the floor and nothing drawn but the player, so a review can see the cloth and the gait side-on.
+    const camLow = process.env.NODE_ENV !== 'production' && new URLSearchParams(window.location.search).get('camlow') === '1';
     const post = createPostChain(renderer, scene, camera, mount.clientWidth || 1, mount.clientHeight || 1, search.get('adapt') === 'full' ? 'full' : postQuality(renderer, window.location.search));
     setPlainVeil(post.quality === 'reduced');
     // Adaptive quality (dungeon-quality.ts): the rule decides from the intervals of drawn frames; this applies the rung it lands on.
@@ -1025,15 +1038,21 @@ export default function DungeonGame() {
       sword.rotation.set(pose.swordPitch,pose.swordYaw,pose.swordRoll);
       sword.position.set(SWORD_PIVOT.x,SWORD_PIVOT.y,SWORD_PIVOT.z-pose.armReach);
       sword.scale.z=1+run.reach*.5;
-      player.userData.torso.rotation.set(0,pose.bodyYaw,pose.bodyRoll);
-      if(age===0&&charging===null){player.userData.torso.rotation.x=locomotion.pitch;player.userData.torso.rotation.y+=locomotion.twist;sword.rotation.x+=locomotion.swordPitch;}
+      // Plan 030 round 4: a strike rocks the torso back on the wind-up and drives it forward over the front foot through the cut and its follow-through (strikeLean, forward positive; the torso pitches forward at negative x, as the run's lean does); visual only.
+      player.userData.torso.rotation.set(age>0&&pc.swingKind!=='special'?-strikeLean(age,pc.swing):0,pose.bodyYaw,pose.bodyRoll);
+      if(age===0&&charging===null){player.userData.torso.rotation.x=locomotion.pitch-settle.lean;player.userData.torso.rotation.y+=locomotion.twist;player.userData.torso.rotation.z+=locomotion.roll;sword.rotation.x+=locomotion.swordPitch;
+        // Plan 030 round 3: running, the sword is carried low and trailing (the knight's SWORD_CARRY), the forearm swinging about the elbow against the free arm; a swing or a dash sets `carry` to 0, so it never touches a blow.
+        // Round 4: turned by `carryHang`, the swing with the run's lean taken back out, so the leaning torso does not lift the blade to the level.
+        if(carry>0){carrySwing.setFromAxisAngle(carryAxis,locomotion.carryHang);carryHand.copy(carryAt).sub(carryElbow).applyQuaternion(carrySwing).add(carryElbow);carryTurn.multiplyQuaternions(carrySwing,carryQ);sword.quaternion.slerp(carryTurn,carry);sword.position.lerp(carryHand,carry);}}
       // Plan 027: the head turns back against the torso's wind-up so it keeps looking along the aim, and nods with the breath.
-      const look=headLook(player.userData.torso.rotation.y,player.userData.torso.rotation.x);player.userData.head.rotation.set(look.pitch+breathNod,look.yaw,0);
+      const look=headLook(player.userData.torso.rotation.y,player.userData.torso.rotation.x,age===0&&charging===null?turnRate:0);player.userData.head.rotation.set(look.pitch+breathNod+(age===0&&charging===null?locomotion.nod:0),look.yaw,0);
+      planted=age>0&&pc.swingKind!=='special'?strikePlant(age,pc.swing):0;
       return pose;
     };
     // Plan 027 Stage B: writes the hem state into every cloak mesh the scene draws, from the rest positions the knight kept (swayCloth).
     const headRestY=player.userData.head.position.y;
-    const swayCloak=()=>{const cloak=player.userData.cloak as THREE.Group;for(const {mesh,rest,pinnedFrom} of cloak.userData.meshes as {mesh:THREE.Mesh;rest:Float32Array;pinnedFrom:number}[]){const attr=mesh.geometry.getAttribute('position') as THREE.BufferAttribute;swayCloth(rest,attr.array,hem,cloak.userData.top,cloak.userData.bottom,cloak.userData.tunic,pinnedFrom);attr.needsUpdate=true;mesh.geometry.computeVertexNormals();}};
+    // Plan 030 round 3: the drawn hem is the spring's plus the stride's flutter (clothHem), and the flutter lifts it a beat behind the bob.
+    const swayCloak=()=>{const cloak=player.userData.cloak as THREE.Group,drawn=clothHem(hem,locomotion.flutter);for(const {mesh,rest,pinnedFrom} of cloak.userData.meshes as {mesh:THREE.Mesh;rest:Float32Array;pinnedFrom:number}[]){const attr=mesh.geometry.getAttribute('position') as THREE.BufferAttribute;swayCloth(rest,attr.array,drawn,cloak.userData.top,cloak.userData.bottom,cloak.userData.tunic,pinnedFrom,locomotion.flutter.y);attr.needsUpdate=true;mesh.geometry.computeVertexNormals();}};
     const trailGeo=new THREE.PlaneGeometry(.11,1.15);
     // Faded to zero opacity is not gone: a transparent mesh still passes the frustum and still costs a
     // draw, so these twelve sat in the counters of every scene in the keep whether or not anyone had
@@ -1393,7 +1412,7 @@ export default function DungeonGame() {
       run = createRun(start); remember(meta); boonsTaken = [];
       endSpecial(); specialWasReady = true;
       resetControl(pc); hurtFlash = 0; shake = 0; clearShots();
-      walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); hem=HEM_REST; inertia=INERTIA_REST; swing=PENDULUM_REST; still=0; breathNod=0; swayCloak(); player.userData.arm.userData.elbow.rotation.x=0; player.userData.satchel.rotation.set(0,0,0); player.userData.cloak.position.y=0; player.userData.head.position.y=headRestY; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
+      walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); hem=HEM_REST; inertia=INERTIA_REST; swing=PENDULUM_REST; still=0; breathNod=0; turnRate=0; planted=0; settle=SETTLE_REST; carry=0; tails=TAILS_REST; player.userData.tabard.userData.tails.rotation.set(0,0,0); player.rotation.z=0; player.userData.torso.position.z=0; swayCloak(); player.userData.arm.userData.elbow.rotation.x=0; player.userData.satchel.rotation.set(0,0,0); player.userData.cloak.position.y=0; player.userData.head.position.y=headRestY; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
       footsteps.reset(); stepLog = { contacts: 0, skipped: 0, kinds: { keep: 0, ruins: 0, flooded: 0 }, last: null };
       isPaused = false; keys.clear(); velocity.set(0, 0, 0);
       faceStart(pc);
@@ -2129,23 +2148,42 @@ export default function DungeonGame() {
         }
         const groundSpeed=pc.dashTime<=0&&dt>0?travelled/dt:0;
         gaitSpeed=THREE.MathUtils.damp(gaitSpeed,groundSpeed,14,dt);
+        // Round 3: a stopped gait lands on 0 rather than decaying for ever: the shoulders' counter-rotation scales with it, and a residue of it
+        // (3.7e-5 rad 280 ms after a tap) left the torso's yaw off 0 after a swing, which slash.spec.ts holds exactly (it failed on round 2's commit too).
+        if(groundSpeed===0&&gaitSpeed<.01)gaitSpeed=0;
         const previousPhase=walkPhase;
         if(groundSpeed>.05)walkPhase+=travelled*strideRate(gaitSpeed);
         if(Math.floor((previousPhase+Math.PI/2)/Math.PI)!==Math.floor((walkPhase+Math.PI/2)/Math.PI))audio.play('step');
         locomotion=playerRunPose(walkPhase,gaitSpeed);
-        player.userData.legs.forEach((leg: THREE.Group, i: number) => { leg.rotation.x = THREE.MathUtils.damp(leg.rotation.x, locomotion.legs[i].hip, 28, dt);leg.userData.knee.rotation.x=THREE.MathUtils.damp(leg.userData.knee.rotation.x,locomotion.legs[i].knee,28,dt); });
-        player.userData.arm.rotation.x=THREE.MathUtils.damp(player.userData.arm.rotation.x,pc.attackTime>0?-.35:locomotion.arm,20,dt);
+        // Plan 030: a strike steps into a planted stance, standing; at a run the stride keeps the legs.
+        const plant=planted*(1-Math.min(1,gaitSpeed/2));
+        // Round 3: when he stops, the legs come together over a third of a second rather than in one stride's snap (a settling step under the stop's lean).
+        // Round 6: and they ease home once the feet stop (legRate), bending into the settle's dip (stopCrouch).
+        const rate=legRate(gaitSpeed,groundSpeed,plant),crouch=stopCrouch(settle.lean*(1-plant));
+        player.userData.legs.forEach((leg: THREE.Group, i: number) => { leg.rotation.x = THREE.MathUtils.damp(leg.rotation.x, THREE.MathUtils.lerp(locomotion.legs[i].hip,STRIKE_STANCE.hips[i]!,plant)+crouch.hip, rate, dt);leg.userData.knee.rotation.x=THREE.MathUtils.damp(leg.userData.knee.rotation.x,THREE.MathUtils.lerp(locomotion.legs[i].knee,STRIKE_STANCE.knees[i]!,plant)+crouch.knee,rate,dt); });
+        // Plan 030: in a swing the free arm comes forward and bends for balance (it was held back, into the poncho's side point).
+        player.userData.arm.rotation.x=THREE.MathUtils.damp(player.userData.arm.rotation.x,pc.attackTime>0?.2:locomotion.arm,20,dt);
         // Plan 013: the tabard is rigid plate, so it swings out ahead of whichever thigh leads rather than let it through.
-        player.userData.tabard.rotation.x=Math.max(0,...player.userData.legs.map((leg:THREE.Group)=>leg.rotation.x))*.85;
-        player.position.y = 0.03 + locomotion.height + Math.sin(t*2.4)*.012*Math.max(0,1-gaitSpeed) + (pc.swingKind === 'special' && pc.attackTime > 0 && vault && pc.weapon.special ? vaultHeight(pc.weapon.special, pc.swing.anticipation, pc.swing.duration - pc.attackTime) : 0);
+        // Plan 030: and the sash's tails and the flap trail the hem's state, thrown forward by a stop and across by the stride (round 2: up to 20 degrees across).
+        // Round 3: off the drawn hem, the stride's flutter included, so the tails swing with the poncho's hem a beat behind the stride.
+        {const drawn=clothHem(hem,locomotion.flutter);player.userData.tabard.rotation.x=Math.max(0,...player.userData.legs.map((leg:THREE.Group)=>leg.rotation.x))*.85+Math.max(0,-drawn.z)*3;player.userData.tabard.rotation.z=THREE.MathUtils.clamp(drawn.x*4.5,-.35,.35);}
+        // Round 3: the stop's settle dips him on bent knees as it leans him on (2 cm at its deepest) and lifts him a little as it swings back.
+        player.position.y = 0.03 + locomotion.height - settle.lean * .12 - plant * STRIKE_DIP + Math.sin(t*2.4)*.012*Math.max(0,1-gaitSpeed) + (pc.swingKind === 'special' && pc.attackTime > 0 && vault && pc.weapon.special ? vaultHeight(pc.weapon.special, pc.swing.anticipation, pc.swing.duration - pc.attackTime) : 0);
         player.rotation.x = THREE.MathUtils.damp(player.rotation.x, pc.dashTime > 0 ? -0.3 : 0, 24, dt);
         // Plan 027 Stage B: the hem trails the body's acceleration (rotated into his own frame) and his turn, and is lifted back by the run or the dash;
         // the satchel swings on the strap's end with the same acceleration and the right thigh. Both on the simulated dt, so a pause or a hit-stop freezes them.
         // Plan 028: driven by the lag of a follower behind his velocity and heading (dungeon-cloth.ts followBody), not by differentiating them: the game changes both
         // within a frame, and the raw derivative flicked the hem and the bag to their clamps on the first frame of every start, turn and stop.
         if(dt>0){const yaw=player.rotation.y,c=Math.cos(yaw),s=Math.sin(yaw),heading=yaw+player.userData.torso.rotation.y;inertia=followBody(inertia,velocity,heading,dt);const lag=bodyLag(inertia,velocity,heading),ax=lag.accel.x,az=lag.accel.z,accel={x:ax*c-az*s,z:ax*s+az*c};
-          hem=stepHem(hem,hemDrive({accel,yawRate:lag.yawRate,lift:pc.dashTime>0?DASH_CAPE:locomotion.cape}),dt);swing=stepPendulum(swing,swingDrive(accel,locomotion.legs[1].hip),dt);swayCloak();}
-        player.userData.arm.userData.elbow.rotation.x=THREE.MathUtils.damp(player.userData.arm.userData.elbow.rotation.x,pc.attackTime>0?-.2:locomotion.elbow,20,dt);
+          hem=stepHem(hem,hemDrive({accel,yawRate:lag.yawRate,lift:pc.dashTime>0?DASH_CAPE:locomotion.cape,sway:locomotion.sway}),dt);swing=stepPendulum(swing,swingDrive(accel,locomotion.legs[1].hip),dt);
+          // Plan 030 round 3: a stop's braking leans the upper body on over the hips and back (the settle), and a turn banks him into it.
+          settle=stepSettle(settle,settleDrive(accel.z),dt);player.userData.torso.position.z=-settle.lean*SETTLE_SHIFT;
+          // Plan 030 round 4: the sash's tails follow the drawn hem a beat behind it, blown out by the run and thrown forward by a stop.
+          tails=stepTails(tails,tailsTarget(clothHem(hem,locomotion.flutter),locomotion.sprint),dt);player.userData.tabard.userData.tails.rotation.set(tails.x,0,tails.z);
+          player.rotation.z=THREE.MathUtils.damp(player.rotation.z,pc.dashTime>0?0:bankInto(lag.yawRate,gaitSpeed),12,dt);turnRate=lag.yawRate*Math.min(1,gaitSpeed/5.8);swayCloak();}
+        // Plan 030 round 3: the run's sword carry follows the stride in and out, and is dropped outright for a swing, a charge or a dash.
+        carry=pc.attackTime>0||pc.dashTime>0||charging!==null?0:THREE.MathUtils.damp(carry,locomotion.carry,10,dt);if(carry<.002)carry=0;
+        player.userData.arm.userData.elbow.rotation.x=THREE.MathUtils.damp(player.userData.arm.userData.elbow.rotation.x,pc.attackTime>0?.6:locomotion.elbow,20,dt);
         player.userData.satchel.rotation.set(swing.x,0,swing.z);
         still=THREE.MathUtils.damp(still,gaitSpeed<.05&&pc.attackTime<=0&&pc.dashTime<=0?1:0,4,dt);
         {const breath=idleBreath(t,still);breathNod=breath.nod;player.userData.cloak.position.y=breath.lift;player.userData.head.position.y=headRestY+breath.lift;}
@@ -2625,11 +2663,13 @@ export default function DungeonGame() {
       if (specialSweep.current) { specialSweep.current.style.setProperty('--ready', String(pc.weapon.special ? harpoon ? 0 : pc.weapon.special.draw ? quiver > 0 ? 1 : Math.min(1, reload / (pc.weapon.ranged?.refill ?? 1)) : Math.max(0, Math.min(1, 1 - run.specialCooldown / pc.weapon.special.cooldown)) : 1)); specialSweep.current.parentElement?.classList.toggle('special-ready', glintTime > 0); }
       const target = focusAhead.copy(player.position).addScaledVector(velocity,0.12);
       cameraFocus.lerp(target,1-Math.exp(-8*frameDt));
-      camera.position.set(cameraFocus.x + 9.2,12.5,cameraFocus.z + 11.5);
+      // The low review camera sees him alone, under the game's own lights: at this height every wall and pillar would stand in front of him.
+      if (camLow) scene.traverse((o) => { if (!(o instanceof THREE.Mesh) && !(o instanceof THREE.Points) && !(o instanceof THREE.Sprite)) return; let p: THREE.Object3D | null = o; while (p && p !== player) p = p.parent; if (!p) o.visible = false; });
+      camera.position.set(cameraFocus.x + 9.2,camLow ? 3.2 : 12.5,cameraFocus.z + 11.5);
       // Reduced motion drops the shake outright: it is ~90 Hz camera translation that carries nothing the
       // particles, the sound and the health bar do not already say, so nothing is lost by not moving at all.
       if (shake > 0 && !easeMotion) camera.position.add(shakeBy.set(Math.sin(t*95)*shake,0,Math.cos(t*83)*shake));
-      camera.lookAt(cameraFocus.x,0,cameraFocus.z);
+      camera.lookAt(cameraFocus.x,camLow ? .9 : 0,cameraFocus.z);
       // Plan 007: resolve this frame's cutaway targets after the camera has its final position for the
       // frame, so the view-space centres this writes are never a frame stale. Eligibility mirrors the
       // existing threat cue exactly (`enemy.windup>0||(enemy.lunge>0&&enemy.attackAge<.09)`) rather than
@@ -2905,7 +2945,7 @@ export default function DungeonGame() {
     // Plan 014: zoomed in close to the reference's framing - the knight fills much more of the
     // frame than the old 7.2/6.3 span left him. Ratio kept the same between the two breakpoints.
     // Then eased back out a fifth twice (4.3/3.76 -> 5.16/4.51 -> 6.19/5.41): the tight frame hid too much of the room.
-    const resize = () => { canvasRect = null; const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = w < 600 ? 5.41 : 6.19; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); dirty = true; };
+    const resize = () => { canvasRect = null; const w = mount.clientWidth, h = mount.clientHeight, aspect = w / h, span = (w < 600 ? 5.41 : 6.19) / camZoom; viewSpan = span; viewAspect = aspect; camera.left = -span * aspect; camera.right = span * aspect; camera.top = span; camera.bottom = -span; camera.updateProjectionMatrix(); renderer.setSize(w, h); post.resize(w, h); dirty = true; };
     window.addEventListener('resize', resize); resize();
     // Plan 015: the keep is raised on the press that asks for it (`enterWhenBuilt`/`bootSeed` below),
     // never at mount, so the hydrated menu's button is live from the first frame and a press before the

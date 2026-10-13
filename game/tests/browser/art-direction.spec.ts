@@ -255,16 +255,42 @@ test.describe('the player reads as cloth, face and hair, not one bright shape', 
       [chin, brow, hem].map(e => `; ${e.a}/${e.b} edge L*${e.La?.toFixed(1)} over ${e.na} px against L*${e.Lb?.toFixed(1)} over ${e.nb} px`).join('');
     console.log(`player values: ${numbers}`);
     // Preconditions: every part this reads was found on screen, at about half the pixels each covered when measured.
-    for (const [name, part, least] of [['poncho', ochre, 400], ['cowl', cowl, 120], ['face', skin, 140], ['tunic', pale, 180], ['hair', hair, 120]] as const) {
+    // Plan 030 drew him to the sheet's seven heads, and from the game camera his head covers a third of the pixels it did:
+    // the face 41 px and the hair 82 (SwiftShader, 2026-10-12; about 280 and 240 before, by these floors' own rule), so
+    // their floors are half the new readings. Plan 030 round 2 shortened the poncho to the sheet's (its sides end at the
+    // elbows, its front above the sash) and laid the hood over its back: the poncho covers 345 px (SwiftShader,
+    // 2026-10-13; about 800 before by the old floor's rule), so its floor is half that.
+    for (const [name, part, least] of [['poncho', ochre, 170], ['cowl', cowl, 120], ['face', skin, 20], ['tunic', pale, 180], ['hair', hair, 40]] as const) {
       expect(part?.pixels ?? 0, `precondition: the ${name} covers too few pixels to read (${numbers})`).toBeGreaterThan(least);
     }
     // The poncho meets the tunic over the fewest pixels: 30 and 33 since the plan 028 follow-up slimmed him (88 and 60 before).
-    for (const edge of [chin, brow, hem]) expect(Math.min(edge.na, edge.nb), `precondition: the ${edge.a} and the ${edge.b} barely meet on screen (${numbers})`).toBeGreaterThan(20);
+    // Plan 030 round 2: 15 and 17 (SwiftShader, 2026-10-13) - the cream trim now runs the whole hem, so the ochre touches
+    // the tunic only where the sleeves come out under it - and the floor is half that, as the others are.
+    // Plan 030 round 6: the hair's cap no longer comes down across the eyes (it was a dark band over the upper face) and the
+    // fringe hangs in five locks with the forehead between them, so from the game's high camera the face meets the hair over
+    // 19 px of skin and 37 of hair (SwiftShader, 2026-10-13; the contrast across it 26 L*, the gate's 15 below). That edge's
+    // floor is 15; the others keep 20.
+    for (const edge of [chin, brow, hem]) expect(Math.min(edge.na, edge.nb), `precondition: the ${edge.a} and the ${edge.b} barely meet on screen (${numbers})`).toBeGreaterThan(edge === hem ? 7 : edge === brow ? 15 : 20);
     // Measured 2026-10-12 on SwiftShader, two repeats, identical: 1.7% clipped, poncho L*68, tunic 68; at the chin the face
     // 61.6 over the cowl's 44.3 (17.3), at the brow 65.5 over the hair's 43.6 (21.9), at the hem the poncho 63.7 against
     // the tunic's 72.6 (8.9). Plan 027's palette read 58% clipped, poncho 86, the chin 88 over 82; a first cut of plan 028
     // greyed the tunic to L*47 and its edge with the poncho to 51 against 52. The plan 028 follow-up that slimmed him (same palette): 1.9% clipped,
     // poncho 67, tunic 68, the chin 61.5 over 46.2, the hem edge 47.1 against 70.9.
+    // Plan 030 (the sheet's proportions, flat-shaded cloth and skin, a redder ochre, SwiftShader, 2026-10-12): 1.5% clipped,
+    // poncho 64, tunic 63, the chin 61.4 over the cowl's 40.6, the brow 61.5 over the hair's 40.5, the hem edge 58.2 against 79.6.
+    // Plan 030 round 2 (shorter poncho, a yellower ochre, lighter cowl and skin, SwiftShader, 2026-10-13): 1.9% clipped,
+    // poncho 71, tunic 65, the chin 68.3 over the cowl's 49.4, the brow 68.5 over the hair's 37.5, the hem edge 54.9 against 83.9.
+    // Plan 030 round 3 (a redder ochre, a cowl nearer it, a deeper sash, SwiftShader, 2026-10-13): 2.1% clipped, poncho 70,
+    // cowl 59, tunic 65, the chin 71.5 over the cowl's 47.1, the brow 69.2 over the hair's 38.6, the hem edge 65.9 against 80.5.
+    // Plan 030 round 4 (a smooth cowl in the poncho's ochre a shade down, a warmer trim, cooler trousers, SwiftShader,
+    // 2026-10-13): 1.8% clipped, poncho 67, cowl 66, tunic 66, the chin 75.7 over the cowl's 53.5, the brow 70.5 over the
+    // hair's 37.0, the hem edge 66.8 against 83.8.
+    // Plan 030 round 5 (a poncho spread to corners at the elbows, a hood, a mop over the brow, the ochre a little redder,
+    // SwiftShader, 2026-10-13): 1.6% clipped, poncho 70, cowl 65, tunic 64, the chin 74.0 over the cowl's 52.6, the brow 67.8
+    // over the hair's 41.0, the hem edge 69.6 against 75.1. A tenth brighter ochre first read 4.9% clipped (the poncho 28%).
+    // Plan 030 round 6 (a face clear of the hair, a step more orange ochre and cowl, darker neutral trousers, lighter hair,
+    // SwiftShader, 2026-10-13): 2.0% clipped, poncho 68, cowl 62, tunic 65, the chin 75.7 over the cowl's 54.1, the brow 73.1
+    // over the hair's 47.0, the hem edge 68.2 against 77.4.
     // Little of him lit off the top of the range.
     expect(read.body.clipped, `${(read.body.clipped * 100).toFixed(1)}% of him is at the top of the range (${numbers})`).toBeLessThan(.03);
     // The poncho is ochre, not yellow and not mud: bounded both sides, so a figure drawn black fails as surely as a blown-out one.
