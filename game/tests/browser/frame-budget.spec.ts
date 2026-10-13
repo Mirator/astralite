@@ -91,7 +91,9 @@ const BUDGET = {
   // against 1,808, drawn twice with the shadow pass. The call ceiling is the figure measured.
   // Plan 030 round 2, measured 2026-10-13 on SwiftShader (two repeats, identical): 416 / 285,657. The boots' darker
   // leather (an ankle strap and the sole) is a batch of its own on each knee: 40 meshes to 42, two scene and two shadow calls.
-  'flooded-hall': { calls: 416, triangles: 596_454 },
+  // Plan 030 round 5, measured 2026-10-13 on SwiftShader (two repeats, identical): 418 / 286,681. The face's shaded planes are a batch of their own
+  // on the head (a 'shade' material, 42 meshes to 43): one scene and one shadow call.
+  'flooded-hall': { calls: 418, triangles: 596_454 },
   // Plan 022 Stage B: the biggest chamber the waves deal (floor three, seed 0x2's hall of ten bodies in waves of 3, 3 and 4), its last wave standing. A dormant wave to come draws nothing (Stage 0: 1, 5 and 9 dormant bodies all drew 201 calls,
   // 209,882 triangles, 56 shadow calls) but a corpse stays drawn and costs a standing body's calls (about 35 a body): with the six dead of the first two waves left in frame this scene read 586 calls / 294,968 triangles, 78 over the 508 above, so the
   // floor takes the dead of the waves before back as the next wave is rung (`corpseSink`: they sink into the paving over the rings' 0.9 s and are no longer drawn), and the frame is the four standing bodies of the last wave with six corpses lying undrawn.
@@ -113,7 +115,10 @@ const BUDGET = {
   // Plan 030 round 4, measured 2026-10-13 on SwiftShader (two runs, identical): 461 / 259,230, the same calls (the sash's
   // tails took the tabard's red batch onto their own joint, no new batch) and his reshaped figure (5,118 triangles against
   // 5,036: a smooth cowl with two folds across the chest, a finer face).
-  'wave-chamber': { calls: 461, triangles: 259_230 },
+  // Plan 030 round 5, measured 2026-10-13 on SwiftShader (two repeats, identical): 463 / 259,558, the same +2 calls as the flooded hall (the face's
+  // shade batch) and his reshaped figure (5,210 triangles against 5,118: a cowl and hood of nine-point sections, a mop of
+  // locks over the brow, turned-over boot cuffs, crumpled nine-sided trousers).
+  'wave-chamber': { calls: 463, triangles: 259_558 },
   // Twelve scene ceilings lost their scenes in 7d093d1 and were removed by plan 027; their history is in git and progress.md.
 } as const;
 

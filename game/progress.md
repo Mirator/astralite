@@ -7296,3 +7296,65 @@ roll"). One planted bug survived and is not a break: round 3's forearm tilt unde
 20.4 degrees under the level (the swing, not the tilt, was what brought it up).
 
 Review pack: `game/outputs/review/r4/`.
+
+## 2026-10-13 — the Relic Seeker, round 5: a hood, a poncho spread to the elbows, a mop of hair, folded boot cuffs, and a head that moves
+
+A blind critic scored round 4 at 61% (silhouette 62, poncho and hood 55, head 50, underlayers 70, palette 72, motion 60). This
+round worked off the orchestrator's side-by-side (the sheet's four views over the bench's sheet view) and re-sliced the sheet
+(scratch hood.py, legs.py) against the built figure (outputs/scratch/slices.ts, zslices.ts).
+
+Shape (`dungeon-knight.ts`; node, standing at .03, sole to hair 1.819; hip joints .486, shoulders .747, head .155):
+- the cowl and hood rebuilt: each section eight points (was seven) from a lip by the neck, over the roll and down onto the
+  poncho. The sides rise to the jaw (.493 torso-local against the chin's .449; round 4 .467), the front lies in two loose
+  folds down the chest to .21, open at the throat (the V and the .05 gap under the chin held), and the back stands up and out
+  behind the neck into a hood bag that falls to a point at the shoulder blades (.249 behind his axis above the shoulders,
+  round 4 .214). COWL_FOLDS are gone (the folds are in the section). The cowl's depth scale .88 (was .92) so his profile is
+  not deeper than it must be: .215 of his height deep at .80 up (sheet .18, round 4 .18), .200 at .70;
+- the poncho spreads to corners at the elbows: shoulders .24 (were .25), the flare across .7 (was .45) but only down to .2
+  below the shoulder line (FLARE_TO), so the cloth hangs straight under the corners and the tails behind the arms are points,
+  not a bell; front-to-back flare .18 (was .13), which gives the free upper arm its swing. Sliced: .327 of his height across
+  at .75 up (sheet .29), .399 at .70 (sheet .395, round 4 .370), .385 at .55 (round 4 .403). The tails' neighbours higher
+  (112.5 and 135 degrees) so the tails are narrower; the four points' heights unchanged;
+- the head level (the skull's 8-degree tilt back removed); the hair a mop: no lock stands up off the crown, the top's locks lie
+  back and to his right in layers, the sides and back fall in longer layered points, locks over the ears to mid-ear, a lower
+  nape, a bigger cap; six fringe locks over the top third of the forehead. Bigger eyes and thicker brows. The face's facets
+  split by the way they face (`facePart`): the side and under-jaw planes in a new darker `shade` skin, so the face has a front
+  plane at a distance;
+- trousers on nine crumpled sides, fuller over the knee, the thigh's end tucked inside the knee's balloon (no ring at the
+  knee); boot cuffs turned over and flaring into a hem of points, the longest at the front (`cuffGeometry`); the foot a tenth
+  longer with a square toe;
+- palette: the trousers lighter (#5b5e66), the ochre a little redder at its value (#835f1b), the cowl a shade under it.
+
+Cost: 43 meshes (42; the shade batch), 5,210 triangles (5,118). Re-measured on SwiftShader, two repeats identical: flooded
+hall 416 → 418 calls, wave chamber 461 → 463 calls and 259,230 → 259,558 triangles, the hall 212 → 214.
+
+Motion (pure rules in `dungeon-run-pose.ts`, applied in `dungeon-game.tsx`):
+- the head carried forward in the run with a counter-bob: `nod` was sin² × .05 (positive tips the head back, so it lifted the
+  chin on every footfall); now -.07 ± .05 twice a stride, a little behind the bob - about 8-10 degrees down in the world at a
+  sprint with the lean headLook leaves;
+- `headLook` takes the body follower's turn rate (`turnRate`, set where the bank is): .06 per rad/s up to .3, so the head
+  looks into a turn ahead of the body;
+- the free upper arm .56 each way at a sprint (was .5): measured, the sleeve has room from -.5 (+.002) to +.6 (+.006);
+- the bank .03 per rad/s held to 10 degrees (was .02 and 8);
+- the hem's footfall lift half as much again (.048 at a sprint).
+sprint.spec.ts: settled tip .00934 (bound .01, unchanged).
+
+Values gate (SwiftShader, 2026-10-13): 1.6% clipped, poncho L*70, cowl 65, tunic 64, the chin 74.0 over the cowl's 52.6, the
+brow 67.8 over the hair's 41.0, the hem edge 69.6 against 75.1. The critic's "a tenth more value" ochre (#8c661e) failed it:
+4.9% clipped, the poncho 28% (the wider poncho's flat tops catch the key), so the ochre kept its value and only warmed.
+
+Tests changed: the budget's triangle floor 4,700 → 4,900 (a hidden poncho now takes him to 4,698); the cowl-smoothness test
+reads nine points a section; the bank's clamp to 8-12 degrees with a floor on a 4 rad/s turn; the scene ceilings above.
+New: the poncho spreads to its corners and falls straight below them; the cowl rises to the jaw and the hood stands behind
+the neck; the boots' cuffs fold into points, the longest at the front; the free arm swings about 30 degrees each way; the head
+is carried forward and counter-bobs twice a stride; the head turns into a turn.
+
+Planted bugs (in an isolated copy, so the dev server never reloaded), each failing with its own message: round 4's flare
+("the poncho is only 0.370 of his height across at the elbows"); round 4's cowl sides ("rises only 0.016 over the chin at his
+sides"); the hood pulled in ("the hood stands only 0.220 behind his neck"); flat cuffs ("the cuff's points hang only 0.000
+under its notches"); round 4's arm swing ("swings only -0.440 to 0.560"); round 4's nod ("the head is carried 0.025 on the
+torso through a sprint, not forward"); no turn rate ("the head looks only 0.000 into it"); round 4's bank gain ("banks him only
+0.080, under the critic's 8 degrees"). The cuff test first failed on the real figure - the front column was a notch - and the
+points were moved so one hangs at the front.
+
+Review pack: `game/outputs/review/r5/` (rebuilt after the values gate set the ochre back to its value).

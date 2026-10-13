@@ -349,6 +349,8 @@ export default function DungeonGame() {
     let specialBuffer = 0, charging: number | null = null, specialWasReady = true, glintTime = 0;
     const lungeFrom = new THREE.Vector3(), glintAt = new THREE.Vector3();
     let locomotion=playerRunPose(0,0);
+    // Plan 030 round 5: the body follower's turn rate at a run (rad/s, dungeon-cloth.ts bodyLag), which turns the head into a turn ahead of the body (headLook).
+    let turnRate=0;
     // Plan 030: how far a strike has planted his feet (dungeon-attack-pose.ts strikePlant), set by posePlayer and read by the legs next update.
     let planted=0;
     // Plan 027 Stage B: the poncho's hem state and the satchel's swing (dungeon-cloth.ts), how long he has stood still (for the breath), and
@@ -1043,7 +1045,7 @@ export default function DungeonGame() {
         // Round 4: turned by `carryHang`, the swing with the run's lean taken back out, so the leaning torso does not lift the blade to the level.
         if(carry>0){carrySwing.setFromAxisAngle(carryAxis,locomotion.carryHang);carryHand.copy(carryAt).sub(carryElbow).applyQuaternion(carrySwing).add(carryElbow);carryTurn.multiplyQuaternions(carrySwing,carryQ);sword.quaternion.slerp(carryTurn,carry);sword.position.lerp(carryHand,carry);}}
       // Plan 027: the head turns back against the torso's wind-up so it keeps looking along the aim, and nods with the breath.
-      const look=headLook(player.userData.torso.rotation.y,player.userData.torso.rotation.x);player.userData.head.rotation.set(look.pitch+breathNod+(age===0&&charging===null?locomotion.nod:0),look.yaw,0);
+      const look=headLook(player.userData.torso.rotation.y,player.userData.torso.rotation.x,age===0&&charging===null?turnRate:0);player.userData.head.rotation.set(look.pitch+breathNod+(age===0&&charging===null?locomotion.nod:0),look.yaw,0);
       planted=age>0&&pc.swingKind!=='special'?strikePlant(age,pc.swing):0;
       return pose;
     };
@@ -1410,7 +1412,7 @@ export default function DungeonGame() {
       run = createRun(start); remember(meta); boonsTaken = [];
       endSpecial(); specialWasReady = true;
       resetControl(pc); hurtFlash = 0; shake = 0; clearShots();
-      walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); hem=HEM_REST; inertia=INERTIA_REST; swing=PENDULUM_REST; still=0; breathNod=0; planted=0; settle=SETTLE_REST; carry=0; tails=TAILS_REST; player.userData.tabard.userData.tails.rotation.set(0,0,0); player.rotation.z=0; player.userData.torso.position.z=0; swayCloak(); player.userData.arm.userData.elbow.rotation.x=0; player.userData.satchel.rotation.set(0,0,0); player.userData.cloak.position.y=0; player.userData.head.position.y=headRestY; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
+      walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); hem=HEM_REST; inertia=INERTIA_REST; swing=PENDULUM_REST; still=0; breathNod=0; turnRate=0; planted=0; settle=SETTLE_REST; carry=0; tails=TAILS_REST; player.userData.tabard.userData.tails.rotation.set(0,0,0); player.rotation.z=0; player.userData.torso.position.z=0; swayCloak(); player.userData.arm.userData.elbow.rotation.x=0; player.userData.satchel.rotation.set(0,0,0); player.userData.cloak.position.y=0; player.userData.head.position.y=headRestY; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
       footsteps.reset(); stepLog = { contacts: 0, skipped: 0, kinds: { keep: 0, ruins: 0, flooded: 0 }, last: null };
       isPaused = false; keys.clear(); velocity.set(0, 0, 0);
       faceStart(pc);
@@ -2177,7 +2179,7 @@ export default function DungeonGame() {
           settle=stepSettle(settle,settleDrive(accel.z),dt);player.userData.torso.position.z=-settle.lean*SETTLE_SHIFT;
           // Plan 030 round 4: the sash's tails follow the drawn hem a beat behind it, blown out by the run and thrown forward by a stop.
           tails=stepTails(tails,tailsTarget(clothHem(hem,locomotion.flutter),locomotion.sprint),dt);player.userData.tabard.userData.tails.rotation.set(tails.x,0,tails.z);
-          player.rotation.z=THREE.MathUtils.damp(player.rotation.z,pc.dashTime>0?0:bankInto(lag.yawRate,gaitSpeed),12,dt);swayCloak();}
+          player.rotation.z=THREE.MathUtils.damp(player.rotation.z,pc.dashTime>0?0:bankInto(lag.yawRate,gaitSpeed),12,dt);turnRate=lag.yawRate*Math.min(1,gaitSpeed/5.8);swayCloak();}
         // Plan 030 round 3: the run's sword carry follows the stride in and out, and is dropped outright for a swing, a charge or a dash.
         carry=pc.attackTime>0||pc.dashTime>0||charging!==null?0:THREE.MathUtils.damp(carry,locomotion.carry,10,dt);if(carry<.002)carry=0;
         player.userData.arm.userData.elbow.rotation.x=THREE.MathUtils.damp(player.userData.arm.userData.elbow.rotation.x,pc.attackTime>0?.6:locomotion.elbow,20,dt);

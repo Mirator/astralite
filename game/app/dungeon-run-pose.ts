@@ -34,7 +34,9 @@ export function playerRunPose(phase: number, speed: number) {
     // Round 3: centred a little forward (the fuller sleeve and the tails behind the arm meet it .018 deep at the old
     // back swing): .44 back and .56 forward at a sprint, 25 and 32 degrees.
     // (Round 4 measured the room: the sleeve meets the cloth .01 deep at -.5 and +.55, so the upper arm's swing stays.)
-    arm: (.06 - Math.sin(phase) * (.4 + .1 * sprint)) * weight,
+    // Round 5 (the critic: the free arm barely swings, it wants about 35 degrees each way): the poncho now spreads out past
+    // the elbows (dungeon-knight.ts FLARE), so the upper arm has the room it lacked: .56 each way at a sprint, 32 degrees (round 4: .5).
+    arm: (.06 - Math.sin(phase) * (.46 + .1 * sprint)) * weight,
     // Plan 030: the free elbow flexes forward from straight (positive), a runner's bend that pumps with the arm.
     // Exactly 0 standing, when the arm hangs straight as the sheet draws it.
     // Round 4 (the critic: the free arm barely swings): the bend pumps the other way, deeper as the arm comes forward (a
@@ -45,7 +47,12 @@ export function playerRunPose(phase: number, speed: number) {
     roll: Math.sin(phase) * (.03 + .04 * sprint) * weight,
     swordPitch: (.48 + Math.sin(phase) * .12) * sprint * weight,
     // Plan 030: the head nods down a little on each footfall, twice a cycle, so the bob reads on the head as well.
-    nod: Math.pow(Math.sin(phase), 2) * .05 * weight,
+    // Round 5 (the critic: the head tipped back and locked through the run, chin up): positive tips the head back, so the
+    // nod is now a forward carry - the head held about 4 degrees down against the torso, on top of the lean headLook leaves
+    // it (8 to 10 degrees down in the world at a sprint) - and a counter-bob of 3 degrees each way, twice a stride and a
+    // little behind the body's (the bob, sin^2, is lowest at phase 0 and pi): the head tips down as the body rises off a
+    // footfall and comes back up as it lands.
+    nod: (-.07 + Math.sin(2 * phase - .6) * .05) * weight,
     // Plan 030: metres the poncho's hem is driven to his side and back, with the stride: the hips rock it across and the
     // spring (dungeon-cloth.ts) swings it a beat behind them.
     sway: Math.sin(phase) * (.08 + .08 * sprint) * weight,
@@ -74,24 +81,29 @@ export function playerRunPose(phase: number, speed: number) {
       // Round 4: about a third more each way (the critic still saw the hem locked to the body side-on).
       x: -Math.cos(phase) * (.025 + .03 * sprint) * weight,
       z: -Math.cos(2 * phase) * (.016 + .018 * sprint) * weight,
-      y: -Math.sin(2 * phase) * (.012 + .02 * sprint) * weight,
+      // Round 5 (the critic: the hem should lift about .03 of his height on each footfall): half as much again, .048 at a sprint.
+      y: -Math.sin(2 * phase) * (.018 + .03 * sprint) * weight,
     },
   };
 }
 
 /** Plan 030 round 3: radians he leans into a turn (his whole figure rolled about its own forward axis, positive towards
  *  his left), from the body follower's yaw rate (rad/s, positive turning left, dungeon-cloth.ts bodyLag) and his ground
- *  speed: .02 per rad/s at a run, nothing standing, held to BANK_MAX (8 degrees). */
-export const BANK_MAX = .14;
+ *  speed: .02 per rad/s at a run, nothing standing, held to BANK_MAX (8 degrees; round 5 below: .03 and 10). */
+// Round 5 (the critic: lean 8 to 12 degrees into a turn): .03 per rad/s, held to 10 degrees.
+export const BANK_MAX = .175;
 export function bankInto(yawRate: number, speed: number) {
-  return clamp(yawRate * .02 * Math.min(1, Math.max(0, speed / 5.8)), BANK_MAX);
+  return clamp(yawRate * .03 * Math.min(1, Math.max(0, speed / 5.8)), BANK_MAX);
 }
 
 /** Plan 027: the head's own turn on the neck, counter to the torso's, so it keeps looking along the aim
  *  while a swing winds the body round: 80% of the torso's yaw (wrapped, so a whirl's full turn ends where it
  *  began) up to .6 either way, and 60% of its pitch up to .2. Zero at rest. */
-export function headLook(torsoYaw: number, pitch: number) {
-  return { yaw: clamp(-wrap(torsoYaw) * .8, .6), pitch: clamp(-pitch * .6, .2) };
+// Round 5 (the critic: the head locked through turns): `yawRate` (rad/s, the body follower's, positive turning left, as
+// bankInto reads it) turns the head further into a turn than the body, .06 per rad/s up to .3, so he looks where he is
+// going before the body has come round. Zero at rest and when he runs straight.
+export function headLook(torsoYaw: number, pitch: number, yawRate = 0) {
+  return { yaw: clamp(-wrap(torsoYaw) * .8 + clamp(yawRate * .06, .3), .6), pitch: clamp(-pitch * .6, .2) };
 }
 
 /** Plan 027: a slow breath while he stands, a 4 s cycle: `lift` (metres, at most .006) raises the cloak and

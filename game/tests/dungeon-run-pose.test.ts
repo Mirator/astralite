@@ -125,12 +125,15 @@ test('the idle breath is a small, slow cycle that averages to nothing and stops 
   for (let i = 0; i < 40; i++) { const moving = idleBreath(i * .37, 0); assert.ok(moving.lift === 0 && moving.nod === 0, `the breath runs at ${(i * .37).toFixed(2)} s while he moves`); }
 });
 
-test('he banks into a turn at a run, by up to 8 degrees, and not standing (plan 030 round 3)', () => {
+test('he banks into a turn at a run, by up to 10 degrees, and not standing (plan 030 round 3)', () => {
   // Positive yaw rate is a turn to his left; positive bank leans him to his left, into it.
   assert.ok(bankInto(4, TOP) > .05, `a run's turn at 4 rad/s banks him only ${bankInto(4, TOP).toFixed(3)}`);
   assert.ok(bankInto(-4, TOP) < -.05, 'a right turn banks him left');
   assert.equal(bankInto(40, TOP), BANK_MAX, 'a hard turn banks past the clamp');
-  assert.ok(BANK_MAX <= .15, `the bank's clamp is ${BANK_MAX}`);
+  // Round 5 (the critic: lean 8 to 12 degrees into a turn; round 3 held 8): the clamp 10 degrees, and a run's turn at 4 rad/s
+  // banks him .12 (round 4: .08).
+  assert.ok(bankInto(4, TOP) >= .1, `a run's turn at 4 rad/s banks him only ${bankInto(4, TOP).toFixed(3)}, under the critic's 8 degrees`);
+  assert.ok(BANK_MAX >= .14 && BANK_MAX <= .21, `the bank's clamp is ${BANK_MAX}, outside 8 to 12 degrees`);
   assert.equal(bankInto(4, 0) + 0, 0, 'he banks standing');
 });
 
@@ -164,4 +167,36 @@ test('the free forearm and hand swing well over a radian end to end at a sprint,
   // The shoulders roll with the stride, and not standing.
   assert.ok(Math.max(...poses.map(p => Math.abs(p.roll))) >= .05, 'the shoulders do not roll with the stride');
   assert.equal(playerRunPose(1, 0).roll, 0, 'the shoulders roll standing');
+});
+
+test('the upper free arm swings about 30 degrees each way at a sprint (plan 030 round 5)', () => {
+  // The critic: the free arm barely swings; it asks for about 35 degrees at the shoulder. The poncho's room for it is held
+  // in dungeon-figures.test.ts (the upper arm stays under the cloth); round 5's wider poncho gave it .56 each way about
+  // its .06 rest. Measured 2026-10-13: -.500 to .620 (round 4: -.440 to .560).
+  const arms = cycle(TOP).map(p => p.arm);
+  assert.ok(Math.min(...arms) <= -.48 && Math.max(...arms) >= .6, `the free arm swings only ${Math.min(...arms).toFixed(3)} to ${Math.max(...arms).toFixed(3)}`);
+});
+
+test('running, the head is carried forward and counter-bobs, rather than tipped back; standing it is level (plan 030 round 5)', () => {
+  // The critic: the head tipped back, chin up, and locked through the run. `nod` adds to the head's pitch (positive tips it
+  // back): held down against the torso through a sprint and bobbing 3 degrees either way, twice a stride. Measured
+  // 2026-10-13: a mean of -.070, .100 end to end (round 4: +.025, .050 - a nod that tipped the chin up on every footfall).
+  const nods = cycle(TOP).map(p => p.nod), mean = nods.reduce((a, b) => a + b) / nods.length, span = Math.max(...nods) - Math.min(...nods);
+  assert.ok(mean <= -.05, `the head is carried ${mean.toFixed(3)} on the torso through a sprint, not forward`);
+  assert.ok(span >= .08, `the head bobs only ${span.toFixed(3)} through a stride`);
+  // Twice a stride: the nod's turns (where it changes direction) number four in a cycle.
+  let turns = 0; for (let i = 0; i < nods.length; i++) { const a = nods[(i + nods.length - 1) % nods.length]!, b = nods[i]!, c = nods[(i + 1) % nods.length]!; if ((b - a) * (c - b) < 0) turns++; }
+  assert.equal(turns, 4, `the head bobs with ${turns} turns a stride`);
+  assert.equal(playerRunPose(1, 0).nod + 0, 0, 'the head nods standing');
+});
+
+test('the head turns into a turn ahead of the body, and not when he runs straight (plan 030 round 5)', () => {
+  // The critic: the head locked through turns. headLook's third argument is the body follower's turn rate (positive to his
+  // left, as bankInto reads it). Measured 2026-10-13: .24 at 4 rad/s (round 4 took no turn rate: 0).
+  assert.ok(headLook(0, 0, 4).yaw >= .2, `turning left at 4 rad/s the head looks only ${headLook(0, 0, 4).yaw.toFixed(3)} into it`);
+  assert.ok(headLook(0, 0, -4).yaw <= -.2, `turning right at 4 rad/s the head looks ${headLook(0, 0, -4).yaw.toFixed(3)}`);
+  assert.ok(Math.abs(headLook(0, 0, 40).yaw) <= .3 + 1e-9, 'a hard turn throws the head past its clamp');
+  assert.equal(headLook(0, 0, 0).yaw + 0, 0, 'the head turns running straight');
+  // It still keeps looking along the aim against a wound torso, inside the neck's .6.
+  assert.ok(Math.abs(headLook(1, 0, 40).yaw) <= .6 + 1e-9, 'the head turns past the neck\'s .6');
 });

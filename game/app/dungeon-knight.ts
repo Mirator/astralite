@@ -99,7 +99,7 @@ const COLUMNS = 32, FACET = 2 * Math.PI / COLUMNS;
 // longer, to .435 of his height, as the sheet's outer drape measures in its front, profile and back views (.41 to .44,
 // scratch ochre.py, 2026-10-13; round 2 read .465); the back point .53, as its back view draws it (round 3 .52).
 const HEM: [number, number][] = [[0, -.026], [11.25, .013], [22.5, .051], [33.75, .086], [45, .116], [56.25, .141], [67.5, .16], [78.75, .171], [90, .175], [101.25, .15],
-  [112.5, .05], [123.75, -.29], [135, -.06], [146.25, .045], [157.5, -.002], [168.75, -.052], [180, -.105]];
+  [112.5, .09], [123.75, -.29], [135, .02], [146.25, .045], [157.5, -.002], [168.75, -.052], [180, -.105]];
 const hemAt = (degrees: number) => { for (let i = 1; i < HEM.length; i++) if (degrees <= HEM[i]![0]) { const [a, ya] = HEM[i - 1]!, [b, yb] = HEM[i]!; return ya + (yb - ya) * (degrees - a) / (b - a); } return HEM[HEM.length - 1]![1]; };
 // The shoulder line the drape falls from (half-widths across and front to back: broad and shallow, as shoulders are),
 // the neck ring the yoke rises to, and how far the drape flares out per metre it falls (across) and front to back.
@@ -109,7 +109,12 @@ const hemAt = (degrees: number) => { for (let i = 1; i < HEM.length; i++) if (de
 // shallower shoulders and a stronger flare across, the cape spreading over the arms as the sheet's does.
 // Round 4: the head an eighth smaller took his height down and the slices with it, so the shoulders a little narrower
 // again (.25, were .27) and the flare a little stronger (.45, was .4): .75 up he measured .347 across against the sheet's .304.
-const BREAK_Y = .33, NECK_Y = .43, SHOULDER: [number, number] = [.25, .155], NECK: [number, number] = [.105, .085], FLARE: [number, number] = [.45, .13];
+// Round 5 (the orchestrator: the sheet's poncho spreads out over the arms past the elbows, where ours hugged the body like
+// a narrow shawl; the sheet's back view, sliced, is .286 of his height across at .75 up and .395 at the elbows' corners at
+// .69, so it is narrow at the top and flares hard to the corners): the shoulders a little narrower and the flare across
+// half as strong again, ending at the corners (FLARE_TO across), below which the cloth falls straight, so the tails behind
+// the arms hang as points rather than spreading into a bell.
+const BREAK_Y = .33, NECK_Y = .43, SHOULDER: [number, number] = [.24, .155], NECK: [number, number] = [.105, .085], FLARE: [number, number] = [.7, .18], FLARE_TO: [number, number] = [.2, .42];
 // Each column's points, hem up: seven down the drape (as shares of its length, closer at the hem where the cloth
 // swings), then the yoke's middle and the neck.
 const DRAPE = [0, .1, .22, .38, .56, .78, 1];
@@ -121,8 +126,8 @@ function ponchoPoint(column: number, ring: number): THREE.Vector3 {
   // cowl sits on it) or on the hem's height (the tests read the points' heights off it).
   const wobble = ring < RINGS - 1 ? 1 + .028 * (2 * hash(column % COLUMNS * 7 + ring * 101) - 1) : 1, lift = ring > 0 && ring < BREAK ? .012 * (2 * hash(column % COLUMNS * 13 + ring * 7) - 1) : 0;
   if (ring <= BREAK) {
-    const fall = drop * (1 - DRAPE[ring]!), y = BREAK_Y - fall + lift, flare = Math.min(fall, .42);
-    return new THREE.Vector3(s * (SHOULDER[0] + FLARE[0] * flare) * wobble, y, c * (SHOULDER[1] + FLARE[1] * flare) * wobble);
+    const fall = drop * (1 - DRAPE[ring]!), y = BREAK_Y - fall + lift;
+    return new THREE.Vector3(s * (SHOULDER[0] + FLARE[0] * Math.min(fall, FLARE_TO[0])) * wobble, y, c * (SHOULDER[1] + FLARE[1] * Math.min(fall, FLARE_TO[1])) * wobble);
   }
   // The yoke: a little proud of the straight line between the shoulder and the neck, as cloth over a shoulder is.
   const t = ring === BREAK + 1 ? .55 : 1, rx = THREE.MathUtils.lerp(SHOULDER[0], NECK[0], t) + (t < 1 ? .02 : 0), rz = THREE.MathUtils.lerp(SHOULDER[1], NECK[1], t) + (t < 1 ? .015 : 0);
@@ -166,8 +171,8 @@ function trimGeometry() {
     rails.forEach(([a, b], k) => { positions.push(...a.toArray(), ...b.toArray()); if (k) { const p = base + 2 * (k - 1); index.push(p, p + 2, p + 1, p + 1, p + 2, p + 3); } });
   };
   const samples = 4 * COLUMNS;
-  strip(Array.from({ length: samples + 1 }, (_, k) => [drapeAt(k * COLUMNS / samples, -.004, .015), drapeAt(k * COLUMNS / samples, EDGE, .015)] as [THREE.Vector3, THREE.Vector3]));
-  strip(Array.from({ length: 2 * TEETH + 1 }, (_, k) => { const u = k * COLUMNS / (2 * TEETH), up = ZIG[k % 2]!; return [drapeAt(u, up, .015), drapeAt(u, up + ZIG_WIDTH, .015)] as [THREE.Vector3, THREE.Vector3]; }));
+  strip(Array.from({ length: samples + 1 }, (_, k) => [drapeAt(k * COLUMNS / samples, -.004, .019), drapeAt(k * COLUMNS / samples, EDGE, .019)] as [THREE.Vector3, THREE.Vector3]));
+  strip(Array.from({ length: 2 * TEETH + 1 }, (_, k) => { const u = k * COLUMNS / (2 * TEETH), up = ZIG[k % 2]!; return [drapeAt(u, up, .019), drapeAt(u, up + ZIG_WIDTH, .019)] as [THREE.Vector3, THREE.Vector3]; }));
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3)); geometry.setIndex(index); geometry.computeVertexNormals();
   return geometry;
@@ -191,9 +196,16 @@ const COWL: Record<'front' | 'side' | 'back', [number, number][]> = {
   // Round 4: the front sags further down the chest and further out over it, the sides lie under the jaw rather than up to
   // it and the back's top is lower against the head (.07 over the neck's base, round 3's .095), so the chin and the back
   // of the neck clear it.
-  front: [[.095, .315], [.1, .335], [.13, .34], [.18, .325], [.215, .285], [.22, .245], [.15, .27]],
-  side: [[.085, .38], [.09, .44], [.124, .455], [.185, .432], [.232, .37], [.25, .305], [.17, .34]],
-  back: [[.088, .38], [.096, .45], [.133, .478], [.19, .462], [.232, .405], [.248, .33], [.17, .355]],
+  // Round 5 (the critic and the orchestrator: a scarf of rolls round the neck, where the sheet's cowl is a big soft loose
+  // hood - a deep draped collar rising close round the neck and jaw at the sides, folding loosely onto the chest and open at
+  // the throat, and from behind and in profile a large bag of cloth standing up behind the head): each section has eight
+  // points, from its lip by the neck over the roll and down onto the poncho, and a last one tucked back under. The sides rise
+  // to the jaw (.49, the chin's .45), the front lies in two loose folds down the chest to .2 (the sheet's drape ends about
+  // .75 of his height up), and the back stands up and out behind the neck into the hood (HOOD below) and spreads onto the
+  // shoulders.
+  front: [[.085, .385], [.115, .398], [.18, .372], [.212, .33], [.205, .3], [.222, .262], [.205, .21], [.16, .225]],
+  side: [[.078, .44], [.098, .49], [.15, .472], [.19, .425], [.215, .385], [.235, .345], [.25, .3], [.19, .31]],
+  back: [[.105, .45], [.14, .5], [.2, .485], [.235, .44], [.25, .385], [.252, .33], [.245, .275], [.19, .29]],
 };
 const COWL_SECTION = COWL.side.length;
 // The V at the throat (plan 030 round 3): within COWL_V[0] radians of his front the roll dips, most at the middle, by up
@@ -204,34 +216,21 @@ function cowlPoint(column: number, ring: number) {
   // The front's section holds for a third of the way round to the sides, so the chin has a clear notch over it.
   // Round 4: eased in from the sides (a smoothstep) where round 3's square root stepped the roll down 6 cm in one column
   // just in front of each shoulder.
-  const a = column * 2 * Math.PI / COWL_COLUMNS, c = Math.cos(a), e = Math.min(1, Math.max(0, -c) * 1.1), f = e * e * (3 - 2 * e), b = Math.max(0, c), w = [f, 1 - f - b, b];
+  const a = column * 2 * Math.PI / COWL_COLUMNS, c = Math.cos(a), e = Math.min(1, Math.max(0, -c) * 1.1), f = e * e * (3 - 2 * e), b = Math.max(0, c) ** 1.6, w = [f, 1 - f - b, b];
   const k = ring % COWL_SECTION, blend = (n: 0 | 1) => w[0]! * COWL.front[k]![n] + w[1]! * COWL.side[k]![n] + w[2]! * COWL.back[k]![n];
   // Round 4: no per-column noise (round 3's paired folds and centimetre jitter read as fur). Two broad swells round him
   // instead, out over each shoulder, so the roll reads as a few big planes of cloth.
   const swell = k > 1 && k < COWL_SECTION - 1 ? 1 + .045 * Math.max(0, Math.sin(a) ** 2 - .3) : 1, r = blend(0) * swell;
   const v = Math.max(0, 1 - Math.abs(Math.atan2(Math.sin(a), -c)) / COWL_V[0]), dip = COWL_V[1] * v * (k <= 3 || k === COWL_SECTION - 1 ? 1 : .5);
-  return new THREE.Vector3(Math.sin(a) * r, blend(1) - dip, c * r * .92);
-}
-// The folds sagging in a U across his chest under the roll (round 4), each a fold of the cowl's cloth swept from one
-// shoulder down across the chest and up to the other: [half-span, height at the shoulders, height at its lowest, depth in
-// front of the neck at the middle, how far its lip stands out from the chest, how tall it is]. Each is a lip of cloth, its
-// lit top running out from the chest to the lip and its shaded underside back in, as a fold lying on him does.
-const COWL_FOLDS: [number, number, number, number, number, number][] = [[.19, .335, .285, .185, .024, .05], [.21, .32, .245, .19, .022, .045]];
-function cowlFold([span, top, low, depth, lip, tall]: (typeof COWL_FOLDS)[number]) {
-  const along = 12, section = [[0, 0], [lip, -.35 * tall], [lip * .6, -.7 * tall], [0, -tall]] as const;
-  return gridGeometry((column, ring) => {
-    const t = -1 + 2 * column / along, x = span * t, sag = 1 - t * t, y = top - (top - low) * sag, z = -Math.sqrt(Math.max(0, depth * depth - x * x * .55)) - .005, out = new THREE.Vector3(x * .55, 0, z).normalize();
-    const [o, down] = section[ring]!;
-    return new THREE.Vector3(x, y + down, z).addScaledVector(out, o * Math.sqrt(sag));
-  }, along, section.length);
+  return new THREE.Vector3(Math.sin(a) * r, blend(1) - dip, c * r * .88);
 }
 /** The hood, a closed bag of cloth gathered behind the neck and hanging in a peak to his shoulder blades over the
  *  poncho's back, as the sheet's back and profile views draw it (plan 030 round 2: round 1's hood was a fan laid flat on
  *  the back and read as no hood at all). Rings down the hood, each [height, half-width, half-depth, depth of its centre
  *  behind the neck]: wide where it leaves the cowl, flat on his back, standing a few centimetres proud of the poncho.
  *  Round 3: it leaves the cowl lower, with the cowl's back. Round 4: it leaves the cowl .05 lower and is smooth (its jitter a third); its peak stays at the shoulder blades. */
-const HOOD: Ring[] = [[.45, .145, .05, 0, .118], [.41, .175, .062, 0, .152], [.36, .162, .062, 0, .168], [.31, .12, .05, 0, .178], [.26, .065, .032, 0, .186], [.215, .01, .01, 0, .19]];
-const cowl = () => mergeGeometries([gridGeometry(cowlPoint, COWL_COLUMNS, COWL_SECTION + 1), ...COWL_FOLDS.map(cowlFold), loft(HOOD, 8, { jitter: .02, seed: 21 })])!;
+const HOOD: Ring[] = [[.45, .14, .055, 0, .155], [.41, .155, .066, 0, .183], [.36, .145, .06, 0, .192], [.31, .11, .045, 0, .188], [.27, .06, .026, 0, .182], [.235, .01, .01, 0, .176]];
+const cowl = () => mergeGeometries([gridGeometry(cowlPoint, COWL_COLUMNS, COWL_SECTION + 1), loft(HOOD, 8, { jitter: .02, seed: 21 })])!;
 
 // ---- The strap --------------------------------------------------------------------------------------------------
 /** A flat strap through `points`, `width` across and lifted `lift` along each point's `out`. Leather is
@@ -291,55 +290,70 @@ function faceGeometry() {
   geometry.computeVertexNormals();
   return geometry;
 }
-// The hair: a cap over the skull and the back of the head, and locks standing out of it - plan 030 round 2 redrew them
-// off the sheet's tousled mop (round 1's seventeen shards swept up and back read as a pinecone or a helmet): long flat
-// locks, .4 to .6 of the head's length, splaying out and falling from the crown, the top ones swept forward and to the
-// sides, layered points falling over the nape, strands over the ears and pointed fringe locks over the brow. Each lock
-// is a flattened four-sided cone [azimuth from his front towards his right (degrees), elevation on the skull (degrees),
-// length, width, how far it falls (0 straight out from the skull, 1 straight down), how far it sweeps forward, and
-// whether it is one of the few lighter tips]. Head-local metres; the skull's centre is FACE_Y.
+/** Round 5 (the critic: a flat pale face that does not read as one at a distance; the sheet's has a darker jaw and brow
+ *  plane): the face's facets split by the way each faces - those turned well to the side (the temples and the cheeks
+ *  behind the cheekbones) or down (under the jaw) in the shaded skin, the rest, the front of the face and the chin, in the
+ *  lit skin, so the face has a front plane under flat shading in any light. `shaded` picks which half. */
+const FACE = faceGeometry();
+function facePart(shaded: boolean) {
+  const flat = FACE.toNonIndexed(), p = flat.getAttribute('position'), keep: number[] = [], a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let i = 0; i < p.count; i += 3) {
+    a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2);
+    const n = new THREE.Vector3().crossVectors(b.clone().sub(a), c.clone().sub(a)).normalize(), side = Math.abs(n.x) > .78 || n.y < -.55 || n.z > .2;
+    if (side === shaded) for (const v of [a, b, c]) keep.push(v.x, v.y, v.z);
+  }
+  const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(keep, 3)); geometry.computeVertexNormals();
+  return geometry;
+}
+// The hair: a cap over the skull and the back of the head, and locks lying out of it - plan 030 round 2 redrew them
+// off the sheet's tousled mop (round 1's seventeen shards swept up and back read as a pinecone or a helmet). Each lock is
+// a flattened four-sided cone [azimuth from his front towards his right (degrees), elevation on the skull (degrees),
+// length, width, how far it falls (0 straight out from the skull, 1 straight down), how far it sweeps forward (negative:
+// back), how far it sweeps to his right, and whether it is one of the few lighter tips]. Head-local metres; the skull's
+// centre is FACE_Y.
 const FACE_Y = .17;
 // Round 4: the head and its hair an eighth smaller on the neck (chin to crown .159 of his height in round 3, the sheet's
 // .145), so he reads seven heads tall rather than the five and a half the critic counted.
 const HEAD_SCALE = .92;
-const LOCKS: [number, number, number, number, number, number, 0 | 1][] = [
-  // The crown, up and swept forward and out.
-  [15, 70, .1, .085, .2, .65, 0], [-30, 66, .1, .08, .25, .6, 1], [110, 64, .1, .08, .4, .25, 0], [-120, 62, .1, .08, .4, .2, 0], [175, 58, .095, .085, .5, 0, 0],
-  // The upper ring, out and falling, the front ones swept forward.
-  [40, 40, .11, .08, .55, .5, 0], [-45, 40, .105, .08, .55, .5, 0], [80, 36, .1, .08, .9, .3, 1], [-82, 36, .1, .08, .9, .3, 0],
-  [120, 34, .105, .08, .8, .05, 0], [-120, 34, .105, .08, .8, .05, 0], [155, 32, .1, .08, .85, -.05, 0], [-155, 32, .1, .08, .85, -.05, 0],
+// Round 5 (the critic and the orchestrator: a star, a pineapple crown on a small head, where the sheet's is a large tousled
+// mop clearly wider than the face): no lock stands up off the crown. The top's locks lie back over the skull and to his
+// right in overlapping layers, so the mop is a mass rather than spikes; the sides and back fall in long layered points that
+// stand out past the face (the sheet's hair is about 1.4 times the face across, and deeper than the head in profile), over
+// the ears to mid-ear and over the nape; the fringe (FRINGE) covers the top third of the forehead.
+const LOCKS: [number, number, number, number, number, number, number, 0 | 1][] = [
+  // The crown, lying back and to his right over the skull, layered.
+  [0, 80, .14, .1, .35, -1.3, .45, 0], [-40, 70, .13, .1, .35, -1.1, .6, 1], [40, 70, .13, .1, .3, -1.1, .55, 0], [-90, 60, .12, .095, .45, -.8, .2, 0], [90, 60, .12, .095, .35, -.9, .6, 0],
+  [150, 64, .12, .1, .45, -.8, .3, 0], [-150, 64, .12, .1, .5, -.8, .2, 1], [180, 70, .13, .1, .4, -.9, .2, 0], [-15, 58, .12, .1, .2, -.5, .5, 0], [25, 55, .12, .1, .15, -.6, .6, 0],
+  // The upper ring, out and falling: the sides stand out past the face.
+  [-65, 38, .12, .09, .55, -.05, -.15, 0], [65, 38, .12, .09, .5, -.05, .2, 1], [-110, 36, .125, .09, .65, -.2, -.1, 0], [110, 36, .125, .09, .6, -.2, .15, 0],
+  [-150, 34, .12, .09, .7, -.3, -.05, 0], [150, 34, .12, .09, .7, -.3, .05, 0], [180, 36, .12, .095, .7, -.3, .1, 0],
   // The layered back and the nape, falling.
-  [180, 18, .1, .085, 1.4, -.1, 0], [145, 2, .095, .07, 1.8, 0, 0], [-145, 2, .095, .07, 1.8, 0, 0], [180, -10, .085, .075, 2.2, -.1, 0],
-  // Strands over the ears.
-  [95, 10, .09, .055, 2.6, .3, 0], [-95, 10, .09, .055, 2.6, .3, 0],
+  [-160, 12, .11, .085, 1.4, -.2, 0, 0], [160, 12, .11, .085, 1.4, -.2, 0, 1], [180, 6, .11, .09, 1.6, -.15, .05, 0], [-125, 8, .1, .08, 1.5, -.1, 0, 0], [125, 8, .1, .08, 1.5, -.1, 0, 0],
+  [180, -22, .11, .085, 2.4, -.15, 0, 0], [-150, -18, .1, .08, 2.4, -.1, 0, 1], [150, -18, .1, .08, 2.4, -.1, 0, 0], [-120, -8, .095, .07, 2.2, -.05, 0, 0], [120, -8, .095, .07, 2.2, -.05, 0, 0],
+  // Over the ears, to mid-ear.
+  [-92, 14, .1, .07, 2.2, .25, 0, 0], [92, 14, .1, .07, 2.2, .25, 0, 0], [-75, 22, .09, .065, 1.6, .5, 0, 1], [75, 22, .09, .065, 1.6, .5, 0, 0],
 ];
-// Each fringe lock [across, how far it falls, its sideways turn]: two long ones over the brow, a shorter one between.
-const FRINGE: [number, number, number][] = [[-.05, .085, .5], [.01, .06, -.2], [.055, .09, -.55]];
+// Each fringe lock [across, how far it falls, its sideways turn]: swept chunks down over the brow, covering its top third,
+// two longer ones parted a little off the middle.
+const FRINGE: [number, number, number][] = [[-.07, .07, .7], [-.04, .085, .45], [-.008, .065, .2], [.025, .08, -.3], [.058, .07, -.6], [.08, .055, -.8]];
 function hairParts(): Part[] {
-  const skull = new THREE.Vector3(.096, .11, .112), parts: Part[] = [];
-  const onSkull = (azimuth: number, elevation: number) => { const az = THREE.MathUtils.degToRad(azimuth), el = THREE.MathUtils.degToRad(elevation); return new THREE.Vector3(Math.sin(az) * Math.cos(el) * skull.x, Math.sin(el) * skull.y + FACE_Y + .015, -Math.cos(az) * Math.cos(el) * skull.z + .012); };
-  // Round 4: the critic read the hair as kept close to the skull, where the sheet's spreads about 15% past the head's
-  // outline either side: every lock round the sides and back a fifth longer and a tenth wider, and those above the ears
-  // falling a fifth less, so they stand out from the head rather than lie down it. The crown's stay as they were, or the
-  // head would only grow taller.
-  LOCKS.forEach(([azimuth, elevation, reach, broad, drop, sweep, tip], i) => {
-    const length = elevation < 55 ? reach * 1.2 : reach, width = broad * 1.1, fall = elevation > 25 ? drop * .8 : drop;
+  const skull = new THREE.Vector3(.104, .11, .12), parts: Part[] = [];
+  const onSkull = (azimuth: number, elevation: number) => { const az = THREE.MathUtils.degToRad(azimuth), el = THREE.MathUtils.degToRad(elevation); return new THREE.Vector3(Math.sin(az) * Math.cos(el) * skull.x, Math.sin(el) * skull.y + FACE_Y + .015, -Math.cos(az) * Math.cos(el) * skull.z + .02); };
+  LOCKS.forEach(([azimuth, elevation, length, width, fall, sweep, side, tip], i) => {
     const root = onSkull(azimuth, elevation), out = root.clone().sub(new THREE.Vector3(0, FACE_Y, 0)).normalize();
-    const dir = out.add(new THREE.Vector3(0, -fall, -sweep)).normalize(), centre = root.clone().addScaledVector(dir, length / 2 - .035);
+    const dir = out.add(new THREE.Vector3(side, -fall, -sweep)).normalize(), centre = root.clone().addScaledVector(dir, length / 2 - .04);
     // The lock lies flat on the skull: its broad side faces out of the head, so the cone's z (its thin axis) is turned
     // to the outward direction round the lock's own line.
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir), z = new THREE.Vector3(0, 0, 1).applyQuaternion(q), flat = root.clone().sub(new THREE.Vector3(0, FACE_Y, 0));
     flat.addScaledVector(dir, -flat.dot(dir)).normalize();
     const turn = Math.atan2(new THREE.Vector3().crossVectors(z, flat).dot(dir), z.dot(flat)), e = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().setFromAxisAngle(dir, turn).multiply(q));
-    parts.push({ name: `lock-${i}`, shape: { cone: [1, 1, 4] }, material: tip ? 'hairtip' : 'hair', at: centre.toArray() as V3, rot: [e.x, e.y, e.z], scale: [width, length, width * .45] });
+    parts.push({ name: `lock-${i}`, shape: { cone: [1, 1, 4] }, material: tip ? 'hairtip' : 'hair', at: centre.toArray() as V3, rot: [e.x, e.y, e.z], scale: [width, length, width * .4] });
   });
   // The fringe: thick flat locks from the hairline down over the brow, each its own length and turn.
-  // Round 4: longer, so their tips reach down over the brow as the sheet's do.
-  FRINGE.forEach(([x, short, twist], i) => {
-    const drop = short * 1.3;
-    const root: V3 = [x, FACE_Y + .1, -.085 + Math.abs(x) * .3], tip: V3 = [x * 1.2 + twist * .04, FACE_Y + .1 - drop, -.122 + Math.abs(x) * .35], { at, rot } = along(root, tip), length = Math.hypot(tip[0] - root[0], tip[1] - root[1], tip[2] - root[2]);
+  FRINGE.forEach(([x, drop, twist], i) => {
+    const root: V3 = [x, FACE_Y + .12, -.09 + Math.abs(x) * .4], tip: V3 = [x * 1.15 + twist * .05, FACE_Y + .12 - drop, -.122 + Math.abs(x) * .5], { at, rot } = along(root, tip), length = Math.hypot(tip[0] - root[0], tip[1] - root[1], tip[2] - root[2]);
     // A cone's apex is its +y, so it stands from its base at the root half its length along the line.
-    parts.push({ name: `fringe-${i}`, shape: { cone: [1, 1, 4] }, material: 'hair', at: [at[0] + (tip[0] - root[0]) / 2, at[1] + (tip[1] - root[1]) / 2, at[2] + (tip[2] - root[2]) / 2], rot, scale: [.045, length, .022] });
+    parts.push({ name: `fringe-${i}`, shape: { cone: [1, 1, 4] }, material: i === 3 ? 'hairtip' : 'hair', at: [at[0] + (tip[0] - root[0]) / 2, at[1] + (tip[1] - root[1]) / 2, at[2] + (tip[2] - root[2]) / 2], rot, scale: [.05, length, .024] });
   });
   return parts;
 }
@@ -390,6 +404,18 @@ function flapGeometry() {
 // The tunic the cloth deform keeps the poncho outside of (dungeon-cloth.ts), [height, radius] up the torso: the
 // skirt under the body, circumradii of the cylinders below.
 const TUNIC: Tunic = [[-.34, .23], [-.04, .2], [.3, .21], [.42, .12]];
+/** Round 5 (the critic: flat rings for cuffs; the sheet's are floppy, folded over, with a pointed flap at the front): the
+ *  boot's cuff turned down over its shaft, flaring out from the fold to a hem of points, the longest at the front, as
+ *  soft leather folds. Knee-local, open (the leather is double-sided). */
+function cuffGeometry() {
+  const columns = 10, rings: [number, number][] = [[-.248, .084], [-.242, .1], [-.268, .112], [-.3, .122]];
+  return gridGeometry((column, ring) => {
+    const a = column * 2 * Math.PI / columns, front = Math.max(0, -Math.cos(a)) ** 3, [y, r] = rings[rings.length - 1 - ring]!;
+    // The hem (ring 0) dropped at every other column into a point (the odd ones, so one is at his front), and furthest at the front.
+    const point = column % 2 === 1, drop = ring === 0 ? (point ? .034 : .012) + .03 * front : 0, out = ring === 0 && point ? 1.06 : 1;
+    return new THREE.Vector3(Math.sin(a) * r * out, y - drop, Math.cos(a) * r * out * 1.04);
+  }, columns, rings.length);
+}
 const legSpec = (side: 'l' | 'r', x: number): Node => ({
   // Splayed out a few degrees, so the boots stand apart as the sheet's do while the hips stay inside the skirt. Plan 030
   // round 2: closer (the sheet's legs together are .26 of his height across, round 1's .31) and less splayed, toes forward.
@@ -397,7 +423,10 @@ const legSpec = (side: 'l' | 'r', x: number): Node => ({
     // Baggy trousers: narrow under the skirt, widening down the thigh into the knee.
     // Round 4 (the critic: pumpkin trousers, 1.3 times the hips across): baggy but falling nearly straight, a little fuller
     // down the thigh, and the thigh .015 longer (the hip joint .015 higher, the knee where it was).
-    { name: `leg-${side}`, shape: { geometry: loft([[.06, .09, .095], [-.08, .1, .105], [-.2, .107, .112], [-.31, .114, .119], [-.395, .12, .125]], 7, { jitter: .05 }) }, material: 'trousers' },
+    // Round 5 (the critic: straight tubes with a hard ring at the knee; the orchestrator: the sheet's trousers are wide and
+    // baggy all the way, with folds): nine crumpled sides, fuller down the thigh, and the thigh's end tucked inside the knee's
+    // balloon so no seam rings the knee.
+    { name: `leg-${side}`, shape: { geometry: loft([[.06, .088, .093], [-.08, .104, .109], [-.2, .116, .121], [-.31, .122, .127], [-.4, .124, .129]], 9, { jitter: .06, seed: 31 }) }, material: 'trousers' },
     {
       name: `knee-${side}`, at: [0, -.38, 0], parts: [
         // The knee's balloon, bunched over the wraps and gathered in hard into them. Round 3: a quarter wider at the knee
@@ -406,7 +435,9 @@ const legSpec = (side: 'l' | 'r', x: number): Node => ({
         // Round 4: the critic read the balloon as pumpkin trousers with a hard dark ring where it was gathered in. The knee
         // only a little fuller than the thigh, tapering over a hand's length into a gather well under the knee (a fifth of
         // his height up, as the sheet's), so no underside faces the floor at once.
-        { name: `shin-${side}`, shape: { geometry: loft([[.03, .118, .123], [-.02, .122, .127], [-.06, .119, .123], [-.1, .104, .107], [-.135, .085, .087], [-.165, .068, .07]], 8, { jitter: .05 }) }, material: 'trousers' },
+        // Round 5: the balloon a little fuller over the knee (the critic: a quarter wider at the knee than the thigh, gathered
+        // into the wrap with an overhang), its top inside the thigh's end.
+        { name: `shin-${side}`, shape: { geometry: loft([[.03, .11, .115], [-.015, .126, .131], [-.055, .132, .137], [-.095, .118, .122], [-.13, .095, .098], [-.155, .074, .076], [-.166, .066, .068]], 9, { jitter: .06, seed: 32 }) }, material: 'trousers' },
         // Round 3: cream wraps wound on the diagonal from just under the knee, three turns standing proud (the critic read
         // level ridges as plaid), and one teal stripe at their top (it sat at the top of the boot).
         // Round 4: the critic read the ridges' shadowed undersides as a barber pole; the turns stand a third as proud, and the
@@ -418,10 +449,12 @@ const legSpec = (side: 'l' | 'r', x: number): Node => ({
         // Broad boots: a shaft, a cuff folded down over it and flared to 1.3 times the shaft, a rounded toe box
         // running straight forward, and in the darker leather a strap round the ankle and the sole.
         { name: `boot-shaft-${side}`, shape: { geometry: loft([[-.27, .078, .082], [-.35, .082, .086], [-.43, .086, .092]], 7) }, material: 'boot' },
-        { name: `boot-cuff-${side}`, shape: { geometry: loft([[-.252, .1, .104], [-.268, .108, .112], [-.298, .106, .11], [-.33, .09, .094]], 8, { jitter: .07, seed: 3 }) }, material: 'leather' },
-        { name: `boot-shape-${side}`, shape: { geometry: loftForward([[-.1, .062, .052, 0, .052], [-.07, .074, .064, 0, .064], [0, .08, .068, 0, .066], [.08, .082, .058, 0, .056], [.14, .079, .05, 0, .049], [.19, .068, .04, 0, .04], [.215, .044, .028, 0, .032], [.222, .012, .01, 0, .032]], 8, { turn: Math.PI / 8 }) }, material: 'boot', at: [0, -.5, -.03] },
+        { name: `boot-cuff-${side}`, shape: { geometry: cuffGeometry() }, material: 'leather' },
+        // Round 5 (the critic: toes rounded and squat; the sheet's are broad and square): the foot a tenth longer and as broad
+        // at the toe as across the ball, so the toe box ends square.
+        { name: `boot-shape-${side}`, shape: { geometry: loftForward([[-.1, .062, .052, 0, .052], [-.07, .074, .064, 0, .064], [0, .08, .068, 0, .066], [.08, .084, .058, 0, .056], [.15, .084, .05, 0, .049], [.21, .08, .042, 0, .041], [.238, .072, .03, 0, .033], [.246, .05, .012, 0, .032]], 8, { turn: Math.PI / 8 }) }, material: 'boot', at: [0, -.5, -.03] },
         { name: `boot-strap-${side}`, shape: { geometry: loft([[-.352, .092, .098], [-.38, .094, .1]], 8, { caps: [false, false] }) }, material: 'leather' },
-        { name: `boot-sole-${side}`, shape: { geometry: loftForward([[-.105, .064, .012, 0, .008], [.2, .07, .012, 0, .008], [.222, .046, .012, 0, .008]], 8, { turn: Math.PI / 8 }) }, material: 'leather', at: [0, -.5, -.03] },
+        { name: `boot-sole-${side}`, shape: { geometry: loftForward([[-.105, .064, .012, 0, .008], [.225, .076, .012, 0, .008], [.25, .058, .012, 0, .008]], 8, { turn: Math.PI / 8 }) }, material: 'leather', at: [0, -.5, -.03] },
       ],
     },
   ],
@@ -464,8 +497,9 @@ const KNIGHT_SPEC: Node = {
             {
               // Plan 030 round 2: the skull tipped back a little (8 degrees) on the neck, chin up, so the face catches the
               // light from the game's high camera rather than hiding under the hair; baked into the head with the rest.
-              name: 'skull', rot: [.14, 0, 0], scale: HEAD_SCALE, parts: [
-                { name: 'face', shape: { geometry: faceGeometry() }, material: 'skin', at: [0, FACE_Y, 0] },
+              name: 'skull', rot: [0, 0, 0], scale: HEAD_SCALE, parts: [
+                { name: 'face', shape: { geometry: facePart(false) }, material: 'skin', at: [0, FACE_Y, 0] },
+                { name: 'face-shade', shape: { geometry: facePart(true) }, material: 'shade', at: [0, FACE_Y, 0] },
                 // Round 3: a small nose, about a quarter of the head's depth forward of the face (it was .04 long, a beak from above).
                 { name: 'nose', shape: { cone: [1, 1, 3] }, material: 'skin', at: [0, .153, -.098], rot: [-1.75, 0, 0], scale: [.015, .026, .012] },
                 { name: 'ear-l', shape: { sphere: [1, 5, 4] }, material: 'skin', at: [-.086, .16, .012], scale: [.016, .028, .02] },
@@ -474,13 +508,13 @@ const KNIGHT_SPEC: Node = {
                 // middle of the face as a moustache from the game camera, so the face is one skin tone under a brow line.
                 // Round 3: two separate dark marks taller than wide, set apart, and short brows angled up at their outer ends - the
                 // critic read round 2's eyes and brows as one horizontal bar, a mask.
-                { name: 'eye-l', shape: { box: [.011, .015, .006] }, material: 'wrap', at: [-.035, .18, -.097], rot: [0, .22, 0] },
-                { name: 'eye-r', shape: { box: [.011, .015, .006] }, material: 'wrap', at: [.035, .18, -.097], rot: [0, -.22, 0] },
-                { name: 'brow-l', shape: { box: [.03, .007, .012] }, material: 'hair', at: [-.038, .2, -.098], rot: [0, .22, .16] },
-                { name: 'brow-r', shape: { box: [.03, .007, .012] }, material: 'hair', at: [.038, .2, -.098], rot: [0, -.22, -.16] },
+                { name: 'eye-l', shape: { box: [.016, .017, .006] }, material: 'wrap', at: [-.035, .178, -.097], rot: [0, .22, 0] },
+                { name: 'eye-r', shape: { box: [.016, .017, .006] }, material: 'wrap', at: [.035, .178, -.097], rot: [0, -.22, 0] },
+                { name: 'brow-l', shape: { box: [.036, .01, .014] }, material: 'hair', at: [-.037, .198, -.098], rot: [0, .22, .12] },
+                { name: 'brow-r', shape: { box: [.036, .01, .014] }, material: 'hair', at: [.037, .198, -.098], rot: [0, -.22, -.12] },
                 // The cap: over the crown and the back of the skull, its front edge the hairline above the brow.
-                { name: 'hair', shape: { geometry: new THREE.SphereGeometry(1, 9, 6) }, material: 'hair', at: [0, FACE_Y + .05, .022], scale: [.102, .1, .116] },
-                { name: 'hair-back', shape: { geometry: new THREE.SphereGeometry(1, 8, 5) }, material: 'hair', at: [0, FACE_Y - .02, .045], scale: [.092, .09, .085] },
+                { name: 'hair', shape: { geometry: new THREE.SphereGeometry(1, 9, 6) }, material: 'hair', at: [0, FACE_Y + .045, .025], scale: [.108, .105, .124] },
+                { name: 'hair-back', shape: { geometry: new THREE.SphereGeometry(1, 8, 5) }, material: 'hair', at: [0, FACE_Y - .025, .05], scale: [.1, .1, .09] },
                 ...hairParts(),
               ],
             },
@@ -613,7 +647,10 @@ export function makeKnight() {
   // (art-direction.spec.ts) holds them in game light. Judge these in game frames, not on the bench: the bench is lit
   // far more softly and shows all of them darker than he is drawn.
   const pale = new THREE.MeshStandardMaterial({ color: 0x857f74, roughness: .92, side: THREE.DoubleSide, flatShading: true });
-  const ochre = new THREE.MeshStandardMaterial({ color: 0x80601c, roughness: .9, emissive: 0x1a1104, side: THREE.DoubleSide, flatShading: true });
+  // Round 5 (the critic: in the game camera the poncho drops to olive, #8A7A30, and wants a tenth more value and a warmer hue):
+  // a little redder at the same value. A tenth brighter (#8C661E) failed the values gate in game light - the wider poncho's
+  // flat tops caught the key, 28% of the ochre and 4.9% of him clipped (SwiftShader, 2026-10-13) - so the value stays.
+  const ochre = new THREE.MeshStandardMaterial({ color: 0x835f1b, roughness: .9, emissive: 0x1a1004, side: THREE.DoubleSide, flatShading: true });
   // Plan 030 round 3 (the critic: the poncho greenish, the sash coral, the trousers near black): the ochre redder (red over
   // green 1.33, the sheet's #C89530 is 1.34; it was 1.25) with a less yellow glow, the sash the sheet's deep brick (#8E3A2A,
   // scaled as the rest are; it was a coral), the trousers a neutral charcoal a little lighter, and the cowl closer to
@@ -622,8 +659,10 @@ export function makeKnight() {
   // running up to it. It is its own mesh already, so its own material costs no draw call.
   // Round 4: the poncho's ochre a shade down (the critic: the cowl the same cloth, its folds' undersides darker), still dark
   // enough under the chin for the values gate's face-over-cowl edge.
-  const cowl = new THREE.MeshStandardMaterial({ color: 0x6e5019, roughness: .92, emissive: 0x0e0903, side: THREE.DoubleSide, flatShading: true });
+  const cowl = new THREE.MeshStandardMaterial({ color: 0x705018, roughness: .92, emissive: 0x0e0903, side: THREE.DoubleSide, flatShading: true });
   const skin = new THREE.MeshStandardMaterial({ color: 0x906a52, roughness: .8, emissive: 0x1c0d06, flatShading: true });
+  // Round 5: the face's side and under-jaw planes (facePart), the skin a step down and warmer (the sheet's #C98F6E against #E8B48E).
+  const shade = new THREE.MeshStandardMaterial({ color: 0x74503a, roughness: .85, emissive: 0x160a04, flatShading: true });
   const hair = new THREE.MeshStandardMaterial({ color: 0x40291c, roughness: .9, emissive: 0x140b06, flatShading: true });
   // The sheet's lighter tips (#8A5A3A against #6B4128), on a third of the shards.
   const hairtip = new THREE.MeshStandardMaterial({ color: 0x553826, roughness: .9, emissive: 0x140b06, flatShading: true });
@@ -636,7 +675,7 @@ export function makeKnight() {
   // Round 4 (the critic: the trousers read olive-brown in game, the boots salmon): the charcoal a little cooler, so the
   // warm fill leaves it the sheet's neutral #4A4A4C rather than olive, and the boots a deeper, less orange brown, their
   // folded cuff in the darker leather (#5E3822 on the sheet) so the fold reads.
-  const trousers = new THREE.MeshStandardMaterial({ color: 0x4c4f56, roughness: .95, flatShading: true });
+  const trousers = new THREE.MeshStandardMaterial({ color: 0x5b5e66, roughness: .95, flatShading: true });
   const boot = new THREE.MeshStandardMaterial({ color: 0x5f3d29, roughness: .9, flatShading: true });
   // Plan 030: the wrist wraps' dark brown (#4A3528, also the eyes) and the sheet's teal bands (#3FA3A6), both scaled
   // down as the rest are.
@@ -660,7 +699,7 @@ export function makeKnight() {
     const geometry = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelSize: .015, bevelThickness: .012, bevelSegments: 1, steps: 1, curveSegments: 1 });
     geometry.translate(0, 0, -depth / 2); return new THREE.Mesh(geometry, material);
   };
-  const palette = { pale, ochre, cowl, trim, skin, hair, hairtip, red, leather, trousers, boot, wrap, teal, relic, brass };
+  const palette = { pale, ochre, cowl, trim, skin, shade, hair, hairtip, red, leather, trousers, boot, wrap, teal, relic, brass };
   // Each material named after its palette key, so a test can tell the rendered cloth from the skin (plan 028).
   for (const [name, material] of Object.entries(palette)) material.name = name;
 
@@ -686,7 +725,7 @@ export function makeKnight() {
   torso.add(tabard); torso.add(swordPivot); torso.add(arm);
   // The chin, as a bare node at the face's lowest point, so a test reads it off the built tree instead of restating
   // the spec. Added before the head's bake, like the boots' soles.
-  const chinAt = new THREE.Vector3(); { const p = (byName['face'] as THREE.Mesh).geometry.getAttribute('position'); let low = 0; for (let i = 1; i < p.count; i++) if (p.getY(i) < p.getY(low)) low = i; chinAt.fromBufferAttribute(p, low); }
+  const chinAt = new THREE.Vector3(); { const p = FACE.getAttribute('position'); let low = 0; for (let i = 1; i < p.count; i++) if (p.getY(i) < p.getY(low)) low = i; chinAt.fromBufferAttribute(p, low); }
   const chin = new THREE.Object3D(); chin.name = 'chin'; chin.position.set(chinAt.x, FACE_Y + chinAt.y, chinAt.z); (byName['skull'] as THREE.Group).add(chin);
 
   const legs = [byName['hip-l'] as THREE.Group, byName['hip-r'] as THREE.Group];

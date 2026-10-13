@@ -166,7 +166,10 @@ test('the knight is baked within his budgets and stands where he did', () => {
   // Round 4 (2026-10-13, node): 42 meshes (the sash's tails on their own joint take the tabard's red batch with them),
   // 5,118 triangles - a smooth cowl of 24 columns with two folds across the chest, a finer face. A hidden poncho takes
   // him to 4,606, still under the floor.
-  assert.ok(knight.triangles >= 4700, `the knight costs only ${knight.triangles} triangles`);
+  // Round 5 (2026-10-13, node): 43 meshes (the face's shaded planes, a new 'shade' batch on the head), 5,210 triangles - a
+  // cowl and hood of 24 columns by 9, a mop of 34 locks, turned-over boot cuffs. A hidden poncho takes him to 4,698, so the
+  // floor rises from 4,700 to 4,900.
+  assert.ok(knight.triangles >= 4900, `the knight costs only ${knight.triangles} triangles`);
   assert.ok(knight.triangles <= 5 * Math.floor(BEFORE.triangles * 1.25), `the knight costs ${knight.triangles} triangles against ${BEFORE.triangles}`);
   // The explorer stands where the knight did, within 0.08.
   assert.ok(Math.abs(knight.height - BEFORE.height) <= 0.08, `the knight stands ${knight.height.toFixed(4)} tall against ${BEFORE.height}`);
@@ -533,6 +536,57 @@ test('the Relic Seeker\'s shoulders, cape and profile are cut to the sheet\'s sl
   assert.ok(depth >= .14 && depth <= .21, `in profile he is ${depth.toFixed(3)} of his height deep at the chest, against the sheet's .173`);
 });
 
+test('the poncho spreads to corners at the elbows and falls straight below them, not into a bell (plan 030 round 5)', () => {
+  // The orchestrator: the sheet's poncho spreads out over the arms past the elbows, where round 4's hugged the body like a
+  // narrow shawl and kept widening below the arms into a bell. The sheet's back view sliced (scratch hood.py, 2026-10-13):
+  // .29 of his height across at .75 up, .395 at the elbows' corners (.69), narrowing below them. Round 4 measured .370 at .70
+  // and .403 at .55 (node, 2026-10-13); round 5 .399 and .385.
+  const { knight } = relic(), corners = sliceWidth(knight, .7, 'x'), below = sliceWidth(knight, .55, 'x');
+  assert.ok(corners >= .385, `the poncho is only ${corners.toFixed(3)} of his height across at the elbows, against the sheet's .395`);
+  assert.ok(below <= corners + .005, `the poncho spreads on below the elbows, ${below.toFixed(3)} at .55 up against ${corners.toFixed(3)} at the corners`);
+});
+
+test('the cowl rises to the jaw at his sides and stands up behind his neck as a hood (plan 030 round 5)', () => {
+  // The critic and the orchestrator: round 4's cowl was a scarf of rolls round the neck with a smooth cone behind, where the
+  // sheet's is a loose hood: a deep collar rising close round the jaw at the sides, and from behind and in profile a bag of
+  // cloth standing up and out behind the neck. Torso-local, off the cowl's own vertices: its top within 30 degrees of either
+  // side, against the chin's height; and how far behind his axis it reaches above the shoulders (.38). Measured 2026-10-13
+  // (node): the sides .493 against the chin's .449, the hood .249 behind; round 4 .467 and .214.
+  const { knight, cowl, torso } = relic(), chin = knight.userData.chin as THREE.Object3D | undefined;
+  assert.ok(cowl && chin, 'precondition: the cowl and the chin are found');
+  const chinY = torso.worldToLocal(chin.getWorldPosition(new THREE.Vector3())).y, p = cowl.geometry.getAttribute('position');
+  let sides = -Infinity, behind = -Infinity, counted = 0;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    if (Math.abs(Math.atan2(Math.abs(x), z) - Math.PI / 2) < Math.PI / 6) { counted++; sides = Math.max(sides, y); }
+    if (y > .38) behind = Math.max(behind, z);
+  }
+  assert.ok(counted >= 20, `precondition: only ${counted} of the cowl's vertices lie at his sides`);
+  assert.ok(sides - chinY >= .03, `the cowl rises only ${(sides - chinY).toFixed(3)} over the chin at his sides`);
+  assert.ok(behind >= .235, `the hood stands only ${behind.toFixed(3)} behind his neck`);
+});
+
+test('the boots\' cuffs fold over into a hem of points, the longest at the front (plan 030 round 5)', () => {
+  // The critic: flat rings for cuffs, where the sheet's are floppy turnovers with a pointed flap at the front. The cuff is
+  // the knee's leather flared out past the boot's shaft (.1 from the shin's axis; the ankle strap and the sole lie inside
+  // that or far below): its lowest point against its highest hem notch, and where the lowest point is. Measured 2026-10-13
+  // (node): the points .04 under the notches, the lowest at the front; round 4's ring, .0 and at its back.
+  const { knight } = relic(), knee = (knight.userData.legs as THREE.Group[])[0]!.userData.knee as THREE.Group;
+  const leather = knee.children.find(c => c instanceof THREE.Mesh && (c.material as THREE.Material).name === 'leather') as THREE.Mesh | undefined;
+  assert.ok(leather, 'precondition: the knee\'s leather batch is found');
+  const p = leather.geometry.getAttribute('position'), hem = new Map<number, number>();
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    if (Math.hypot(x, z) < .105 || y < -.4 || y > -.2) continue;
+    const column = Math.round(Math.atan2(x, z) / (Math.PI / 5));
+    hem.set(column, Math.min(hem.get(column) ?? Infinity, y));
+  }
+  assert.ok(hem.size >= 8, `precondition: the cuff's flared hem is found round only ${hem.size} columns`);
+  const lows = [...hem.values()], deepest = Math.min(...lows), front = hem.get(5) ?? hem.get(-5)!;
+  assert.ok(Math.max(...lows) - deepest >= .025, `the cuff's points hang only ${(Math.max(...lows) - deepest).toFixed(3)} under its notches`);
+  assert.ok(front <= deepest + 1e-6, `the cuff's longest point is not at the front (${front.toFixed(3)} against ${deepest.toFixed(3)})`);
+});
+
 test('the run\'s sword carry hangs the forearm from its elbow and trails every arm behind him, clear of the floor (plan 030 round 3)', () => {
   const knight = makeKnight(), sword = knight.userData.sword as THREE.Group, torso = knight.userData.torso as THREE.Group;
   knight.position.y = .03;
@@ -599,7 +653,9 @@ test('the cowl is smooth cloth, not a lumpy collar: its roll\'s top runs round h
   // (node): .0104 at the most, where the roll comes down from the shoulder towards the throat.
   const { cowl } = relic();
   assert.ok(cowl, 'precondition: the cowl is found');
-  const p = cowl.geometry.getAttribute('position'), columns = 24, section = 8;
+  // Round 5: each column's section is eight points and a ninth closing it on its lip (the hood's deeper section; round 4 had
+  // seven and an eighth), so the roll's first 25 x 9 vertices.
+  const p = cowl.geometry.getAttribute('position'), columns = 24, section = 9;
   assert.ok(p.count > (columns + 1) * section, `precondition: the cowl has its roll (${p.count} vertices)`);
   const top = Array.from({ length: columns + 1 }, (_, c) => Math.max(...Array.from({ length: section }, (_, k) => p.getY(c * section + k))));
   assert.ok(Math.abs(top[0]! - top[columns]!) < 1e-6, 'precondition: the roll closes its seam (the grid is laid out as read)');
