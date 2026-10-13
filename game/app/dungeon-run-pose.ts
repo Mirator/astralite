@@ -28,7 +28,8 @@ export function playerRunPose(phase: number, speed: number) {
     // plan 027's 5 as a torso carried rigid on the legs): the sword shoulder comes forward with the left leg.
     twist: Math.sin(phase) * (.1 + .16 * sprint) * weight,
     // The free arm counter-swings against the left leg, harder at a sprint. Plan 030: less far forward than plan 027's
-    // .88, which put the upper arm through the poncho's front now the arm hangs under it.
+    // .88, which put the upper arm through the poncho's front now the arm hangs under it. (Round 2 tried more each way:
+    // forward it comes through the front, back through the tails behind the arm.)
     arm: (.02 - Math.sin(phase) * (.42 + .12 * sprint)) * weight,
     // Plan 030: the free elbow flexes forward from straight (positive), a runner's bend that pumps with the arm.
     // Exactly 0 standing, when the arm hangs straight as the sheet draws it.

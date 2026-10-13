@@ -17,8 +17,10 @@ export const HEM_MAX = .12;
 // by a sixth, and a hem thrown to the clamp by a hard stop is back within a centimetre of rest in 700 ms
 // (sprint.spec.ts reads it there). Plan 030 raised it from 8 rad/s at .6 (plan 027): the stride's sway (the run pose's
 // `sway`, about 2.6 cycles a second at a sprint) reached the hem at a quarter of its size through the slower spring and
-// the critic saw no cloth move; at 10 and .5 it arrives at .42 of its size and about a quarter cycle late.
-const OMEGA = 10, ZETA = .5, SUBSTEP = 1 / 120;
+// the critic saw no cloth move; at 10 and .5 it arrives at .42 of its size and about a quarter cycle late. Round 2: a
+// damping ratio of .42, so a stop's throw overshoots by about a quarter and swings back once (the critic: "stop settles
+// without overshoot"), still within a centimetre of rest 700 ms later.
+const OMEGA = 10, ZETA = .42, SUBSTEP = 1 / 120;
 
 /** Advances the hem towards `drive` by `dt` seconds, in substeps of at most 1/120 s so a 30 Hz frame and a
  *  144 Hz one land in the same place, and clamps it to HEM_MAX (a clamped hem stops moving outwards). */
@@ -42,10 +44,11 @@ export function stepHem(hem: Hem, drive: { x: number; z: number }, dt: number): 
 // Metres of trail per m/s² of the body's acceleration and per rad/s of its turn, as the lag below reports them.
 // Plan 028: small enough that only a sprint from a standstill or a reversal reaches INERTIA_MAX, so a walk's start, a
 // slight turn and a full sprint's start each trail the hem by their own amount (at .02 and .03 every start and turn
-// hit the cap and the gains did nothing).
-const ACCEL_GAIN = .0012, TURN_GAIN = .004;
+// hit the cap and the gains did nothing). Plan 030 round 2: a third more (.0012, .004 and a cap of .04 before), so a stop
+// or a turn throws the hem about 12 degrees on the long tails.
+const ACCEL_GAIN = .0016, TURN_GAIN = .006;
 /** The most the body's acceleration and turn together pull the hem, in metres, before any lift (plan 028). */
-export const INERTIA_MAX = .04;
+export const INERTIA_MAX = .052;
 /** Where the hem is pulled to, torso-local: away from the body's acceleration (so a start leaves it behind
  *  and a stop throws it forward), out against a turn, back by `lift` (the run pose's `cape`, or
  *  DASH_CAPE in a dash: metres of trail) and across by `sway` (the run pose's stride sway, plan 030). The
@@ -84,10 +87,14 @@ export function bodyLag(state: Inertia, velocity: { x: number; z: number }, head
 }
 
 /** How much of the hem's offset a point of cloth at height `y` takes: none at or above `top` (the shoulder
- *  break, where the cloth lies on him), all of it at `bottom` (the lowest point), smoothstepped between. */
+ *  break, where the cloth lies on him), all of it at `bottom` (the lowest point), easing out between. Plan 030 round 2:
+ *  eased out (t(2 - t)) rather than smoothstepped. The sheet's poncho ends at the elbows at the sides and high at the
+ *  front, a third and a half of the way down to the tails, where a smoothstep gave those hems a third and a half of the
+ *  swing (.32 and .58) and the critic saw rigid cloth; eased out they take .61 and .80, and the drape still leaves the
+ *  shoulder line with no kink (the weight is 0 there and rises from it). */
 export function hemWeight(y: number, top: number, bottom: number): number {
   const t = Math.min(1, Math.max(0, (top - y) / Math.max(1e-6, top - bottom)));
-  return t * t * (3 - 2 * t);
+  return t * (2 - t);
 }
 
 // How far a swung hem drops as it swings out, per square metre of offset, so the cloth does not stretch.

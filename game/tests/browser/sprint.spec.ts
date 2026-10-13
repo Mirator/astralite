@@ -5,6 +5,7 @@ import { expect, test, press } from './helpers.ts';
 // .0051 off rest, thrown forward by the stop and settling. Plan 028 (smoothed inertia, the hem no longer slammed to
 // its clamp on the first frame): .0567 at 320 ms and .0021 at 700 ms after the stop (SwiftShader, 2026-10-12). The
 // bound below stays at half of plan 027's reading: it is a floor for "the drawn cloth moved", not a tuning target.
+// Plan 030 round 2 (eased hem weight, a livelier spring, SwiftShader, 2026-10-13): .1093 at 320 ms, .0080 at 700 ms after the stop.
 const RUN_TIP = 0.0419;
 
 test('travel uses a running rig, freezes on pause, settles on release and yields to attacks and dodge',async({game,page})=>{

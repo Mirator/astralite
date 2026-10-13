@@ -19,6 +19,9 @@ test('the hem lags a step in the drive, overshoots it a little and settles on it
   assert.ok(at(.6) >= .9 * drive.z, `the hem has reached only ${(at(.6) / drive.z * 100).toFixed(0)}% of the step at .6 s`);
   const peak = Math.max(...trace.map(h => h.z));
   assert.ok(peak <= 1.25 * drive.z, `the hem overshoots the step by ${((peak / drive.z - 1) * 100).toFixed(0)}%`);
+  // Plan 030 round 2: and overshoots it visibly, once - the critic saw a stop settle with no overshoot. Measured
+  // 2026-10-12 (node, 60 Hz, 10 rad/s at .42): a peak of 123% at about .34 s; plan 030's .5 gave 116%.
+  assert.ok(peak >= 1.19 * drive.z, `the hem overshoots the step by only ${((peak / drive.z - 1) * 100).toFixed(0)}%`);
 });
 
 test('the hem settles within a second of the drive letting go', () => {

@@ -148,16 +148,18 @@ test('the knight is baked within his budgets and stands where he did', () => {
   // The Relic Seeker after plan 030 (2026-10-12, node): torso 5 batches (pale, red, leather, brass, relic), cloak 4 kept
   // unbaked (poncho 512 triangles, trim 400, strap 62, cowl and hood 384), head 4 (skin, wrap, hair, hairtip), satchel 2,
   // tabard 3 (pale, red, the rope's boot), pivot 3 (skin, wrap, teal) and the Tideblade 4, arm 1 and elbow 3, hips 2,
-  // knees 8, pool 1: 40 meshes, 4,360 triangles (plan 027: 32 / 1,808). Floors on both: the triangle floor is what catches
-  // a poncho that is not drawn (its 512 triangles take him to 3,848); the mesh floor catches a bake that loses more than
+  // knees 8, pool 1: 40 meshes, 4,360 triangles (plan 027: 32 / 1,808). Round 2 (2026-10-12): the knees take the boots'
+  // darker leather (the ankle strap and the sole), 10 batches, and the hood is a closed bag: 42 meshes, 4,708 triangles.
+  // Floors on both: the triangle floor is what catches
+  // a poncho that is not drawn (its 512 triangles take him to 4,196 in round 2, so the floor rose from 3,900 to 4,400); the mesh floor catches a bake that loses more than
   // two batches.
   // Owner decision 2026-10-12: x5. The player's budget is five times the owner's model-round figure (a figure's triangles
   // may rise by a quarter, 4,987): 320 meshes and 49,875 triangles. A ceiling, not a target: every mesh is two draw calls
   // in every scene (frame-budget.spec.ts and hall.spec.ts hold those), so plan 030 spent triangles on shape and kept the
   // meshes near fifty.
   assert.ok(knight.meshes <= 320, `the knight is drawn as ${knight.meshes} meshes`);
-  assert.ok(knight.meshes >= 38, `the knight is drawn as only ${knight.meshes} meshes`);
-  assert.ok(knight.triangles >= 3900, `the knight costs only ${knight.triangles} triangles`);
+  assert.ok(knight.meshes >= 40, `the knight is drawn as only ${knight.meshes} meshes`);
+  assert.ok(knight.triangles >= 4400, `the knight costs only ${knight.triangles} triangles`);
   assert.ok(knight.triangles <= 5 * Math.floor(BEFORE.triangles * 1.25), `the knight costs ${knight.triangles} triangles against ${BEFORE.triangles}`);
   // The explorer stands where the knight did, within 0.08.
   assert.ok(Math.abs(knight.height - BEFORE.height) <= 0.08, `the knight stands ${knight.height.toFixed(4)} tall against ${BEFORE.height}`);
@@ -203,23 +205,36 @@ test('the Relic Seeker is drawn to the sheet\'s proportions: a small head, legs 
   const half = Math.max(...[poncho, trim].map(m => { const b = new THREE.Box3().setFromObject(m, true); return Math.max(b.max.x, -b.min.x); }));
   assert.ok(half >= .36 && half <= .43, `the poncho spreads ${half.toFixed(3)} either side`);
   const skull = new THREE.Box3().setFromObject(knight.userData.head as THREE.Object3D, true), ratio = (skull.max.x - skull.min.x) / (2 * half);
-  assert.ok(ratio >= .24 && ratio <= .36, `the head is ${ratio.toFixed(3)} of the poncho's width, against the sheet's .3`);
+  // Plan 030 round 2 (owner directive: match the sheet): the sheet's tousled hair stands out past the face, about .14 to
+  // .16 of his height across against a poncho .40 to .43 across, so the head is .35 to .38 of the poncho's width, not .3.
+  // Round 1's helmet of hair measured .298; round 2's .370 (node, 2026-10-12).
+  assert.ok(ratio >= .3 && ratio <= .42, `the head is ${ratio.toFixed(3)} of the poncho's width, against the sheet's .35-.38`);
 });
 
 // Columns from his back towards his right, 11.25 degrees apart: 0 his back, 8 his right, 16 his front, 24 his left.
-const BACK = 0, FRONT = 16, SIDES = [6, 26], NOTCHES = [8, 24];
+// Plan 030 round 2: the side points (tails) are at 123.75 degrees from his front, columns 5 and 27.
+const BACK = 0, FRONT = 16, SIDES = [5, 27], NOTCHES = [8, 24];
+// The sash's lower edge behind him (torso-local z over .1): the knot, the relic and its tassel hang at his front.
+const sashBackBottom = (sash: THREE.Mesh) => {
+  const at = sash.geometry.getAttribute('position'), v = new THREE.Vector3(); let low = Infinity, behind = 0;
+  for (let i = 0; i < at.count; i++) if (at.getZ(i) > .1) { behind++; low = Math.min(low, v.fromBufferAttribute(at, i).applyMatrix4(sash.matrixWorld).y); }
+  assert.ok(behind >= 8, `precondition: the sash has ${behind} vertices behind him`);
+  return low;
+};
 test('the poncho hangs to four points - front, back and one at each side behind the arm - with high notches where the arms come out (plan 030)', () => {
   const { poncho, sash } = relic();
   assert.ok(poncho && sash, 'precondition: the poncho and the sash batch are found');
-  const low = hemByColumn(poncho), sashBottom = new THREE.Box3().setFromObject(sash, true).min.y;
-  // Owner directive (plan 030): match the sheet (plan 027 held a front and a back point near .8 and the corners at .92-1).
-  // Measured 2026-10-12 (node, standing at .03): front point 1.040, back .830, side points .935, arm notches 1.260, the sash's batch (the relic's tassel
-  // included) from .880.
+  const low = hemByColumn(poncho), sashBottom = sashBackBottom(sash);
+  // Owner directive (plan 030): match the sheet. Round 2 measured the sheet itself (front, profile and back views, as
+  // shares of his height from the sole): a shallow front point at .60, the sides at the elbow .65, a long tail behind each
+  // arm to .465 (the profile's back drape), a shallow back point at .50. Round 1 had the front at .52, the back at .40
+  // (the critic's "deep V to the crotch") and the tails at .46. Measured 2026-10-12 (node, standing at .03, height 1.85):
+  // front point 1.188, back .997, side points .942, arm notches 1.283, the sash's back edge 1.095.
   const within = (column: number, name: string, from: number, to: number) => assert.ok(low[column]! >= from && low[column]! <= to, `the ${name} (column ${column}) hangs to ${low[column]!.toFixed(3)}, outside ${from}-${to}`);
-  within(FRONT, 'front point', .98, 1.1); within(BACK, 'back point', .76, .88);
-  for (const column of SIDES) within(column, 'side point', .9, 1);
-  for (const column of NOTCHES) within(column, 'arm notch', 1.22, 1.32);
-  // The back point hangs below the sash; plan 027 held the front's there too, but the sheet's front ends at the sash.
+  within(FRONT, 'front point', 1.14, 1.24); within(BACK, 'back point', .95, 1.05);
+  for (const column of SIDES) within(column, 'side point', .9, .99);
+  for (const column of NOTCHES) within(column, 'arm notch', 1.24, 1.32);
+  // The back point hangs below the sash; the front ends above it, as the sheet's does.
   assert.ok(low[BACK]! < sashBottom, `the back point ends at ${low[BACK]!.toFixed(3)}, not below the sash (${sashBottom.toFixed(3)})`);
   for (const [notch, side] of [[NOTCHES[0]!, SIDES[0]!], [NOTCHES[1]!, SIDES[1]!]]) assert.ok(low[notch]! - low[side]! >= .25, `the arm notch (column ${notch}) is only ${(low[notch]! - low[side]!).toFixed(3)} over the side point`);
 });
@@ -245,9 +260,12 @@ test('each point of the poncho ends in one point, not a blunt step three columns
   // Plan 028 read the neighbours a column (22.5 degrees) away: plan 027's hem left the front's .09 above its point and the
   // back's .08, so each point read as a rounded step three columns wide from the game camera. Plan 030 has 32 columns,
   // so the same 22.5 degrees is two columns either side. Measured 2026-10-12 (node): the front .107 under the columns either side, the back .155, the side points .205.
-  for (const [point, name] of [[FRONT, 'front'], [BACK, 'back'], [SIDES[0]!, 'right side'], [SIDES[1]!, 'left side']] as const) {
+  // Plan 030 round 2 (owner directive: match the sheet): the sheet's front and back points are shallow - the hem falls
+  // about .02 of his height over the 22.5 degrees either side of each, where the tails behind the arms are sharp - so
+  // those two are held to .035 and the tails still to .1. Measured 2026-10-12 (node): front .051, back .064, tails .164.
+  for (const [point, name, least] of [[FRONT, 'front', .035], [BACK, 'back', .035], [SIDES[0]!, 'right side', .1], [SIDES[1]!, 'left side', .1]] as const) {
     const either = [(point + 2) % COLUMNS, (point + COLUMNS - 2) % COLUMNS], gap = Math.min(...either.map(c => low[c]!)) - low[point]!;
-    assert.ok(gap >= .1, `the ${name} point (column ${point}) hangs only ${gap.toFixed(3)} below the columns 22.5 degrees either side`);
+    assert.ok(gap >= least, `the ${name} point (column ${point}) hangs only ${gap.toFixed(3)} below the columns 22.5 degrees either side`);
   }
 });
 
@@ -325,7 +343,7 @@ function ponchoRadiusAt(poncho: THREE.Mesh, point: THREE.Vector3): number | null
   return a + (b - a) * (angle - columnAngle(c)) / (columnAngle(c + 1) - columnAngle(c));
 }
 
-test('both hands and the free wrist stay outside the poncho at rest, through the run and in a swing (plan 030)', () => {
+test('both hands and the free wrist stay clear of the poncho at rest, through the run and in a swing, and the free arm leaves it at the elbow (plan 030)', () => {
   const { knight, poncho, torso } = relic();
   assert.ok(poncho, 'precondition: the poncho is found');
   const arm = knight.userData.arm as THREE.Group, elbow = arm.userData.elbow as THREE.Group, sword = knight.userData.sword as THREE.Group;
@@ -344,21 +362,34 @@ test('both hands and the free wrist stay outside the poncho at rest, through the
   const poses: [string, number, number][] = [['rest', 0, 0], ['a swing', .2, .6]];
   for (let i = 0; i < 64; i++) { const pose = playerRunPose(i * Math.PI / 32, 8.5); poses.push([`the run at phase ${i}/64`, pose.arm, pose.elbow]); }
   assert.ok(poses.some(([, a]) => a > .5) && poses.some(([, a]) => a < -.4) && poses.some(([, , e]) => e > .9), 'precondition: the run swings the arm both ways and bends the elbow');
-  let closest = Infinity, covered = 0;
+  let covered = 0, below = 0;
+  const hem = hemByColumn(poncho), hemAt = (local: THREE.Vector3) => { const c = Math.round(((Math.atan2(local.x, local.z) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI / COLUMNS)) % COLUMNS; return torso.worldToLocal(new THREE.Vector3(0, hem[c]!, 0)).y; };
   for (const [name, armX, elbowX] of poses) {
     arm.rotation.x = armX; elbow.rotation.x = elbowX; knight.updateWorldMatrix(true, true);
     // The sword hand is the pivot itself, the grip the hand closes on.
     const points: [string, THREE.Vector3, number][] = [['sword hand', sword.getWorldPosition(new THREE.Vector3()), .03], ['free hand', elbow.localToWorld(hand.clone()), .03], ['free wrist', elbow.localToWorld(wrist.clone()), .02]];
     for (const [part, point, room] of points) {
       const local = torso.worldToLocal(point.clone()), cloth = ponchoRadiusAt(poncho, local);
-      if (cloth === null) continue;
+      // No cloth at its height and angle: the point hangs below the hem there (a hand is never above the neck).
+      if (cloth === null) { assert.ok(local.y < hemAt(local) + .01, `in ${name} the ${part} has no cloth round it at ${local.y.toFixed(3)}, yet stands above the hem`); below++; continue; }
       covered++;
-      const margin = Math.hypot(local.x, local.z) - cloth; closest = Math.min(closest, margin);
+      const margin = Math.hypot(local.x, local.z) - cloth;
       assert.ok(margin >= room, `in ${name} the ${part} is ${margin.toFixed(3)} outside the poncho`);
     }
   }
-  // A hand is only checked where cloth hangs at its height; measured 2026-10-12 (node): 30 of the 198 checks, the nearest .068 outside.
-  assert.ok(covered >= 20, `precondition: a hand or the wrist stood where the poncho hangs in only ${covered} checks`);
+  // Plan 030 round 2 (owner directive: match the sheet): the sheet's poncho ends at the elbows, so the hands and wrists
+  // hang below it - round 1's 30 checks against cloth (of 198) are now none. Every point is still checked: under its hem
+  // or outside its cloth. Measured 2026-10-12 (node): 198 below the hem, 0 beside cloth.
+  assert.equal(covered + below, poses.length * 3, 'precondition: every hand and wrist point was checked');
+  // And the arms come out from under it at the elbow, as the sheet's do: standing, the free elbow joint hangs below the
+  // poncho's hem at its own column and the columns either side (11.25 degrees), so the rolled sleeve, the forearm and the
+  // wrist wrap are in the open rather than behind a point of cloth. Round 1's side point fell steeply from the notch, so
+  // the column behind its elbow hung .09 below the joint (the critic: "arms disappear under the cloth"). Measured
+  // 2026-10-12 (node): .049 below the lowest of the three.
+  arm.rotation.x = 0; elbow.rotation.x = 0; knight.updateWorldMatrix(true, true);
+  const joint = torso.worldToLocal(elbow.getWorldPosition(new THREE.Vector3())), column = Math.round(((Math.atan2(joint.x, joint.z) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI / COLUMNS));
+  const clear = Math.min(...[-1, 0, 1].map(d => torso.worldToLocal(new THREE.Vector3(0, hem[(column + d + COLUMNS) % COLUMNS]!, 0)).y)) - joint.y;
+  assert.ok(clear >= .03, `standing, the free elbow is only ${clear.toFixed(3)} below the poncho's hem beside it`);
 });
 
 test('the free upper arm stays under the poncho through the run, rather than coming through its front (plan 030)', () => {

@@ -7088,3 +7088,63 @@ spring ("the hem swings only -0.041 to 0.041 across"); sway dropped in hemDrive 
 poncho hidden ("the knight costs only 3848 triangles").
 
 Review pack: `game/outputs/review/r1/`.
+
+## 2026-10-13 — the Relic Seeker, round 2: the sheet measured, a hood, hair and a face, arms out of the cloth
+
+A blind critic scored round 1 at 49% (silhouette 45, poncho and hood 55, head 35, underlayers 55, palette 60, motion 45).
+Where two critics disagreed (hem heights) this round measured `plans/relic-seeker-turnaround.png` itself, front, profile
+and back, as shares of his height from the sole: a shallow front point at .60, the sides at the elbow .65, a long ragged
+tail behind each arm to .465 (the profile's back drape), a shallow back point at .50; the poncho .40-.43 of his height
+across, the legs together .26, the hair .14-.16 across.
+
+Shape (`dungeon-knight.ts`; node, standing at .03, sole to hair 1.837):
+- the hem is a per-column table off those measurements, with small secondary points along the side hems (the sheet's
+  ragged step): front 1.188, back .997, tails .942, arm notches 1.283 world (round 1: 1.040, .830, .935, 1.260). Narrower
+  flare (shoulders .305/.195, flare .2/.09), half-width .37;
+- the hood is a closed bag of cloth (a loft) gathered from the cowl's back and falling flat to a peak at the shoulder
+  blades, where round 1 had a fan laid on the back; the cowl's back no longer stands up behind the head (.53, was .575)
+  and its front is a loose fold slung across the chest;
+- the head: the skull tipped back 8 degrees (a baked `skull` node, the `chin` node moved onto it), no mouth, small eyes
+  under thicker brows - the critic read round 1's dark mid-face marks as a moustache and the tunic's collar under the
+  chin as a white beard: the collar now stops at .39 under the cowl's front and the neck shows. Hair redrawn: 19 long flat
+  locks (.4-.6 of the head's length) splaying out and falling from the crown, swept forward at the top, layered over the
+  nape and over the ears, three pointed fringe locks;
+- the free arm hangs out 11 degrees more (and 3 more from the elbow), a fuller rolled cuff, a longer wrist wrap; the hips
+  closer (.115, was .13) and splayed less (.045); the trousers bunch over the wraps; boots with a flared folded cuff, a
+  rounded toe box running straight forward (its open end capped: the toe showed the floor through it), a darker ankle
+  strap and sole (`leather`), the tunic's skirt narrower;
+- palette: the ochre yellower (in game it read #cb8033-#d2833e against the sheet's #c8952e, round 1 #ec9036), the cowl
+  lighter, skin lighter, trousers lighter charcoal, boots less orange.
+
+Cost: 42 meshes (40), 4,708 triangles (4,360) - the knees each take a leather batch. Scene ceilings re-measured on
+SwiftShader, two repeats identical: flooded hall 412 → 416 calls, wave chamber 457 → 461 calls and 257,888 → 258,534
+triangles, hall 208 → 212 (floor 201).
+
+Motion: the hem's weight eases out from the shoulder line (t(2 - t)) instead of a smoothstep, so the short front and
+side hems take .80 and .61 of the hem's swing (.58 and .32); the spring's damping ratio .42 (was .5), so a stop's throw
+overshoots by 23% and swings back once; the inertia gains a third up (.0016, .006, cap .052); the sash's tails and flap
+swing across up to .35 rad (hem.x × 4.5, was × 2.5) and forward on a stop (× 3). Recorded (review-r2): a stop throws the
+hem from .059 back to .042 forward over 15 frames and back past rest. A bigger free-arm swing was tried both ways and
+reverted: forward the upper arm comes through the poncho's front (.021), back through the tails (.035).
+
+Values gate (SwiftShader, 2026-10-13): 1.9% clipped, poncho L*71, tunic 65, the chin 68.3 over the cowl's 49.4, the brow
+68.5 over the hair's 37.5, the hem edge 54.9 against 83.9. The poncho covers 345 px (shorter, and the hood lies over its
+back), so its pixel floor is half that, 170; the cream trim now runs the whole hem and the ochre meets the tunic over
+15 px, so that edge's floor is 7. sprint.spec.ts: the back point .1093 off rest at 320 ms, .0080 700 ms after the stop.
+
+Tests changed to the sheet's targets (owner directive), each with its measurement: the four points (new heights, the tails
+at columns 5 and 27, the back point below the sash's back edge rather than the relic's tassel), the point shapes (front and
+back shallow, .035; the tails still .1), the head-to-poncho ratio (.3-.42, the sheet's .35-.38), the cloak's wing test
+(the sash's back edge), the hands test (every hand point under the hem or outside the cloth, and the free elbow below the
+hem of its column and those beside it), the budget floors (40 meshes, 4,400 triangles: a hidden poncho takes him to 4,196).
+New: the short hems take most of the swing; the spring overshoots by at least 19%.
+
+Planted bugs, each failing with its own message: round 1's back point ("the back point (column 0) hangs to 0.830") and
+front ("the front point (column 16) hangs to 1.040"); a blunt back ("hangs only 0.013 below the columns 22.5 degrees
+either side"); round 1's tails falling from the notch ("in the run at phase 12/64 the free wrist is -0.099 outside the
+poncho"); the elbow raised under the cloth ("standing, the free elbow is only -0.069 below the poncho's hem beside it");
+no hair locks ("the head is 0.277 of the poncho's width"); the poncho hidden ("the knight costs only 4196 triangles");
+the smoothstep weight ("the front point takes only 0.58 of the hem's swing"); plan 030's damping ("the hem overshoots the
+step by only 15%"); a sway that lifts the hem ("the back point's tip rose to 1.166, above the sash (1.095)").
+
+Review pack: `game/outputs/review/r2/`.

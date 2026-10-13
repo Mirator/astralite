@@ -33,10 +33,15 @@ test('the poncho is one garment: no separate cape plane, and userData.cape is th
 test('a swung hem moves the drape, never the yoke, never into the tunic, and never lifts the back point to a wing', () => {
   const { cloak, data, torso } = knightCloth(), names = data.meshes.map(m => m.mesh.name);
   assert.deepEqual(names.sort(), ['poncho', 'poncho-trim', 'strap'], 'the cloth the game sways is the poncho, its trim and the strap');
-  // The sash's lowest point, off the torso's red batch: the back point must hang below it whatever the hem does.
+  // The sash's lowest point behind him, off the torso's red batch: the back point must hang below it whatever the hem
+  // does. Plan 030 round 2: behind him (torso-local z over .1), since the sheet's back point (.50 of his height) ends
+  // above the relic's tassel at his front, which this used to read (the batch's lowest point, .880).
   const sash = torso.children.find(c => c instanceof THREE.Mesh && (c.material as THREE.MeshStandardMaterial).color?.getHex() === 0x963f32) as THREE.Mesh;
   assert.ok(sash, 'precondition: the sash batch is found');
-  const sashBottom = new THREE.Box3().setFromObject(sash, true).min.y, world = new THREE.Vector3();
+  const sashAt = sash.geometry.getAttribute('position'), world = new THREE.Vector3();
+  let sashBottom = Infinity, behind = 0;
+  for (let i = 0; i < sashAt.count; i++) if (sashAt.getZ(i) > .1) { behind++; sashBottom = Math.min(sashBottom, world.fromBufferAttribute(sashAt, i).applyMatrix4(sash.matrixWorld).y); }
+  assert.ok(behind >= 8, `precondition: the sash has ${behind} vertices behind him`);
   const poncho = data.meshes.find(m => m.mesh.name === 'poncho')!, neckY = Math.max(...Array.from({ length: poncho.rest.length / 3 }, (_, v) => poncho.rest[v * 3 + 1]!));
   let moved = 0;
   const grid = [-HEM_MAX, -HEM_MAX / 2, 0, HEM_MAX / 2, HEM_MAX];
@@ -83,4 +88,21 @@ test('the satchel swings on the strap\'s end: the joint is the same point of the
   assert.ok(anchors[0]!.distanceTo(end) <= .03, `the strap ends ${anchors[0]!.distanceTo(end).toFixed(3)} from the satchel's joint`);
   assert.ok(centres[0]!.distanceTo(centres[1]!) > .03, 'precondition: swinging the joint moves the bag');
   for (const anchor of anchors) assert.ok(anchor.distanceTo(anchors[0]!) < 1e-6, `the satchel's joint moved to ${anchor.toArray().map(v => v.toFixed(3)).join(', ')} as it swung`);
+});
+
+test('the short hems at his front and sides take most of the hem\'s swing, not a sliver of it (plan 030 round 2)', () => {
+  const { cloak, data } = knightCloth(), poncho = data.meshes.find(m => m.mesh.name === 'poncho');
+  assert.ok(poncho, 'precondition: the poncho is swayed');
+  // Torso-local hem heights off the rest grid, by column (the poncho is column-major, 33 columns): the front point is
+  // column 16's lowest vertex and the arm notches columns 8 and 24's.
+  const rings = poncho.rest.length / 3 / 33, low = (c: number) => Math.min(...Array.from({ length: rings }, (_, k) => poncho.rest[(c * rings + k) * 3 + 1]!));
+  assert.ok(Number.isInteger(rings), `precondition: the poncho is a 33-column grid (${poncho.rest.length / 3} vertices)`);
+  const front = hemWeight(low(16), data.top, data.bottom), sides = Math.min(hemWeight(low(8), data.top, data.bottom), hemWeight(low(24), data.top, data.bottom));
+  assert.ok(data.top - low(8) < .5 * (data.top - data.bottom), 'precondition: the sides end in the upper half of the drape');
+  // The sheet's poncho ends at the elbows at the sides and high at the front, so most of its hem is short. Measured
+  // 2026-10-12 (node): the front point takes .80 of the swing and the arm notches .61; plan 030's smoothstep gave them
+  // .58 and .32, and the critic read the cloth as rigid.
+  assert.ok(front >= .7, `the front point takes only ${front.toFixed(2)} of the hem's swing`);
+  assert.ok(sides >= .5, `the hem at the arms takes only ${sides.toFixed(2)} of the hem's swing`);
+  assert.ok(cloak.userData.top === data.top && hemWeight(data.top, data.top, data.bottom) === 0, 'the shoulder line moves with the hem');
 });

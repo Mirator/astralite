@@ -31,7 +31,9 @@ const lungs = UPGRADES.find((upgrade) => upgrade.id === 'lungs')!;
 // kept groups), the same +2 frame-budget.spec.ts measured on both renderers, which read those scenes identically. The floor stays 95%.
 // Plan 030 (2026-10-12, SwiftShader): 208, the Relic Seeker's +15 that frame-budget.spec.ts measured on its scenes (eight more
 // meshes, seven more shadow casters). The floor stays 95%.
-const CALLS_FLOOR = 198, CALLS_CEILING = 208;
+// Plan 030 round 2 (2026-10-13, SwiftShader, two repeats): 212, the +4 frame-budget.spec.ts measured (the boots' leather batch
+// on each knee, which casts). The floor stays 95%.
+const CALLS_FLOOR = 201, CALLS_CEILING = 212;
 
 test('ENTER lands in the hall behind the veil: the altar, the racks it owns and the way down are on the scene, nobody is in it, and it drew no random number', async ({ page }) => {
   test.setTimeout(120_000 + WARM_UP);

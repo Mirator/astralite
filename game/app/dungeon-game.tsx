@@ -2142,8 +2142,8 @@ export default function DungeonGame() {
         // Plan 030: in a swing the free arm comes forward and bends for balance (it was held back, into the poncho's side point).
         player.userData.arm.rotation.x=THREE.MathUtils.damp(player.userData.arm.rotation.x,pc.attackTime>0?.2:locomotion.arm,20,dt);
         // Plan 013: the tabard is rigid plate, so it swings out ahead of whichever thigh leads rather than let it through.
-        // Plan 030: and the sash's tails and the flap trail the hem's state, thrown forward by a stop and across by the stride.
-        player.userData.tabard.rotation.x=Math.max(0,...player.userData.legs.map((leg:THREE.Group)=>leg.rotation.x))*.85+Math.max(0,-hem.z)*2;player.userData.tabard.rotation.z=hem.x*2.5;
+        // Plan 030: and the sash's tails and the flap trail the hem's state, thrown forward by a stop and across by the stride (round 2: up to 20 degrees across).
+        player.userData.tabard.rotation.x=Math.max(0,...player.userData.legs.map((leg:THREE.Group)=>leg.rotation.x))*.85+Math.max(0,-hem.z)*3;player.userData.tabard.rotation.z=THREE.MathUtils.clamp(hem.x*4.5,-.35,.35);
         player.position.y = 0.03 + locomotion.height + Math.sin(t*2.4)*.012*Math.max(0,1-gaitSpeed) + (pc.swingKind === 'special' && pc.attackTime > 0 && vault && pc.weapon.special ? vaultHeight(pc.weapon.special, pc.swing.anticipation, pc.swing.duration - pc.attackTime) : 0);
         player.rotation.x = THREE.MathUtils.damp(player.rotation.x, pc.dashTime > 0 ? -0.3 : 0, 24, dt);
         // Plan 027 Stage B: the hem trails the body's acceleration (rotated into his own frame) and his turn, and is lifted back by the run or the dash;

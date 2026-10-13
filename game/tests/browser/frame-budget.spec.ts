@@ -89,7 +89,9 @@ const BUDGET = {
   // the braided rope, the free forearm and the sword forearm each gained a wrap and a band), +8 scene calls and +7 shadow
   // calls (the cowl no longer casts: it blacked itself and the yoke out under the key light). The triangles are his 4,400
   // against 1,808, drawn twice with the shadow pass. The call ceiling is the figure measured.
-  'flooded-hall': { calls: 412, triangles: 596_454 },
+  // Plan 030 round 2, measured 2026-10-13 on SwiftShader (two repeats, identical): 416 / 285,657. The boots' darker
+  // leather (an ankle strap and the sole) is a batch of its own on each knee: 40 meshes to 42, two scene and two shadow calls.
+  'flooded-hall': { calls: 416, triangles: 596_454 },
   // Plan 022 Stage B: the biggest chamber the waves deal (floor three, seed 0x2's hall of ten bodies in waves of 3, 3 and 4), its last wave standing. A dormant wave to come draws nothing (Stage 0: 1, 5 and 9 dormant bodies all drew 201 calls,
   // 209,882 triangles, 56 shadow calls) but a corpse stays drawn and costs a standing body's calls (about 35 a body): with the six dead of the first two waves left in frame this scene read 586 calls / 294,968 triangles, 78 over the 508 above, so the
   // floor takes the dead of the waves before back as the next wave is rung (`corpseSink`: they sink into the paving over the rings' 0.9 s and are no longer drawn), and the frame is the four standing bodies of the last wave with six corpses lying undrawn.
@@ -104,7 +106,9 @@ const BUDGET = {
   // Plan 030, measured 2026-10-12 on SwiftShader (two repeats, identical): 457 / 257,888, the same +15 calls as the flooded
   // hall for the same reason. The triangle ceiling plan 022 set (255,886) is under the new reading by the Relic Seeker's
   // added shape alone, so both ceilings are now the figure measured.
-  'wave-chamber': { calls: 457, triangles: 257_888 },
+  // Plan 030 round 2, measured 2026-10-13 on SwiftShader (two repeats, identical): 461 / 258,534, the same +4 calls as the
+  // flooded hall for the same reason, and his added shape (4,708 triangles against 4,360). Both ceilings the figure measured.
+  'wave-chamber': { calls: 461, triangles: 258_534 },
   // Twelve scene ceilings lost their scenes in 7d093d1 and were removed by plan 027; their history is in git and progress.md.
 } as const;
 
