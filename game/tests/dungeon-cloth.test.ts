@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { playerRunPose, strideRate } from '../app/dungeon-run-pose.ts';
-import { HEM_MAX, HEM_REST, INERTIA_REST, PENDULUM_REST, SETTLE_MAX, SETTLE_REST, SWING_MAX, bodyLag, clothHem, followBody, hemDrive, settleDrive, stepHem, stepPendulum, stepSettle, swingDrive, type Hem, type Inertia, type Pendulum, type Settle } from '../app/dungeon-cloth.ts';
+import { HEM_MAX, HEM_REST, INERTIA_REST, PENDULUM_REST, SETTLE_MAX, SETTLE_REST, SWING_MAX, TAILS_BACK, TAILS_MAX, TAILS_REST, bodyLag, clothHem, followBody, hemDrive, settleDrive, stepHem, stepPendulum, stepSettle, stepTails, swingDrive, tailsTarget, type Hem, type Inertia, type Pendulum, type Settle, type Tails } from '../app/dungeon-cloth.ts';
 
 // Plan 027 Stage B: the poncho's hem state and the satchel's swing (dungeon-cloth.ts), the springs the game
 // steps every update on its simulated dt. dungeon-cloak.test.ts holds what they do to the real cloth.
@@ -179,4 +179,56 @@ test('the drawn hem swings across with the stride, a quarter cycle behind it, in
   assert.ok(lag >= 3 && lag <= 10, `the drawn hem follows the stride ${lag} frames behind`);
   const still = playerRunPose(1, 0).flutter;
   assert.deepEqual([still.x, still.y, still.z].map(v => v + 0), [0, 0, 0], 'the cloth flutters standing');
+});
+
+// Plan 030 round 4: a sprint, then a stop, as the game steps it: the follower, the spring, the stride's flutter (zero once
+// he stands) and the sash's tails behind the drawn hem. Frames 0-89 run, 90 on stand still.
+function sprintThenStop(hz = 60) {
+  let inertia: Inertia = INERTIA_REST, hem: Hem = HEM_REST, tails: Tails = TAILS_REST, phase = 0;
+  const out: { hem: Hem; drawn: Hem; tails: Tails; target: Tails }[] = [], dt = 1 / hz;
+  for (let frame = 0; frame < 2.5 * hz; frame++) {
+    const speed = frame === 0 || frame >= 1.5 * hz ? 0 : 8.5, velocity = { x: 0, z: -speed };
+    if (speed) phase += speed * dt * strideRate(speed);
+    const pose = playerRunPose(phase, speed);
+    inertia = followBody(inertia, velocity, 0, dt);
+    const lag = bodyLag(inertia, velocity, 0);
+    hem = stepHem(hem, hemDrive({ accel: lag.accel, yawRate: lag.yawRate, lift: pose.cape, sway: pose.sway }), dt);
+    const drawn = clothHem(hem, pose.flutter), target = tailsTarget(drawn, pose.sprint);
+    tails = stepTails(tails, target, dt);
+    out.push({ hem, drawn, tails, target });
+  }
+  return out;
+}
+
+test('a sprint\'s stop throws the hem clearly forward and it settles within 700 ms (plan 030 round 4)', () => {
+  // The critic: "on the stop nothing overshoots". The forward throw takes 1.4 times the gain a start's backward pull
+  // does (dungeon-cloth.ts THROW). Measured 2026-10-13 (node, 60 Hz): .066 forward at its furthest, .008 off rest 700 ms
+  // after the stop.
+  const frames = sprintThenStop(), stop = frames.slice(90), forward = -Math.min(...stop.map(f => f.drawn.z));
+  assert.ok(Math.max(...frames.slice(30, 90).map(f => f.drawn.z)) > .03, 'precondition: the run lifted the hem back');
+  assert.ok(forward >= .06, `a sprint's stop throws the hem only ${forward.toFixed(3)} forward`);
+  const late = stop[42]!.drawn;
+  assert.ok(Math.hypot(late.x, late.z) < .01, `700 ms after the stop the hem is still ${Math.hypot(late.x, late.z).toFixed(3)} off rest`);
+});
+
+test('the sash\'s tails follow the drawn hem a beat behind, blown out by the run and thrown forward by a stop (plan 030 round 4)', () => {
+  // The critic saw the tails locked to the body. Measured 2026-10-13 (node, 60 Hz): running, blown .06 to .38 out to his
+  // left; a stop throws them .25 forward.
+  const frames = sprintThenStop(), run = frames.slice(45, 90), stop = frames.slice(90);
+  // Running they stream out to his left (negative z: they hang on his left) and swing with the stride.
+  const out = run.map(f => f.tails.z), across = Math.max(...out) - Math.min(...out);
+  assert.ok(Math.max(...out) < -.05, `running, the tails are blown only ${(-Math.max(...out)).toFixed(3)} out to his left at the least`);
+  assert.ok(across >= .15, `running, the tails swing only ${across.toFixed(3)} across`);
+  // A beat behind: the tails' swing best matches their target some frames earlier.
+  let lag = 0, best = -Infinity;
+  const mean = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length, t = run.map(f => f.target.z - mean(run.map(g => g.target.z))), z = run.map(f => f.tails.z - mean(out));
+  for (let shift = 0; shift < 15; shift++) { let sum = 0; for (let i = shift; i < z.length; i++) sum += z[i]! * t[i - shift]!; if (sum > best) { best = sum; lag = shift; } }
+  assert.ok(lag >= 3 && lag <= 9, `the tails follow their target ${lag} frames behind`);
+  // The stop throws them forward, more than the flap's 3 times the hem, and they come back.
+  const flick = Math.max(...stop.map(f => f.tails.x));
+  assert.ok(flick >= .2, `a sprint's stop throws the tails only ${flick.toFixed(3)} forward`);
+  assert.ok(Math.abs(stop[stop.length - 1]!.tails.x) < .02 && Math.abs(stop[stop.length - 1]!.tails.z) < .02, 'a second after the stop the tails still swing');
+  // Never back into the thigh behind them, never past the clamp.
+  for (const f of frames) assert.ok(f.tails.x >= -TAILS_BACK - 1e-9 && Math.abs(f.tails.z) <= TAILS_MAX + 1e-9 && f.tails.x <= TAILS_MAX + 1e-9, `the tails swing to ${f.tails.x.toFixed(3)} / ${f.tails.z.toFixed(3)}`);
+  assert.deepEqual(stepTails(TAILS_REST, tailsTarget({ x: 0, z: 0 }, 0), 1 / 60), { x: 0, z: 0 }, 'the tails swing standing');
 });

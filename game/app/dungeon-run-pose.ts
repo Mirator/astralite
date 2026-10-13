@@ -19,11 +19,12 @@ export function playerRunPose(phase: number, speed: number) {
     // The heel folds up during recovery, then extends before the next plant.
     knee: -(.06 + Math.pow(Math.max(0, Math.cos(p)), 2) * (.3 + sprint * .95)) * weight,
   }));
+  const lean = (.04 + sprint * .23) * weight, carrySwing = Math.sin(phase) * (.1 + .05 * sprint) * (Math.sin(phase) < 0 ? .5 : 1) * weight;
   return {
     sprint,
     legs,
     height: (.025 + sprint * .075) * Math.pow(Math.sin(phase), 2) * weight,
-    pitch: -(.04 + sprint * .23) * weight,
+    pitch: -lean,
     // Plan 030: the shoulders counter-rotate against the hips, about 15 degrees each way at a sprint (the critic read
     // plan 027's 5 as a torso carried rigid on the legs): the sword shoulder comes forward with the left leg.
     twist: Math.sin(phase) * (.1 + .16 * sprint) * weight,
@@ -32,31 +33,48 @@ export function playerRunPose(phase: number, speed: number) {
     // forward it comes through the front, back through the tails behind the arm.)
     // Round 3: centred a little forward (the fuller sleeve and the tails behind the arm meet it .018 deep at the old
     // back swing): .44 back and .56 forward at a sprint, 25 and 32 degrees.
+    // (Round 4 measured the room: the sleeve meets the cloth .01 deep at -.5 and +.55, so the upper arm's swing stays.)
     arm: (.06 - Math.sin(phase) * (.4 + .1 * sprint)) * weight,
     // Plan 030: the free elbow flexes forward from straight (positive), a runner's bend that pumps with the arm.
     // Exactly 0 standing, when the arm hangs straight as the sheet draws it.
-    elbow: ((.5 + .5 * sprint) + Math.sin(phase) * .15) * weight,
+    // Round 4 (the critic: the free arm barely swings): the bend pumps the other way, deeper as the arm comes forward (a
+    // runner's punch) and opening as it goes back, so the forearm and the hand - what shows under the poncho - swing 1.2
+    // rad end to end at a sprint, where round 3's bend (deeper going back) cancelled the upper arm's swing to .7.
+    elbow: ((.5 + .5 * sprint) - Math.sin(phase) * .12) * weight,
+    // Round 4 (the critic: the upper body rigid): the shoulders roll down towards the planted foot, 4 degrees at a sprint.
+    roll: Math.sin(phase) * (.03 + .04 * sprint) * weight,
     swordPitch: (.48 + Math.sin(phase) * .12) * sprint * weight,
     // Plan 030: the head nods down a little on each footfall, twice a cycle, so the bob reads on the head as well.
     nod: Math.pow(Math.sin(phase), 2) * .05 * weight,
     // Plan 030: metres the poncho's hem is driven to his side and back, with the stride: the hips rock it across and the
     // spring (dungeon-cloth.ts) swings it a beat behind them.
     sway: Math.sin(phase) * (.08 + .08 * sprint) * weight,
-    cape: (.02 + .03 * sprint + Math.sin(2 * phase) * .005) * weight,
+    // Round 4: a little more at a sprint (.052, was .05): a start's backward pull adds to it through the spring, and much
+    // more flings the hem to the clamp as he sets off (dungeon-cloth.test.ts). The flutter below is what streams it.
+    cape: (.02 + .032 * sprint + Math.sin(2 * phase) * .005) * weight,
     // Plan 030 round 3: how far the sword is carried low and trailing at his side rather than held out across him in the
     // ready pose (0 to 1; the game blends the pivot towards the knight's SWORD_CARRY), and how far the sword forearm
     // swings about the elbow with the stride, against the free arm (radians, forward positive). Visual only: a swing
     // takes the sword straight back to its own pose.
     carry: weight,
-    carrySwing: Math.sin(phase) * (.25 + .1 * sprint) * weight,
+    // Round 4: the orchestrator saw the blade come back up to the level at the forward end of round 3's .35 swing. A small
+    // follow-through now: .15 forward at a sprint (the hand forward, the blade dipping) and half that back (the hand back,
+    // the blade rising), about a blade carried 28 degrees down (dungeon-knight.ts SWORD_CARRY), so it never rises over 20
+    // degrees under the level and the spear's tip still clears the floor.
+    carrySwing,
+    // Round 4: what the game turns the carry by about the elbow - the swing, plus the run's forward lean taken back out,
+    // so the forearm hangs plumb from a leaning body and the blade trails as far under the level as a standing carry's
+    // (the pack's side-on run: leaning 15 degrees into a sprint lifted round 3's blade to the level behind him).
+    carryHang: carrySwing + lean,
     // Plan 030 round 3: the cloth's own flutter, metres added to the hem's offset outside the spring (the spring is about
     // 1.6 cycles a second, too slow to follow a stride of 2.6, so the stride reached the drawn hem at a quarter of its size
     // and the critic saw it rigid): across with the hips' rock a quarter cycle behind it, back and up and down twice a
     // stride a quarter cycle behind the body's bob (the bob is sin^2, rising fastest at phase pi / 4).
     flutter: {
-      x: -Math.cos(phase) * (.02 + .02 * sprint) * weight,
-      z: -Math.cos(2 * phase) * (.012 + .012 * sprint) * weight,
-      y: -Math.sin(2 * phase) * (.01 + .015 * sprint) * weight,
+      // Round 4: about a third more each way (the critic still saw the hem locked to the body side-on).
+      x: -Math.cos(phase) * (.025 + .03 * sprint) * weight,
+      z: -Math.cos(2 * phase) * (.016 + .018 * sprint) * weight,
+      y: -Math.sin(2 * phase) * (.012 + .02 * sprint) * weight,
     },
   };
 }

@@ -139,9 +139,29 @@ test('running, the sword is carried trailing and its forearm swings against the 
   const poses = cycle(TOP);
   for (const pose of poses) assert.equal(pose.carry, 1, 'a sprint does not carry the sword trailing');
   assert.equal(playerRunPose(1, 0).carry, 0, 'standing, the sword is carried trailing');
-  assert.ok(Math.max(...poses.map(p => p.carrySwing)) >= .3 && Math.min(...poses.map(p => p.carrySwing)) <= -.3, 'the sword forearm hardly swings');
+  // Round 4 (the orchestrator: at the forward end of round 3's .35 swing the blade came back up to the level, a lance): a
+  // small follow-through, .15 forward and .075 back at a sprint, measured 2026-10-13; dungeon-figures.test.ts holds the
+  // blade under 20 degrees through it. Round 3's .35 fails the ceiling here and that test both.
+  const most = Math.max(...poses.map(p => Math.abs(p.carrySwing)));
+  assert.ok(Math.max(...poses.map(p => p.carrySwing)) >= .12 && Math.min(...poses.map(p => p.carrySwing)) <= -.06, 'the sword forearm hardly swings');
+  assert.ok(most <= .2, `the sword forearm swings ${most.toFixed(3)}, enough to bring the blade up level`);
   // Against the free arm: whenever the free arm is well forward, the sword forearm is back, and the other way round.
   let checked = 0;
   for (const pose of poses) if (Math.abs(pose.arm - .06) > .2) { checked++; assert.ok(Math.sign(pose.carrySwing) === -Math.sign(pose.arm - .06), `the sword forearm swings ${pose.carrySwing.toFixed(3)} with the free arm at ${pose.arm.toFixed(3)}`); }
   assert.ok(checked >= 20, `precondition: only ${checked} phases swing the free arm far`);
+});
+
+test('the free forearm and hand swing well over a radian end to end at a sprint, against the legs (plan 030 round 4)', () => {
+  // The critic saw the free arm barely swing. The upper arm's swing is held by the poncho's room (dungeon-figures.test.ts),
+  // so the elbow pumps with it, deeper forward: the forearm's angle (shoulder plus elbow, forward positive) is what shows
+  // under the cloth. Round 3's bend (deeper going back) left the forearm .7 end to end; measured 2026-10-13: 1.2.
+  const poses = cycle(TOP), forearm = poses.map(p => p.arm + p.elbow), span = Math.max(...forearm) - Math.min(...forearm);
+  assert.ok(span >= 1.1, `the free forearm swings only ${span.toFixed(3)} end to end`);
+  // Forward with the right leg (legs[1]), back with the left.
+  let checked = 0;
+  for (const [i, pose] of poses.entries()) if (Math.abs(pose.legs[0].hip - pose.legs[1].hip) > .5) { checked++; assert.ok(Math.sign(forearm[i]! - (Math.max(...forearm) + Math.min(...forearm)) / 2) === Math.sign(pose.legs[1].hip - pose.legs[0].hip), `at phase ${i}/64 the forearm swings with the left leg`); }
+  assert.ok(checked >= 20, `precondition: only ${checked} phases stride far`);
+  // The shoulders roll with the stride, and not standing.
+  assert.ok(Math.max(...poses.map(p => Math.abs(p.roll))) >= .05, 'the shoulders do not roll with the stride');
+  assert.equal(playerRunPose(1, 0).roll, 0, 'the shoulders roll standing');
 });

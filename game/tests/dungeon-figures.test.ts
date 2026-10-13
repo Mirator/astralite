@@ -163,6 +163,9 @@ test('the knight is baked within his budgets and stands where he did', () => {
   assert.ok(knight.meshes >= 40, `the knight is drawn as only ${knight.meshes} meshes`);
   // Round 3 (2026-10-13, node): 42 meshes, 5,036 triangles - the same batches; a finer cowl (32 columns), a ragged skirt and
   // flap, fuller sleeves and diagonal wraps. A hidden poncho takes him to 4,524, so the floor rose from 4,400 to 4,700.
+  // Round 4 (2026-10-13, node): 42 meshes (the sash's tails on their own joint take the tabard's red batch with them),
+  // 5,118 triangles - a smooth cowl of 24 columns with two folds across the chest, a finer face. A hidden poncho takes
+  // him to 4,606, still under the floor.
   assert.ok(knight.triangles >= 4700, `the knight costs only ${knight.triangles} triangles`);
   assert.ok(knight.triangles <= 5 * Math.floor(BEFORE.triangles * 1.25), `the knight costs ${knight.triangles} triangles against ${BEFORE.triangles}`);
   // The explorer stands where the knight did, within 0.08.
@@ -203,7 +206,10 @@ test('the Relic Seeker is drawn to the sheet\'s proportions: a small head, legs 
   const legs = up(knight.userData.legs[0] as THREE.Object3D), shoulders = up(arm), head = 1 - up(chin);
   assert.ok(legs >= .44 && legs <= .52, `the hip joints stand ${legs.toFixed(3)} of his height up, against the sheet's .47`);
   assert.ok(shoulders >= .7 && shoulders <= .79, `the shoulders stand ${shoulders.toFixed(3)} of his height up, against the sheet's .75`);
-  assert.ok(head >= .13 && head <= .19, `the head is ${head.toFixed(3)} of his height, against the sheet's .145`);
+  // Round 4 (the critic counted five and a half heads; owner directive: match the sheet): the head and its hair .92 of
+  // round 3's on a neck .02 longer, the thigh .015 longer. Measured 2026-10-13 (node, height 1.811): hip joints .488,
+  // shoulders .750, head .151 (round 3: .472, .730, .159). The head's ceiling comes down from .19 to .16: round 3's head fails it.
+  assert.ok(head >= .13 && head <= .16, `the head is ${head.toFixed(3)} of his height, against the sheet's .145`);
   // The poncho is the broad shape, about .43 of his height across on the sheet; the head (hair and ears in) about .3 of
   // its width. Measured: half-width half-width .389, head over poncho .298 (plan 027 held the head at .47 or more).
   const half = Math.max(...[poncho, trim].map(m => { const b = new THREE.Box3().setFromObject(m, true); return Math.max(b.max.x, -b.min.x); }));
@@ -239,8 +245,12 @@ test('the poncho hangs to four points - front, back and one at each side behind 
   // against the sheet's front and back views, the poncho is a steep diamond: the sides high over the arms at .68, the
   // edges falling straight into a front point at .57 and a back point at .52, the tails where round 2 had them. Measured
   // 2026-10-13 (node, standing at .03, height 1.81): front 1.134, back 1.042, side points .942, arm notches 1.335.
+  // Round 4 (owner directive: match the sheet; the orchestrator: settle the points off the sheet, not the critics): the
+  // sheet's outer drape behind the arms measured again in its front, profile and back views hangs to .41-.44 of his height
+  // (scratch ochre.py, 2026-10-13), round 2's .465 was read off the profile alone. Measured 2026-10-13 (node, standing at
+  // .03, height 1.79): side points .870 (.44), front 1.134, back 1.055, notches 1.335. Round 3's tails (.942) fail here.
   within(FRONT, 'front point', 1.1, 1.17); within(BACK, 'back point', .99, 1.08);
-  for (const column of SIDES) within(column, 'side point', .9, .99);
+  for (const column of SIDES) within(column, 'side point', .84, .91);
   for (const column of NOTCHES) within(column, 'arm notch', 1.3, 1.37);
   // The back point hangs below the sash; the front ends above it, as the sheet's does.
   assert.ok(low[BACK]! < sashBottom, `the back point ends at ${low[BACK]!.toFixed(3)}, not below the sash (${sashBottom.toFixed(3)})`);
@@ -550,4 +560,66 @@ test('the run\'s sword carry hangs the forearm from its elbow and trails every a
     const floor = torso.position.y + .03 + tip.y;
     assert.ok(floor > .05, `carried, the ${id}'s tip is ${floor.toFixed(3)} over the floor`);
   }
+});
+
+test('the run\'s carry keeps every blade trailing at least 20 degrees under the level through the follow-through (plan 030 round 4)', () => {
+  // The orchestrator, side-on: at the forward end of round 3's carry swing the blade came back up level - "held level like
+  // a lance". The game turns the carry about the elbow by the run pose's carryHang (dungeon-game.tsx posePlayer), on a torso
+  // pitched by its lean; here the tip of every arm, carried and swung through a sprint's cycle as the game does it, against
+  // the world's level. Round 4's first cut turned it by carrySwing alone, and the sprint's 15-degree lean lifted the blade
+  // to 12.5 degrees under the level (the pack's side-on run read it as level). Measured 2026-10-13 (node): the
+  // Tideblade 23.3 to 35.7 degrees under the level.
+  const knight = makeKnight(), { palette, plate } = knight.userData.armoury, elbow = new THREE.Vector3(...SWORD_CARRY.elbow), q = new THREE.Quaternion(...SWORD_CARRY.quaternion);
+  const poses = Array.from({ length: 64 }, (_, i) => playerRunPose(i * Math.PI / 32, 8.5)), swings = poses.map(p => p.carrySwing);
+  assert.ok(Math.max(...swings) > .1 && Math.min(...swings) < -.05 && Math.max(...poses.map(p => -p.pitch)) > .2, 'precondition: the carry swings both ways on a leaning body');
+  let highest = -Infinity, lowest = Infinity;
+  // The blades: a ranged arm is carried by its stock, its "tip" the bolt's rail, and the carry test above holds it trailing.
+  const blades = (Object.keys(WEAPONS) as WeaponId[]).filter(id => !WEAPONS[id].ranged);
+  assert.ok(blades.length >= 3, 'precondition: the armoury hands him blades');
+  for (const id of blades) {
+    const tip = makeWeapon(id, palette, plate).tip;
+    for (const { carryHang, carrySwing: swing, pitch } of poses) {
+      const x = new THREE.Vector3(1, 0, 0), turn = new THREE.Quaternion().setFromAxisAngle(x, carryHang), lean = new THREE.Quaternion().setFromAxisAngle(x, pitch);
+      const hand = new THREE.Vector3(...SWORD_CARRY.at).sub(elbow).applyQuaternion(turn).add(elbow).applyQuaternion(lean);
+      const end = tip.clone().applyQuaternion(lean.clone().multiply(turn).multiply(q)).add(hand), under = Math.atan2(hand.y - end.y, Math.hypot(end.x - hand.x, end.z - hand.z)) * 180 / Math.PI;
+      if (id === 'tideblade') { highest = Math.max(highest, under); lowest = Math.min(lowest, under); }
+      assert.ok(under >= 20, `carried at a swing of ${swing.toFixed(3)}, the ${id}'s blade is only ${under.toFixed(1)} degrees under the level`);
+      assert.ok(end.z > hand.z, `carried at a swing of ${swing.toFixed(3)}, the ${id}'s tip is in front of the hand`);
+    }
+  }
+  assert.ok(lowest < highest - 5, `precondition: the Tideblade's carry swung only ${lowest.toFixed(1)} to ${highest.toFixed(1)} degrees`);
+  console.log(`the Tideblade carried ${lowest.toFixed(1)} to ${highest.toFixed(1)} degrees under the level`);
+});
+
+test('the cowl is smooth cloth, not a lumpy collar: its roll\'s top runs round him without a step (plan 030 round 4)', () => {
+  // The critic read round 3's cowl as a fur stole: paired columns pushed in and out by 5% and its top jittered a centimetre
+  // either way. The roll is the cowl's first 25 x 8 vertices (cowlPoint's grid, column by column, its section's points in
+  // order; dungeon-knight.ts): the top of each column's section (its highest point), against the mean of its neighbours',
+  // leaving out the V at the throat (the two columns either side of his front, a notch by design). Measured 2026-10-13
+  // (node): .0104 at the most, where the roll comes down from the shoulder towards the throat.
+  const { cowl } = relic();
+  assert.ok(cowl, 'precondition: the cowl is found');
+  const p = cowl.geometry.getAttribute('position'), columns = 24, section = 8;
+  assert.ok(p.count > (columns + 1) * section, `precondition: the cowl has its roll (${p.count} vertices)`);
+  const top = Array.from({ length: columns + 1 }, (_, c) => Math.max(...Array.from({ length: section }, (_, k) => p.getY(c * section + k))));
+  assert.ok(Math.abs(top[0]! - top[columns]!) < 1e-6, 'precondition: the roll closes its seam (the grid is laid out as read)');
+  let worst = 0;
+  for (let c = 0; c < columns; c++) if (Math.abs(c - columns / 2) > 2) worst = Math.max(worst, Math.abs(top[c]! - (top[(c + columns - 1) % columns]! + top[(c + 1) % columns]!) / 2));
+  assert.ok(worst <= .015, `the cowl's roll steps ${worst.toFixed(4)} off its neighbours`);
+  // Nor pushed in and out round him: the roll's reach (its furthest point from his axis) against its neighbours'. Measured
+  // 2026-10-13 (node): .0054 at the most, over the shoulders; round 3's paired folds put it at .013.
+  const reach = Array.from({ length: columns + 1 }, (_, c) => Math.max(...Array.from({ length: section }, (_, k) => Math.hypot(p.getX(c * section + k), p.getZ(c * section + k)))));
+  let lumpiest = 0;
+  for (let c = 0; c < columns; c++) lumpiest = Math.max(lumpiest, Math.abs(reach[c]! - (reach[(c + columns - 1) % columns]! + reach[(c + 1) % columns]!) / 2));
+  assert.ok(lumpiest <= .01, `the cowl's roll bulges ${lumpiest.toFixed(4)} off its neighbours`);
+  // And it still lies higher behind the neck than in front of it, where the throat shows.
+  assert.ok(top[0]! - top[columns / 2]! >= .1, `the roll stands only ${(top[0]! - top[columns / 2]!).toFixed(3)} higher at the back than at the throat`);
+});
+
+test('the trousers fall nearly straight to a gather under the knee, not ballooning (plan 030 round 4)', () => {
+  // The critic read round 3's trousers as pumpkin pants, 1.3 times the hips across with a hard ring at the knee. The
+  // sheet's back view sliced the same way (scratch sheetw.py, 2026-10-13): .285 of his height across at .25 up, .247 at
+  // .30, .253 at .35. Measured 2026-10-13 (node): .284, .284, .263.
+  const { knight } = relic(), at = [.25, .3, .35].map(share => sliceWidth(knight, share, 'x'));
+  for (const [i, share] of [.25, .3, .35].entries()) assert.ok(at[i]! >= .22 && at[i]! <= .3, `the legs are ${at[i]!.toFixed(3)} of his height across at ${share} up`);
 });

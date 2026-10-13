@@ -46,7 +46,12 @@ export function stepHem(hem: Hem, drive: { x: number; z: number }, dt: number): 
 // slight turn and a full sprint's start each trail the hem by their own amount (at .02 and .03 every start and turn
 // hit the cap and the gains did nothing). Plan 030 round 2: a third more (.0012, .004 and a cap of .04 before), so a stop
 // or a turn throws the hem about 12 degrees on the long tails.
-const ACCEL_GAIN = .0016, TURN_GAIN = .006;
+// Round 4: a third up again (.0021, the cap .068), so a sprint's stop throws the hem clearly forward past the body (the
+// critic: "on the stop nothing overshoots").
+// Round 4: a stop's forward throw (the pull towards his front) at 1.4 times the gain and the cap, so a sprint's stop throws
+// the hem clearly forward past the body (the critic: "on the stop nothing overshoots"); a start's backward pull adds to the
+// run's lift, so it stays as it was or a start would fling the hem to the clamp (dungeon-cloth.test.ts).
+const ACCEL_GAIN = .0016, TURN_GAIN = .006, THROW = 1.4;
 /** The most the body's acceleration and turn together pull the hem, in metres, before any lift (plan 028). */
 export const INERTIA_MAX = .052;
 /** Where the hem is pulled to, torso-local: away from the body's acceleration (so a start leaves it behind
@@ -57,6 +62,7 @@ export function hemDrive(input: { accel: { x: number; z: number }; yawRate: numb
   let x = -input.accel.x * ACCEL_GAIN - input.yawRate * TURN_GAIN, z = -input.accel.z * ACCEL_GAIN;
   const pull = Math.hypot(x, z);
   if (pull > INERTIA_MAX) { x *= INERTIA_MAX / pull; z *= INERTIA_MAX / pull; }
+  if (z < 0) z *= THROW;
   return { x: x + (input.sway ?? 0), z: z + input.lift };
 }
 
@@ -196,3 +202,21 @@ export function stepSettle(state: Settle, drive: number, dt: number): Settle {
 }
 /** Metres the upper body rides forward over the hips per radian of settle lean: a sprint's stop carries it 3 cm. */
 export const SETTLE_SHIFT = .17;
+
+/** Round 4: the sash's two tails, on their own joint under the tabard (dungeon-knight.ts), swung a beat behind the drawn
+ *  hem (radians about the tabard's x, forward positive, and z, positive towards his right). The critic saw the tails locked
+ *  to the body. They follow a target through a first-order lag (TAILS_RATE, about seven frames at 60 Hz): blown out to his
+ *  left (they hang on his left) and back a little by the run, across with the hem's sideways swing, and thrown forward by
+ *  a stop's forward throw of the hem, more than the flap is. Held to TAILS_MAX either way, back to TAILS_BACK, so a tail
+ *  never swings into the thigh behind it. */
+export type Tails = { x: number; z: number };
+export const TAILS_REST: Tails = Object.freeze({ x: 0, z: 0 });
+export const TAILS_MAX = .6, TAILS_BACK = .12;
+const TAILS_RATE = 8;
+export function tailsTarget(drawn: { x: number; z: number }, sprint: number): Tails {
+  return { x: Math.min(TAILS_MAX, Math.max(-TAILS_BACK, -drawn.z * 5.5 - .1 * sprint)), z: Math.min(TAILS_MAX, Math.max(-TAILS_MAX, drawn.x * 3 - .22 * sprint)) };
+}
+export function stepTails(state: Tails, target: Tails, dt: number): Tails {
+  const k = 1 - Math.exp(-TAILS_RATE * Math.max(0, dt));
+  return { x: state.x + (target.x - state.x) * k, z: state.z + (target.z - state.z) * k };
+}

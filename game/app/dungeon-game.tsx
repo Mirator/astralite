@@ -30,13 +30,13 @@ import { ALERT_STAGGER, BESTIARY, bombLands, bombMarks, decideEnemy, fallOf, mov
 import { awayFrom, blastOf, bossPush, burn as burnBody, fuseStep, KEG_CHAIN, KEG_DAMAGE, KEG_FUSE, KEG_HURT, landBlow, SPIKE_DAMAGE, SPIKE_HURT, spikeBites, spikeState, strikeProp, swingProps } from './dungeon-hits';
 import { furnishFloor } from './dungeon-furnish';
 import { raiseProps, type PropsView } from './dungeon-props-view';
-import { chargePose, STRIKE_STANCE, strikePlant } from './dungeon-attack-pose';
+import { chargePose, STRIKE_DIP, STRIKE_STANCE, strikeLean, strikePlant } from './dungeon-attack-pose';
 import { chainLength, chargeLevel, chargeReleases, devStartingArm, drawDamage, drawn, lungeStep, specialSwing, STARTING_WEAPON, TIDEBLADE, vaultHeight, vaultLanded, vaultStep, weaponById, type Special, type WeaponId } from './dungeon-weapon';
 import { disposeWeapon, disposeWeaponDrop, makeBolt, makeFlask, makePoolMesh, makeWeapon, makeWeaponDrop, type ArmedWeapon, type ArmoryPalette, type Plate } from './dungeon-armory';
 import { ARROW_POOL, deathPool, fanHeadings, flashpointHits, flyHostile, flyShot, HOSTILE_POOL_RINGS, homeStep, hostileBolt, laneLength, poolCatches, poolStep, reloadStep, sampleTrail, scatterPool, scatterRings, type Mark, type Pool, type Shot } from './dungeon-projectile';
 import { borrowedLight, litDisc, type Radiance } from './dungeon-radiance';
 import { DASH_CAPE, bankInto, headLook, idleBreath, playerRunPose, strideRate } from './dungeon-run-pose';
-import { HEM_REST, INERTIA_REST, PENDULUM_REST, SETTLE_REST, SETTLE_SHIFT, bodyLag, clothHem, followBody, hemDrive, settleDrive, stepHem, stepPendulum, stepSettle, swayCloth, swingDrive, type Hem, type Inertia, type Pendulum, type Settle } from './dungeon-cloth';
+import { HEM_REST, INERTIA_REST, PENDULUM_REST, SETTLE_REST, SETTLE_SHIFT, TAILS_REST, bodyLag, clothHem, followBody, hemDrive, settleDrive, stepHem, stepPendulum, stepSettle, stepTails, swayCloth, swingDrive, tailsTarget, type Hem, type Inertia, type Pendulum, type Settle, type Tails } from './dungeon-cloth';
 import { weaponTrail } from './dungeon-weapon-trail';
 import { createSparks } from './dungeon-sparks';
 import { serialiseRunExport } from './dungeon-run-export';
@@ -356,6 +356,8 @@ export default function DungeonGame() {
     let hem:Hem=HEM_REST,inertia:Inertia=INERTIA_REST,swing:Pendulum=PENDULUM_REST,still=0,breathNod=0;
     // Plan 030 round 3: the stop's settle (dungeon-cloth.ts stepSettle) and how far the run carries the sword trailing (0 to 1, dungeon-run-pose.ts `carry`), reset with the rest.
     let settle:Settle=SETTLE_REST,carry=0;
+    // Plan 030 round 4: the sash's tails, a beat behind the drawn hem (dungeon-cloth.ts stepTails), reset with the rest.
+    let tails:Tails=TAILS_REST;
     const carryAt=new THREE.Vector3(...SWORD_CARRY.at),carryQ=new THREE.Quaternion(...SWORD_CARRY.quaternion),carryElbow=new THREE.Vector3(...SWORD_CARRY.elbow),carrySwing=new THREE.Quaternion(),carryAxis=new THREE.Vector3(1,0,0),carryHand=new THREE.Vector3(),carryTurn=new THREE.Quaternion();
     let rewardTime = 0, noticeTime = 0;
     let hasStarted = false, isPaused = false, isMuted = false, activeRoom = 0;
@@ -1034,10 +1036,12 @@ export default function DungeonGame() {
       sword.rotation.set(pose.swordPitch,pose.swordYaw,pose.swordRoll);
       sword.position.set(SWORD_PIVOT.x,SWORD_PIVOT.y,SWORD_PIVOT.z-pose.armReach);
       sword.scale.z=1+run.reach*.5;
-      player.userData.torso.rotation.set(0,pose.bodyYaw,pose.bodyRoll);
-      if(age===0&&charging===null){player.userData.torso.rotation.x=locomotion.pitch-settle.lean;player.userData.torso.rotation.y+=locomotion.twist;sword.rotation.x+=locomotion.swordPitch;
+      // Plan 030 round 4: a strike rocks the torso back on the wind-up and drives it forward over the front foot through the cut and its follow-through (strikeLean, forward positive; the torso pitches forward at negative x, as the run's lean does); visual only.
+      player.userData.torso.rotation.set(age>0&&pc.swingKind!=='special'?-strikeLean(age,pc.swing):0,pose.bodyYaw,pose.bodyRoll);
+      if(age===0&&charging===null){player.userData.torso.rotation.x=locomotion.pitch-settle.lean;player.userData.torso.rotation.y+=locomotion.twist;player.userData.torso.rotation.z+=locomotion.roll;sword.rotation.x+=locomotion.swordPitch;
         // Plan 030 round 3: running, the sword is carried low and trailing (the knight's SWORD_CARRY), the forearm swinging about the elbow against the free arm; a swing or a dash sets `carry` to 0, so it never touches a blow.
-        if(carry>0){carrySwing.setFromAxisAngle(carryAxis,locomotion.carrySwing);carryHand.copy(carryAt).sub(carryElbow).applyQuaternion(carrySwing).add(carryElbow);carryTurn.multiplyQuaternions(carrySwing,carryQ);sword.quaternion.slerp(carryTurn,carry);sword.position.lerp(carryHand,carry);}}
+        // Round 4: turned by `carryHang`, the swing with the run's lean taken back out, so the leaning torso does not lift the blade to the level.
+        if(carry>0){carrySwing.setFromAxisAngle(carryAxis,locomotion.carryHang);carryHand.copy(carryAt).sub(carryElbow).applyQuaternion(carrySwing).add(carryElbow);carryTurn.multiplyQuaternions(carrySwing,carryQ);sword.quaternion.slerp(carryTurn,carry);sword.position.lerp(carryHand,carry);}}
       // Plan 027: the head turns back against the torso's wind-up so it keeps looking along the aim, and nods with the breath.
       const look=headLook(player.userData.torso.rotation.y,player.userData.torso.rotation.x);player.userData.head.rotation.set(look.pitch+breathNod+(age===0&&charging===null?locomotion.nod:0),look.yaw,0);
       planted=age>0&&pc.swingKind!=='special'?strikePlant(age,pc.swing):0;
@@ -1406,7 +1410,7 @@ export default function DungeonGame() {
       run = createRun(start); remember(meta); boonsTaken = [];
       endSpecial(); specialWasReady = true;
       resetControl(pc); hurtFlash = 0; shake = 0; clearShots();
-      walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); hem=HEM_REST; inertia=INERTIA_REST; swing=PENDULUM_REST; still=0; breathNod=0; planted=0; settle=SETTLE_REST; carry=0; player.rotation.z=0; player.userData.torso.position.z=0; swayCloak(); player.userData.arm.userData.elbow.rotation.x=0; player.userData.satchel.rotation.set(0,0,0); player.userData.cloak.position.y=0; player.userData.head.position.y=headRestY; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
+      walkPhase = 0; gaitSpeed = 0; locomotion=playerRunPose(0,0); hem=HEM_REST; inertia=INERTIA_REST; swing=PENDULUM_REST; still=0; breathNod=0; planted=0; settle=SETTLE_REST; carry=0; tails=TAILS_REST; player.userData.tabard.userData.tails.rotation.set(0,0,0); player.rotation.z=0; player.userData.torso.position.z=0; swayCloak(); player.userData.arm.userData.elbow.rotation.x=0; player.userData.satchel.rotation.set(0,0,0); player.userData.cloak.position.y=0; player.userData.head.position.y=headRestY; rewardTime = 0; noticeTime = 0; trailClock = 0; trailCursor = 0;
       footsteps.reset(); stepLog = { contacts: 0, skipped: 0, kinds: { keep: 0, ruins: 0, flooded: 0 }, last: null };
       isPaused = false; keys.clear(); velocity.set(0, 0, 0);
       faceStart(pc);
@@ -2161,7 +2165,7 @@ export default function DungeonGame() {
         // Round 3: off the drawn hem, the stride's flutter included, so the tails swing with the poncho's hem a beat behind the stride.
         {const drawn=clothHem(hem,locomotion.flutter);player.userData.tabard.rotation.x=Math.max(0,...player.userData.legs.map((leg:THREE.Group)=>leg.rotation.x))*.85+Math.max(0,-drawn.z)*3;player.userData.tabard.rotation.z=THREE.MathUtils.clamp(drawn.x*4.5,-.35,.35);}
         // Round 3: the stop's settle dips him on bent knees as it leans him on (2 cm at its deepest) and lifts him a little as it swings back.
-        player.position.y = 0.03 + locomotion.height - settle.lean * .12 + Math.sin(t*2.4)*.012*Math.max(0,1-gaitSpeed) + (pc.swingKind === 'special' && pc.attackTime > 0 && vault && pc.weapon.special ? vaultHeight(pc.weapon.special, pc.swing.anticipation, pc.swing.duration - pc.attackTime) : 0);
+        player.position.y = 0.03 + locomotion.height - settle.lean * .12 - plant * STRIKE_DIP + Math.sin(t*2.4)*.012*Math.max(0,1-gaitSpeed) + (pc.swingKind === 'special' && pc.attackTime > 0 && vault && pc.weapon.special ? vaultHeight(pc.weapon.special, pc.swing.anticipation, pc.swing.duration - pc.attackTime) : 0);
         player.rotation.x = THREE.MathUtils.damp(player.rotation.x, pc.dashTime > 0 ? -0.3 : 0, 24, dt);
         // Plan 027 Stage B: the hem trails the body's acceleration (rotated into his own frame) and his turn, and is lifted back by the run or the dash;
         // the satchel swings on the strap's end with the same acceleration and the right thigh. Both on the simulated dt, so a pause or a hit-stop freezes them.
@@ -2171,6 +2175,8 @@ export default function DungeonGame() {
           hem=stepHem(hem,hemDrive({accel,yawRate:lag.yawRate,lift:pc.dashTime>0?DASH_CAPE:locomotion.cape,sway:locomotion.sway}),dt);swing=stepPendulum(swing,swingDrive(accel,locomotion.legs[1].hip),dt);
           // Plan 030 round 3: a stop's braking leans the upper body on over the hips and back (the settle), and a turn banks him into it.
           settle=stepSettle(settle,settleDrive(accel.z),dt);player.userData.torso.position.z=-settle.lean*SETTLE_SHIFT;
+          // Plan 030 round 4: the sash's tails follow the drawn hem a beat behind it, blown out by the run and thrown forward by a stop.
+          tails=stepTails(tails,tailsTarget(clothHem(hem,locomotion.flutter),locomotion.sprint),dt);player.userData.tabard.userData.tails.rotation.set(tails.x,0,tails.z);
           player.rotation.z=THREE.MathUtils.damp(player.rotation.z,pc.dashTime>0?0:bankInto(lag.yawRate,gaitSpeed),12,dt);swayCloak();}
         // Plan 030 round 3: the run's sword carry follows the stride in and out, and is dropped outright for a swing, a charge or a dash.
         carry=pc.attackTime>0||pc.dashTime>0||charging!==null?0:THREE.MathUtils.damp(carry,locomotion.carry,10,dt);if(carry<.002)carry=0;

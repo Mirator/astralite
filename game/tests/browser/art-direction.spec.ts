@@ -278,6 +278,9 @@ test.describe('the player reads as cloth, face and hair, not one bright shape', 
     // poncho 71, tunic 65, the chin 68.3 over the cowl's 49.4, the brow 68.5 over the hair's 37.5, the hem edge 54.9 against 83.9.
     // Plan 030 round 3 (a redder ochre, a cowl nearer it, a deeper sash, SwiftShader, 2026-10-13): 2.1% clipped, poncho 70,
     // cowl 59, tunic 65, the chin 71.5 over the cowl's 47.1, the brow 69.2 over the hair's 38.6, the hem edge 65.9 against 80.5.
+    // Plan 030 round 4 (a smooth cowl in the poncho's ochre a shade down, a warmer trim, cooler trousers, SwiftShader,
+    // 2026-10-13): 1.8% clipped, poncho 67, cowl 66, tunic 66, the chin 75.7 over the cowl's 53.5, the brow 70.5 over the
+    // hair's 37.0, the hem edge 66.8 against 83.8.
     // Little of him lit off the top of the range.
     expect(read.body.clipped, `${(read.body.clipped * 100).toFixed(1)}% of him is at the top of the range (${numbers})`).toBeLessThan(.03);
     // The poncho is ochre, not yellow and not mud: bounded both sides, so a figure drawn black fails as surely as a blown-out one.
